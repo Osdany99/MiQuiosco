@@ -2,7 +2,7 @@
 import { onMounted, ref, watch, computed } from 'vue'
 
 interface Props {
-  data: Array<Record<string, any>>
+  data: Array<Record<string, unknown>>
   config: {
     nameKey: string
     valueKey: string
@@ -15,7 +15,7 @@ const props = defineProps<Props>()
 
 const nameKey = computed(() => props.config.nameKey)
 const valueKey = computed(() => props.config.valueKey)
-const labels = computed(() => props.config.labels || {})
+// const labels = computed(() => props.config.labels || {})
 const colors = computed(() => props.config.colors || ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'])
 
 const chartCanvas = ref<HTMLCanvasElement | null>(null)
@@ -108,6 +108,6 @@ watch(() => props.config, drawChart, { deep: true })
 
 <template>
   <div class="h-full w-full" style="min-height: 400px;">
-    <canvas ref="chartCanvas" class="h-full w-full"></canvas>
+    <canvas ref="chartCanvas" class="h-full w-full" />
   </div>
 </template>

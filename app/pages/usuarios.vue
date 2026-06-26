@@ -3,7 +3,6 @@ definePageMeta({
   middleware: 'admin'
 })
 
-const auth = useAuth()
 const toast = useToast()
 
 interface Usuario {
@@ -158,9 +157,14 @@ const columns = [
 
 <template>
   <div class="space-y-4">
-    <UPageHeader title="Usuarios" description="Gestión de usuarios del sistema" leading-icon="i-lucide-users" class="pb-0">
+    <UPageHeader
+      title="Usuarios"
+      description="Gestión de usuarios del sistema"
+      leading-icon="i-lucide-users"
+      class="pb-0"
+    >
       <template #trailing>
-        <UButton @click="abrirModalCrear" icon="i-lucide-plus" label="Nuevo usuario" />
+        <UButton icon="i-lucide-plus" label="Nuevo usuario" @click="abrirModalCrear" />
       </template>
     </UPageHeader>
 
@@ -180,8 +184,8 @@ const columns = [
         <template #activo="{ row }">
           <USwitch
             v-model="row.activo"
-            @update:model-value="toggleActivo(row)"
             size="sm"
+            @update:model-value="toggleActivo(row)"
           />
         </template>
         <template #debeCambiarPin="{ row }">
@@ -228,11 +232,14 @@ const columns = [
         </UFormField>
 
         <UFormField label="Rol" required>
-          <USelectMenu v-model="form.rol" :items="[
-            { label: 'Admin', value: 'admin' },
-            { label: 'Jefe', value: 'jefe' },
-            { label: 'Trabajador', value: 'trabajador' }
-          ]" />
+          <USelectMenu
+            v-model="form.rol"
+            :items="[
+              { label: 'Admin', value: 'admin' },
+              { label: 'Jefe', value: 'jefe' },
+              { label: 'Trabajador', value: 'trabajador' }
+            ]"
+          />
         </UFormField>
 
         <UFormField v-if="!editando.value" label="PIN inicial" required>
@@ -261,7 +268,12 @@ const columns = [
           <USwitch v-model="form.activo" />
         </UFormField>
 
-        <UAlert v-if="formError" color="error" icon="i-lucide-alert-circle" :title="formError" />
+        <UAlert
+          v-if="formError"
+          color="error"
+          icon="i-lucide-alert-circle"
+          :title="formError"
+        />
 
         <template #footer>
           <div class="flex justify-end gap-2">

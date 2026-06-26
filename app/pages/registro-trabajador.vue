@@ -35,7 +35,7 @@ const hoy = new Date().toISOString().split('T')[0]
 
 const productosCache = ref<ProductoCache[]>([])
 const lineas = ref<LineaRegistro[]>([])
-const registro = ref<Registro | null>(null>(null)
+const registro = ref<Registro | null>(null)
 const cargando = ref(false)
 const showAgregar = ref(false)
 const productoSeleccionado = ref<string>('')
@@ -65,10 +65,6 @@ async function cargarDatos() {
   }
 }
 
-function recalcularSubtotal(linea: LineaRegistro) {
-  // solo para display
-}
-
 async function agregarLineaExtra() {
   if (!productoSeleccionado.value) {
     toast.add({ title: 'Selecciona un producto', color: 'warning' })
@@ -92,7 +88,7 @@ async function agregarLineaExtra() {
 async function exportarRegistro() {
   if (!registro.value) return
 
-  const items = lineas.value.map(l => {
+  const items = lineas.value.map((l) => {
     const prod = productosCache.value.find(p => p.id === l.productoId)
     return {
       producto_id: l.productoId,
@@ -173,8 +169,8 @@ onMounted(cargarDatos)
           variant="outline"
           icon="i-lucide-download"
           label="Actualizar catálogo"
-          @click="actualizarCatalogo"
           :loading="cargando"
+          @click="actualizarCatalogo"
         />
       </template>
     </UPageHeader>
@@ -224,11 +220,20 @@ onMounted(cargarDatos)
           placeholder="Seleccionar producto..."
           class="w-48"
         />
-        <UButton icon="i-lucide-plus" size="sm" @click="agregarLineaExtra">Agregar</UButton>
-        <UButton variant="ghost" size="sm" @click="showAgregar = false">Cancelar</UButton>
+        <UButton icon="i-lucide-plus" size="sm" @click="agregarLineaExtra">
+          Agregar
+        </UButton>
+        <UButton variant="ghost" size="sm" @click="showAgregar = false">
+          Cancelar
+        </UButton>
       </div>
       <div v-else class="p-2 text-right">
-        <UButton variant="ghost" size="sm" icon="i-lucide-plus" @click="showAgregar = true">
+        <UButton
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-plus"
+          @click="showAgregar = true"
+        >
           Agregar producto
         </UButton>
       </div>
@@ -237,15 +242,19 @@ onMounted(cargarDatos)
     <UCard class="border-dashed">
       <div class="flex items-center justify-between">
         <div>
-          <h4 class="font-medium">Exportar registro de hoy</h4>
-          <p class="text-sm text-muted">Genera un archivo JSON para compartir con la jefa (WhatsApp, Bluetooth, etc.).</p>
+          <h4 class="font-medium">
+            Exportar registro de hoy
+          </h4>
+          <p class="text-sm text-muted">
+            Genera un archivo JSON para compartir con la jefa (WhatsApp, Bluetooth, etc.).
+          </p>
         </div>
         <UButton
           color="success"
           icon="i-lucide-upload"
           label="Exportar JSON"
-          @click="exportarRegistro"
           :loading="cargando"
+          @click="exportarRegistro"
         />
       </div>
     </UCard>

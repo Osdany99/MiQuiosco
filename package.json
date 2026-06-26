@@ -13,7 +13,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "node --experimental-strip-types server/database/seed.ts",
+    "db:seed": "bun run server/database/seed.ts",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
     "android:build": "cd android && ./gradlew assembleDebug",

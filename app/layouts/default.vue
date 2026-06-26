@@ -111,9 +111,9 @@ const links = computed<NavigationMenuItem[]>(() => {
             variant="ghost"
             color="error"
             icon="i-lucide-log-out"
-            @click="auth.logout()"
             :loading="auth.cargando.value"
             size="sm"
+            @click="auth.logout()"
           >
             Cerrar sesión
           </UButton>

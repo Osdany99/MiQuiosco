@@ -29,7 +29,8 @@ export default defineEventHandler(async (event) => {
 
   let fechaFormat: string
   switch (agrupacion) {
-    case 'mes': fechaFormat = '%Y-%m'; break
+    case 'mes': fechaFormat = '%Y-%m'
+      break
     default: fechaFormat = '%Y-%m-%d'
   }
 

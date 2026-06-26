@@ -62,3 +62,12 @@ Check out the [deployment documentation](https://nuxt.com/docs/getting-started/d
 ## Renovate integration
 
 Install [Renovate GitHub app](https://github.com/apps/renovate/installations/select_target) on your repository and you are good to go.
+
+
+### Para empezar:
+
+1. `pnpm install`
+2. Configurar PostgreSQL + `.env` (DATABASE_URL, JWT_SECRET, etc.)
+3. `pnpm run db:generate && pnpm run db:migrate && pnpm run db:seed`
+4. `pnpm run dev` (servidor en 0.0.0.0:3000)
+5. Seguir `ANDROID_BUILD_GUIDE.md` para build Android

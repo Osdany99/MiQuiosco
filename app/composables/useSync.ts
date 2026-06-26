@@ -1,13 +1,11 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
-import { Share } from '@capacitor/share'
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { useAuth } from './useAuth'
 import { useLocalDb } from './useLocalDb'
 import { useRemoteApi } from './useRemoteApi'
 import { useToast } from '#imports'
-import type { Producto, Cuadre, CuadreItem, HistorialPrecio, Usuario } from '~~/shared/types'
+import type { Producto, Cuadre, CuadreItem, HistorialPrecio } from '~~/shared/types'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 
@@ -28,11 +26,13 @@ export function useSync() {
 
     // Contar registros locales sin sincronizar
     try {
-      const conn = await localDb.getConnection()
+      await localDb.getConnection()
       // Por simplicidad, usamos una query genérica
       // En implementación real se harían queries por tabla
       pendientesCount.value = 0 // placeholder
-    } catch {}
+    } catch {
+      console.log('prueba')
+    }
 
     const status = await Network.getStatus()
     hayRed.value = status.connected
@@ -113,7 +113,7 @@ export function useSync() {
   }
 
   async function reunirPendientes() {
-    const conn = await localDb.getConnection()
+    await localDb.getConnection()
     // En implementación real: query por cada tabla WHERE sincronizado = false
     // Aquí devolvemos arrays vacíos como placeholder
     return {
@@ -129,12 +129,12 @@ export function useSync() {
     // Placeholder
   }
 
-  async function absorberConflictos(conflictos: any) {
+  async function absorberConflictos(conflictos: unknown) {
     // Sobrescribir local con versión del servidor
     // Placeholder
   }
 
-  async function aplicarPull(data: any) {
+  async function aplicarPull(data: unknown) {
     // Aplicar productos, historial, cuadres, items, usuarios
     // Placeholder
   }
@@ -156,7 +156,7 @@ export function useSync() {
   }
 
   async function guardarProductosCache(productos: { id: string, nombre: string, precio_venta_actual: number, orden: number }[]) {
-    const conn = await localDb.getConnection()
+    await localDb.getConnection()
     // Limpiar e insertar
     // Placeholder
   }

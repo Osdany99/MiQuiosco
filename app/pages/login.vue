@@ -37,6 +37,7 @@ async function onSubmit() {
         description: 'Debes cambiar tu PIN antes de continuar.',
         color: 'warning'
       })
+      await navigateTo('/cambiar-pin')
       return
     }
 
@@ -72,7 +73,7 @@ async function onSubmit() {
   <div class="w-full max-w-md">
     <UCard>
       <template #header>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center justify-center gap-3">
           <UIcon name="i-lucide-store" class="size-8 text-primary" />
           <div>
             <h1 class="text-xl font-semibold">
@@ -87,7 +88,7 @@ async function onSubmit() {
 
       <UForm
         :state="{ nombreUsuario, pin }"
-        class="space-y-4"
+        class="space-y-4 flex flex-col items-center"
         @submit="onSubmit"
       >
         <UFormField label="Usuario" required>
@@ -131,7 +132,7 @@ async function onSubmit() {
         <UButton
           type="submit"
           block
-          size="lg"
+          size="md"
           :loading="auth.cargando.value"
           :disabled="requiereCambioPinLocal"
         >

@@ -3,7 +3,6 @@ definePageMeta({
   middleware: 'admin'
 })
 
-const auth = useAuth()
 const toast = useToast()
 
 interface Producto {
@@ -200,9 +199,14 @@ function fmtPrecio(v: number) {
 
 <template>
   <div class="space-y-4">
-    <UPageHeader title="Productos" description="Catálogo de productos del puesto" leading-icon="i-lucide-package" class="pb-0">
+    <UPageHeader
+      title="Productos"
+      description="Catálogo de productos del puesto"
+      leading-icon="i-lucide-package"
+      class="pb-0"
+    >
       <template #trailing>
-        <UButton @click="abrirModalCrear" icon="i-lucide-plus" label="Nuevo producto" />
+        <UButton icon="i-lucide-plus" label="Nuevo producto" @click="abrirModalCrear" />
       </template>
     </UPageHeader>
 
@@ -219,8 +223,8 @@ function fmtPrecio(v: number) {
               icon="i-lucide-chevron-up"
               variant="ghost"
               size="xs"
-              @click="moverArriba(row)"
               :disabled="row.orden === 0"
+              @click="moverArriba(row)"
             />
             <span class="font-mono">{{ row.orden }}</span>
             <UButton
@@ -240,8 +244,8 @@ function fmtPrecio(v: number) {
         <template #activo="{ row }">
           <USwitch
             v-model="row.activo"
-            @update:model-value="toggleActivo(row)"
             size="sm"
+            @update:model-value="toggleActivo(row)"
           />
         </template>
         <template #actions="{ row }">
@@ -310,7 +314,12 @@ function fmtPrecio(v: number) {
           <USwitch v-model="form.activo" />
         </UFormField>
 
-        <UAlert v-if="formError" color="error" icon="i-lucide-alert-circle" :title="formError" />
+        <UAlert
+          v-if="formError"
+          color="error"
+          icon="i-lucide-alert-circle"
+          :title="formError"
+        />
 
         <template #footer>
           <div class="flex justify-end gap-2">

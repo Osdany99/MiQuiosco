@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { onMounted, ref, watch, computed } from 'vue'
+
 interface Props {
-  data: Array<Record<string, any>>
+  data: Array<Record<string, unknown>>
   config: {
     xKey: string
     yKeys: string[]
@@ -15,19 +17,8 @@ const xKey = computed(() => props.config.xKey)
 const yKeys = computed(() => props.config.yKeys)
 const labels = computed(() => props.config.labels || {})
 const colors = computed(() => props.config.colors || ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'])
-</script>
-
-<template>
-  <div class="h-full w-full" style="min-height: 400px;">
-    <canvas ref="chartCanvas" class="h-full w-full"></canvas>
-  </div>
-</template>
-
-<script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
 
 const chartCanvas = ref<HTMLCanvasElement | null>(null)
-let chartInstance: any = null
 
 function drawChart() {
   if (!chartCanvas.value || !props.data.length) return
@@ -39,7 +30,7 @@ function drawChart() {
   const dpr = window.devicePixelRatio || 1
   const rect = canvas.getBoundingClientRect()
   canvas.width = rect.width * dpr
-  canvas.height = rect.height = rect.height * dpr
+  canvas.height = rect.height * dpr
   ctx.scale(dpr, dpr)
 
   ctx.clearRect(0, 0, rect.width, rect.height)
@@ -54,8 +45,8 @@ function drawChart() {
 
   // Find max value for scaling
   let maxVal = 0
-  props.data.forEach(row => {
-    yKeysVal.forEach(key => {
+  props.data.forEach((row) => {
+    yKeysVal.forEach((key) => {
       const val = Number(row[key]) || 0
       if (val > maxVal) maxVal = val
     })
@@ -147,3 +138,9 @@ onMounted(() => {
 watch(() => props.data, drawChart, { deep: true })
 watch(() => props.config, drawChart, { deep: true })
 </script>
+
+<template>
+  <div class="h-full w-full" style="min-height: 400px;">
+    <canvas ref="chartCanvas" class="h-full w-full" />
+  </div>
+</template>

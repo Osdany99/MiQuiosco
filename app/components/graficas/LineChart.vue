@@ -2,7 +2,7 @@
 import { onMounted, ref, watch, computed } from 'vue'
 
 interface Props {
-  data: Array<Record<string, any>>
+  data: Array<Record<string, unknown>>
   config: {
     xKey: string
     yKeys: string[]
@@ -46,8 +46,8 @@ function drawChart() {
   // Find min/max for Y axis
   let minVal = Infinity
   let maxVal = -Infinity
-  props.data.forEach(row => {
-    yKeysVal.forEach(key => {
+  props.data.forEach((row) => {
+    yKeysVal.forEach((key) => {
       const val = Number(row[key]) || 0
       if (val < minVal) minVal = val
       if (val > maxVal) maxVal = val
@@ -157,6 +157,6 @@ watch(() => props.config, drawChart, { deep: true })
 
 <template>
   <div class="h-full w-full" style="min-height: 400px;">
-    <canvas ref="chartCanvas" class="h-full w-full"></canvas>
+    <canvas ref="chartCanvas" class="h-full w-full" />
   </div>
 </template>

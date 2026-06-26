@@ -110,7 +110,9 @@ export function useAuth() {
     usuarioActual.value = response.usuario
     requiereCambioPin.value = response.requiereCambioPin ?? false
 
-    if (response.requiereCambioPin) return
+    if (response.requiereCambioPin) {
+      return
+    }
 
     const ahora = Date.now()
     const horasExp = Number(process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || 24)

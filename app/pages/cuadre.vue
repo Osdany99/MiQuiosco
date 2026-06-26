@@ -124,7 +124,6 @@ async function cargarDatos() {
     if (c.trabajadorTurnoId !== undefined) trabajadorTurnoId.value = c.trabajadorTurnoId
     if (c.pagoTrabajador !== undefined) pagoTrabajador.value = c.pagoTrabajador
     if (c.notas !== undefined) notasCuadre.value = c.notas ?? ''
-
   } catch (err: unknown) {
     const e = err as { message?: string }
     toast.add({ title: 'Error', description: e.message || 'No se pudo cargar el cuadre.', color: 'error' })
@@ -137,7 +136,6 @@ async function crearCuadreNuevo(puestoId: string): Promise<Cuadre> {
   // En implementación real: insertar en SQLite y devolver el creado
   // Aquí simulamos el objeto
   const nuevoId = crypto.randomUUID()
-  const ahora = Date.now()
 
   // Pre-cargar líneas para cada producto activo
   for (const prod of productosActivos.value) {
@@ -274,9 +272,9 @@ function getProductoNombre(productoId: string) {
   return productosActivos.value.find(p => p.id === productoId)?.nombre || '—'
 }
 
-function getTipoLineaLabel(t: string) {
-  return t === 'normal' ? 'Normal' : t === 'regalo' ? 'Regalo' : 'Desc. familiar'
-}
+// function getTipoLineaLabel(t: string) {
+//   return t === 'normal' ? 'Normal' : t === 'regalo' ? 'Regalo' : 'Desc. familiar'
+// }
 
 onMounted(cargarDatos)
 </script>
@@ -406,11 +404,20 @@ onMounted(cargarDatos)
           placeholder="Seleccionar producto..."
           class="w-48"
         />
-        <UButton icon="i-lucide-plus" size="sm" @click="agregarLineaExtra">Agregar</UButton>
-        <UButton variant="ghost" size="sm" @click="showAgregarProducto = false">Cancelar</UButton>
+        <UButton icon="i-lucide-plus" size="sm" @click="agregarLineaExtra">
+          Agregar
+        </UButton>
+        <UButton variant="ghost" size="sm" @click="showAgregarProducto = false">
+          Cancelar
+        </UButton>
       </div>
       <div v-else class="p-2 text-right">
-        <UButton variant="ghost" size="sm" icon="i-lucide-plus" @click="showAgregarProducto = true">
+        <UButton
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-plus"
+          @click="showAgregarProducto = true"
+        >
           Agregar producto extra
         </UButton>
       </div>
@@ -427,7 +434,9 @@ onMounted(cargarDatos)
     <!-- Sección cierre de caja -->
     <UCard v-if="cuadre?.estado === 'abierto'">
       <template #header>
-        <h3 class="font-semibold">Cierre de caja</h3>
+        <h3 class="font-semibold">
+          Cierre de caja
+        </h3>
       </template>
 
       <div class="space-y-4">
@@ -485,7 +494,7 @@ onMounted(cargarDatos)
           <UTextarea
             v-model="notasCuadre"
             placeholder="Observaciones del cierre..."
-            rows="3"
+            :rows="3"
           />
         </UFormField>
 
@@ -500,10 +509,10 @@ onMounted(cargarDatos)
           }"
         >
           <span class="font-semibold">
-            {{ tipoDiferencia === 'exacto' ? '✓ Cuadre exacto' :
-               tipoDiferencia === 'sobrante' ? '▲ Sobrante' :
-               tipoDiferencia === 'faltante' ? '▼ Faltante' :
-               '— Ingresa dinero real en caja' }}
+            {{ tipoDiferencia === 'exacto' ? '✓ Cuadre exacto'
+              : tipoDiferencia === 'sobrante' ? '▲ Sobrante'
+                : tipoDiferencia === 'faltante' ? '▼ Faltante'
+                  : '— Ingresa dinero real en caja' }}
           </span>
           <span v-if="diferencia !== null" class="text-xl font-mono font-bold">
             {{ fmtMoneda(diferencia) }}
@@ -515,19 +524,39 @@ onMounted(cargarDatos)
     <!-- Cuadre cerrado: solo lectura -->
     <UCard v-if="cuadre?.estado === 'cerrado'">
       <template #header>
-        <h3 class="font-semibold text-success">Cuadre cerrado</h3>
+        <h3 class="font-semibold text-success">
+          Cuadre cerrado
+        </h3>
       </template>
 
       <div class="space-y-2 text-sm">
-        <div class="flex justify-between"><span>Total esperado:</span><span class="font-mono">{{ fmtMoneda(cuadre.totalEsperado) }}</span></div>
-        <div class="flex justify-between"><span>Dinero real:</span><span class="font-mono">{{ fmtMoneda(cuadre.totalRealCaja ?? 0) }}</span></div>
-        <div class="flex justify-between"><span>Transferencia:</span><span class="font-mono">{{ fmtMoneda(cuadre.montoTransferencia) }}</span></div>
-        <div class="flex justify-between"><span>Fiado:</span><span class="font-mono">{{ fmtMoneda(cuadre.montoFiado) }}</span></div>
-        <div class="flex justify-between font-bold"><span>Diferencia:</span><span class="font-mono">{{ fmtMoneda(cuadre.diferencia ?? 0) }}</span></div>
-        <div class="flex justify-between"><span>Trabajador:</span><span>{{ cuadre.trabajadorTurnoId || '—' }}</span></div>
-        <div class="flex justify-between"><span>Pago trabajador:</span><span>{{ cuadre.pagoTrabajador ? fmtMoneda(cuadre.pagoTrabajador) : '—' }}</span></div>
-        <div class="flex justify-between"><span>Cerrado el:</span><span>{{ cuadre.cerradoEn ? new Date(Number(cuadre.cerradoEn)).toLocaleString('es-ES') : '—' }}</span></div>
-        <div v-if="cuadre.notas" class="flex justify-between"><span>Notas:</span><span>{{ cuadre.notas }}</span></div>
+        <div class="flex justify-between">
+          <span>Total esperado:</span><span class="font-mono">{{ fmtMoneda(cuadre.totalEsperado) }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Dinero real:</span><span class="font-mono">{{ fmtMoneda(cuadre.totalRealCaja ?? 0) }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Transferencia:</span><span class="font-mono">{{ fmtMoneda(cuadre.montoTransferencia) }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Fiado:</span><span class="font-mono">{{ fmtMoneda(cuadre.montoFiado) }}</span>
+        </div>
+        <div class="flex justify-between font-bold">
+          <span>Diferencia:</span><span class="font-mono">{{ fmtMoneda(cuadre.diferencia ?? 0) }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Trabajador:</span><span>{{ cuadre.trabajadorTurnoId || '—' }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Pago trabajador:</span><span>{{ cuadre.pagoTrabajador ? fmtMoneda(cuadre.pagoTrabajador) : '—' }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Cerrado el:</span><span>{{ cuadre.cerradoEn ? new Date(Number(cuadre.cerradoEn)).toLocaleString('es-ES') : '—' }}</span>
+        </div>
+        <div v-if="cuadre.notas" class="flex justify-between">
+          <span>Notas:</span><span>{{ cuadre.notas }}</span>
+        </div>
         <div v-if="cuadre.reabiertoVeces > 0" class="text-warning text-sm">
           ⚠ Reabierto {{ cuadre.reabiertoVeces }} vez{{ cuadre.reabiertoVeces > 1 ? 'es' : '' }} (última: {{ cuadre.ultimaReaperturaEn ? new Date(Number(cuadre.ultimaReaperturaEn)).toLocaleString('es-ES') : '—' }})
         </div>
@@ -538,21 +567,27 @@ onMounted(cargarDatos)
     <UCard class="border-dashed">
       <div class="flex items-center justify-between">
         <div>
-          <h4 class="font-medium">Importar registro de trabajador</h4>
-          <p class="text-sm text-muted">Sobrescribe cantidades y precios con el archivo exportado por el trabajador.</p>
+          <h4 class="font-medium">
+            Importar registro de trabajador
+          </h4>
+          <p class="text-sm text-muted">
+            Sobrescribe cantidades y precios con el archivo exportado por el trabajador.
+          </p>
         </div>
         <UButton
           variant="outline"
           icon="i-lucide-upload"
           label="Importar JSON"
-          @click="showImportar.value = true"
+          @click="showImportar = true"
         />
       </div>
     </UCard>
 
     <!-- Modal importar -->
     <UModal v-model="showImportar" :ui="{ width: 'max-w-md' }">
-      <template #header>Importar registro de trabajador</template>
+      <template #header>
+        Importar registro de trabajador
+      </template>
       <div class="space-y-4">
         <UAlert color="info" icon="i-lucide-info" title="Esta acción reemplazará (no sumará) las líneas existentes que coincidan por ID de producto." />
         <UButton
@@ -564,7 +599,9 @@ onMounted(cargarDatos)
         />
       </div>
       <template #footer>
-        <UButton variant="ghost" @click="showImportar.value = false">Cancelar</UButton>
+        <UButton variant="ghost" @click="showImportar = false">
+          Cancelar
+        </UButton>
       </template>
     </UModal>
   </div>

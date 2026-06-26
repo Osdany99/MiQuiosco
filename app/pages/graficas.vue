@@ -1,9 +1,8 @@
 <script setup lang="ts">
 definePageMeta({
-  middleware: ['auth', 'jefe']
+  middleware: ['jefe']
 })
 
-const auth = useAuth()
 const toast = useToast()
 
 interface GraficaConfig {
@@ -121,7 +120,7 @@ const graficas: GraficaConfig[] = [
 ]
 
 const graficaActiva = ref<GraficaConfig | null>(null)
-const datosGrafica = ref<any[]>([])
+const datosGrafica = ref<unknown[]>([])
 const cargando = ref(false)
 const fechaDesde = ref<string>('')
 const fechaHasta = ref<string>('')
@@ -146,7 +145,7 @@ async function cargarGrafica(g: GraficaConfig) {
     }
     if (params.toString()) url += `?${params.toString()}`
 
-    const data = await $fetch<any[]>(url)
+    const data = await $fetch<unknown[]>(url)
     datosGrafica.value = data
   } catch (err: unknown) {
     const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
@@ -164,16 +163,8 @@ function getChartComponent(key: string) {
   return 'BarChart'
 }
 
-function fmtMoneda(v: number) {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
-}
-
-function fmtNumero(v: number) {
-  return new Intl.NumberFormat('es-ES').format(v)
-}
-
 function getChartConfig(key: string) {
-  const configs: Record<string, any> = {
+  const configs: Record<string, unknown> = {
     'productos-mas-vendidos': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
     'productos-mayor-ganancia': { xKey: 'nombre', yKeys: ['gananciaTotal'], labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' } },
     'productos-menor-rotacion': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
@@ -207,7 +198,12 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4">
-    <UPageHeader title="Gráficas del negocio" description="Análisis de ventas, finanzas y operaciones" leading-icon="i-lucide-bar-chart-2" class="pb-0" />
+    <UPageHeader
+      title="Gráficas del negocio"
+      description="Análisis de ventas, finanzas y operaciones"
+      leading-icon="i-lucide-bar-chart-2"
+      class="pb-0"
+    />
 
     <!-- Filtros globales -->
     <UCard class="bg-muted/30">
@@ -219,11 +215,15 @@ onMounted(() => {
           <UInputDate v-model="fechaHasta" />
         </UFormField>
         <UFormField v-if="graficaActiva?.params?.agrupacion" label="Agrupación" class="w-36">
-          <USelectMenu v-model="agrupacion" :items="[
-            { label: 'Día', value: 'dia' },
-            { label: 'Semana', value: 'semana' },
-            { label: 'Mes', value: 'mes' }
-          ]" @update:model-value="graficaActiva && cargarGrafica(graficaActiva)" />
+          <USelectMenu
+            v-model="agrupacion"
+            :items="[
+              { label: 'Día', value: 'dia' },
+              { label: 'Semana', value: 'semana' },
+              { label: 'Mes', value: 'mes' }
+            ]"
+            @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
+          />
         </UFormField>
         <UFormField v-if="graficaActiva && (graficaActiva.key === 'evolucion-producto' || graficaActiva.key === 'precio-usado-vs-oficial')" label="Producto" class="w-56">
           <USelectMenu
@@ -238,8 +238,8 @@ onMounted(() => {
           color="primary"
           icon="i-lucide-refresh-cw"
           label="Actualizar"
-          @click="cargarGrafica(graficaActiva!)"
           :loading="cargando"
+          @click="cargarGrafica(graficaActiva!)"
         />
       </div>
     </UCard>
@@ -250,16 +250,20 @@ onMounted(() => {
         v-for="g in graficas"
         :key="g.key"
         class="cursor-pointer hover:shadow-lg transition-shadow"
-        @click="cargarGrafica(g)"
         :class="{ 'ring-2 ring-primary': graficaActiva?.key === g.key }"
+        @click="cargarGrafica(g)"
       >
         <template #header>
           <div class="flex items-center gap-2">
             <UIcon :name="g.icon" class="size-5 text-primary" />
-            <h3 class="font-medium text-sm">{{ g.titulo }}</h3>
+            <h3 class="font-medium text-sm">
+              {{ g.titulo }}
+            </h3>
           </div>
         </template>
-        <p class="text-xs text-muted">{{ g.descripcion }}</p>
+        <p class="text-xs text-muted">
+          {{ g.descripcion }}
+        </p>
       </UCard>
     </div>
 
@@ -269,9 +273,16 @@ onMounted(() => {
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon :name="graficaActiva.icon" class="size-5 text-primary" />
-            <h3 class="font-semibold">{{ graficaActiva.titulo }}</h3>
+            <h3 class="font-semibold">
+              {{ graficaActiva.titulo }}
+            </h3>
           </div>
-          <UButton variant="ghost" size="sm" icon="i-lucide-x" @click="graficaActiva = null" />
+          <UButton
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-x"
+            @click="graficaActiva = null"
+          />
         </div>
       </template>
 

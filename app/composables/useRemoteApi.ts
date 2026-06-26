@@ -39,18 +39,18 @@ export function useRemoteApi() {
   // ===== Sincronización =====
   async function syncPush(payload: {
     productos: Producto[]
-    historial_precios: any[]
+    historial_precios: unknown[]
     cuadres: Cuadre[]
     cuadre_items: CuadreItem[]
   }) {
-    return fetch<{ aceptados: string[], conflictos: any }>('/api/sync/push', {
+    return fetch<{ aceptados: string[], conflictos: unknown }>('/api/sync/push', {
       method: 'POST',
       body: payload
     })
   }
 
   async function syncPull(desde: number) {
-    return fetch<any>(`/api/sync/pull?desde=${desde}`)
+    return fetch<unknown>(`/api/sync/pull?desde=${desde}`)
   }
 
   // ===== Autenticación =====

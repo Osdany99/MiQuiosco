@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc, sql } from 'drizzle-orm'
+import { eq, and, gte, lte, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuadreItems, cuadres, historialPrecios } from '../../database/schema'
 import { requireRole, requireAuth } from '../../utils/auth'
@@ -30,8 +30,10 @@ export default defineEventHandler(async (event) => {
   // Determinar formato de fecha según agrupación
   let fechaFormat: string
   switch (agrupacion) {
-    case 'mes': fechaFormat = '%Y-%m'; break
-    case 'semana': fechaFormat = '%Y-%W'; break
+    case 'mes': fechaFormat = '%Y-%m'
+      break
+    case 'semana': fechaFormat = '%Y-%W'
+      break
     default: fechaFormat = '%Y-%m-%d'
   }
 

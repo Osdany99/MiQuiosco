@@ -5,12 +5,23 @@ definePageMeta({
 
 const auth = useAuth()
 const toast = useToast()
+const route = useRoute()
 
 const pinActual = ref('')
 const pinNuevo = ref('')
 const pinNuevoConfirmacion = ref('')
 const error = ref<string | null>(null)
 const cargando = ref(false)
+
+// Verificar que hay usuario en sesión al cargar la página
+if (!auth.usuarioActual.value) {
+  toast.add({
+    title: 'Sesión requerida',
+    description: 'Debes iniciar sesión primero.',
+    color: 'warning'
+  })
+  await navigateTo('/login', { query: { redirect: route.fullPath } as Record<string, string> })
+}
 
 async function onSubmit() {
   error.value = null
@@ -41,7 +52,7 @@ async function onSubmit() {
   }
 
   cargando.value = true
-    try {
+  try {
     const response = await $fetch<{ token: string, expiraEn: number, usuario: { id: string, nombre: string, rol: string } }>(
       '/api/auth/cambiar-pin-inicial',
       {
