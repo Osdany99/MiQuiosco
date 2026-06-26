@@ -1,0 +1,13 @@
+{
+  "appId": "com.miquiosco.app",
+  "appName": "MiQuiosco",
+  "webDir": ".output/public",
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

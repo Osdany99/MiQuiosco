@@ -1,0 +1,295 @@
+<script setup lang="ts">
+definePageMeta({
+  middleware: ['auth', 'jefe']
+})
+
+const auth = useAuth()
+const toast = useToast()
+
+interface GraficaConfig {
+  key: string
+  titulo: string
+  descripcion: string
+  icon: string
+  endpoint: string
+  params?: Record<string, string>
+}
+
+const graficas: GraficaConfig[] = [
+  {
+    key: 'productos-mas-vendidos',
+    titulo: 'Productos más vendidos',
+    descripcion: 'Top 10 por cantidad total vendida',
+    icon: 'i-lucide-trending-up',
+    endpoint: '/api/graficas/productos-mas-vendidos'
+  },
+  {
+    key: 'productos-mayor-ganancia',
+    titulo: 'Productos con mayor ganancia',
+    descripcion: 'Top 10 por ganancia total (venta - compra) × cantidad',
+    icon: 'i-lucide-coin',
+    endpoint: '/api/graficas/productos-mayor-ganancia'
+  },
+  {
+    key: 'productos-menor-rotacion',
+    titulo: 'Productos con menor rotación',
+    descripcion: 'Productos activos con menos ventas en el período',
+    icon: 'i-lucide-package-x',
+    endpoint: '/api/graficas/productos-menor-rotacion'
+  },
+  {
+    key: 'evolucion-producto',
+    titulo: 'Evolución de un producto',
+    descripcion: 'Ventas diarias de un producto seleccionado',
+    icon: 'i-lucide-line-chart',
+    endpoint: '/api/graficas/evolucion-producto'
+  },
+  {
+    key: 'precio-usado-vs-oficial',
+    titulo: 'Precio usado vs. oficial',
+    descripcion: 'Comparativa del precio de venta usado en cuadre vs. precio oficial',
+    icon: 'i-lucide-git-compare',
+    endpoint: '/api/graficas/precio-usado-vs-oficial'
+  },
+  {
+    key: 'ganancia-por-periodo',
+    titulo: 'Ganancia por período',
+    descripcion: 'Ganancia neta agrupada por día/semana/mes',
+    icon: 'i-lucide-bar-chart-2',
+    endpoint: '/api/graficas/ganancia-por-periodo',
+    params: { agrupacion: 'dia' }
+  },
+  {
+    key: 'ingresos-por-periodo',
+    titulo: 'Ingresos por período',
+    descripcion: 'Total de ventas agrupado por día/semana/mes',
+    icon: 'i-lucide-dollar-sign',
+    endpoint: '/api/graficas/ingresos-por-periodo',
+    params: { agrupacion: 'dia' }
+  },
+  {
+    key: 'regalos-descuentos-por-periodo',
+    titulo: 'Regalos y descuentos por período',
+    descripcion: 'Cantidad y valor de líneas tipo regalo/descuento familiar',
+    icon: 'i-lucide-gift',
+    endpoint: '/api/graficas/regalos-descuentos-por-periodo',
+    params: { agrupacion: 'dia' }
+  },
+  {
+    key: 'proporcion-formas-pago',
+    titulo: 'Proporción de formas de pago',
+    descripcion: 'Efectivo vs. transferencia vs. fiado',
+    icon: 'i-lucide-pie-chart',
+    endpoint: '/api/graficas/proporcion-formas-pago'
+  },
+  {
+    key: 'estado-cuadres',
+    titulo: 'Estado de cuadres',
+    descripcion: 'Cuadres abiertos vs. cerrados vs. reabiertos',
+    icon: 'i-lucide-clipboard-list',
+    endpoint: '/api/graficas/estado-cuadres'
+  },
+  {
+    key: 'faltantes-sobrantes-acumulados',
+    titulo: 'Faltantes y sobrantes acumulados',
+    descripcion: 'Suma de diferencias por día/mes',
+    icon: 'i-lucide-minus-circle',
+    endpoint: '/api/graficas/faltantes-sobrantes-acumulados',
+    params: { agrupacion: 'dia' }
+  },
+  {
+    key: 'cuadres-reabiertos',
+    titulo: 'Cuadres reabiertos',
+    descripcion: 'Historial de reaperturas con fechas',
+    icon: 'i-lucide-rotate-ccw',
+    endpoint: '/api/graficas/cuadres-reabiertos'
+  },
+  {
+    key: 'pagos-trabajadores',
+    titulo: 'Pagos a trabajadores',
+    descripcion: 'Total pagado a cada trabajador por período',
+    icon: 'i-lucide-users',
+    endpoint: '/api/graficas/pagos-trabajadores'
+  },
+  {
+    key: 'comparativa-por-trabajador',
+    titulo: 'Comparativa por trabajador',
+    descripcion: 'Ventas y diferencias comparadas entre trabajadores',
+    icon: 'i-lucide-user-round-cog',
+    endpoint: '/api/graficas/comparativa-por-trabajador'
+  }
+]
+
+const graficaActiva = ref<GraficaConfig | null>(null)
+const datosGrafica = ref<any[]>([])
+const cargando = ref(false)
+const fechaDesde = ref<string>('')
+const fechaHasta = ref<string>('')
+const agrupacion = ref<'dia' | 'semana' | 'mes'>('dia')
+const productoSeleccionado = ref<string>('')
+
+async function cargarGrafica(g: GraficaConfig) {
+  graficaActiva.value = g
+  cargando.value = true
+  try {
+    let url = g.endpoint
+    const params = new URLSearchParams()
+    if (fechaDesde.value) params.set('desde', fechaDesde.value)
+    if (fechaHasta.value) params.set('hasta', fechaHasta.value)
+    if (g.params?.agrupacion) params.set('agrupacion', agrupacion.value)
+    if (g.key === 'evolucion-producto' || g.key === 'precio-usado-vs-oficial') {
+      if (!productoSeleccionado.value) {
+        toast.add({ title: 'Selecciona un producto', color: 'warning' })
+        return
+      }
+      url = `${url}/${productoSeleccionado.value}`
+    }
+    if (params.toString()) url += `?${params.toString()}`
+
+    const data = await $fetch<any[]>(url)
+    datosGrafica.value = data
+  } catch (err: unknown) {
+    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    toast.add({ title: 'Error', description: e.data?.statusMessage || e.message, color: 'error' })
+    datosGrafica.value = []
+  } finally {
+    cargando.value = false
+  }
+}
+
+function getChartComponent(key: string) {
+  // Mapeo simple: barras para la mayoría, línea para evolución, pie para proporción
+  if (key === 'evolucion-producto' || key === 'precio-usado-vs-oficial') return 'LineChart'
+  if (key === 'proporcion-formas-pago') return 'PieChart'
+  return 'BarChart'
+}
+
+function fmtMoneda(v: number) {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
+}
+
+function fmtNumero(v: number) {
+  return new Intl.NumberFormat('es-ES').format(v)
+}
+
+function getChartConfig(key: string) {
+  const configs: Record<string, any> = {
+    'productos-mas-vendidos': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
+    'productos-mayor-ganancia': { xKey: 'nombre', yKeys: ['gananciaTotal'], labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' } },
+    'productos-menor-rotacion': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
+    'evolucion-producto': { xKey: 'fecha', yKeys: ['cantidadVendida'], labels: { fecha: 'Fecha', cantidadVendida: 'Cantidad' } },
+    'precio-usado-vs-oficial': { xKey: 'fecha', yKeys: ['precioVentaUsado', 'precioOficialActual'], labels: { fecha: 'Fecha', precioVentaUsado: 'Precio usado', precioOficialActual: 'Precio oficial' } },
+    'ganancia-por-periodo': { xKey: 'periodo', yKeys: ['ganancia'], labels: { periodo: 'Período', ganancia: 'Ganancia' } },
+    'ingresos-por-periodo': { xKey: 'periodo', yKeys: ['ingresoTotal'], labels: { periodo: 'Período', ingresoTotal: 'Ingreso total' } },
+    'regalos-descuentos-por-periodo': { xKey: 'periodo', yKeys: ['valorRegalado', 'valorDescontado'], labels: { periodo: 'Período', valorRegalado: 'Valor regalado', valorDescontado: 'Valor descontado' } },
+    'proporcion-formas-pago': { nameKey: 'forma', valueKey: 'total', labels: { forma: 'Forma', total: 'Total' } },
+    'estado-cuadres': { xKey: 'estado', yKeys: ['cantidad'], labels: { estado: 'Estado', cantidad: 'Cantidad' } },
+    'faltantes-sobrantes-acumulados': { xKey: 'periodo', yKeys: ['diferencia'], labels: { periodo: 'Período', diferencia: 'Diferencia' } },
+    'cuadres-reabiertos': { xKey: 'fecha', yKeys: ['reabiertoVeces'], labels: { fecha: 'Fecha', reabiertoVeces: 'Reaperturas' } },
+    'pagos-trabajadores': { xKey: 'trabajadorNombre', yKeys: ['totalPagado'], labels: { trabajadorNombre: 'Trabajador', totalPagado: 'Total pagado' } },
+    'comparativa-por-trabajador': { xKey: 'trabajadorNombre', yKeys: ['totalCuadres', 'diferenciaPromedio', 'cuadresConFaltante'], labels: { trabajadorNombre: 'Trabajador', totalCuadres: 'Cuadres', diferenciaPromedio: 'Dif. promedio', cuadresConFaltante: 'Con faltante' } }
+  }
+  return configs[key] || {}
+}
+
+const productosParaSelector = computed(() => [
+  { label: 'Cargando...', value: '' }
+  // En implementación real, se cargarían desde la API
+])
+
+onMounted(() => {
+  const hoy = new Date().toISOString().split('T')[0]
+  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  fechaDesde.value = hace30
+  fechaHasta.value = hoy
+})
+</script>
+
+<template>
+  <div class="space-y-4">
+    <UPageHeader title="Gráficas del negocio" description="Análisis de ventas, finanzas y operaciones" leading-icon="i-lucide-bar-chart-2" class="pb-0" />
+
+    <!-- Filtros globales -->
+    <UCard class="bg-muted/30">
+      <div class="flex flex-wrap items-end gap-4">
+        <UFormField label="Desde" class="w-40">
+          <UInputDate v-model="fechaDesde" />
+        </UFormField>
+        <UFormField label="Hasta" class="w-40">
+          <UInputDate v-model="fechaHasta" />
+        </UFormField>
+        <UFormField v-if="graficaActiva?.params?.agrupacion" label="Agrupación" class="w-36">
+          <USelectMenu v-model="agrupacion" :items="[
+            { label: 'Día', value: 'dia' },
+            { label: 'Semana', value: 'semana' },
+            { label: 'Mes', value: 'mes' }
+          ]" @update:model-value="graficaActiva && cargarGrafica(graficaActiva)" />
+        </UFormField>
+        <UFormField v-if="graficaActiva && (graficaActiva.key === 'evolucion-producto' || graficaActiva.key === 'precio-usado-vs-oficial')" label="Producto" class="w-56">
+          <USelectMenu
+            v-model="productoSeleccionado"
+            :items="productosParaSelector"
+            placeholder="Seleccionar..."
+            @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
+          />
+        </UFormField>
+        <UButton
+          v-if="graficaActiva"
+          color="primary"
+          icon="i-lucide-refresh-cw"
+          label="Actualizar"
+          @click="cargarGrafica(graficaActiva!)"
+          :loading="cargando"
+        />
+      </div>
+    </UCard>
+
+    <!-- Grid de tarjetas de gráficas -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <UCard
+        v-for="g in graficas"
+        :key="g.key"
+        class="cursor-pointer hover:shadow-lg transition-shadow"
+        @click="cargarGrafica(g)"
+        :class="{ 'ring-2 ring-primary': graficaActiva?.key === g.key }"
+      >
+        <template #header>
+          <div class="flex items-center gap-2">
+            <UIcon :name="g.icon" class="size-5 text-primary" />
+            <h3 class="font-medium text-sm">{{ g.titulo }}</h3>
+          </div>
+        </template>
+        <p class="text-xs text-muted">{{ g.descripcion }}</p>
+      </UCard>
+    </div>
+
+    <!-- Vista de gráfica seleccionada -->
+    <UCard v-if="graficaActiva" class="min-h-[500px]">
+      <template #header>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <UIcon :name="graficaActiva.icon" class="size-5 text-primary" />
+            <h3 class="font-semibold">{{ graficaActiva.titulo }}</h3>
+          </div>
+          <UButton variant="ghost" size="sm" icon="i-lucide-x" @click="graficaActiva = null" />
+        </div>
+      </template>
+
+      <div v-if="cargando" class="flex items-center justify-center h-96">
+        <USpinner size="lg" />
+      </div>
+
+      <div v-else-if="datosGrafica.length === 0" class="flex items-center justify-center h-96 text-muted">
+        Sin datos para el período seleccionado
+      </div>
+
+      <div v-else class="h-96">
+        <component
+          :is="getChartComponent(graficaActiva.key)"
+          :data="datosGrafica"
+          :config="getChartConfig(graficaActiva.key)"
+        />
+      </div>
+    </UCard>
+  </div>
+</template>
