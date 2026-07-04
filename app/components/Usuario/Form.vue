@@ -16,7 +16,8 @@ const formRef = ref()
 const fields = [
   { name: 'name', label: 'Nombre', placeholder: 'Nombre completo', type: 'text', required: true, props: { class: 'w-full' } },
   { name: 'rol', label: 'Rol', type: 'select', props: { class: 'w-full' }, valueKey: 'value', labelKey: 'label', items: itemsRol },
-  { name: 'rol', label: 'Rol', type: 'select', props: { class: 'w-full' }, valueKey: 'value', labelKey: 'label', items: itemsRol }
+  { name: 'pin', label: 'PIN', type: 'password', inputmode: 'numeric', maxlength: 6, placeholder: '••••', required: true, props: { class: 'w-full' } },
+  { name: 'activo', label: 'Activo', type: 'checkbox', props: { class: 'w-full' } }
 ]
 defineExpose({
   validate: async () => {
@@ -30,6 +31,6 @@ defineExpose({
     ref="formRef"
     v-model="form"
     :fields="fields"
-    :schema="schemas.category"
+    :schema="schemas.user"
   />
 </template>

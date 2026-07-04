@@ -51,51 +51,34 @@ async function resetearPin(u) {
 
 <template>
   <div class="space-y-4">
-    <UPageHeader
+    <BaseHeaderPage
       title="Usuarios"
-      description="Gestión de usuarios del sistema"
-      leading-icon="i-lucide-users"
-      class="pb-0"
+      description="Gestiona los usuarios del sistema"
+      title-button="Nuevo Usuario"
+      @new="tableRef.openAdd()"
     >
-      <template #trailing>
-        <UButton icon="i-lucide-plus" label="Nuevo usuario" @click="abrirModalCrear" />
-      </template>
-    </UPageHeader>
-
-    <BaseTable
-      ref="tableRef"
-      v-model="form"
-      api-url="/api/usuarios"
-      :columns="columns"
-      empty-state="No se encontraron usuarios"
-      modal-title="Usuario"
-      :loading-prop="isUpdatingStatus"
-      @reset="resetForm"
-    />
-
-    <!-- <UCard>
-      <UTable
-        :data="usuarios"
+      <BaseTable
+        ref="tableRef"
+        v-model="form"
+        api-url="/api/usuarios"
         :columns="columns"
-        :loading="cargando"
-        striped
+        empty-state="No se encontraron usuarios"
+        modal-title="Usuario"
+        :loading-prop="isUpdatingStatus"
+        @reset="resetForm"
       >
-        <template #rol-cell="{ row }">
-          <UBadge
-            :label="row.original.rol"
-            :color="row.original.rol === 'admin' ? 'primary' : row.original.rol === 'jefe' ? 'info' : 'neutral'"
-          />
+        <template #form>
+          <UsuarioForm v-model="form" />
         </template>
-        <template #activo-cell="{ row }">
+        <template #activo-cell="{ value, row }">
           <USwitch
-            v-model="row.original.activo"
             size="sm"
             @update:model-value="toggleActivo(row.original)"
           />
         </template>
-        <template #debeCambiarPin-cell="{ row }">
+        <template #debeCambiarPin-cell="{ value, row }">
           <UBadge
-            v-if="row.original.debeCambiarPin"
+            v-if="value"
             label="Sí"
             color="warning"
             size="sm"
@@ -105,6 +88,12 @@ async function resetearPin(u) {
             label="No"
             color="success"
             size="sm"
+          />
+        </template>
+        <template #rol-cell="{ row }">
+          <UBadge
+            :label="row.original.rol"
+            :color="row.original.rol === 'admin' ? 'primary' : row.original.rol === 'jefe' ? 'info' : 'neutral'"
           />
         </template>
         <template #actions-cell="{ row }">
@@ -121,50 +110,7 @@ async function resetearPin(u) {
             @click="resetearPin(row.original)"
           />
         </template>
-      </UTable>
-    </UCard>
-
-    <BaseDialog
-      v-model="showModal"
-      :title="editando ? 'Editar usuario' : 'Nuevo usuario'"
-      :loading="cargando"
-      @confirm="onSubmit"
-      @cancel="showModal=false"
-    >
-      <UForm :state="form" class="space-y-4" @submit="onSubmit">
-        <UFormField v-if="!editando" label="PIN inicial" required>
-          <UInput
-            v-model="form.pin"
-            type="password"
-            placeholder="••••"
-            inputmode="numeric"
-            maxlength="6"
-            autocomplete="new-password"
-          />
-        </UFormField>
-
-        <UFormField v-if="editando" label="Nuevo PIN (dejar vacío para no cambiar)">
-          <UInput
-            v-model="form.pin"
-            type="password"
-            placeholder="••••"
-            inputmode="numeric"
-            maxlength="6"
-            autocomplete="new-password"
-          />
-        </UFormField>
-
-        <UFormField v-if="editando" label="Activo">
-          <USwitch v-model="form.activo" />
-        </UFormField>
-
-        <UAlert
-          v-if="formError"
-          color="error"
-          icon="i-lucide-alert-circle"
-          :title="formError"
-        />
-      </Uform>
-    </BaseDialog> -->
+      </BaseTable>
+    </BaseHeaderPage>
   </div>
 </template>

@@ -16,39 +16,11 @@ export const fields = {
 }
 
 export const schemas = {
-  category: z.object({
-    name: fields.name('El nombre'),
-    description: fields.description()
-  }),
-
-  location: z.object({
-    name: fields.name('El nombre'),
-    typeId: z.string().min(1, 'El tipo es requerido'),
-    address: fields.address()
-  }),
-
-  role: z.object({
-    name: fields.name('El nombre'),
-    description: fields.description(),
-    isActive: fields.boolean()
-  }),
-
-  paymentMethod: z.object({
-    name: fields.name('El nombre'),
-    description: fields.description(),
-    isActive: fields.boolean()
-  }),
-
   user: z.object({
-    name: fields.name('El nombre completo'),
-    email: fields.email(),
-    password: fields.password(false),
-    phone: fields.phone(),
-    roleId: z.string().optional().nullable(),
-    address: fields.address(),
-    salary: fields.salary(),
-    isActive: fields.boolean(),
-    theme: z.string().optional()
+    name: fields.name('El nombre'),
+    pin: z.string().length(4, 'El PIN debe tener 4 dígitos'),
+    rol: z.enum(['admin', 'jefe', 'trabajador']),
+    activo: fields.boolean().default(true)
   }),
 
   product: z.object({
