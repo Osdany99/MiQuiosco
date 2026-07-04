@@ -21,6 +21,43 @@ import bcrypt from 'bcryptjs'
  * - Sincronizar exige sesión local vigente + JWT de sync válido simultáneamente.
  */
 
+/**
+ * useAuth - Composable principal de autenticación (sesiones, JWT, roles, login/logout).
+ *
+ * @returns {Object} Estado y métodos de autenticación:
+ * @returns {ComputedRef<Object|null>} returns.sesionLocal - Sesión local (jefe/trabajador) reactiva de solo lectura.
+ * @returns {ComputedRef<string|null>} returns.jwtAdmin - JWT de admin reactivo de solo lectura.
+ * @returns {ComputedRef<string|null>} returns.jwtSync - JWT de sincronización reactivo de solo lectura.
+ * @returns {ComputedRef<Object|null>} returns.usuarioActual - Usuario actual reactivo de solo lectura.
+ * @returns {ComputedRef<boolean>} returns.requiereCambioPin - Si el usuario debe cambiar PIN.
+ * @returns {ComputedRef<boolean>} returns.cargando - True durante operaciones async.
+ * @returns {ComputedRef<boolean>} returns.esAdmin - True si rol === 'admin'.
+ * @returns {ComputedRef<boolean>} returns.esJefe - True si rol === 'jefe'.
+ * @returns {ComputedRef<boolean>} returns.esTrabajador - True si rol === 'trabajador'.
+ * @returns {ComputedRef<string|null>} returns.rol - Rol actual ('admin' | 'jefe' | 'trabajador' | null).
+ * @returns {Function} returns.cargarDesdePreferencias - Carga sesión/JWTs desde Capacitor Preferences.
+ * @returns {Function} returns.login - Login online/offline: (nombreUsuario, pin) => Promise<response>.
+ * @returns {Function} returns.sesionLocalVigente - Verifica si la sesión local no ha expirado.
+ * @returns {Function} returns.registrarActividad - Actualiza timestamp de última actividad (jefe).
+ * @returns {Function} returns.invalidarSesionLocal - Limpia sesión local y JWT de sync.
+ * @returns {Function} returns.logout - Cierre completo (servidor + local + redirect a /login).
+ *
+ * @example
+ * const { usuarioActual, esAdmin, login, logout, cargarDesdePreferencias } = useAuth()
+ *
+ * // En onMounted
+ * await cargarDesdePreferencias()
+ *
+ * // Login
+ * try {
+ *   await login('jefe1', '1234')
+ * } catch (err) {
+ *   console.error('Login fallido:', err)
+ * }
+ *
+ * // Logout
+ * await logout()
+ */
 const PREF_SESION_LOCAL = 'sesion_local'
 const PREF_JWT_ADMIN = 'jwt_admin'
 const PREF_JWT_SYNC = 'jwt_sync'

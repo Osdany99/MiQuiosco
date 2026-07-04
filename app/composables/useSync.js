@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
 import { useAuth } from './useAuth'
@@ -8,6 +8,34 @@ import { useToast } from '#imports'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 
+/**
+ * useSync - Composable para sincronización bidireccional (push/pull) con el servidor.
+ * Gestiona estado de red, colas de pendientes, conflictos y descarga de catálogo.
+ *
+ * @returns {Object} Estado y métodos de sincronización:
+ * @returns {ComputedRef<boolean>} returns.sincronizando - True durante sincronización activa.
+ * @returns {ComputedRef<number|null>} returns.ultimaSync - Timestamp de última sync exitosa (ms).
+ * @returns {ComputedRef<number>} returns.pendientesCount - Cantidad de registros locales sin sincronizar.
+ * @returns {ComputedRef<boolean>} returns.hayRed - True si hay conexión de red detectada.
+ * @returns {Function} returns.cargarEstado - Inicializa listeners y carga última sync + pendientes.
+ * @returns {Function} returns.sincronizarAhora - Ejecuta ciclo completo push+pull (requiere sesión + red + JWT sync).
+ * @returns {Function} returns.descargarCatalogo - Descarga productos activos y guarda en cache local (trabajador).
+ *
+ * @example
+ * const { sincronizando, ultimaSync, pendientesCount, hayRed, cargarEstado, sincronizarAhora, descargarCatalogo } = useSync()
+ *
+ * // En onMounted
+ * await cargarEstado()
+ *
+ * // Botón sincronizar
+ * const handleSync = async () => {
+ *   const ok = await sincronizarAhora()
+ *   if (ok) console.log('Sync completada')
+ * }
+ *
+ * // Trabajador: descargar catálogo
+ * await descargarCatalogo()
+ */
 export function useSync() {
   const auth = useAuth()
   const localDb = useLocalDb()
@@ -44,6 +72,7 @@ export function useSync() {
   /**
    * Ciclo completo de sincronización: push + pull.
    * Exige sesión local vigente + JWT de sync válido.
+   * @returns {Promise<boolean>} True si la sincronización fue exitosa.
    */
   async function sincronizarAhora() {
     if (!auth.sesionLocalVigente()) {
@@ -122,17 +151,17 @@ export function useSync() {
     }
   }
 
-  async function marcarSincronizados(ids) {
+  async function marcarSincronizados() {
     // Actualizar sincronizado = true para los IDs dados
     // Placeholder
   }
 
-  async function absorberConflictos(conflictos) {
+  async function absorberConflictos() {
     // Sobrescribir local con versión del servidor
     // Placeholder
   }
 
-  async function aplicarPull(data) {
+  async function aplicarPull() {
     // Aplicar productos, historial, cuadres, items, usuarios
     // Placeholder
   }

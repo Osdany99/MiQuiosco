@@ -1,3 +1,33 @@
+/**
+ * useCrud - Composable para operaciones CRUD (create, read, update, delete) con manejo de loading, error y toast.
+ *
+ * @param {string} baseUrl - URL base del recurso (ej: '/api/usuarios').
+ * @param {Object} [callbacks={}] - Callbacks opcionales.
+ * @param {Function} [callbacks.onSuccess] - Callback ejecutado tras operación exitosa (recibe response).
+ * @param {boolean} [showToast=true] - Si mostrar toast de éxito/error automáticamente.
+ *
+ * @returns {Object} Objeto con métodos CRUD y estado:
+ * @returns {Ref<boolean>} returns.loading - True mientras hay una petición en curso.
+ * @returns {Ref<Error|null>} returns.error - Error de la última operación.
+ * @returns {Function} returns.create - Crea recurso: (body) => Promise<{data, error}>.
+ * @returns {Function} returns.update - Actualiza recurso: (id, body) => Promise<{data, error}>.
+ * @returns {Function} returns.remove - Elimina recurso: (id) => Promise<{data, error}>.
+ * @returns {Function} returns.patch - Actualización parcial: (body) => Promise<{data, error}>.
+ *
+ * @example
+ * const { create, update, remove, loading, error } = useCrud('/api/productos', {
+ *   onSuccess: () => refreshTable()
+ * }, true)
+ *
+ * // Crear
+ * const { data, error } = await create({ nombre: 'Producto', precio: 100 })
+ *
+ * // Actualizar
+ * await update('123', { precio: 150 })
+ *
+ * // Eliminar
+ * await remove('123')
+ */
 export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
   const { getHeaders } = useHeaders()
   const loading = ref(false)

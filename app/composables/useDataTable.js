@@ -1,10 +1,32 @@
 /**
- * useDataTable - Composable para manejar lógica de tablas (fetching, búsqueda, filtrado)
- * @param {string} url - El endpoint de la API
- * @param {Object} options - Opciones de configuración
- * @param {Ref|computed} options.query - Query params reactivos
- * @param {string} options.dataKey - La propiedad de la respuesta que contiene los datos (ej: 'users')
- * @param {Array<string>} options.searchFields - Campos por los que buscar localmente
+ * useDataTable - Composable para manejo de tablas con fetching, búsqueda y filtrado client-side.
+ *
+ * @param {string} url - Endpoint de la API para obtener datos.
+ * @param {Object} [options={}] - Opciones de configuración.
+ * @param {Ref|ComputedRef} [options.query=null] - Query params reactivos para el fetch (se observan cambios).
+ * @param {string} [options.dataKey=''] - Clave de la respuesta que contiene el array de datos (ej: 'usuarios').
+ * @param {string[]} [options.searchFields=[]] - Campos por los que filtrar localmente (soporta notación punto: 'usuario.nombre').
+ *
+ * @returns {Object} Estado reactivo y métodos para la tabla:
+ * @returns {ComputedRef<Array>} returns.items - Datos crudos del fetch (sin filtrar).
+ * @returns {ComputedRef<Array>} returns.filteredItems - Datos filtrados por búsqueda local.
+ * @returns {Ref<string>} returns.search - Modelo reactivo para input de búsqueda.
+ * @returns {ComputedRef<boolean>} returns.loading - True mientras el fetch está pendiente.
+ * @returns {Function} returns.refresh - Función para re-ejecutar el fetch manualmente.
+ * @returns {Ref<Error|null>} returns.error - Error del fetch si ocurrió.
+ * @returns {ComputedRef<string>} returns.status - Estado del fetch: 'idle' | 'pending' | 'success' | 'error'.
+ *
+ * @example
+ * const { items, filteredItems, search, loading, refresh, error } = useDataTable('/api/usuarios', {
+ *   query: computed(() => ({ page: 1, limit: 20, rol: 'trabajador' })),
+ *   dataKey: 'usuarios',
+ *   searchFields: ['nombre', 'email', 'puesto.nombre']
+ * })
+ *
+ * // En template:
+ * // <input v-model="search" placeholder="Buscar...">
+ * // <div v-for="item in filteredItems">{{ item.nombre }}</div>
+ * // <button @click="refresh" :disabled="loading">{{ loading ? 'Cargando...' : 'Actualizar' }}</button>
  */
 export const useDataTable = (url, options = {}) => {
   const { query = null, dataKey = '', searchFields = [] } = options

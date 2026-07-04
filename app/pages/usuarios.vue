@@ -62,7 +62,6 @@ async function resetearPin(u) {
       </template>
     </UPageHeader>
 
-
     <BaseTable
       ref="tableRef"
       v-model="form"

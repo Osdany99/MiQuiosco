@@ -1,10 +1,33 @@
 import { refDebounced } from '@vueuse/core'
 
 /**
- * useTableData
- * Gestiona la URL de fetch, la paginación y la normalización de datos.
+ * useTableData - Composable para gestión de datos de tabla: URL reactiva, paginación, fetch y normalización.
  *
- * @param {Object} props - Props del componente BaseTable
+ * @param {Object} props - Props del componente padre (BaseTable).
+ * @param {string} props.apiUrl - URL base del endpoint API.
+ * @param {number} [props.defaultLimit=20] - Límite por defecto de paginación.
+ * @param {Object} [props.query={}] - Filtros adicionales reactivos para queries.
+ * @param {boolean} [props.pagination=true] - Si usar paginación server-side.
+ * @param {string} [props.dataKey] - Clave de datos en respuesta paginada (ej: 'data', 'items').
+ * @param {Ref|ComputedRef} [props.search] - Término de búsqueda reactivo (debounced 500ms).
+ *
+ * @returns {Object} Estado y métodos para la tabla:
+ * @returns {Ref<number>} returns.page - Página actual (1-indexed).
+ * @returns {Ref<number>} returns.pageCount - Items por página (límite).
+ * @returns {ComputedRef<string>} returns.fetchUrl - URL completa con query params construida reactivamente.
+ * @returns {ComputedRef<Array>} returns.data - Datos normalizados (array de items para la página actual).
+ * @returns {ComputedRef<number>} returns.total - Total de items (para paginación).
+ * @returns {ComputedRef<boolean>} returns.pending - True mientras fetch está en curso.
+ * @returns {Ref<Error|null>} returns.fetchError - Error del fetch si ocurrió.
+ * @returns {Function} returns.refresh - Función para re-ejecutar el fetch.
+ *
+ * @example
+ * const { page, pageCount, data, total, pending, fetchError, refresh } = useTableData(props)
+ *
+ * // En template:
+ * // <div v-for="item in data">{{ item.nombre }}</div>
+ * // <Pagination :page="page" :page-count="pageCount" :total="total" @update:page="page = $event" />
+ * // <button @click="refresh" :disabled="pending">{{ pending ? 'Cargando...' : 'Actualizar' }}</button>
  */
 export function useTableData(props) {
   // ─── Paginación ───────────────────────────────────────────────

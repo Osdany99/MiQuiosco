@@ -12,6 +12,30 @@ import { Capacitor } from '@capacitor/core'
  * Cada función hace una query simple y devuelve filas.
  */
 
+/**
+ * useLocalDb - Composable para acceso a base de datos SQLite local (Capacitor) con fallback en memoria.
+ * Provee métodos CRUD tipados para las tablas principales de la app (puestos, usuarios, productos, cuadres, etc.).
+ *
+ * @returns {Object} API de base de datos local:
+ * @returns {Function} returns.getUsuarioPorNombreLocal - Busca usuario por nombre (login offline): (nombre) => Promise<Usuario|null>.
+ * @returns {Function} returns.getProductosActivos - Lista productos activos de un puesto: (puestoId) => Promise<Producto[]>.
+ * @returns {Function} returns.getCuadrePorFecha - Obtiene cuadre del día para un puesto: (puestoId, fecha) => Promise<Cuadre|null>.
+ * @returns {Function} returns.getItemsDeCuadre - Obtiene líneas de un cuadre: (cuadreId) => Promise<CuadreItem[]>.
+ *
+ * @example
+ * const { getUsuarioPorNombreLocal, getProductosActivos, getCuadrePorFecha, getItemsDeCuadre } = useLocalDb()
+ *
+ * // Login offline
+ * const usuario = await getUsuarioPorNombreLocal('trabajador1')
+ *
+ * // Productos para cuadre
+ * const productos = await getProductosActivos('puesto-123')
+ *
+ * // Cuadre del día
+ * const cuadre = await getCuadrePorFecha('puesto-123', '2024-01-15')
+ * const items = await getItemsDeCuadre(cuadre.id)
+ */
+
 const DB_NAME = 'miquiosco'
 
 let dbConnection = null
