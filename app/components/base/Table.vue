@@ -1,46 +1,11 @@
 <template>
   <div>
     <UCard :ui="{ body: { padding: 'p-0' } }" class="relative">
-      <!-- Selector de columnas -->
-      <div
-        class="flex justify-end items-center px-4 py-3 border-b border-gray-200 dark:border-gray-800"
-      >
-        <USelectMenu
-          v-model="visibleHeaders"
-          :options="columnHeaders"
-          :items="columnHeaders"
-          multiple
-          placeholder="Columnas visibles"
-          class="w-48"
-        >
-          <template #label>
-            <UIcon name="i-lucide-columns" class="w-4 h-4 mr-2 inline-block align-text-bottom" />
-            Columnas ({{ visibleHeaders.length }})
-          </template>
-        </USelectMenu>
-      </div>
+      <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
 
-      <!-- Loading Overlay -->
-      <div
-        v-if="pending || loadingProp"
-        class="absolute inset-0 bg-white/50 dark:bg-gray-900/50 z-10 flex items-center justify-center backdrop-blur-[1px]"
-      >
-        <UIcon name="i-lucide-loader-2" class="w-10 h-10 animate-spin text-primary" />
-      </div>
+      <TableLoading :loading="pending || loadingProp" />
 
-      <!-- Error State -->
-      <div
-        v-if="fetchError"
-        class="flex flex-col items-center justify-center h-32 gap-2 text-red-500"
-      >
-        <UIcon name="i-lucide-alert-circle" class="w-8 h-8" />
-        <p class="text-sm">
-          Error al cargar los datos.
-          <button class="underline" @click="refresh">
-            Reintentar
-          </button>
-        </p>
-      </div>
+      <TableError v-if="fetchError" :error="fetchError" @retry="refresh" />
 
       <UTable
         v-else
@@ -62,39 +27,27 @@
 
         <template #action-cell="{ row }">
           <slot name="actions" :row="row">
-            <div class="flex gap-2 justify-start">
-              <UButton
-                v-if="showEdit"
-                icon="i-lucide-edit"
-                size="sm"
-                color="secondary"
-                variant="ghost"
-                @click="handleEdit(row.original || row)"
-              />
-              <UButton
-                v-if="showDelete"
-                icon="i-lucide-trash"
-                size="sm"
-                color="error"
-                variant="ghost"
-                @click="handleDelete(row.original || row)"
-              />
-            </div>
+            <TableActions
+              :show-edit="showEdit"
+              :show-delete="showDelete"
+              :row-data="row.original || row"
+              @edit="handleEdit"
+              @delete="handleDelete"
+            />
           </slot>
         </template>
       </UTable>
 
-      <template v-if="pagination" #footer>
-        <div class="flex justify-between items-center px-2">
-          <span class="text-sm text-gray-500 dark:text-gray-400">
-            {{ total }} resultado{{ total !== 1 ? 's' : '' }}
-          </span>
-          <UPagination v-model="page" :page-count="pageCount" :total="total" />
-        </div>
+      <template #footer>
+        <TablePagination
+          v-model="page"
+          :pagination="pagination"
+          :page-count="pageCount"
+          :total="total"
+        />
       </template>
     </UCard>
 
-    <!-- Modal Add/Edit -->
     <BaseDialog
       v-model="isOpen"
       :title="isEditing ? `Editar ${modalTitle}` : `Agregar ${modalTitle}`"
@@ -106,7 +59,6 @@
       <slot name="form" />
     </BaseDialog>
 
-    <!-- Modal Eliminación -->
     <BaseDialog
       v-model="isDeleteOpen"
       title="Confirmar Eliminación"
@@ -142,7 +94,6 @@ const props = defineProps({
 const emit = defineEmits(['edit', 'delete', 'success', 'reset'])
 const form = defineModel({ type: Object })
 
-// ─── Composables ──────────────────────────────────────────────────────────────
 const { page, pageCount, data, total, pending, fetchError, refresh } = useTableData(props)
 
 const {
@@ -158,7 +109,6 @@ const {
   handleSubmit
 } = useTableCrud(props, emit, form, refresh)
 
-// ─── Columnas visibles ────────────────────────────────────────────────────────
 const columnHeaders = computed(() => props.columns.map(c => c.header))
 const visibleHeaders = ref(props.columns.map(c => c.header))
 
@@ -182,10 +132,9 @@ const tableColumns = computed(() => {
   return filteredColumns.value
 })
 
-// ─── Expose ───────────────────────────────────────────────────────────────────
 defineExpose({
   openAdd: () => {
-    emit('reset') // Limpia el form en el padre ANTES de abrir
+    emit('reset')
     isEditing.value = false
     isOpen.value = true
   },

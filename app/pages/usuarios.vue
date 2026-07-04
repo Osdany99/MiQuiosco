@@ -96,20 +96,6 @@ async function resetearPin(u) {
             :color="row.original.rol === 'admin' ? 'primary' : row.original.rol === 'jefe' ? 'info' : 'neutral'"
           />
         </template>
-        <template #actions-cell="{ row }">
-          <UButton
-            icon="i-lucide-edit-2"
-            variant="ghost"
-            size="sm"
-            @click="abrirModalEditar(row.original)"
-          />
-          <UButton
-            icon="i-lucide-key"
-            variant="ghost"
-            size="sm"
-            @click="resetearPin(row.original)"
-          />
-        </template>
       </BaseTable>
     </BaseHeaderPage>
   </div>
