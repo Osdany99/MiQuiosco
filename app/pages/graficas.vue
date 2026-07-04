@@ -229,7 +229,7 @@ onMounted(() => {
           icon="i-lucide-refresh-cw"
           label="Actualizar"
           :loading="cargando"
-          @click="cargarGrafica(graficaActiva!)"
+          @click="cargarGrafica(!graficaActiva)"
         />
       </div>
     </UCard>

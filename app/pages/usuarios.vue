@@ -3,102 +3,20 @@ definePageMeta({
   middleware: 'admin'
 })
 
-const toast = useToast()
-
-const usuarios = ref([])
-const cargando = ref(false)
-const showModal = ref(false)
-const editando = ref(null)
+const tableRef = ref(null)
 const form = reactive({
   nombre: '',
   rol: 'trabajador',
   pin: '',
   activo: true
 })
-const formError = ref(null)
-
-async function cargarUsuarios() {
-  cargando.value = true
-  try {
-    const data = await $fetch('/api/usuarios')
-    usuarios.value = data
-  } catch (err) {
-    toast.add({
-      title: 'Error',
-      description: err.data?.statusMessage || err.statusMessage || err.message || 'No se pudieron cargar los usuarios.',
-      color: 'error'
-    })
-  } finally {
-    cargando.value = false
-  }
-}
-
-async function onSubmit() {
-  formError.value = null
-
-  if (!form.nombre?.trim()) {
-    formError.value = 'El nombre es obligatorio.'
-    return
-  }
-
-  if (editando.value && !form.pin?.trim()) {
-    formError.value = 'El PIN es obligatorio al crear un usuario.'
-    return
-  }
-
-  if (form.pin && !/^\d{4,6}$/.test(form.pin)) {
-    formError.value = 'El PIN debe tener entre 4 y 6 dígitos.'
-    return
-  }
-
-  try {
-    if (editando.value) {
-      await $fetch(`/api/usuarios/${editando.value.id}`, {
-        method: 'PATCH',
-        body: {
-          nombre: form.nombre,
-          rol: form.rol,
-          activo: form.activo
-        }
-      })
-      toast.add({ title: 'Actualizado', description: 'Usuario modificado correctamente.', color: 'success' })
-    } else {
-      await $fetch('/api/usuarios', {
-        method: 'POST',
-        body: {
-          nombre: form.nombre,
-          rol: form.rol,
-          pin: form.pin
-        }
-      })
-      toast.add({ title: 'Creado', description: 'Usuario creado correctamente.', color: 'success' })
-    }
-    showModal.value = false
-    await cargarUsuarios()
-  } catch (err) {
-    formError.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error al guardar.'
-  }
-}
-
-function abrirModalCrear() {
-  editando.value = null
-  form.nombre = ''
-  form.rol = 'trabajador'
-  form.pin = ''
-  form.activo = true
-  formError.value = null
-  showModal.value = true
-}
-
-function abrirModalEditar(u) {
-  editando.value = u
-  form.nombre = u.nombre
-  form.rol = u.rol
-  form.pin = ''
-  form.activo = u.activo
-  formError.value = null
-  showModal.value = true
-}
+const columns = [
+  { accessorKey: 'nombre', header: 'Nombre' },
+  { accessorKey: 'rol', header: 'Rol' },
+  { accessorKey: 'activo', header: 'Estado' },
+  { accessorKey: 'debeCambiarPin', header: 'Cambiar PIN' },
+  { accessorKey: 'actions', header: '' }
+]
 
 async function toggleActivo(u) {
   try {
@@ -129,16 +47,6 @@ async function resetearPin(u) {
     toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
   }
 }
-
-onMounted(cargarUsuarios)
-
-const columns = [
-  { accessorKey: 'nombre', header: 'Nombre' },
-  { accessorKey: 'rol', header: 'Rol' },
-  { accessorKey: 'activo', header: 'Estado' },
-  { accessorKey: 'debeCambiarPin', header: 'Cambiar PIN' },
-  { accessorKey: 'actions', header: '' }
-]
 </script>
 
 <template>
@@ -154,7 +62,19 @@ const columns = [
       </template>
     </UPageHeader>
 
-    <UCard>
+
+    <BaseTable
+      ref="tableRef"
+      v-model="form"
+      api-url="/api/usuarios"
+      :columns="columns"
+      empty-state="No se encontraron usuarios"
+      modal-title="Usuario"
+      :loading-prop="isUpdatingStatus"
+      @reset="resetForm"
+    />
+
+    <!-- <UCard>
       <UTable
         :data="usuarios"
         :columns="columns"
@@ -246,6 +166,6 @@ const columns = [
           :title="formError"
         />
       </Uform>
-    </BaseDialog>
+    </BaseDialog> -->
   </div>
 </template>

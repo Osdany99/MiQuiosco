@@ -37,11 +37,15 @@ export function useTableData(props) {
   })
 
   // Resetear página al cambiar búsqueda o filtros externos
-  watch(debouncedSearch, () => { page.value = 1 })
-  watch(() => props.query, () => { page.value = 1 }, { deep: true })
+  watch(debouncedSearch, () => {
+    page.value = 1
+  })
+  watch(() => props.query, () => {
+    page.value = 1
+  }, { deep: true })
 
   // ─── Fetching ─────────────────────────────────────────────────
-  const { data: rawData, pending, error: fetchError, refresh } = useAuthFetch(fetchUrl)
+  const { data: rawData, pending, error: fetchError, refresh } = useApiFetch(fetchUrl)
 
   // ─── Normalización de datos ───────────────────────────────────
   const data = computed(() => {

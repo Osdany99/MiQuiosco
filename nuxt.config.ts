@@ -22,6 +22,9 @@ export default defineNuxtConfig({
       cors: true
     }
   },
+  future: {
+    compatibilityVersion: 4 // esto activa la estructura app/
+  },
 
   // Compatibilidad con Vue y TypeScript
   compatibilityDate: '2025-06-09',

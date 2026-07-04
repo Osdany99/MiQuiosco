@@ -1,5 +1,3 @@
-import { useApi } from '~/composables/crud/useApi'
-
 /**
  * useTableCrud
  * Gestiona los modales de creación/edición/eliminación y las llamadas a la API.
@@ -23,8 +21,6 @@ export function useTableCrud(props, emit, form, refresh) {
 
   // ─── Handlers de tabla ────────────────────────────────────────
   const handleEdit = (row) => {
-    // Usamos JSON en lugar de structuredClone para evitar el error DOMException
-    // ocasionado por los objetos Proxy nativos de Vue o TanStack.
     form.value = JSON.parse(JSON.stringify(row))
     isEditing.value = true
     isOpen.value = true
@@ -37,7 +33,7 @@ export function useTableCrud(props, emit, form, refresh) {
   }
 
   // ─── API Delete ───────────────────────────────────────────────
-  const { remove, loading: deleteLoading } = useApi(props.apiUrl, {
+  const { remove, loading: deleteLoading } = useCrud(props.apiUrl, {
     onSuccess: () => {
       isDeleteOpen.value = false
       refresh()
@@ -54,7 +50,7 @@ export function useTableCrud(props, emit, form, refresh) {
   // ─── API Create / Update ──────────────────────────────────────
   const successMessage = ref('Operación exitosa')
 
-  const { create, update, loading } = useApi(props.apiUrl, {
+  const { create, update, loading } = useCrud(props.apiUrl, {
     onSuccess: () => {
       handleCloseModal()
       emit('reset')

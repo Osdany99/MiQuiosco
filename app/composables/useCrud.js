@@ -1,7 +1,5 @@
-import { useAuthHeaders } from '/composables/useAuthHeaders'
-
-export const useApi = (baseUrl, { onSuccess } = {}, showToast = true) => {
-  const { getHeaders } = useAuthHeaders()
+export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
+  const { getHeaders } = useHeaders()
   const loading = ref(false)
   const error = ref(null)
   const toast = useToast()

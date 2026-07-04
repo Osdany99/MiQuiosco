@@ -1,4 +1,4 @@
-export function useAuthHeaders() {
+export function useHeaders() {
   const auth = useAuth()
 
   function getHeaders() {

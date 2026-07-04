@@ -122,9 +122,6 @@
 </template>
 
 <script setup>
-import { useTableCrud } from '@/composables/table/useTableCrud'
-import { useTableData } from '@/composables/table/useTableData'
-
 const props = defineProps({
   apiUrl: { type: String, required: true },
   dataKey: { type: String, default: '' },

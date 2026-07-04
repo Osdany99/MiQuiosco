@@ -1,7 +1,5 @@
-import { useAuthHeaders } from './useAuthHeaders'
-
 export function useRemoteApi() {
-  const { getHeaders } = useAuthHeaders()
+  const { getHeaders } = useHeaders()
 
   function fetch(path, options = {}) {
     return $fetch(path, {
