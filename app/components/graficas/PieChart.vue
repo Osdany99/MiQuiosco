@@ -1,24 +1,23 @@
-<script setup lang="ts">
+<script setup>
 import { onMounted, ref, watch, computed } from 'vue'
 
-interface Props {
-  data: Array<Record<string, unknown>>
+const props = defineProps({
+  data: {
+    type: Array,
+    required: true
+  },
   config: {
-    nameKey: string
-    valueKey: string
-    labels?: Record<string, string>
-    colors?: string[]
+    type: Object,
+    required: true
   }
-}
-
-const props = defineProps<Props>()
+})
 
 const nameKey = computed(() => props.config.nameKey)
 const valueKey = computed(() => props.config.valueKey)
 // const labels = computed(() => props.config.labels || {})
 const colors = computed(() => props.config.colors || ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'])
 
-const chartCanvas = ref<HTMLCanvasElement | null>(null)
+const chartCanvas = ref(null)
 
 function drawChart() {
   if (!chartCanvas.value || !props.data.length) return
@@ -92,7 +91,7 @@ function drawChart() {
   ctx.fillText('Total', centerX, centerY + 14)
 }
 
-function fmtNumero(v: number) {
+function fmtNumero(v) {
   if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M'
   if (v >= 1000) return (v / 1000).toFixed(1) + 'K'
   return v.toFixed(0)

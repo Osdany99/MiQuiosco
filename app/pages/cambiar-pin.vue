@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   layout: 'auth'
 })
@@ -10,7 +10,7 @@ const route = useRoute()
 const pinActual = ref('')
 const pinNuevo = ref('')
 const pinNuevoConfirmacion = ref('')
-const error = ref<string | null>(null)
+const error = ref(null)
 const cargando = ref(false)
 
 // Verificar que hay usuario en sesión al cargar la página
@@ -20,7 +20,7 @@ if (!auth.usuarioActual.value) {
     description: 'Debes iniciar sesión primero.',
     color: 'warning'
   })
-  await navigateTo('/login', { query: { redirect: route.fullPath } as Record<string, string> })
+  await navigateTo({ path: '/login', query: { redirect: route.fullPath } })
 }
 
 async function onSubmit() {
@@ -53,7 +53,7 @@ async function onSubmit() {
 
   cargando.value = true
   try {
-    const response = await $fetch<{ token: string, expiraEn: number, usuario: { id: string, nombre: string, rol: string } }>(
+    const response = await $fetch(
       '/api/auth/cambiar-pin-inicial',
       {
         method: 'POST',
@@ -76,9 +76,8 @@ async function onSubmit() {
       const destino = response.usuario.rol === 'admin' ? '/usuarios' : '/cuadre'
       await navigateTo(destino)
     }
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    error.value = e.data?.statusMessage || e.statusMessage || e.message || 'Error al cambiar el PIN.'
+  } catch (err) {
+    error.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error al cambiar el PIN.'
   } finally {
     cargando.value = false
   }
@@ -104,7 +103,7 @@ async function onSubmit() {
 
       <UForm
         :state="{ pinActual, pinNuevo, pinNuevoConfirmacion }"
-        class="space-y-4"
+        class="space-y-4 flex flex-col items-center"
         @submit="onSubmit"
       >
         <UFormField label="PIN actual" required>

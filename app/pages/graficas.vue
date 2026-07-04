@@ -1,20 +1,11 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   middleware: ['jefe']
 })
 
 const toast = useToast()
 
-interface GraficaConfig {
-  key: string
-  titulo: string
-  descripcion: string
-  icon: string
-  endpoint: string
-  params?: Record<string, string>
-}
-
-const graficas: GraficaConfig[] = [
+const graficas = [
   {
     key: 'productos-mas-vendidos',
     titulo: 'Productos más vendidos',
@@ -119,15 +110,15 @@ const graficas: GraficaConfig[] = [
   }
 ]
 
-const graficaActiva = ref<GraficaConfig | null>(null)
-const datosGrafica = ref<unknown[]>([])
+const graficaActiva = ref(null)
+const datosGrafica = ref([])
 const cargando = ref(false)
-const fechaDesde = ref<string>('')
-const fechaHasta = ref<string>('')
-const agrupacion = ref<'dia' | 'semana' | 'mes'>('dia')
-const productoSeleccionado = ref<string>('')
+const fechaDesde = ref('')
+const fechaHasta = ref('')
+const agrupacion = ref('dia')
+const productoSeleccionado = ref('')
 
-async function cargarGrafica(g: GraficaConfig) {
+async function cargarGrafica(g) {
   graficaActiva.value = g
   cargando.value = true
   try {
@@ -145,26 +136,25 @@ async function cargarGrafica(g: GraficaConfig) {
     }
     if (params.toString()) url += `?${params.toString()}`
 
-    const data = await $fetch<unknown[]>(url)
+    const data = await $fetch(url)
     datosGrafica.value = data
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    toast.add({ title: 'Error', description: e.data?.statusMessage || e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
     datosGrafica.value = []
   } finally {
     cargando.value = false
   }
 }
 
-function getChartComponent(key: string) {
+function getChartComponent(key) {
   // Mapeo simple: barras para la mayoría, línea para evolución, pie para proporción
   if (key === 'evolucion-producto' || key === 'precio-usado-vs-oficial') return 'LineChart'
   if (key === 'proporcion-formas-pago') return 'PieChart'
   return 'BarChart'
 }
 
-function getChartConfig(key: string) {
-  const configs: Record<string, unknown> = {
+function getChartConfig(key) {
+  const configs = {
     'productos-mas-vendidos': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
     'productos-mayor-ganancia': { xKey: 'nombre', yKeys: ['gananciaTotal'], labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' } },
     'productos-menor-rotacion': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },

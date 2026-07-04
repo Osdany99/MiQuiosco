@@ -1,11 +1,9 @@
-<script setup lang="ts">
-import type { NavigationMenuItem } from '@nuxt/ui'
-
+<script setup>
 const auth = useAuth()
 const open = ref(false)
 
-const links = computed<NavigationMenuItem[]>(() => {
-  const items: NavigationMenuItem[] = []
+const links = computed(() => {
+  const items = []
 
   if (auth.esAdmin.value) {
     items.push(

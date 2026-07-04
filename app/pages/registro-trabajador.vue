@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   middleware: 'trabajador'
 })
@@ -7,38 +7,14 @@ const auth = useAuth()
 const localDb = useLocalDb()
 const toast = useToast()
 
-interface ProductoCache {
-  id: string
-  nombre: string
-  precioVentaActual: number
-  orden: number
-}
-
-interface LineaRegistro {
-  id: string
-  registroId: string
-  productoId: string
-  cantidad: number
-  precioAnotado: number
-}
-
-interface Registro {
-  id: string
-  fecha: string
-  trabajadorId: string
-  exportado: boolean
-  exportadoEn: number | null
-  creadoEn: number
-}
-
 const hoy = new Date().toISOString().split('T')[0]
 
-const productosCache = ref<ProductoCache[]>([])
-const lineas = ref<LineaRegistro[]>([])
-const registro = ref<Registro | null>(null)
+const productosCache = ref([])
+const lineas = ref([])
+const registro = ref(null)
 const cargando = ref(false)
 const showAgregar = ref(false)
-const productoSeleccionado = ref<string>('')
+const productoSeleccionado = ref('')
 
 async function cargarDatos() {
   cargando.value = true
@@ -57,9 +33,8 @@ async function cargarDatos() {
 
     // Cargar líneas
     // Placeholder
-  } catch (err: unknown) {
-    const e = err as { message?: string }
-    toast.add({ title: 'Error', description: e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.message, color: 'error' })
   } finally {
     cargando.value = false
   }
@@ -132,9 +107,8 @@ async function exportarRegistro() {
     // await actualizarRegistro({ exportado: true, exportadoEn: Date.now() })
 
     toast.add({ title: 'Exportado', description: 'Archivo listo para compartir.', color: 'success' })
-  } catch (err: unknown) {
-    const e = err as { message?: string }
-    toast.add({ title: 'Error al exportar', description: e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error al exportar', description: err.message, color: 'error' })
   }
 }
 
@@ -145,11 +119,11 @@ async function actualizarCatalogo() {
   await cargarDatos()
 }
 
-function fmtMoneda(v: number) {
+function fmtMoneda(v) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
 }
 
-function getProductoNombre(productoId: string) {
+function getProductoNombre(productoId) {
   return productosCache.value.find(p => p.id === productoId)?.nombre || '—'
 }
 

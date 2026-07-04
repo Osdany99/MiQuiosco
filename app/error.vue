@@ -1,9 +1,10 @@
-<script setup lang="ts">
-import type { NuxtError } from '#app'
-
-defineProps<{
-  error: NuxtError
-}>()
+<script setup>
+defineProps({
+  error: {
+    type: Object,
+    required: true
+  }
+})
 
 useSeoMeta({
   title: 'Page not found',

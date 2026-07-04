@@ -1,11 +1,6 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import bcrypt from 'bcryptjs'
-import type {
-  SesionLocal,
-  LoginResponse,
-  Rol
-} from '~~/shared/types'
 
 /**
  * Tres contextos de autenticación, completamente aislados:
@@ -32,17 +27,17 @@ const PREF_JWT_SYNC = 'jwt_sync'
 const PREF_PIN_HASH_LOCAL = 'pin_hash_local'
 
 export function useAuth() {
-  const sesionLocal = useState<SesionLocal | null>('auth.sesionLocal', () => null)
-  const jwtAdmin = useState<string | null>('auth.jwtAdmin', () => null)
-  const jwtSync = useState<string | null>('auth.jwtSync', () => null)
-  const usuarioActual = useState<LoginResponse['usuario'] | null>('auth.usuarioActual', () => null)
-  const requiereCambioPin = useState<boolean>('auth.requiereCambioPin', () => false)
-  const cargando = useState<boolean>('auth.cargando', () => false)
+  const sesionLocal = useState('auth.sesionLocal', () => null)
+  const jwtAdmin = useState('auth.jwtAdmin', () => null)
+  const jwtSync = useState('auth.jwtSync', () => null)
+  const usuarioActual = useState('auth.usuarioActual', () => null)
+  const requiereCambioPin = useState('auth.requiereCambioPin', () => false)
+  const cargando = useState('auth.cargando', () => false)
 
   const esAdmin = computed(() => usuarioActual.value?.rol === 'admin')
   const esJefe = computed(() => usuarioActual.value?.rol === 'jefe')
   const esTrabajador = computed(() => usuarioActual.value?.rol === 'trabajador')
-  const rol = computed<Rol | null>(() => usuarioActual.value?.rol ?? null)
+  const rol = computed(() => usuarioActual.value?.rol ?? null)
 
   async function cargarDesdePreferencias() {
     cargando.value = true
@@ -54,7 +49,7 @@ export function useAuth() {
       ])
 
       if (sesionStr.value) {
-        const sesion = JSON.parse(sesionStr.value) as SesionLocal
+        const sesion = JSON.parse(sesionStr.value)
         sesionLocal.value = sesion
         usuarioActual.value = {
           id: sesion.usuario_id,
@@ -71,17 +66,17 @@ export function useAuth() {
     }
   }
 
-  async function login(nombreUsuario: string, pin: string): Promise<LoginResponse> {
+  async function login(nombreUsuario, pin) {
     cargando.value = true
     try {
       try {
-        const response = await $fetch<LoginResponse>('/api/auth/login', {
+        const response = await $fetch('/api/auth/login', {
           method: 'POST',
           body: { nombre_usuario: nombreUsuario, pin }
         })
         await procesarRespuestaLogin(response)
         return response
-      } catch (err: unknown) {
+      } catch (err) {
         if (esErrorDeRed(err)) {
           const sesion = await loginOffline(nombreUsuario, pin)
           if (sesion) {
@@ -103,7 +98,7 @@ export function useAuth() {
     }
   }
 
-  async function procesarRespuestaLogin(response: LoginResponse) {
+  async function procesarRespuestaLogin(response) {
     if (!response.usuario) {
       throw new Error('Respuesta del servidor sin datos de usuario.')
     }
@@ -124,7 +119,7 @@ export function useAuth() {
       } else if (response.usuario.rol === 'jefe') {
         await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
         jwtSync.value = response.token
-        const sesion: SesionLocal = {
+        const sesion = {
           usuario_id: response.usuario.id,
           usuario_nombre: response.usuario.nombre,
           rol: 'jefe',
@@ -137,7 +132,7 @@ export function useAuth() {
       }
     } else {
       if (response.usuario.rol === 'trabajador') {
-        const sesion: SesionLocal = {
+        const sesion = {
           usuario_id: response.usuario.id,
           usuario_nombre: response.usuario.nombre,
           rol: 'trabajador',
@@ -151,7 +146,7 @@ export function useAuth() {
     }
   }
 
-  async function loginOffline(nombreUsuario: string, pin: string): Promise<SesionLocal | null> {
+  async function loginOffline(nombreUsuario, pin) {
     const { getUsuarioPorNombreLocal } = useLocalDb()
     const usuario = await getUsuarioPorNombreLocal(nombreUsuario)
 
@@ -164,7 +159,7 @@ export function useAuth() {
     if (!pinOk) return null
 
     const ahora = Date.now()
-    const sesion: SesionLocal = {
+    const sesion = {
       usuario_id: usuario.id,
       usuario_nombre: usuario.nombre,
       rol: usuario.rol === 'jefe' ? 'jefe' : 'trabajador',
@@ -184,7 +179,7 @@ export function useAuth() {
     return sesion
   }
 
-  function sesionLocalVigente(): boolean {
+  function sesionLocalVigente() {
     if (!sesionLocal.value) return false
 
     const ahora = Date.now()
@@ -250,9 +245,9 @@ export function useAuth() {
     }
   }
 
-  function esErrorDeRed(err: unknown): boolean {
+  function esErrorDeRed(err) {
     if (typeof err === 'object' && err !== null) {
-      const e = err as { message?: string, statusCode?: number }
+      const e = err
       if (!e.statusCode) return true
       if (e.message?.toLowerCase().includes('fetch')) return true
       if (e.message?.toLowerCase().includes('network')) return true

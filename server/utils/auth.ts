@@ -195,7 +195,6 @@ export async function requireRole(
  */
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET
-
   if (!secret || secret.length < 32) {
     throw new Error(
       'JWT_SECRET debe estar definido y tener al menos 32 caracteres. '

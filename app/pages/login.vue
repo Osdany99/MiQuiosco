@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   layout: 'auth'
 })
@@ -9,9 +9,9 @@ const route = useRoute()
 
 const nombreUsuario = ref('')
 const pin = ref('')
-const error = ref<string | null>(null)
+const error = ref(null)
 const requiereCambioPinLocal = ref(false)
-const usuarioPendiente = ref<{ id: string, nombre: string, rol: string } | null>(null)
+const usuarioPendiente = ref(null)
 
 async function onSubmit() {
   error.value = null
@@ -48,12 +48,12 @@ async function onSubmit() {
         color: 'success'
       })
 
-      const destino = route.query.redirect as string | undefined
+      const destino = route.query.redirect
+
       if (destino) {
         await navigateTo(destino)
         return
       }
-
       if (response.usuario.rol === 'admin') {
         await navigateTo('/usuarios')
       } else if (response.usuario.rol === 'jefe') {
@@ -62,9 +62,8 @@ async function onSubmit() {
         await navigateTo('/registro-trabajador')
       }
     }
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    error.value = e.data?.statusMessage || e.statusMessage || e.message || 'Error desconocido al iniciar sesión.'
+  } catch (err) {
+    error.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido al iniciar sesión.'
   }
 }
 </script>
@@ -73,7 +72,7 @@ async function onSubmit() {
   <div class="w-full max-w-md">
     <UCard>
       <template #header>
-        <div class="flex items-center justify-center gap-3">
+        <div class="flex items-center gap-3">
           <UIcon name="i-lucide-store" class="size-8 text-primary" />
           <div>
             <h1 class="text-xl font-semibold">

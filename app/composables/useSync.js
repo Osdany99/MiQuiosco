@@ -5,7 +5,6 @@ import { useAuth } from './useAuth'
 import { useLocalDb } from './useLocalDb'
 import { useRemoteApi } from './useRemoteApi'
 import { useToast } from '#imports'
-import type { Producto, Cuadre, CuadreItem, HistorialPrecio } from '~~/shared/types'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 
@@ -16,7 +15,7 @@ export function useSync() {
   const toast = useToast()
 
   const sincronizando = ref(false)
-  const ultimaSync = ref<number | null>(null)
+  const ultimaSync = ref(null)
   const pendientesCount = ref(0)
   const hayRed = ref(true)
 
@@ -97,11 +96,10 @@ export function useSync() {
         color: 'success'
       })
       return true
-    } catch (err: unknown) {
-      const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+    } catch (err) {
       toast.add({
         title: 'Error en sincronización',
-        description: e.data?.statusMessage || e.statusMessage || e.message || 'Error desconocido.',
+        description: err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido.',
         color: 'error'
       })
       return false
@@ -117,24 +115,24 @@ export function useSync() {
     // En implementación real: query por cada tabla WHERE sincronizado = false
     // Aquí devolvemos arrays vacíos como placeholder
     return {
-      productos: [] as Producto[],
-      historial_precios: [] as HistorialPrecio[],
-      cuadres: [] as Cuadre[],
-      cuadre_items: [] as CuadreItem[]
+      productos: [],
+      historial_precios: [],
+      cuadres: [],
+      cuadre_items: []
     }
   }
 
-  async function marcarSincronizados(ids: string[]) {
+  async function marcarSincronizados(ids) {
     // Actualizar sincronizado = true para los IDs dados
     // Placeholder
   }
 
-  async function absorberConflictos(conflictos: unknown) {
+  async function absorberConflictos(conflictos) {
     // Sobrescribir local con versión del servidor
     // Placeholder
   }
 
-  async function aplicarPull(data: unknown) {
+  async function aplicarPull(data) {
     // Aplicar productos, historial, cuadres, items, usuarios
     // Placeholder
   }
@@ -149,13 +147,12 @@ export function useSync() {
       const data = await remoteApi.getProductosActivos()
       await guardarProductosCache(data)
       toast.add({ title: 'Catálogo actualizado', description: `${data.length} productos descargados.`, color: 'success' })
-    } catch (err: unknown) {
-      const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-      toast.add({ title: 'Error', description: e.data?.statusMessage || e.message, color: 'error' })
+    } catch (err) {
+      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
     }
   }
 
-  async function guardarProductosCache(productos: { id: string, nombre: string, precio_venta_actual: number, orden: number }[]) {
+  async function guardarProductosCache(productos) {
     await localDb.getConnection()
     // Limpiar e insertar
     // Placeholder

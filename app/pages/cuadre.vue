@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   middleware: 'jefe'
 })
@@ -7,58 +7,22 @@ const auth = useAuth()
 const localDb = useLocalDb()
 const toast = useToast()
 
-interface Producto {
-  id: string
-  nombre: string
-  precioVentaActual: number
-  orden: number
-}
-
-interface LineaCuadre {
-  id: string
-  cuadreId: string
-  productoId: string
-  precioVentaUsado: number
-  cantidad: number
-  subtotal: number
-  tipoLinea: 'normal' | 'regalo' | 'descuento_familiar'
-  nota: string | null
-  esExtra: boolean
-}
-
-interface Cuadre {
-  id: string
-  fecha: string
-  estado: 'abierto' | 'cerrado'
-  totalEsperado: number
-  totalRealCaja: number | null
-  montoTransferencia: number
-  montoFiado: number
-  diferencia: number | null
-  trabajadorTurnoId: string | null
-  pagoTrabajador: number | null
-  notas: string | null
-  cerradoEn: string | number | null
-  reabiertoVeces: number
-  ultimaReaperturaEn: string | number | null
-}
-
 const hoy = new Date().toISOString().split('T')[0]
 
-const cuadre = ref<Cuadre | null>(null)
-const lineas = ref<LineaCuadre[]>([])
-const productosActivos = ref<Producto[]>([])
+const cuadre = ref(null)
+const lineas = ref([])
+const productosActivos = ref([])
 const cargando = ref(false)
 const showImportar = ref(false)
 const showAgregarProducto = ref(false)
-const productoSeleccionado = ref<string>('')
-const expandida = ref<Set<string>>(new Set())
+const productoSeleccionado = ref('')
+const expandida = ref(new Set())
 
-const totalRealCaja = ref<number | null>(null)
+const totalRealCaja = ref(null)
 const montoTransferencia = ref(0)
 const montoFiado = ref(0)
-const trabajadorTurnoId = ref<string | null>(null)
-const pagoTrabajador = ref<number | null>(null)
+const trabajadorTurnoId = ref(null)
+const pagoTrabajador = ref(null)
 const notasCuadre = ref('')
 
 // Computados reactivos
@@ -71,7 +35,7 @@ const diferencia = computed(() => {
   return (totalRealCaja.value + montoTransferencia.value) - totalEsperado.value
 })
 
-const tipoDiferencia = computed((): 'exacto' | 'sobrante' | 'faltante' | null => {
+const tipoDiferencia = computed(() => {
   if (diferencia.value === null) return null
   if (diferencia.value === 0) return 'exacto'
   return diferencia.value > 0 ? 'sobrante' : 'faltante'
@@ -124,15 +88,14 @@ async function cargarDatos() {
     if (c.trabajadorTurnoId !== undefined) trabajadorTurnoId.value = c.trabajadorTurnoId
     if (c.pagoTrabajador !== undefined) pagoTrabajador.value = c.pagoTrabajador
     if (c.notas !== undefined) notasCuadre.value = c.notas ?? ''
-  } catch (err: unknown) {
-    const e = err as { message?: string }
-    toast.add({ title: 'Error', description: e.message || 'No se pudo cargar el cuadre.', color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.message || 'No se pudo cargar el cuadre.', color: 'error' })
   } finally {
     cargando.value = false
   }
 }
 
-async function crearCuadreNuevo(puestoId: string): Promise<Cuadre> {
+async function crearCuadreNuevo(puestoId) {
   // En implementación real: insertar en SQLite y devolver el creado
   // Aquí simulamos el objeto
   const nuevoId = crypto.randomUUID()
@@ -171,7 +134,7 @@ async function crearCuadreNuevo(puestoId: string): Promise<Cuadre> {
   }
 }
 
-function recalcularSubtotal(linea: LineaCuadre) {
+function recalcularSubtotal(linea) {
   linea.subtotal = linea.precioVentaUsado * linea.cantidad
 }
 
@@ -186,7 +149,7 @@ async function agregarLineaExtra() {
   const lineaId = crypto.randomUUID()
   lineas.value.push({
     id: lineaId,
-    cuadreId: cuadre.value!.id,
+    cuadreId: cuadre.value.id,
     productoId: prod.id,
     precioVentaUsado: prod.precioVentaActual,
     cantidad: 1,
@@ -199,7 +162,7 @@ async function agregarLineaExtra() {
   showAgregarProducto.value = false
 }
 
-function toggleExpandir(lineaId: string) {
+function toggleExpandir(lineaId) {
   if (expandida.value.has(lineaId)) {
     expandida.value.delete(lineaId)
   } else {
@@ -240,9 +203,8 @@ async function cerrarCuadre() {
     else mensaje += `faltante de ${fmtMoneda(-diff)}.`
 
     toast.add({ title: 'Cuadre cerrado', description: mensaje, color: tipo === 'exacto' ? 'success' : tipo === 'sobrante' ? 'info' : 'error' })
-  } catch (err: unknown) {
-    const e = err as { message?: string }
-    toast.add({ title: 'Error', description: e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.message, color: 'error' })
   }
 }
 
@@ -264,15 +226,15 @@ async function importarRegistroTrabajador() {
   showImportar.value = false
 }
 
-function fmtMoneda(v: number) {
+function fmtMoneda(v) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
 }
 
-function getProductoNombre(productoId: string) {
+function getProductoNombre(productoId) {
   return productosActivos.value.find(p => p.id === productoId)?.nombre || '—'
 }
 
-// function getTipoLineaLabel(t: string) {
+// function getTipoLineaLabel(t) {
 //   return t === 'normal' ? 'Normal' : t === 'regalo' ? 'Regalo' : 'Desc. familiar'
 // }
 

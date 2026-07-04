@@ -1,29 +1,19 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   middleware: 'admin'
 })
 
 const toast = useToast()
 
-interface Producto {
-  id: string
-  nombre: string
-  descripcion: string | null
-  activo: boolean
-  orden: number
-  precioCompraActual: number
-  precioVentaActual: number
-}
-
-const productos = ref<Producto[]>([])
+const productos = ref([])
 const cargando = ref(false)
 const showModal = ref(false)
-const editando = ref<Producto | null>(null)
+const editando = ref(null)
 const showHistorial = ref(false)
-const historialProducto = ref<Producto | null>(null)
-const historial = ref<Array<{ id: string, precioCompra: number, precioVenta: number, vigenteDesde: string, vigenteHasta: string | null, cambiadoPor: string | null }>>([])
+const historialProducto = ref(null)
+const historial = ref([])
 
-const form = reactive<Partial<Producto>>({
+const form = reactive({
   nombre: '',
   descripcion: '',
   precioCompraActual: 0,
@@ -31,18 +21,17 @@ const form = reactive<Partial<Producto>>({
   orden: 0,
   activo: true
 })
-const formError = ref<string | null>(null)
+const formError = ref(null)
 
 async function cargarProductos() {
   cargando.value = true
   try {
-    const data = await $fetch<Producto[]>('/api/productos')
+    const data = await $fetch('/api/productos')
     productos.value = data
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+  } catch (err) {
     toast.add({
       title: 'Error',
-      description: e.data?.statusMessage || e.statusMessage || e.message || 'No se pudieron cargar los productos.',
+      description: err.data?.statusMessage || err.statusMessage || err.message || 'No se pudieron cargar los productos.',
       color: 'error'
     })
   } finally {
@@ -98,21 +87,19 @@ async function onSubmit() {
     }
     showModal.value = false
     await cargarProductos()
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    formError.value = e.data?.statusMessage || e.statusMessage || e.message || 'Error al guardar.'
+  } catch (err) {
+    formError.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error al guardar.'
   }
 }
 
-async function verHistorial(p: Producto) {
+async function verHistorial(p) {
   historialProducto.value = p
   try {
-    const data = await $fetch<typeof historial.value>(`/api/productos/${p.id}/historial-precios`)
+    const data = await $fetch(`/api/productos/${p.id}/historial-precios`)
     historial.value = data
     showHistorial.value = true
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    toast.add({ title: 'Error', description: e.data?.statusMessage || e.statusMessage || e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
   }
 }
 
@@ -128,7 +115,7 @@ function abrirModalCrear() {
   showModal.value = true
 }
 
-function abrirModalEditar(p: Producto) {
+function abrirModalEditar(p) {
   editando.value = p
   form.nombre = p.nombre
   form.descripcion = p.descripcion ?? ''
@@ -140,7 +127,7 @@ function abrirModalEditar(p: Producto) {
   showModal.value = true
 }
 
-async function toggleActivo(p: Producto) {
+async function toggleActivo(p) {
   try {
     await $fetch(`/api/productos/${p.id}`, {
       method: 'PATCH',
@@ -148,13 +135,12 @@ async function toggleActivo(p: Producto) {
     })
     await cargarProductos()
     toast.add({ title: 'Actualizado', description: `Producto ${!p.activo ? 'activado' : 'desactivado'}.`, color: 'success' })
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    toast.add({ title: 'Error', description: e.data?.statusMessage || e.statusMessage || e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
   }
 }
 
-async function moverArriba(p: Producto) {
+async function moverArriba(p) {
   const idx = productos.value.findIndex(x => x.id === p.id)
   if (idx > 0) {
     const a = productos.value[idx]
@@ -167,7 +153,7 @@ async function moverArriba(p: Producto) {
   }
 }
 
-async function moverAbajo(p: Producto) {
+async function moverAbajo(p) {
   const idx = productos.value.findIndex(x => x.id === p.id)
   if (idx < productos.value.length - 1) {
     const a = productos.value[idx]
@@ -192,7 +178,7 @@ const columns = [
   { key: 'actions', label: '' }
 ]
 
-function fmtPrecio(v: number) {
+function fmtPrecio(v) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
 }
 </script>

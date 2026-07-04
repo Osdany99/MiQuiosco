@@ -1,42 +1,31 @@
-<script setup lang="ts">
+<script setup>
 definePageMeta({
   middleware: 'admin'
 })
 
 const toast = useToast()
 
-interface Usuario {
-  id: string
-  nombre: string
-  rol: 'admin' | 'jefe' | 'trabajador'
-  activo: boolean
-  debeCambiarPin: boolean
-  creadoEn: string | number
-  actualizadoEn: string | number
-}
-
-const usuarios = ref<Usuario[]>([])
+const usuarios = ref([])
 const cargando = ref(false)
 const showModal = ref(false)
-const editando = ref<Usuario | null>(null)
-const form = reactive<Partial<Usuario>>({
+const editando = ref(null)
+const form = reactive({
   nombre: '',
   rol: 'trabajador',
   pin: '',
   activo: true
 })
-const formError = ref<string | null>(null)
+const formError = ref(null)
 
 async function cargarUsuarios() {
   cargando.value = true
   try {
-    const data = await $fetch<Usuario[]>('/api/usuarios')
+    const data = await $fetch('/api/usuarios')
     usuarios.value = data
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
+  } catch (err) {
     toast.add({
       title: 'Error',
-      description: e.data?.statusMessage || e.statusMessage || e.message || 'No se pudieron cargar los usuarios.',
+      description: err.data?.statusMessage || err.statusMessage || err.message || 'No se pudieron cargar los usuarios.',
       color: 'error'
     })
   } finally {
@@ -86,9 +75,8 @@ async function onSubmit() {
     }
     showModal.value = false
     await cargarUsuarios()
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    formError.value = e.data?.statusMessage || e.statusMessage || e.message || 'Error al guardar.'
+  } catch (err) {
+    formError.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error al guardar.'
   }
 }
 
@@ -102,7 +90,7 @@ function abrirModalCrear() {
   showModal.value = true
 }
 
-function abrirModalEditar(u: Usuario) {
+function abrirModalEditar(u) {
   editando.value = u
   form.nombre = u.nombre
   form.rol = u.rol
@@ -112,7 +100,7 @@ function abrirModalEditar(u: Usuario) {
   showModal.value = true
 }
 
-async function toggleActivo(u: Usuario) {
+async function toggleActivo(u) {
   try {
     await $fetch(`/api/usuarios/${u.id}`, {
       method: 'PATCH',
@@ -120,13 +108,12 @@ async function toggleActivo(u: Usuario) {
     })
     await cargarUsuarios()
     toast.add({ title: 'Actualizado', description: `Usuario ${!u.activo ? 'activado' : 'desactivado'}.`, color: 'success' })
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    toast.add({ title: 'Error', description: e.data?.statusMessage || e.statusMessage || e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
   }
 }
 
-async function resetearPin(u: Usuario) {
+async function resetearPin(u) {
   const pin = prompt(`Nuevo PIN para ${u.nombre} (4-6 dígitos):`)
   if (!pin || !/^\d{4,6}$/.test(pin)) {
     if (pin) toast.add({ title: 'PIN inválido', description: 'Debe tener 4-6 dígitos.', color: 'error' })
@@ -138,20 +125,19 @@ async function resetearPin(u: Usuario) {
       body: { pin }
     })
     toast.add({ title: 'PIN reseteado', description: `Nuevo PIN asignado a ${u.nombre}.`, color: 'success' })
-  } catch (err: unknown) {
-    const e = err as { data?: { statusMessage?: string }, statusMessage?: string, message?: string }
-    toast.add({ title: 'Error', description: e.data?.statusMessage || e.statusMessage || e.message, color: 'error' })
+  } catch (err) {
+    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
   }
 }
 
 onMounted(cargarUsuarios)
 
 const columns = [
-  { key: 'nombre', label: 'Nombre' },
-  { key: 'rol', label: 'Rol' },
-  { key: 'activo', label: 'Estado' },
-  { key: 'debeCambiarPin', label: 'Cambiar PIN' },
-  { key: 'actions', label: '' }
+  { accessorKey: 'nombre', header: 'Nombre' },
+  { accessorKey: 'rol', header: 'Rol' },
+  { accessorKey: 'activo', header: 'Estado' },
+  { accessorKey: 'debeCambiarPin', header: 'Cambiar PIN' },
+  { accessorKey: 'actions', header: '' }
 ]
 </script>
 
@@ -170,27 +156,27 @@ const columns = [
 
     <UCard>
       <UTable
-        :rows="usuarios"
+        :data="usuarios"
         :columns="columns"
         :loading="cargando"
         striped
       >
-        <template #rol="{ row }">
+        <template #rol-cell="{ row }">
           <UBadge
-            :label="row.rol"
-            :color="row.rol === 'admin' ? 'primary' : row.rol === 'jefe' ? 'info' : 'neutral'"
+            :label="row.original.rol"
+            :color="row.original.rol === 'admin' ? 'primary' : row.original.rol === 'jefe' ? 'info' : 'neutral'"
           />
         </template>
-        <template #activo="{ row }">
+        <template #activo-cell="{ row }">
           <USwitch
-            v-model="row.activo"
+            v-model="row.original.activo"
             size="sm"
-            @update:model-value="toggleActivo(row)"
+            @update:model-value="toggleActivo(row.original)"
           />
         </template>
-        <template #debeCambiarPin="{ row }">
+        <template #debeCambiarPin-cell="{ row }">
           <UBadge
-            v-if="row.debeCambiarPin"
+            v-if="row.original.debeCambiarPin"
             label="Sí"
             color="warning"
             size="sm"
@@ -202,47 +188,32 @@ const columns = [
             size="sm"
           />
         </template>
-        <template #actions="{ row }">
-          <UButtonGroup>
-            <UButton
-              icon="i-lucide-edit-2"
-              variant="ghost"
-              size="sm"
-              @click="abrirModalEditar(row)"
-            />
-            <UButton
-              icon="i-lucide-key"
-              variant="ghost"
-              size="sm"
-              @click="resetearPin(row)"
-            />
-          </UButtonGroup>
+        <template #actions-cell="{ row }">
+          <UButton
+            icon="i-lucide-edit-2"
+            variant="ghost"
+            size="sm"
+            @click="abrirModalEditar(row.original)"
+          />
+          <UButton
+            icon="i-lucide-key"
+            variant="ghost"
+            size="sm"
+            @click="resetearPin(row.original)"
+          />
         </template>
       </UTable>
     </UCard>
 
-    <UModal v-model="showModal" :ui="{ width: 'max-w-md' }">
-      <template #header>
-        {{ editando.value ? 'Editar usuario' : 'Nuevo usuario' }}
-      </template>
-
+    <BaseDialog
+      v-model="showModal"
+      :title="editando ? 'Editar usuario' : 'Nuevo usuario'"
+      :loading="cargando"
+      @confirm="onSubmit"
+      @cancel="showModal=false"
+    >
       <UForm :state="form" class="space-y-4" @submit="onSubmit">
-        <UFormField label="Nombre" required>
-          <UInput v-model="form.nombre" placeholder="Nombre completo" />
-        </UFormField>
-
-        <UFormField label="Rol" required>
-          <USelectMenu
-            v-model="form.rol"
-            :items="[
-              { label: 'Admin', value: 'admin' },
-              { label: 'Jefe', value: 'jefe' },
-              { label: 'Trabajador', value: 'trabajador' }
-            ]"
-          />
-        </UFormField>
-
-        <UFormField v-if="!editando.value" label="PIN inicial" required>
+        <UFormField v-if="!editando" label="PIN inicial" required>
           <UInput
             v-model="form.pin"
             type="password"
@@ -253,7 +224,7 @@ const columns = [
           />
         </UFormField>
 
-        <UFormField v-if="editando.value" label="Nuevo PIN (dejar vacío para no cambiar)">
+        <UFormField v-if="editando" label="Nuevo PIN (dejar vacío para no cambiar)">
           <UInput
             v-model="form.pin"
             type="password"
@@ -264,7 +235,7 @@ const columns = [
           />
         </UFormField>
 
-        <UFormField v-if="editando.value" label="Activo">
+        <UFormField v-if="editando" label="Activo">
           <USwitch v-model="form.activo" />
         </UFormField>
 
@@ -274,14 +245,7 @@ const columns = [
           icon="i-lucide-alert-circle"
           :title="formError"
         />
-
-        <template #footer>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" label="Cancelar" @click="showModal.value = false" />
-            <UButton type="submit" :loading="cargando" label="Guardar" />
-          </div>
-        </template>
-      </UForm>
-    </UModal>
+      </Uform>
+    </BaseDialog>
   </div>
 </template>

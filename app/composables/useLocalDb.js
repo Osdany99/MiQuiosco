@@ -1,53 +1,26 @@
 import { Capacitor } from '@capacitor/core'
-import type {
-  Producto,
-  Cuadre,
-  CuadreItem,
-  Usuario
-} from '~~/shared/types'
 
 /**
- * Wrapper tipado sobre @capacitor-community/sqlite.
+ * Wrapper sobre @capacitor-community/sqlite.
  *
  * En Android nativo: usa el plugin SQLite de Capacitor.
  * En navegador (dev): usa un fallback en memoria para poder desarrollar
  * sin dispositivo. Esto permite probar la app en el browser del dev server
  * aunque la funcionalidad offline real solo aplique en producción.
  *
- * API expuesta: funciones tipadas para cada tabla principal.
+ * API expuesta: funciones para cada tabla principal.
  * Cada función hace una query simple y devuelve filas.
  */
 
-type SQLiteValue = string | number | boolean | null
-type SqlParam = SQLiteValue | SQLiteValue[]
-
-interface SQLitePlugin {
-  createConnection(opts: {
-    database: string
-    encrypted?: boolean
-    mode?: string
-  }): Promise<SQLiteConnection>
-  checkConnectionsConsistency(): Promise<void>
-}
-
-interface SQLiteConnection {
-  open(): Promise<void>
-  close(): Promise<void>
-  execute(opts: { statements: string }): Promise<void>
-  run(opts: { statement: string, values?: SqlParam[] }): Promise<{ changes?: { changes?: number } }>
-  query(opts: { statement: string, values?: SqlParam[] }): Promise<{ values?: Record<string, SQLiteValue>[] }>
-  isExists(): Promise<{ result: boolean }>
-}
-
 const DB_NAME = 'miquiosco'
 
-let dbConnection: SQLiteConnection | null = null
-let inMemoryDb: InMemoryDb | null = null
+let dbConnection = null
+let inMemoryDb = null
 
 class InMemoryDb {
-  private tables: Map<string, Record<string, SQLiteValue>[]> = new Map()
+  tables = new Map()
 
-  ensureTable(name: string, schema: string) {
+  ensureTable(name, schema) {
     if (!this.tables.has(name)) {
       this.tables.set(name, [])
       // El schema se ignora en este fallback: las inserciones son crudas
@@ -55,20 +28,20 @@ class InMemoryDb {
     }
   }
 
-  all(table: string): Record<string, SQLiteValue>[] {
+  all(table) {
     return this.tables.get(table) ?? []
   }
 
-  where(table: string, predicate: (row: Record<string, SQLiteValue>) => boolean): Record<string, SQLiteValue>[] {
+  where(table, predicate) {
     return (this.tables.get(table) ?? []).filter(predicate)
   }
 
-  insert(table: string, row: Record<string, SQLiteValue>) {
+  insert(table, row) {
     if (!this.tables.has(table)) this.tables.set(table, [])
-    this.tables.get(table)!.push(row)
+    this.tables.get(table).push(row)
   }
 
-  update(table: string, predicate: (row: Record<string, SQLiteValue>) => boolean, patch: Record<string, SQLiteValue>) {
+  update(table, predicate, patch) {
     const rows = this.tables.get(table) ?? []
     for (const row of rows) {
       if (predicate(row)) Object.assign(row, patch)
@@ -76,10 +49,10 @@ class InMemoryDb {
   }
 }
 
-async function getConnection(): Promise<SQLiteConnection | InMemoryDb> {
+async function getConnection() {
   if (Capacitor.isNativePlatform()) {
     if (!dbConnection) {
-      const sqlite = (await import('@capacitor-community/sqlite')).default as unknown as SQLitePlugin
+      const sqlite = (await import('@capacitor-community/sqlite')).default
       dbConnection = await sqlite.createConnection({
         database: DB_NAME,
         encrypted: false,
@@ -98,7 +71,7 @@ async function getConnection(): Promise<SQLiteConnection | InMemoryDb> {
   return inMemoryDb
 }
 
-async function initializeSchema(conn: SQLiteConnection) {
+async function initializeSchema(conn) {
   await conn.execute({
     statements: `
       CREATE TABLE IF NOT EXISTS puestos (
@@ -166,7 +139,7 @@ async function initializeSchema(conn: SQLiteConnection) {
   })
 }
 
-function initializeSchemaMemory(mem: InMemoryDb) {
+function initializeSchemaMemory(mem) {
   const tables = [
     'puestos', 'usuarios', 'productos', 'historial_precios',
     'cuadres', 'cuadre_items', 'productos_cache',
@@ -183,12 +156,12 @@ export function useLocalDb() {
   /**
    * Busca un usuario local por nombre (para login offline).
    */
-  async function getUsuarioPorNombreLocal(nombre: string): Promise<Usuario | null> {
+  async function getUsuarioPorNombreLocal(nombre) {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('usuarios', r => r.nombre === nombre)
-      return rows.length > 0 ? rowToUsuarioSQLite(rows[0]!) : null
+      return rows.length > 0 ? rowToUsuarioSQLite(rows[0]) : null
     }
 
     const result = await conn.query({
@@ -201,7 +174,7 @@ export function useLocalDb() {
   /**
    * Lista los productos activos para el cuadre.
    */
-  async function getProductosActivos(puestoId: string): Promise<Producto[]> {
+  async function getProductosActivos(puestoId) {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
@@ -221,12 +194,12 @@ export function useLocalDb() {
   /**
    * Obtiene el cuadre del día para un puesto, si existe.
    */
-  async function getCuadrePorFecha(puestoId: string, fecha: string): Promise<Cuadre | null> {
+  async function getCuadrePorFecha(puestoId, fecha) {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('cuadres', r => r.puesto_id === puestoId && r.fecha === fecha)
-      return rows.length > 0 ? rowToCuadre(rows[0]!) : null
+      return rows.length > 0 ? rowToCuadre(rows[0]) : null
     }
 
     const result = await conn.query({
@@ -239,7 +212,7 @@ export function useLocalDb() {
   /**
    * Obtiene las líneas de un cuadre.
    */
-  async function getItemsDeCuadre(cuadreId: string): Promise<CuadreItem[]> {
+  async function getItemsDeCuadre(cuadreId) {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
@@ -263,15 +236,15 @@ export function useLocalDb() {
 }
 
 // =====================================================================
-// Mappers: filas de SQLite → tipos compartidos
+// Mappers: filas de SQLite → objetos usados en la app
 // =====================================================================
 
-function rowToUsuarioSQLite(r: Record<string, SQLiteValue>): Usuario {
+function rowToUsuarioSQLite(r) {
   return {
     id: String(r.id),
     puestoId: String(r.puesto_id),
     nombre: String(r.nombre),
-    rol: r.rol as Usuario['rol'],
+    rol: r.rol,
     pinHash: String(r.pin_hash),
     activo: Boolean(r.activo),
     debeCambiarPin: Boolean(r.debe_cambiar_pin),
@@ -280,12 +253,12 @@ function rowToUsuarioSQLite(r: Record<string, SQLiteValue>): Usuario {
   }
 }
 
-function rowToProducto(r: Record<string, SQLiteValue>): Producto {
+function rowToProducto(r) {
   return {
     id: String(r.id),
     puestoId: String(r.puesto_id),
     nombre: String(r.nombre),
-    descripcion: r.descripcion as string | null,
+    descripcion: r.descripcion,
     activo: Boolean(r.activo),
     orden: Number(r.orden),
     precioCompraActual: Number(r.precio_compra_actual),
@@ -296,21 +269,21 @@ function rowToProducto(r: Record<string, SQLiteValue>): Producto {
   }
 }
 
-function rowToCuadre(r: Record<string, SQLiteValue>): Cuadre {
+function rowToCuadre(r) {
   return {
     id: String(r.id),
     puestoId: String(r.puesto_id),
     fecha: String(r.fecha),
     jefeId: String(r.jefe_id),
-    trabajadorTurnoId: r.trabajador_turno_id as string | null,
+    trabajadorTurnoId: r.trabajador_turno_id,
     pagoTrabajador: r.pago_trabajador != null ? Number(r.pago_trabajador) : null,
     totalEsperado: Number(r.total_esperado),
     totalRealCaja: r.total_real_caja != null ? Number(r.total_real_caja) : null,
     montoTransferencia: Number(r.monto_transferencia),
     montoFiado: Number(r.monto_fiado),
     diferencia: r.diferencia != null ? Number(r.diferencia) : null,
-    estado: r.estado as Cuadre['estado'],
-    notas: r.notas as string | null,
+    estado: r.estado,
+    notas: r.notas,
     cerradoEn: r.cerrado_en != null ? Number(r.cerrado_en) : null,
     reabiertoVeces: Number(r.reabierto_veces),
     ultimaReaperturaEn: r.ultima_reapertura_en != null ? Number(r.ultima_reapertura_en) : null,
@@ -320,7 +293,7 @@ function rowToCuadre(r: Record<string, SQLiteValue>): Cuadre {
   }
 }
 
-function rowToCuadreItem(r: Record<string, SQLiteValue>): CuadreItem {
+function rowToCuadreItem(r) {
   return {
     id: String(r.id),
     cuadreId: String(r.cuadre_id),
@@ -328,8 +301,8 @@ function rowToCuadreItem(r: Record<string, SQLiteValue>): CuadreItem {
     precioVentaUsado: Number(r.precio_venta_usado),
     cantidad: Number(r.cantidad),
     subtotal: Number(r.subtotal),
-    tipoLinea: r.tipo_linea as CuadreItem['tipoLinea'],
-    nota: r.nota as string | null,
+    tipoLinea: r.tipo_linea,
+    nota: r.nota,
     esExtra: Boolean(r.es_extra),
     creadoEn: Number(r.creado_en),
     actualizadoEn: Number(r.actualizado_en),
