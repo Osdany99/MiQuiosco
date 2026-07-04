@@ -22,6 +22,8 @@
  * // Cambiar PIN
  * await cambiarPinInicial({ pinActual: '1234', pinNuevo: '5678' })
  */
+import { API } from '~/services/api-routes'
+
 export function useRemoteApi() {
   const { getHeaders } = useHeaders()
 
@@ -33,9 +35,11 @@ export function useRemoteApi() {
   }
 
   return {
-    getProductosActivos: () => fetch('/api/sync/productos-activos'),
-    syncPush: payload => fetch('/api/sync/push', { method: 'POST', body: payload }),
-    syncPull: desde => fetch(`/api/sync/pull?desde=${desde}`),
-    cambiarPinInicial: data => fetch('/api/auth/cambiar-pin-inicial', { method: 'POST', body: data })
+    getProductosActivos: () => fetch(API.sync.productosActivos),
+    syncPush: payload =>
+      fetch(API.sync.push, { method: 'POST', body: payload }),
+    syncPull: desde => fetch(API.sync.pull(desde)),
+    cambiarPinInicial: data =>
+      fetch(API.auth.cambiarPinInicial, { method: 'POST', body: data })
   }
 }

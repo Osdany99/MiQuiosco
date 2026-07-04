@@ -1,4 +1,6 @@
 <script setup>
+import { API } from '~/services/api-routes'
+
 definePageMeta({
   layout: 'auth'
 })
@@ -53,18 +55,15 @@ async function onSubmit() {
 
   cargando.value = true
   try {
-    const response = await $fetch(
-      '/api/auth/cambiar-pin-inicial',
-      {
-        method: 'POST',
-        body: {
-          usuario_id: auth.usuarioActual.value.id,
-          pin_actual: pinActual.value,
-          pin_nuevo: pinNuevo.value,
-          pin_nuevo_confirmacion: pinNuevoConfirmacion.value
-        }
+    const response = await $fetch(API.auth.cambiarPinInicial, {
+      method: 'POST',
+      body: {
+        usuario_id: auth.usuarioActual.value.id,
+        pin_actual: pinActual.value,
+        pin_nuevo: pinNuevo.value,
+        pin_nuevo_confirmacion: pinNuevoConfirmacion.value
       }
-    )
+    })
 
     toast.add({
       title: 'PIN actualizado',
@@ -73,11 +72,16 @@ async function onSubmit() {
     })
 
     if (response.usuario) {
-      const destino = response.usuario.rol === 'admin' ? '/usuarios' : '/cuadre'
+      const destino
+        = response.usuario.rol === 'admin' ? '/usuarios' : '/cuadre'
       await navigateTo(destino)
     }
   } catch (err) {
-    error.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error al cambiar el PIN.'
+    error.value
+      = err.data?.statusMessage
+        || err.statusMessage
+        || err.message
+        || 'Error al cambiar el PIN.'
   } finally {
     cargando.value = false
   }

@@ -1,4 +1,6 @@
 <script setup>
+import { API } from '~/services/api-routes'
+
 definePageMeta({
   middleware: 'admin'
 })
@@ -26,12 +28,16 @@ const formError = ref(null)
 async function cargarProductos() {
   cargando.value = true
   try {
-    const data = await $fetch('/api/productos')
+    const data = await $fetch(API.productos.list)
     productos.value = data
   } catch (err) {
     toast.add({
       title: 'Error',
-      description: err.data?.statusMessage || err.statusMessage || err.message || 'No se pudieron cargar los productos.',
+      description:
+        err.data?.statusMessage
+        || err.statusMessage
+        || err.message
+        || 'No se pudieron cargar los productos.',
       color: 'error'
     })
   } finally {
@@ -59,7 +65,7 @@ async function onSubmit() {
 
   try {
     if (editando.value) {
-      await $fetch(`/api/productos/${editando.value.id}`, {
+      await $fetch(API.productos.byId(editando.value.id), {
         method: 'PATCH',
         body: {
           nombre: form.nombre,
@@ -70,9 +76,13 @@ async function onSubmit() {
           activo: form.activo
         }
       })
-      toast.add({ title: 'Actualizado', description: 'Producto modificado correctamente.', color: 'success' })
+      toast.add({
+        title: 'Actualizado',
+        description: 'Producto modificado correctamente.',
+        color: 'success'
+      })
     } else {
-      await $fetch('/api/productos', {
+      await $fetch(API.productos.list, {
         method: 'POST',
         body: {
           nombre: form.nombre,
@@ -83,23 +93,35 @@ async function onSubmit() {
           activo: form.activo
         }
       })
-      toast.add({ title: 'Creado', description: 'Producto creado correctamente.', color: 'success' })
+      toast.add({
+        title: 'Creado',
+        description: 'Producto creado correctamente.',
+        color: 'success'
+      })
     }
     showModal.value = false
     await cargarProductos()
   } catch (err) {
-    formError.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error al guardar.'
+    formError.value
+      = err.data?.statusMessage
+        || err.statusMessage
+        || err.message
+        || 'Error al guardar.'
   }
 }
 
 async function verHistorial(p) {
   historialProducto.value = p
   try {
-    const data = await $fetch(`/api/productos/${p.id}/historial-precios`)
+    const data = await $fetch(API.productos.historialPrecios(p.id))
     historial.value = data
     showHistorial.value = true
   } catch (err) {
-    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
+    toast.add({
+      title: 'Error',
+      description: err.data?.statusMessage || err.statusMessage || err.message,
+      color: 'error'
+    })
   }
 }
 
@@ -129,14 +151,22 @@ function abrirModalEditar(p) {
 
 async function toggleActivo(p) {
   try {
-    await $fetch(`/api/productos/${p.id}`, {
+    await $fetch(API.productos.byId(p.id), {
       method: 'PATCH',
       body: { activo: !p.activo }
     })
     await cargarProductos()
-    toast.add({ title: 'Actualizado', description: `Producto ${!p.activo ? 'activado' : 'desactivado'}.`, color: 'success' })
+    toast.add({
+      title: 'Actualizado',
+      description: `Producto ${!p.activo ? 'activado' : 'desactivado'}.`,
+      color: 'success'
+    })
   } catch (err) {
-    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
+    toast.add({
+      title: 'Error',
+      description: err.data?.statusMessage || err.statusMessage || err.message,
+      color: 'error'
+    })
   }
 }
 
@@ -146,8 +176,14 @@ async function moverArriba(p) {
     const a = productos.value[idx]
     const b = productos.value[idx - 1]
     await Promise.all([
-      $fetch(`/api/productos/${a.id}`, { method: 'PATCH', body: { orden: b.orden } }),
-      $fetch(`/api/productos/${b.id}`, { method: 'PATCH', body: { orden: a.orden } })
+      $fetch(API.productos.byId(a.id), {
+        method: 'PATCH',
+        body: { orden: b.orden }
+      }),
+      $fetch(API.productos.byId(b.id), {
+        method: 'PATCH',
+        body: { orden: a.orden }
+      })
     ])
     await cargarProductos()
   }
@@ -159,8 +195,14 @@ async function moverAbajo(p) {
     const a = productos.value[idx]
     const b = productos.value[idx + 1]
     await Promise.all([
-      $fetch(`/api/productos/${a.id}`, { method: 'PATCH', body: { orden: b.orden } }),
-      $fetch(`/api/productos/${b.id}`, { method: 'PATCH', body: { orden: a.orden } })
+      $fetch(API.productos.byId(a.id), {
+        method: 'PATCH',
+        body: { orden: b.orden }
+      }),
+      $fetch(API.productos.byId(b.id), {
+        method: 'PATCH',
+        body: { orden: a.orden }
+      })
     ])
     await cargarProductos()
   }
@@ -179,7 +221,11 @@ const columns = [
 ]
 
 function fmtPrecio(v) {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0
+  }).format(v)
 }
 </script>
 
@@ -192,7 +238,11 @@ function fmtPrecio(v) {
       class="pb-0"
     >
       <template #trailing>
-        <UButton icon="i-lucide-plus" label="Nuevo producto" @click="abrirModalCrear" />
+        <UButton
+          icon="i-lucide-plus"
+          label="Nuevo producto"
+          @click="abrirModalCrear"
+        />
       </template>
     </UPageHeader>
 
@@ -255,7 +305,7 @@ function fmtPrecio(v) {
 
     <UModal v-model="showModal" :ui="{ width: 'max-w-lg' }">
       <template #header>
-        {{ editando.value ? 'Editar producto' : 'Nuevo producto' }}
+        {{ editando.value ? "Editar producto" : "Nuevo producto" }}
       </template>
 
       <UForm :state="form" class="space-y-4" @submit="onSubmit">
@@ -264,7 +314,10 @@ function fmtPrecio(v) {
         </UFormField>
 
         <UFormField label="Descripción">
-          <UInput v-model="form.descripcion" placeholder="Descripción opcional" />
+          <UInput
+            v-model="form.descripcion"
+            placeholder="Descripción opcional"
+          />
         </UFormField>
 
         <div class="grid grid-cols-2 gap-4">
@@ -309,7 +362,11 @@ function fmtPrecio(v) {
 
         <template #footer>
           <div class="flex justify-end gap-2">
-            <UButton variant="ghost" label="Cancelar" @click="showModal.value = false" />
+            <UButton
+              variant="ghost"
+              label="Cancelar"
+              @click="showModal.value = false"
+            />
             <UButton type="submit" :loading="cargando" label="Guardar" />
           </div>
         </template>
@@ -332,10 +389,14 @@ function fmtPrecio(v) {
           ]"
         >
           <template #vigenteDesde="{ row }">
-            {{ new Date(row.vigenteDesde).toLocaleDateString('es-ES') }}
+            {{ new Date(row.vigenteDesde).toLocaleDateString("es-ES") }}
           </template>
           <template #vigenteHasta="{ row }">
-            {{ row.vigenteHasta ? new Date(row.vigenteHasta).toLocaleDateString('es-ES') : 'Vigente' }}
+            {{
+              row.vigenteHasta
+                ? new Date(row.vigenteHasta).toLocaleDateString("es-ES")
+                : "Vigente"
+            }}
           </template>
           <template #precioCompra="{ row }">
             {{ fmtPrecio(row.precioCompra) }}
@@ -348,7 +409,11 @@ function fmtPrecio(v) {
 
       <template #footer>
         <div class="flex justify-end">
-          <UButton variant="ghost" label="Cerrar" @click="showHistorial.value = false" />
+          <UButton
+            variant="ghost"
+            label="Cerrar"
+            @click="showHistorial.value = false"
+          />
         </div>
       </template>
     </UModal>

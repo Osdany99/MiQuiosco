@@ -1,6 +1,7 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import bcrypt from 'bcryptjs'
+import { API } from '~/services/api-routes'
 
 /**
  * Tres contextos de autenticación, completamente aislados:
@@ -73,7 +74,9 @@ export function useAuth() {
 
   const esAdmin = computed(() => usuarioActual.value?.rol === 'admin')
   const esJefe = computed(() => usuarioActual.value?.rol === 'jefe')
-  const esTrabajador = computed(() => usuarioActual.value?.rol === 'trabajador')
+  const esTrabajador = computed(
+    () => usuarioActual.value?.rol === 'trabajador'
+  )
   const rol = computed(() => usuarioActual.value?.rol ?? null)
 
   async function cargarDesdePreferencias() {
@@ -107,7 +110,7 @@ export function useAuth() {
     cargando.value = true
     try {
       try {
-        const response = await $fetch('/api/auth/login', {
+        const response = await $fetch(API.auth.login, {
           method: 'POST',
           body: { nombre_usuario: nombreUsuario, pin }
         })
@@ -147,7 +150,9 @@ export function useAuth() {
     }
 
     const ahora = Date.now()
-    const horasExp = Number(process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || 24)
+    const horasExp = Number(
+      process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || 24
+    )
 
     if (response.token) {
       if (response.usuario.rol === 'admin') {
@@ -164,7 +169,10 @@ export function useAuth() {
           expira_en: null,
           ultima_actividad_en: ahora
         }
-        await Preferences.set({ key: PREF_SESION_LOCAL, value: JSON.stringify(sesion) })
+        await Preferences.set({
+          key: PREF_SESION_LOCAL,
+          value: JSON.stringify(sesion)
+        })
         sesionLocal.value = sesion
       }
     } else {
@@ -177,7 +185,10 @@ export function useAuth() {
           expira_en: ahora + horasExp * 60 * 60 * 1000,
           ultima_actividad_en: ahora
         }
-        await Preferences.set({ key: PREF_SESION_LOCAL, value: JSON.stringify(sesion) })
+        await Preferences.set({
+          key: PREF_SESION_LOCAL,
+          value: JSON.stringify(sesion)
+        })
         sesionLocal.value = sesion
       }
     }
@@ -189,7 +200,9 @@ export function useAuth() {
 
     if (!usuario || !usuario.activo) return null
 
-    const hashLocal = await Preferences.get({ key: `${PREF_PIN_HASH_LOCAL}_${usuario.id}` })
+    const hashLocal = await Preferences.get({
+      key: `${PREF_PIN_HASH_LOCAL}_${usuario.id}`
+    })
     if (!hashLocal.value) return null
 
     const pinOk = await bcrypt.compare(pin, hashLocal.value)
@@ -201,11 +214,15 @@ export function useAuth() {
       usuario_nombre: usuario.nombre,
       rol: usuario.rol === 'jefe' ? 'jefe' : 'trabajador',
       pin_hash_local: hashLocal.value,
-      expira_en: usuario.rol === 'trabajador' ? ahora + 24 * 60 * 60 * 1000 : null,
+      expira_en:
+        usuario.rol === 'trabajador' ? ahora + 24 * 60 * 60 * 1000 : null,
       ultima_actividad_en: ahora
     }
 
-    await Preferences.set({ key: PREF_SESION_LOCAL, value: JSON.stringify(sesion) })
+    await Preferences.set({
+      key: PREF_SESION_LOCAL,
+      value: JSON.stringify(sesion)
+    })
     sesionLocal.value = sesion
     usuarioActual.value = {
       id: usuario.id,
@@ -227,7 +244,9 @@ export function useAuth() {
       return true
     }
 
-    const inactTimeout = Number(process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || 60)
+    const inactTimeout = Number(
+      process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || 60
+    )
     const limiteMs = inactTimeout * 1000
     if (ahora - sesion.ultima_actividad_en > limiteMs) return false
     return true
@@ -262,7 +281,7 @@ export function useAuth() {
     try {
       const token = jwtAdmin.value || jwtSync.value
       if (token) {
-        await $fetch('/api/auth/logout', {
+        await $fetch(API.auth.logout, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => {})

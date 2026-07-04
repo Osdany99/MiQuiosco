@@ -1,4 +1,6 @@
 <script setup>
+import { API } from '~/services/api-routes'
+
 definePageMeta({
   middleware: 'admin'
 })
@@ -20,31 +22,52 @@ const columns = [
 
 async function toggleActivo(u) {
   try {
-    await $fetch(`/api/usuarios/${u.id}`, {
+    await $fetch(API.usuarios.byId(u.id), {
       method: 'PATCH',
       body: { activo: !u.activo }
     })
     await cargarUsuarios()
-    toast.add({ title: 'Actualizado', description: `Usuario ${!u.activo ? 'activado' : 'desactivado'}.`, color: 'success' })
+    toast.add({
+      title: 'Actualizado',
+      description: `Usuario ${!u.activo ? 'activado' : 'desactivado'}.`,
+      color: 'success'
+    })
   } catch (err) {
-    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
+    toast.add({
+      title: 'Error',
+      description: err.data?.statusMessage || err.statusMessage || err.message,
+      color: 'error'
+    })
   }
 }
 
 async function resetearPin(u) {
   const pin = prompt(`Nuevo PIN para ${u.nombre} (4-6 dígitos):`)
   if (!pin || !/^\d{4,6}$/.test(pin)) {
-    if (pin) toast.add({ title: 'PIN inválido', description: 'Debe tener 4-6 dígitos.', color: 'error' })
+    if (pin)
+      toast.add({
+        title: 'PIN inválido',
+        description: 'Debe tener 4-6 dígitos.',
+        color: 'error'
+      })
     return
   }
   try {
-    await $fetch(`/api/usuarios/${u.id}/pin`, {
+    await $fetch(API.usuarios.resetPin(u.id), {
       method: 'PATCH',
       body: { pin }
     })
-    toast.add({ title: 'PIN reseteado', description: `Nuevo PIN asignado a ${u.nombre}.`, color: 'success' })
+    toast.add({
+      title: 'PIN reseteado',
+      description: `Nuevo PIN asignado a ${u.nombre}.`,
+      color: 'success'
+    })
   } catch (err) {
-    toast.add({ title: 'Error', description: err.data?.statusMessage || err.statusMessage || err.message, color: 'error' })
+    toast.add({
+      title: 'Error',
+      description: err.data?.statusMessage || err.statusMessage || err.message,
+      color: 'error'
+    })
   }
 }
 </script>
@@ -60,7 +83,7 @@ async function resetearPin(u) {
       <BaseTable
         ref="tableRef"
         v-model="form"
-        api-url="/api/usuarios"
+        :api-url="API.usuarios.list"
         :columns="columns"
         empty-state="No se encontraron usuarios"
         modal-title="Usuario"
@@ -71,10 +94,7 @@ async function resetearPin(u) {
           <UsuarioForm v-model="form" />
         </template>
         <template #activo-cell="{ value, row }">
-          <USwitch
-            size="sm"
-            @update:model-value="toggleActivo(row.original)"
-          />
+          <USwitch size="sm" @update:model-value="toggleActivo(row.original)" />
         </template>
         <template #debeCambiarPin-cell="{ value, row }">
           <UBadge
@@ -93,7 +113,13 @@ async function resetearPin(u) {
         <template #rol-cell="{ row }">
           <UBadge
             :label="row.original.rol"
-            :color="row.original.rol === 'admin' ? 'primary' : row.original.rol === 'jefe' ? 'info' : 'neutral'"
+            :color="
+              row.original.rol === 'admin'
+                ? 'primary'
+                : row.original.rol === 'jefe'
+                  ? 'info'
+                  : 'neutral'
+            "
           />
         </template>
       </BaseTable>
