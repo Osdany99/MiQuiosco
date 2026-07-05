@@ -13,12 +13,28 @@ const itemsRol = [
 ]
 
 const formRef = ref()
-const fields = [
-  { name: 'name', label: 'Nombre', placeholder: 'Nombre completo', type: 'text', required: true, props: { class: 'w-full' } },
-  { name: 'rol', label: 'Rol', type: 'select', props: { class: 'w-full' }, valueKey: 'value', labelKey: 'label', items: itemsRol },
-  { name: 'pin', label: 'PIN', type: 'password', inputmode: 'numeric', maxlength: 6, placeholder: '••••', required: true, props: { class: 'w-full' } },
-  { name: 'activo', label: 'Activo', type: 'checkbox', props: { class: 'w-full' } }
-]
+
+const esEdicion = computed(() => !!form.value?.id)
+
+const fields = computed(() => {
+  const f = [
+    { name: 'nombre', label: 'Nombre', placeholder: 'Nombre completo', type: 'text', required: true, props: { class: 'w-full' } },
+    { name: 'rol', label: 'Rol', type: 'select', props: { class: 'w-full' }, required: true, valueKey: 'value', labelKey: 'label', items: itemsRol }
+  ]
+
+  if (!esEdicion.value) {
+    f.push({ name: 'pin', label: 'PIN', type: 'password', inputmode: 'numeric', maxlength: 6, placeholder: '••••', required: true, props: { class: 'w-full' } })
+  }
+
+  f.push({ name: 'activo', label: 'Activo', type: 'switch', props: {
+    uncheckedIcon: 'i-lucide-x',
+    checkedIcon: 'i-lucide-check',
+    class: 'w-full'
+  } })
+
+  return f
+})
+
 defineExpose({
   validate: async () => {
     return await formRef.value?.validate()

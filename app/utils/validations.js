@@ -16,9 +16,12 @@ export const fields = {
 }
 
 export const schemas = {
+  pinReset: z.object({
+    pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos')
+  }),
   user: z.object({
-    name: fields.name('El nombre'),
-    pin: z.string().length(4, 'El PIN debe tener 4 dígitos'),
+    nombre: fields.name('El nombre'),
+    pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos').optional(),
     rol: z.enum(['admin', 'jefe', 'trabajador']),
     activo: fields.boolean().default(true)
   }),

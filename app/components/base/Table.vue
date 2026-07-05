@@ -33,7 +33,11 @@
               :row-data="row.original || row"
               @edit="handleEdit"
               @delete="handleDelete"
-            />
+            >
+              <template #extra="slotProps">
+                <slot name="row-actions-extra" v-bind="slotProps" />
+              </template>
+            </TableActions>
           </slot>
         </template>
       </UTable>
@@ -88,11 +92,18 @@ const props = defineProps({
   pagination: { type: Boolean, default: true },
   defaultLimit: { type: Number, default: 10 },
   formRef: { type: Object, default: null },
+  submitFields: { type: Array, default: null },
   loadingProp: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['edit', 'delete', 'success', 'reset'])
+const emit = defineEmits(['edit', 'delete', 'success'])
 const form = defineModel({ type: Object })
+
+const initialForm = ref(null)
+
+onMounted(() => {
+  initialForm.value = JSON.parse(JSON.stringify(form.value))
+})
 
 const { page, pageCount, data, total, pending, fetchError, refresh } = useTableData(props)
 
@@ -110,7 +121,9 @@ const {
 } = useTableCrud(props, emit, form, refresh)
 
 const columnHeaders = computed(() => props.columns.map(c => c.header))
-const visibleHeaders = ref(props.columns.map(c => c.header))
+const visibleHeaders = ref(
+  props.columns.filter(c => c.visible !== false).map(c => c.header)
+)
 
 watch(columnHeaders, (newHeaders, oldHeaders) => {
   const added = newHeaders.filter(h => !oldHeaders.includes(h))
@@ -126,7 +139,7 @@ const hasActionsColumn = computed(() =>
 )
 
 const tableColumns = computed(() => {
-  if ((props.showEdit || props.showDelete) && !hasActionsColumn.value) {
+  if ((props.showEdit || props.showDelete) && visibleHeaders.value.includes('Acciones') && !hasActionsColumn.value) {
     return [...filteredColumns.value, { id: 'action', header: 'Acciones' }]
   }
   return filteredColumns.value
@@ -134,7 +147,9 @@ const tableColumns = computed(() => {
 
 defineExpose({
   openAdd: () => {
-    emit('reset')
+    if (initialForm.value) {
+      form.value = JSON.parse(JSON.stringify(initialForm.value))
+    }
     isEditing.value = false
     isOpen.value = true
   },

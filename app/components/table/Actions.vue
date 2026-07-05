@@ -16,6 +16,7 @@
       variant="ghost"
       @click="$emit('delete', rowData)"
     />
+    <slot name="extra" :row-data="rowData" />
   </div>
 </template>
 

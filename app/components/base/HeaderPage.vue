@@ -42,5 +42,5 @@ defineProps({
     default: true
   }
 })
-defineEmits('new')
+defineEmits(['new'])
 </script>

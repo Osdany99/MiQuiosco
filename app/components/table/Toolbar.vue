@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-const visibleHeaders = defineModel({ type: Array, required: true })
+const visibleHeaders = defineModel('visibleHeaders', { type: Array, required: true })
 
 defineProps({
   columnHeaders: { type: Array, required: true }

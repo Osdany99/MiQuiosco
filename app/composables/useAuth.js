@@ -158,6 +158,16 @@ export function useAuth() {
       if (response.usuario.rol === 'admin') {
         await Preferences.set({ key: PREF_JWT_ADMIN, value: response.token })
         jwtAdmin.value = response.token
+        const sesion = {
+          usuario_id: response.usuario.id,
+          usuario_nombre: response.usuario.nombre,
+          rol: 'admin',
+          pin_hash_local: '',
+          expira_en: null,
+          ultima_actividad_en: Date.now()
+        }
+        await Preferences.set({ key: PREF_SESION_LOCAL, value: JSON.stringify(sesion) })
+        sesionLocal.value = sesion
       } else if (response.usuario.rol === 'jefe') {
         await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
         jwtSync.value = response.token

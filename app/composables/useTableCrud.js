@@ -80,7 +80,6 @@ export function useTableCrud(props, emit, form, refresh) {
   const { create, update, loading } = useCrud(props.apiUrl, {
     onSuccess: () => {
       handleCloseModal()
-      emit('reset')
       refresh()
       emit('success', successMessage.value)
     }
@@ -90,9 +89,11 @@ export function useTableCrud(props, emit, form, refresh) {
   const handleSubmit = async () => {
     if (props.formRef) {
       try {
-        await props.formRef.validate()
-      } catch (_error) {
-        console.warn('[BaseTable] Validación fallida:', _error)
+        const formInstance = toValue(props.formRef)
+        if (formInstance) {
+          await formInstance.validate()
+        }
+      } catch {
         return
       }
     }
@@ -101,14 +102,15 @@ export function useTableCrud(props, emit, form, refresh) {
       ? 'Actualizado correctamente'
       : 'Creado correctamente'
 
-    const { id, ...body } = form.value
+    const body = Object.fromEntries(
+      Object.entries(form.value).filter(([k]) => k !== 'id' && (!props.submitFields || props.submitFields.includes(k)))
+    )
     const { error } = isEditing.value
-      ? await update(id, body)
+      ? await update(form.value.id, body)
       : await create(body)
 
     if (!error) {
       handleCloseModal()
-      emit('reset')
     }
   }
 
