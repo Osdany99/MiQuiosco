@@ -1,6 +1,4 @@
 <script setup>
-import { API } from '~/services/api-routes'
-
 definePageMeta({
   layout: 'auth'
 })

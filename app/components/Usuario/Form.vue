@@ -23,7 +23,7 @@ const fields = computed(() => {
   ]
 
   if (!esEdicion.value) {
-    f.push({ name: 'pin', label: 'PIN', type: 'password', inputmode: 'numeric', maxlength: 6, placeholder: '••••', required: true, props: { class: 'w-full' } })
+    f.push({ name: 'pin', label: 'PIN', type: 'password', maxlength: 6, required: true, props: { mask: true } })
   }
 
   f.push({ name: 'activo', label: 'Activo', type: 'switch', props: {

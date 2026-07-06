@@ -1,7 +1,6 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import bcrypt from 'bcryptjs'
-import { API } from '~/services/api-routes'
 
 /**
  * Tres contextos de autenticación, completamente aislados:

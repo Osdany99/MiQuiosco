@@ -1,21 +1,23 @@
 <template>
   <div class="flex gap-2 justify-start">
-    <UButton
-      v-if="showEdit"
-      icon="i-lucide-edit"
-      size="sm"
-      color="secondary"
-      variant="ghost"
-      @click="$emit('edit', rowData)"
-    />
-    <UButton
-      v-if="showDelete"
-      icon="i-lucide-trash"
-      size="sm"
-      color="error"
-      variant="ghost"
-      @click="$emit('delete', rowData)"
-    />
+    <UTooltip v-if="showEdit" text="Editar" :delay-duration="0">
+      <UButton
+        icon="i-lucide-edit"
+        size="sm"
+        color="secondary"
+        variant="ghost"
+        @click="$emit('edit', rowData)"
+      />
+    </UTooltip>
+    <UTooltip v-if="showDelete" text="Eliminar" :delay-duration="0">
+      <UButton
+        icon="i-lucide-trash"
+        size="sm"
+        color="error"
+        variant="ghost"
+        @click="$emit('delete', rowData)"
+      />
+    </UTooltip>
     <slot name="extra" :row-data="rowData" />
   </div>
 </template>

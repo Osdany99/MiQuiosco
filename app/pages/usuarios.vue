@@ -1,6 +1,4 @@
 <script setup>
-import { API } from '~/services/api-routes'
-
 definePageMeta({
   middleware: 'admin'
 })
@@ -22,22 +20,12 @@ const columns = [
   { accessorKey: 'id', header: 'ID', visible: false },
   { accessorKey: 'nombre', header: 'Nombre' },
   { accessorKey: 'rol', header: 'Rol' },
-  { accessorKey: 'activo', header: 'Activo' },
   { accessorKey: 'debeCambiarPin', header: 'Cambiar PIN' },
+  { accessorKey: 'activo', header: 'Activo' },
   { accessorKey: 'action', header: 'Acciones' }
 ]
 
 const { update: apiUpdate, loading: pinResetLoading } = useCrud(API.usuarios.list)
-const togglingUserId = ref(null)
-
-async function toggleActivo(u) {
-  togglingUserId.value = u.id
-  const { error } = await apiUpdate(u.id, { activo: !u.activo })
-  if (!error) {
-    await tableRef.value?.refresh()
-  }
-  togglingUserId.value = null
-}
 
 function abrirResetPin(user) {
   pinResetUser.value = user
@@ -56,51 +44,50 @@ async function confirmarResetPin() {
 </script>
 
 <template>
-  <div class="space-y-4">
-    <BaseHeaderPage
-      title="Usuarios"
-      description="Gestiona los usuarios del sistema"
-      title-button="Nuevo Usuario"
-      @new="tableRef.openAdd()"
+  <BaseHeaderPage
+    title="Usuarios"
+    description="Gestiona los usuarios del sistema"
+    title-button="Nuevo Usuario"
+    @new="tableRef.openAdd()"
+  >
+    <BaseTable
+      ref="tableRef"
+      v-model="form"
+      :api-url="API.usuarios.list"
+      :columns="columns"
+      empty-state="No se encontraron usuarios"
+      modal-title="Usuario"
+      :form-ref="usuarioFormRef"
+      :submit-fields="['nombre', 'rol', 'pin', 'activo']"
     >
-      <BaseTable
-        ref="tableRef"
-        v-model="form"
-        :api-url="API.usuarios.list"
-        :columns="columns"
-        empty-state="No se encontraron usuarios"
-        modal-title="Usuario"
-        :form-ref="usuarioFormRef"
-        :submit-fields="['nombre', 'rol', 'pin', 'activo']"
-      >
-        <template #form>
-          <UsuarioForm ref="usuarioFormRef" v-model="form" />
-        </template>
-        <template #activo-cell="{ row }">
-          <USwitch
-            :default-value="row.original.activo"
-            :loading="togglingUserId === row.original.id"
-            loading-icon="i-lucide-loader"
-            size="sm"
-            @update:model-value="toggleActivo(row.original)"
-          />
-        </template>
-        <template #debeCambiarPin-cell="{ row }">
-          <BaseBadgeTrueOrFalse :value="row.original.debeCambiarPin" color-true="warning" color-false="success" />
-        </template>
-        <template #rol-cell="{ row }">
-          <UBadge
-            :label="row.original.rol"
-            :color="
-              row.original.rol === 'admin'
-                ? 'primary'
-                : row.original.rol === 'jefe'
-                  ? 'info'
-                  : 'neutral'
-            "
-          />
-        </template>
-        <template #row-actions-extra="{ rowData }">
+      <template #form>
+        <UsuarioForm ref="usuarioFormRef" v-model="form" />
+      </template>
+      <template #activo-cell="{ row }">
+        <BaseChangeActivation
+          :id="row.original.id"
+          :default-value="row.original.activo"
+          :api-url="API.usuarios.list"
+          :table-ref="tableRef"
+        />
+      </template>
+      <template #debeCambiarPin-cell="{ row }">
+        <BaseBadgeTrueOrFalse :value="row.original.debeCambiarPin" color-true="warning" color-false="success" />
+      </template>
+      <template #rol-cell="{ row }">
+        <UBadge
+          :label="row.original.rol"
+          :color="
+            row.original.rol === 'admin'
+              ? 'primary'
+              : row.original.rol === 'jefe'
+                ? 'info'
+                : 'neutral'
+          "
+        />
+      </template>
+      <template #row-actions-extra="{ rowData }">
+        <UTooltip text="Cambiar pin" :delay-duration="0">
           <UButton
             icon="i-lucide-key"
             size="sm"
@@ -108,19 +95,19 @@ async function confirmarResetPin() {
             variant="ghost"
             @click="abrirResetPin(rowData)"
           />
-        </template>
-      </BaseTable>
+        </UTooltip>
+      </template>
+    </BaseTable>
 
-      <BaseDialog
-        v-model="pinResetOpen"
-        title="Cambiar PIN"
-        confirm-text="Guardar PIN"
-        :loading="pinResetLoading"
-        @confirm="confirmarResetPin"
-        @cancel="pinResetOpen = false"
-      >
-        <UsuarioPin ref="pinResetRef" v-model="pinResetForm" />
-      </BaseDialog>
-    </BaseHeaderPage>
-  </div>
+    <BaseDialog
+      v-model="pinResetOpen"
+      title="Cambiar PIN"
+      confirm-text="Guardar PIN"
+      :loading="pinResetLoading"
+      @confirm="confirmarResetPin"
+      @cancel="pinResetOpen = false"
+    >
+      <UsuarioPin ref="pinResetRef" v-model="pinResetForm" />
+    </BaseDialog>
+  </BaseHeaderPage>
 </template>

@@ -2,7 +2,7 @@
   <component
     :is="noForm ? 'div' : UForm"
     ref="formRef"
-    v-bind="noForm ? {} : { schema: computedSchema, state: form }"
+    v-bind="noForm ? {} : { schema: computedSchema, state: form, validateOn: ['input', 'blur', 'change'] }"
     class="space-y-4"
   >
     <div :class="hasColSpan ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'space-y-2'">
@@ -44,6 +44,15 @@
             />
           </template>
 
+          <template v-else-if="field.type === 'number'">
+            <UInputNumber
+              v-model="form[field.name]"
+              v-bind="field.props"
+              :placeholder="field.placeholder"
+              :class="field.class || 'w-full'"
+            />
+          </template>
+
           <template v-else>
             <UInput
               v-model="form[field.name]"
@@ -77,8 +86,8 @@ const hasColSpan = computed(() => fields.some(f => f.colSpan))
 const computedSchema = computed(() => schema)
 
 const getInputType = (fieldType) => {
-  const types = { email: 'email', number: 'number', password: 'password' }
-  return types[fieldType]
+  const types = { email: 'email', password: 'password' }
+  return types[fieldType] || 'text'
 }
 
 defineExpose({

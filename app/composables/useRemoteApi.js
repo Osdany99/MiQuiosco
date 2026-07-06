@@ -22,8 +22,6 @@
  * // Cambiar PIN
  * await cambiarPinInicial({ pinActual: '1234', pinNuevo: '5678' })
  */
-import { API } from '~/services/api-routes'
-
 export function useRemoteApi() {
   const { getHeaders } = useHeaders()
 

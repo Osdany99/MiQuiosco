@@ -120,7 +120,7 @@ async function actualizarCatalogo() {
 }
 
 function fmtMoneda(v) {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v)
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'CUP', minimumFractionDigits: 0 }).format(v)
 }
 
 function getProductoNombre(productoId) {

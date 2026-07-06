@@ -22,6 +22,7 @@ export default defineNuxtConfig({
       cors: true
     }
   },
+
   future: {
     compatibilityVersion: 4 // esto activa la estructura app/
   },
@@ -40,5 +41,13 @@ export default defineNuxtConfig({
         braceStyle: '1tbs'
       }
     }
+  },
+  icon: {
+    provider: 'none',
+    clientBundle: {
+      scan: true,
+      icons: ['lucide:minus', 'lucide:plus']
+    },
+    fallbackToApi: false
   }
 })

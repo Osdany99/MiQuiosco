@@ -12,7 +12,7 @@
  * @returns {Function} returns.create - Crea recurso: (body) => Promise<{data, error}>.
  * @returns {Function} returns.update - Actualiza recurso: (id, body) => Promise<{data, error}>.
  * @returns {Function} returns.remove - Elimina recurso: (id) => Promise<{data, error}>.
- * @returns {Function} returns.patch - Actualización parcial: (body) => Promise<{data, error}>.
+ * @returns {Function} returns.patch - Actualización parcial: (id, body) => Promise<{data, error}>.
  *
  * @example
  * const { create, update, remove, loading, error } = useCrud('/api/productos', {
@@ -27,6 +27,9 @@
  *
  * // Eliminar
  * await remove('123')
+ *
+ * // Actualización parcial
+ * await patch('123', { precio: 150 })
  */
 export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
   const { getHeaders } = useHeaders()
@@ -58,6 +61,6 @@ export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
     create: body => ejecutar('POST', baseUrl, body),
     update: (id, body) => ejecutar('PUT', `${baseUrl}/${id}`, body),
     remove: id => ejecutar('DELETE', `${baseUrl}/${id}`),
-    patch: body => ejecutar('PATCH', baseUrl, body)
+    patch: (id, body) => ejecutar('PATCH', `${baseUrl}/${id}`, body)
   }
 }

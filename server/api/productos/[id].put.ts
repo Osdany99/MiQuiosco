@@ -4,7 +4,7 @@ import { db } from '../../database/client'
 import { productos, historialPrecios } from '../../database/schema'
 import { requireRole, requireAuth } from '../../utils/auth'
 
-const editarProductoSchema = z.object({
+const actualizarProductoSchema = z.object({
   nombre: z.string().min(1).max(100).optional(),
   descripcion: z.string().nullable().optional(),
   precioCompraActual: z.number().min(0).optional(),
@@ -13,12 +13,6 @@ const editarProductoSchema = z.object({
   activo: z.boolean().optional()
 })
 
-/**
- * PATCH /api/productos/:id
- *
- * Edita un producto. Si cambia precioCompraActual o precioVentaActual,
- * cierra el registro vigente en historial_precios y crea uno nuevo.
- */
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'admin')
 
@@ -28,7 +22,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = editarProductoSchema.safeParse(body)
+  const parsed = actualizarProductoSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({
@@ -81,7 +75,6 @@ export default defineEventHandler(async (event) => {
 
   const auth = await requireAuth(event, 'admin')
 
-  // Si cambió el precio, cerrar historial vigente y crear nuevo
   if (precioCambiado) {
     // Cerrar solo el registro actualmente vigente (vigente_hasta IS NULL)
     await db
@@ -94,7 +87,6 @@ export default defineEventHandler(async (event) => {
         )
       )
 
-    // Crear nuevo registro vigente
     const precioCompraNuevo = updateData.precioCompraActual ?? String(current[0]!.precioCompraActual)
     const precioVentaNuevo = updateData.precioVentaActual ?? String(current[0]!.precioVentaActual)
     await db.insert(historialPrecios).values({

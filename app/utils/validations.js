@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const fields = {
   name: (label = 'El nombre') => z.string().min(1, `${label} es requerido`),
+  pin: (label = 'El PIN') => z.string().regex(/^\d{4,6}$/, `${label} debe tener 4-6 dígitos`),
   email: () => z.string().email('Correo inválido').optional().nullable(),
   password: (required = false) => required
     ? z.string().min(6, 'Mínimo 6 caracteres')
@@ -17,21 +18,21 @@ export const fields = {
 
 export const schemas = {
   pinReset: z.object({
-    pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos')
+    pin: fields.pin()
   }),
   user: z.object({
-    nombre: fields.name('El nombre'),
-    pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos').optional(),
+    nombre: fields.name(),
+    pin: fields.pin().optional(),
     rol: z.enum(['admin', 'jefe', 'trabajador']),
     activo: fields.boolean().default(true)
   }),
 
   product: z.object({
-    name: fields.name('El nombre del producto'),
-    description: fields.description(),
-    costPrice: fields.number(0),
-    salePrice: fields.number(0),
-    categoryId: z.string().min(1, 'La categoría es requerida'),
-    isActive: fields.boolean()
+    nombre: fields.name('El nombre del producto'),
+    descripcion: fields.description(),
+    precioCompraActual: z.coerce.number().min(0, 'No puede ser menor a 0'),
+    precioVentaActual: z.coerce.number().min(0, 'No puede ser menor a 0'),
+    orden: z.coerce.number().int().min(1, 'Debe ser 1 o más'),
+    activo: fields.boolean()
   })
 }

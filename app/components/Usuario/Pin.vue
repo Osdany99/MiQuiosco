@@ -9,7 +9,7 @@ const form = defineModel({
 const formRef = ref()
 
 const fields = [
-  { name: 'pin', label: 'PIN', type: 'password', inputmode: 'numeric', maxlength: 6, placeholder: '••••', required: true, props: { class: 'w-full' } }
+  { name: 'pin', label: 'PIN', type: 'pin', maxlength: 6, required: true, props: { mask: true } }
 ]
 
 defineExpose({
