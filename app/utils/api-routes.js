@@ -19,6 +19,14 @@ export const API = {
     push: '/api/sync/push',
     pull: desde => `/api/sync/pull?desde=${desde}`
   },
+  cuadres: {
+    list: '/api/cuadres',
+    byId: id => `/api/cuadres/${id}`
+  },
+  itemsCuadre: {
+    list: '/api/items-cuadre',
+    byId: id => `/api/items-cuadre/${id}`
+  },
   graficas: {
     productosMasVendidos: '/api/graficas/productos-mas-vendidos',
     productosMayorGanancia: '/api/graficas/productos-mayor-ganancia',

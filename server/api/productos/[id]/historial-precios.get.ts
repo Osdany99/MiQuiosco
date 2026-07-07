@@ -1,15 +1,18 @@
 import { eq, desc } from 'drizzle-orm'
 import { db } from '../../../database/client'
 import { historialPrecios } from '../../../database/schema'
-import { requireRole } from '../../../utils/auth'
+import { requireAuth } from '../../../utils/auth'
 
 /**
  * GET /api/productos/:id/historial-precios
  *
- * Historial completo de precios de un producto (solo admin).
+ * Historial completo de precios de un producto (admin o jefe).
  */
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'admin')
+  const { usuario } = await requireAuth(event, 'sync')
+  if (usuario.rol !== 'jefe') {
+    throw createError({ statusCode: 403, statusMessage: 'Acceso denegado.' })
+  }
 
   const id = event.context.params?.id
   if (!id) {

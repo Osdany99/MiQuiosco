@@ -71,7 +71,7 @@ async function onSubmit() {
 
     if (response.usuario) {
       const destino
-        = response.usuario.rol === 'admin' ? '/usuarios' : '/cuadre'
+        = response.usuario.rol === 'jefe' ? '/cuadre' : '/cuadre'
       await navigateTo(destino)
     }
   } catch (err) {

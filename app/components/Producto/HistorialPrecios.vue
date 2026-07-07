@@ -40,31 +40,19 @@ const props = defineProps({
 })
 
 const isOpen = defineModel({ type: Boolean, default: false })
-const toast = useToast()
+const productoRepo = useProductoRepo()
 
-const historialUrl = computed(() =>
-  isOpen.value && props.producto?.id
-    ? API.productos.historialPrecios(props.producto.id)
-    : null
-)
+const historial = ref([])
+const pending = ref(false)
 
-const { data: historial, pending, error, refresh } = useApiFetch(historialUrl, {
-  immediate: false
-})
-
-watch(isOpen, (open) => {
+watch(isOpen, async (open) => {
   if (open && props.producto?.id) {
-    nextTick(() => refresh())
-  }
-})
-
-watch(error, (err) => {
-  if (err) {
-    toast.add({
-      title: 'Error',
-      description: err.data?.statusMessage || err.statusMessage || err.message,
-      color: 'error'
-    })
+    pending.value = true
+    try {
+      historial.value = await productoRepo.getHistorial(props.producto.id)
+    } finally {
+      pending.value = false
+    }
   }
 })
 

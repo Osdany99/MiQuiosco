@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { eq, and, isNull } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { productos, historialPrecios } from '../../database/schema'
-import { requireRole, requireAuth } from '../../utils/auth'
+import { requireAuth } from '../../utils/auth'
 
 const actualizarProductoSchema = z.object({
   nombre: z.string().min(1).max(100).optional(),
@@ -14,7 +14,10 @@ const actualizarProductoSchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'admin')
+  const { usuario } = await requireAuth(event, 'sync')
+  if (usuario.rol !== 'jefe') {
+    throw createError({ statusCode: 403, statusMessage: 'Acceso denegado.' })
+  }
 
   const id = event.context.params?.id
   if (!id) {
@@ -73,7 +76,7 @@ export default defineEventHandler(async (event) => {
 
   updateData.actualizadoEn = new Date()
 
-  const auth = await requireAuth(event, 'admin')
+  const cambiadoPor = usuario.id
 
   if (precioCambiado) {
     // Cerrar solo el registro actualmente vigente (vigente_hasta IS NULL)
@@ -94,7 +97,7 @@ export default defineEventHandler(async (event) => {
       precioCompra: precioCompraNuevo,
       precioVenta: precioVentaNuevo,
       vigenteDesde: new Date(),
-      cambiadoPor: auth.usuario.id
+      cambiadoPor
     } as typeof historialPrecios.$inferInsert)
   }
 

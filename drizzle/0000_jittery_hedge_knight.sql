@@ -1,5 +1,5 @@
 CREATE TYPE "public"."estado_cuadre" AS ENUM('abierto', 'cerrado');--> statement-breakpoint
-CREATE TYPE "public"."rol" AS ENUM('admin', 'jefe', 'trabajador');--> statement-breakpoint
+CREATE TYPE "public"."rol" AS ENUM('jefe', 'trabajador');--> statement-breakpoint
 CREATE TYPE "public"."tipo_linea" AS ENUM('normal', 'regalo', 'descuento_familiar');--> statement-breakpoint
 CREATE TABLE "cuadre_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

@@ -23,7 +23,7 @@ export const schemas = {
   user: z.object({
     nombre: fields.name(),
     pin: fields.pin().optional(),
-    rol: z.enum(['admin', 'jefe', 'trabajador']),
+    rol: z.enum(['jefe', 'trabajador']),
     activo: fields.boolean().default(true)
   }),
 

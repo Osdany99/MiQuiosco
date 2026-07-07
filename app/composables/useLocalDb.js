@@ -71,6 +71,17 @@ class InMemoryDb {
       if (predicate(row)) Object.assign(row, patch)
     }
   }
+
+  getById(table, id) {
+    const rows = this.tables.get(table) ?? []
+    return rows.find(r => r.id === id) ?? null
+  }
+
+  remove(table, id) {
+    const rows = this.tables.get(table) ?? []
+    const idx = rows.findIndex(r => r.id === id)
+    if (idx !== -1) rows.splice(idx, 1)
+  }
 }
 
 async function getConnection() {
@@ -202,9 +213,10 @@ export function useLocalDb() {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
-      const rows = conn.where('productos', r =>
-        r.puesto_id === puestoId && r.activo === 1
-      )
+      const rows = conn.where('productos', r => {
+        const pid = r.puesto_id ?? r.puestoId
+        return pid === puestoId && (r.activo === 1 || r.activo === true)
+      })
       return rows.map(rowToProducto)
     }
 
@@ -251,11 +263,132 @@ export function useLocalDb() {
     return (result.values ?? []).map(rowToCuadreItem)
   }
 
+  /**
+   * Inserta una fila en la tabla indicada.
+   * Los keys del objeto datos se usan como nombres de columna (snake_case).
+   */
+  async function insert(tabla, datos) {
+    const conn = await getConnection()
+
+    if (conn instanceof InMemoryDb) {
+      conn.ensureTable(tabla, '')
+      conn.insert(tabla, { ...datos })
+      return datos
+    }
+
+    const keys = Object.keys(datos)
+    const placeholders = keys.map(() => '?').join(', ')
+    const cols = keys.join(', ')
+    await conn.execute({
+      statement: `INSERT INTO ${tabla} (${cols}) VALUES (${placeholders})`,
+      values: keys.map(k => datos[k])
+    })
+    return datos
+  }
+
+  /**
+   * Actualiza una fila por su campo `id`.
+   */
+  async function update(tabla, id, cambios) {
+    const conn = await getConnection()
+
+    if (conn instanceof InMemoryDb) {
+      const existing = conn.getById(tabla, id)
+      if (existing) Object.assign(existing, cambios)
+      return existing
+    }
+
+    const keys = Object.keys(cambios)
+    const setClause = keys.map(k => `${k} = ?`).join(', ')
+    await conn.execute({
+      statement: `UPDATE ${tabla} SET ${setClause} WHERE id = ?`,
+      values: [...keys.map(k => cambios[k]), id]
+    })
+  }
+
+  /**
+   * Elimina una fila por su campo `id`.
+   */
+  async function remove(tabla, id) {
+    const conn = await getConnection()
+
+    if (conn instanceof InMemoryDb) {
+      conn.remove(tabla, id)
+      return
+    }
+
+    await conn.execute({
+      statement: `DELETE FROM ${tabla} WHERE id = ?`,
+      values: [id]
+    })
+  }
+
+  /**
+   * Retorna todas las filas de una tabla.
+   */
+  async function queryAll(tabla) {
+    const conn = await getConnection()
+
+    if (conn instanceof InMemoryDb) {
+      return conn.all(tabla).map(r => ({ ...r }))
+    }
+
+    const result = await conn.query({
+      statement: `SELECT * FROM ${tabla}`,
+      values: []
+    })
+    return (result.values ?? []).map(r => ({ ...r }))
+  }
+
+  /**
+   * Retorna una fila por su campo `id`, o null si no existe.
+   */
+  async function getById(tabla, id) {
+    const conn = await getConnection()
+
+    if (conn instanceof InMemoryDb) {
+      const row = conn.getById(tabla, id)
+      return row ? { ...row } : null
+    }
+
+    const result = await conn.query({
+      statement: `SELECT * FROM ${tabla} WHERE id = ? LIMIT 1`,
+      values: [id]
+    })
+    return result.values && result.values[0] ? { ...result.values[0] } : null
+  }
+
+  /**
+   * Retorna filas que cumplen el predicado.
+   * En SQLite nativo se pasa WHERE crudo (ej. "puesto_id = ? AND activo = 1") con sus valores.
+   */
+  async function queryWhere(tabla, whereSql, values) {
+    const conn = await getConnection()
+
+    if (conn instanceof InMemoryDb) {
+      // En InMemoryDb, whereSql se ignora y usamos un predicado genérico
+      // Para usos simples se recomienda queryAll + filter propio
+      return conn.all(tabla).map(r => ({ ...r }))
+    }
+
+    const result = await conn.query({
+      statement: `SELECT * FROM ${tabla} WHERE ${whereSql}`,
+      values: values ?? []
+    })
+    return (result.values ?? []).map(r => ({ ...r }))
+  }
+
   return {
     getUsuarioPorNombreLocal,
     getProductosActivos,
     getCuadrePorFecha,
-    getItemsDeCuadre
+    getItemsDeCuadre,
+    insert,
+    update,
+    remove,
+    queryAll,
+    getById,
+    queryWhere
   }
 }
 

@@ -14,7 +14,7 @@ import {
 /**
  * Enumeraciones de la base de datos.
  */
-export const rolEnum = pgEnum('rol', ['admin', 'jefe', 'trabajador'])
+export const rolEnum = pgEnum('rol', ['jefe', 'trabajador'])
 export const estadoCuadreEnum = pgEnum('estado_cuadre', ['abierto', 'cerrado'])
 export const tipoLineaEnum = pgEnum('tipo_linea', [
   'normal',
@@ -52,7 +52,7 @@ export const usuarios = pgTable(
     activo: boolean('activo').notNull().default(true),
     /**
      * Si es true, el usuario debe cambiar su PIN antes de poder usar la app.
-     * El admin seeded tiene este flag en true para forzar el primer cambio.
+     * El usuario seed tiene este flag en true para forzar el primer cambio.
      */
     debeCambiarPin: boolean('debe_cambiar_pin').notNull().default(false),
     creadoEn: timestamp('creado_en', { withTimezone: true })
@@ -255,6 +255,6 @@ export type NuevoCuadre = typeof cuadres.$inferInsert
 export type CuadreItem = typeof cuadreItems.$inferSelect
 export type NuevoCuadreItem = typeof cuadreItems.$inferInsert
 
-export type Rol = 'admin' | 'jefe' | 'trabajador'
+export type Rol = 'jefe' | 'trabajador'
 export type EstadoCuadre = 'abierto' | 'cerrado'
 export type TipoLinea = 'normal' | 'regalo' | 'descuento_familiar'

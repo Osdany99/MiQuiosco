@@ -9,7 +9,7 @@ const toggleActivoSchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'admin')
+  await requireRole(event, 'jefe')
 
   const id = event.context.params?.id
   if (!id) {

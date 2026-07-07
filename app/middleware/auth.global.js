@@ -6,7 +6,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   await auth.cargarDesdePreferencias()
 
   const tieneSesion = auth.sesionLocal.value || auth.usuarioActual.value
-  const tieneToken = auth.jwtAdmin.value || auth.jwtSync.value
+  const tieneToken = auth.jwtSync.value
 
   if (!tieneSesion && !tieneToken) {
     return navigateTo('/login', { query: { redirect: to.fullPath } })

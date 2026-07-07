@@ -3,6 +3,13 @@ const auth = useAuth()
 const isCollapsed = ref(true)
 const mobileOpen = ref(false)
 
+const { hayRed, cargarEstado } = useSync()
+const conexion = useModoConexion()
+onMounted(() => {
+  cargarEstado()
+  conexion.cargar()
+})
+
 const colorMode = useColorMode()
 const isDark = computed({
   get() {
@@ -16,31 +23,13 @@ const isDark = computed({
 const links = computed(() => {
   const items = []
 
-  if (auth.esAdmin.value) {
+  if (auth.esJefe.value) {
     items.push(
       {
         label: 'Usuarios',
         icon: 'i-lucide-users',
         to: '/usuarios'
       },
-      {
-        label: 'Productos',
-        icon: 'i-lucide-package',
-        to: '/productos'
-      },
-      {
-        label: 'Cuadre',
-        icon: 'i-lucide-clipboard-list',
-        to: '/cuadre'
-      },
-      {
-        label: 'Gráficas',
-        icon: 'i-lucide-bar-chart-2',
-        to: '/graficas'
-      }
-    )
-  } else if (auth.esJefe.value) {
-    items.push(
       {
         label: 'Cuadre del día',
         icon: 'i-lucide-clipboard-check',
@@ -60,9 +49,9 @@ const links = computed(() => {
   } else if (auth.esTrabajador.value) {
     items.push(
       {
-        label: 'Mi registro',
-        icon: 'i-lucide-edit-3',
-        to: '/registro-trabajador'
+        label: 'Cuadre del día',
+        icon: 'i-lucide-clipboard-check',
+        to: '/cuadre'
       }
     )
   }
@@ -70,33 +59,48 @@ const links = computed(() => {
   return items
 })
 
-const userMenuItems = computed(() => [
-  [
-    {
-      label: auth.usuarioActual.value?.nombre || 'Usuario',
-      slot: 'profile',
-      disabled: true
-    }
-  ],
-  [
-    {
-      label: isDark.value ? 'Tema Claro' : 'Tema Oscuro',
-      icon: isDark.value ? 'i-lucide-sun' : 'i-lucide-moon',
-      onSelect: () => {
-        isDark.value = !isDark.value
+const userMenuItems = computed(() => {
+  const items = [
+    [
+      {
+        label: auth.usuarioActual.value?.nombre || 'Usuario',
+        slot: 'profile',
+        disabled: true
       }
-    }
-  ],
-  [
-    {
-      label: 'Cerrar sesión',
-      icon: 'i-lucide-log-out',
-      onSelect: () => {
-        auth.logout()
-      }
-    }
+    ]
   ]
-])
+
+  if (auth.esJefe.value) {
+    const modoItems = [
+      {
+        label: conexion.modo.value === 'online' ? 'Modo: Online' : 'Modo: Local',
+        icon: conexion.modo.value === 'online' ? 'i-lucide-globe' : 'i-lucide-database',
+        onSelect: () => { conexion.toggle() },
+        disabled: conexion.transicionando.value
+      }
+    ]
+    items.push(modoItems)
+  }
+
+  items.push(
+    [
+      {
+        label: isDark.value ? 'Tema Claro' : 'Tema Oscuro',
+        icon: isDark.value ? 'i-lucide-sun' : 'i-lucide-moon',
+        onSelect: () => { isDark.value = !isDark.value }
+      }
+    ],
+    [
+      {
+        label: 'Cerrar sesión',
+        icon: 'i-lucide-log-out',
+        onSelect: () => { auth.logout() }
+      }
+    ]
+  )
+
+  return items
+})
 </script>
 
 <template>
@@ -133,11 +137,17 @@ const userMenuItems = computed(() => [
               class="w-full flex items-center gap-2 px-2 py-1.5"
               :class="{ 'justify-center': collapsed }"
             >
-              <UAvatar
-                :alt="auth.usuarioActual.value?.nombre"
-                size="sm"
-                class="shrink-0"
-              />
+              <div class="relative shrink-0">
+                <UAvatar
+                  :alt="auth.usuarioActual.value?.nombre"
+                  size="sm"
+                />
+                <span
+                  v-if="auth.esJefe.value"
+                  class="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background"
+                  :class="hayRed ? 'bg-green-500' : 'bg-red-500'"
+                />
+              </div>
               <div v-if="!collapsed" class="text-left min-w-0 flex-1">
                 <p class="text-sm font-medium truncate">
                   {{ auth.usuarioActual.value?.nombre }}
@@ -163,9 +173,7 @@ const userMenuItems = computed(() => [
       </template>
     </UDashboardSidebar>
 
-    <!-- Panel de contenido a la derecha -->
     <div class="flex-1 min-w-0 w-full p-6 overflow-y-auto">
-      <!-- Botón hamburguesa para móvil, visible solo cuando sidebar está cerrado -->
       <UButton
         v-if="isCollapsed"
         icon="i-lucide-menu"

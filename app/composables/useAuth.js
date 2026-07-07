@@ -3,20 +3,16 @@ import { Preferences } from '@capacitor/preferences'
 import bcrypt from 'bcryptjs'
 
 /**
- * Tres contextos de autenticación, completamente aislados:
+ * Dos contextos de autenticación, completamente aislados:
  *
- * A. Sesión local del jefe/trabajador (offline-first, solo en dispositivo).
+ * A. Sesión local del jefe/trabajador/admin (offline-first, en dispositivo).
  *    Vive en @capacitor/preferences bajo la clave 'sesion_local'.
  *
- * B. JWT del admin (server-side, siempre online).
- *    Vive en @capacitor/preferences bajo la clave 'jwt_admin'.
- *
- * C. JWT de sincronización del jefe (server-side, solo /api/sync/*).
+ * B. JWT de sincronización del jefe (server-side, solo /api/sync/*).
  *    Vive en @capacitor/preferences bajo la clave 'jwt_sync'.
  *
  * Reglas de oro:
- * - El admin nunca usa SQLite local.
- * - El jefe/trabajador nunca envían la sesión local al servidor.
+ * - El jefe/trabajador nunca envían la sesión local al servidor (sin JWT).
  * - El JWT de sync solo da acceso a /api/sync/* (validado en el backend).
  * - Sincronizar exige sesión local vigente + JWT de sync válido simultáneamente.
  */
@@ -26,15 +22,13 @@ import bcrypt from 'bcryptjs'
  *
  * @returns {Object} Estado y métodos de autenticación:
  * @returns {ComputedRef<Object|null>} returns.sesionLocal - Sesión local (jefe/trabajador) reactiva de solo lectura.
- * @returns {ComputedRef<string|null>} returns.jwtAdmin - JWT de admin reactivo de solo lectura.
  * @returns {ComputedRef<string|null>} returns.jwtSync - JWT de sincronización reactivo de solo lectura.
  * @returns {ComputedRef<Object|null>} returns.usuarioActual - Usuario actual reactivo de solo lectura.
  * @returns {ComputedRef<boolean>} returns.requiereCambioPin - Si el usuario debe cambiar PIN.
  * @returns {ComputedRef<boolean>} returns.cargando - True durante operaciones async.
- * @returns {ComputedRef<boolean>} returns.esAdmin - True si rol === 'admin'.
  * @returns {ComputedRef<boolean>} returns.esJefe - True si rol === 'jefe'.
  * @returns {ComputedRef<boolean>} returns.esTrabajador - True si rol === 'trabajador'.
- * @returns {ComputedRef<string|null>} returns.rol - Rol actual ('admin' | 'jefe' | 'trabajador' | null).
+ * @returns {ComputedRef<string|null>} returns.rol - Rol actual ('jefe' | 'trabajador' | null).
  * @returns {Function} returns.cargarDesdePreferencias - Carga sesión/JWTs desde Capacitor Preferences.
  * @returns {Function} returns.login - Login online/offline: (nombreUsuario, pin) => Promise<response>.
  * @returns {Function} returns.sesionLocalVigente - Verifica si la sesión local no ha expirado.
@@ -43,7 +37,7 @@ import bcrypt from 'bcryptjs'
  * @returns {Function} returns.logout - Cierre completo (servidor + local + redirect a /login).
  *
  * @example
- * const { usuarioActual, esAdmin, login, logout, cargarDesdePreferencias } = useAuth()
+ * const { usuarioActual, esJefe, login, logout, cargarDesdePreferencias } = useAuth()
  *
  * // En onMounted
  * await cargarDesdePreferencias()
@@ -59,19 +53,16 @@ import bcrypt from 'bcryptjs'
  * await logout()
  */
 const PREF_SESION_LOCAL = 'sesion_local'
-const PREF_JWT_ADMIN = 'jwt_admin'
 const PREF_JWT_SYNC = 'jwt_sync'
 const PREF_PIN_HASH_LOCAL = 'pin_hash_local'
 
 export function useAuth() {
   const sesionLocal = useState('auth.sesionLocal', () => null)
-  const jwtAdmin = useState('auth.jwtAdmin', () => null)
   const jwtSync = useState('auth.jwtSync', () => null)
   const usuarioActual = useState('auth.usuarioActual', () => null)
   const requiereCambioPin = useState('auth.requiereCambioPin', () => false)
   const cargando = useState('auth.cargando', () => false)
 
-  const esAdmin = computed(() => usuarioActual.value?.rol === 'admin')
   const esJefe = computed(() => usuarioActual.value?.rol === 'jefe')
   const esTrabajador = computed(
     () => usuarioActual.value?.rol === 'trabajador'
@@ -81,9 +72,8 @@ export function useAuth() {
   async function cargarDesdePreferencias() {
     cargando.value = true
     try {
-      const [sesionStr, adminJwt, syncJwt] = await Promise.all([
+      const [sesionStr, syncJwt] = await Promise.all([
         Preferences.get({ key: PREF_SESION_LOCAL }),
-        Preferences.get({ key: PREF_JWT_ADMIN }),
         Preferences.get({ key: PREF_JWT_SYNC })
       ])
 
@@ -94,11 +84,10 @@ export function useAuth() {
           id: sesion.usuario_id,
           nombre: sesion.usuario_nombre,
           rol: sesion.rol,
-          puestoId: ''
+          puestoId: sesion.puesto_id ?? ''
         }
       }
 
-      if (adminJwt.value) jwtAdmin.value = adminJwt.value
       if (syncJwt.value) jwtSync.value = syncJwt.value
     } finally {
       cargando.value = false
@@ -124,7 +113,7 @@ export function useAuth() {
                 id: sesion.usuario_id,
                 nombre: sesion.usuario_nombre,
                 rol: sesion.rol,
-                puestoId: ''
+                puestoId: sesion.puesto_id ?? ''
               },
               expiraEn: sesion.expira_en ?? undefined
             }
@@ -154,42 +143,29 @@ export function useAuth() {
     )
 
     if (response.token) {
-      if (response.usuario.rol === 'admin') {
-        await Preferences.set({ key: PREF_JWT_ADMIN, value: response.token })
-        jwtAdmin.value = response.token
-        const sesion = {
-          usuario_id: response.usuario.id,
-          usuario_nombre: response.usuario.nombre,
-          rol: 'admin',
-          pin_hash_local: '',
-          expira_en: null,
-          ultima_actividad_en: Date.now()
-        }
-        await Preferences.set({ key: PREF_SESION_LOCAL, value: JSON.stringify(sesion) })
-        sesionLocal.value = sesion
-      } else if (response.usuario.rol === 'jefe') {
-        await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
-        jwtSync.value = response.token
-        const sesion = {
-          usuario_id: response.usuario.id,
-          usuario_nombre: response.usuario.nombre,
-          rol: 'jefe',
-          pin_hash_local: '',
-          expira_en: null,
-          ultima_actividad_en: ahora
-        }
-        await Preferences.set({
-          key: PREF_SESION_LOCAL,
-          value: JSON.stringify(sesion)
-        })
-        sesionLocal.value = sesion
+      await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
+      jwtSync.value = response.token
+      const sesion = {
+        usuario_id: response.usuario.id,
+        usuario_nombre: response.usuario.nombre,
+        rol: response.usuario.rol,
+        puesto_id: response.usuario.puestoId ?? '',
+        pin_hash_local: '',
+        expira_en: null,
+        ultima_actividad_en: ahora
       }
+      await Preferences.set({
+        key: PREF_SESION_LOCAL,
+        value: JSON.stringify(sesion)
+      })
+      sesionLocal.value = sesion
     } else {
       if (response.usuario.rol === 'trabajador') {
         const sesion = {
           usuario_id: response.usuario.id,
           usuario_nombre: response.usuario.nombre,
           rol: 'trabajador',
+          puesto_id: response.usuario.puestoId ?? '',
           pin_hash_local: '',
           expira_en: ahora + horasExp * 60 * 60 * 1000,
           ultima_actividad_en: ahora
@@ -222,6 +198,7 @@ export function useAuth() {
       usuario_id: usuario.id,
       usuario_nombre: usuario.nombre,
       rol: usuario.rol === 'jefe' ? 'jefe' : 'trabajador',
+      puesto_id: usuario.puestoId,
       pin_hash_local: hashLocal.value,
       expira_en:
         usuario.rol === 'trabajador' ? ahora + 24 * 60 * 60 * 1000 : null,
@@ -288,7 +265,7 @@ export function useAuth() {
 
   async function logout() {
     try {
-      const token = jwtAdmin.value || jwtSync.value
+      const token = jwtSync.value
       if (token) {
         await $fetch(API.auth.logout, {
           method: 'POST',
@@ -297,11 +274,9 @@ export function useAuth() {
       }
     } finally {
       await Promise.all([
-        Preferences.remove({ key: PREF_JWT_ADMIN }),
         Preferences.remove({ key: PREF_JWT_SYNC }),
         Preferences.remove({ key: PREF_SESION_LOCAL })
       ])
-      jwtAdmin.value = null
       jwtSync.value = null
       sesionLocal.value = null
       usuarioActual.value = null
@@ -322,12 +297,10 @@ export function useAuth() {
 
   return {
     sesionLocal: readonly(sesionLocal),
-    jwtAdmin: readonly(jwtAdmin),
     jwtSync: readonly(jwtSync),
     usuarioActual: readonly(usuarioActual),
     requiereCambioPin: readonly(requiereCambioPin),
     cargando: readonly(cargando),
-    esAdmin,
     esJefe,
     esTrabajador,
     rol,

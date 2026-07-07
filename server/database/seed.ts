@@ -4,17 +4,17 @@ import { puestos, usuarios } from './schema'
 import { hashPin } from '../utils/auth'
 
 /**
- * Script de inicialización: crea el puesto por defecto y el usuario admin
+ * Script de inicialización: crea el puesto por defecto y el usuario jefe
  * con PIN temporal `1234` y flag `debeCambiarPin = true` para forzar el
  * primer cambio de PIN desde la UI.
  *
  * Uso: pnpm db:seed
  *
- * Es idempotente: si el puesto o el admin ya existen, los respeta.
+ * Es idempotente: si el puesto o el jefe ya existen, los respeta.
  */
 
 const PUESTO_NOMBRE = 'Puesto principal'
-const ADMIN_NOMBRE = 'admin'
+const ADMIN_NOMBRE = 'jefe'
 const ADMIN_PIN_TEMPORAL = '1234'
 
 async function main() {
@@ -56,12 +56,12 @@ async function main() {
     await db.insert(usuarios).values({
       puestoId,
       nombre: ADMIN_NOMBRE,
-      rol: 'admin',
+      rol: 'jefe',
       pinHash,
       activo: true,
       debeCambiarPin: true
     })
-    console.log(`✔ Usuario admin creado`)
+    console.log(`✔ Usuario jefe creado`)
     console.log(`  Nombre: ${ADMIN_NOMBRE}`)
     console.log(`  PIN temporal: ${ADMIN_PIN_TEMPORAL} (cámbialo en el primer login)`)
   }

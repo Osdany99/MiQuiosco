@@ -46,7 +46,18 @@ export default defineNuxtConfig({
     provider: 'none',
     clientBundle: {
       scan: true,
-      icons: ['lucide:minus', 'lucide:plus']
+      icons: [
+        'lucide:minus',
+        'lucide:plus',
+        'lucide:chevrons-left',
+        'lucide:chevron-left',
+        'lucide:chevrons-right',
+        'lucide:chevron-right',
+        'lucide:arrow-up-down',
+        'lucide:database',
+        'lucide:alert-circle',
+        'lucide:loader-2'
+      ]
     },
     fallbackToApi: false
   }

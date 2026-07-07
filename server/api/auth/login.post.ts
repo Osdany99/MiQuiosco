@@ -14,7 +14,7 @@ const loginSchema = z.object({
  * POST /api/auth/login
  *
  * Estrategia:
- * - admin: recibe JWT con scope 'admin' (acceso a /api/usuarios, /api/productos, etc.)
+ * - jefe: recibe JWT con scope 'sync'
  * - jefe: recibe JWT con scope 'sync' (acceso SOLO a /api/sync/*)
  * - trabajador: NO recibe token (la app usa la sesión local y el hash del PIN)
  *
@@ -95,17 +95,11 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     }
   }
 
-  // Admin: JWT con scope 'admin'
-  // Jefe: JWT con scope 'sync' (solo acceso a /api/sync/*)
-  const scope = usuario.rol === 'admin' ? 'admin' : 'sync'
-  const { token, expiraEn } = signToken(
-    {
-      sub: usuario.id,
-      rol: usuario.rol as Rol,
-      scope: [scope]
-    },
-    scope
-  )
+  const { token, expiraEn } = signToken({
+    sub: usuario.id,
+    rol: usuario.rol as Rol,
+    scope: ['sync']
+  })
 
   return {
     token,

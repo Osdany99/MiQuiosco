@@ -54,12 +54,10 @@ async function onSubmit() {
         await navigateTo(destino)
         return
       }
-      if (response.usuario.rol === 'admin') {
-        await navigateTo('/usuarios')
-      } else if (response.usuario.rol === 'jefe') {
+      if (response.usuario.rol === 'jefe') {
         await navigateTo('/cuadre')
       } else if (response.usuario.rol === 'trabajador') {
-        await navigateTo('/registro-trabajador')
+        await navigateTo('/cuadre')
       }
     }
   } catch (err) {
@@ -93,7 +91,7 @@ async function onSubmit() {
         <UFormField label="Usuario" required>
           <UInput
             v-model="nombreUsuario"
-            placeholder="Ej. admin"
+            placeholder="Ej. jefe"
             autocomplete="username"
             :disabled="requiereCambioPinLocal"
             size="lg"

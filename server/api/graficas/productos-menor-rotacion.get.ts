@@ -1,7 +1,7 @@
 import { eq, and, gte, lte, asc, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuadreItems, cuadres, productos } from '../../database/schema'
-import { requireRole, requireAuth } from '../../utils/auth'
+import { requireRole } from '../../utils/auth'
 
 /**
  * GET /api/graficas/productos-menor-rotacion?desde=&hasta=
@@ -9,11 +9,7 @@ import { requireRole, requireAuth } from '../../utils/auth'
  * Productos activos con menos ventas en el período (incluye 0 ventas).
  */
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'admin')
-  const auth = await requireAuth(event)
-  if (auth.usuario.rol !== 'admin' && auth.usuario.rol !== 'jefe') {
-    throw createError({ statusCode: 403, statusMessage: 'Acceso denegado.' })
-  }
+  await requireRole(event, 'jefe')
 
   const query = getQuery(event)
   const desde = query.desde as string

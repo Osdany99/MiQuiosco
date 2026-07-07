@@ -5,13 +5,13 @@ import { requireRole, hashPin } from '../../utils/auth'
 
 const crearUsuarioSchema = z.object({
   nombre: z.string().min(1).max(100),
-  rol: z.enum(['admin', 'jefe', 'trabajador']),
+  rol: z.enum(['jefe', 'trabajador']),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos numéricos.'),
   activo: z.boolean().optional()
 })
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'admin')
+  const auth = await requireRole(event, 'jefe')
 
   const body = await readBody(event)
   const parsed = crearUsuarioSchema.safeParse(body)

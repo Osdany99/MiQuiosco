@@ -3,112 +3,24 @@ definePageMeta({
   middleware: ['jefe']
 })
 
-const toast = useToast()
+const graficasLocales = useGraficasLocales()
+const productoRepo = useLocalRepo('productos')
 
 const graficas = [
-  {
-    key: 'productos-mas-vendidos',
-    titulo: 'Productos más vendidos',
-    descripcion: 'Top 10 por cantidad total vendida',
-    icon: 'i-lucide-trending-up',
-    endpoint: API.graficas.productosMasVendidos
-  },
-  {
-    key: 'productos-mayor-ganancia',
-    titulo: 'Productos con mayor ganancia',
-    descripcion: 'Top 10 por ganancia total (venta - compra) × cantidad',
-    icon: 'i-lucide-coin',
-    endpoint: API.graficas.productosMayorGanancia
-  },
-  {
-    key: 'productos-menor-rotacion',
-    titulo: 'Productos con menor rotación',
-    descripcion: 'Productos activos con menos ventas en el período',
-    icon: 'i-lucide-package-x',
-    endpoint: API.graficas.productosMenorRotacion
-  },
-  {
-    key: 'evolucion-producto',
-    titulo: 'Evolución de un producto',
-    descripcion: 'Ventas diarias de un producto seleccionado',
-    icon: 'i-lucide-line-chart',
-    endpoint: API.graficas.evolucionProducto('')
-  },
-  {
-    key: 'precio-usado-vs-oficial',
-    titulo: 'Precio usado vs. oficial',
-    descripcion:
-      'Comparativa del precio de venta usado en cuadre vs. precio oficial',
-    icon: 'i-lucide-git-compare',
-    endpoint: API.graficas.precioUsadoVsOficial('')
-  },
-  {
-    key: 'ganancia-por-periodo',
-    titulo: 'Ganancia por período',
-    descripcion: 'Ganancia neta agrupada por día/semana/mes',
-    icon: 'i-lucide-bar-chart-2',
-    endpoint: API.graficas.gananciaPorPeriodo,
-    params: { agrupacion: 'dia' }
-  },
-  {
-    key: 'ingresos-por-periodo',
-    titulo: 'Ingresos por período',
-    descripcion: 'Total de ventas agrupado por día/semana/mes',
-    icon: 'i-lucide-dollar-sign',
-    endpoint: API.graficas.ingresosPorPeriodo,
-    params: { agrupacion: 'dia' }
-  },
-  {
-    key: 'regalos-descuentos-por-periodo',
-    titulo: 'Regalos y descuentos por período',
-    descripcion: 'Cantidad y valor de líneas tipo regalo/descuento familiar',
-    icon: 'i-lucide-gift',
-    endpoint: API.graficas.regalosDescuentosPorPeriodo,
-    params: { agrupacion: 'dia' }
-  },
-  {
-    key: 'proporcion-formas-pago',
-    titulo: 'Proporción de formas de pago',
-    descripcion: 'Efectivo vs. transferencia vs. fiado',
-    icon: 'i-lucide-pie-chart',
-    endpoint: API.graficas.proporcionFormasPago
-  },
-  {
-    key: 'estado-cuadres',
-    titulo: 'Estado de cuadres',
-    descripcion: 'Cuadres abiertos vs. cerrados vs. reabiertos',
-    icon: 'i-lucide-clipboard-list',
-    endpoint: API.graficas.estadoCuadres
-  },
-  {
-    key: 'faltantes-sobrantes-acumulados',
-    titulo: 'Faltantes y sobrantes acumulados',
-    descripcion: 'Suma de diferencias por día/mes',
-    icon: 'i-lucide-minus-circle',
-    endpoint: API.graficas.faltantesSobrantesAcumulados,
-    params: { agrupacion: 'dia' }
-  },
-  {
-    key: 'cuadres-reabiertos',
-    titulo: 'Cuadres reabiertos',
-    descripcion: 'Historial de reaperturas con fechas',
-    icon: 'i-lucide-rotate-ccw',
-    endpoint: API.graficas.cuadresReabiertos
-  },
-  {
-    key: 'pagos-trabajadores',
-    titulo: 'Pagos a trabajadores',
-    descripcion: 'Total pagado a cada trabajador por período',
-    icon: 'i-lucide-users',
-    endpoint: API.graficas.pagosTrabajadores
-  },
-  {
-    key: 'comparativa-por-trabajador',
-    titulo: 'Comparativa por trabajador',
-    descripcion: 'Ventas y diferencias comparadas entre trabajadores',
-    icon: 'i-lucide-user-round-cog',
-    endpoint: API.graficas.comparativaPorTrabajador
-  }
+  { key: 'productos-mas-vendidos', titulo: 'Productos más vendidos', descripcion: 'Top 10 por cantidad total vendida', icon: 'i-lucide-trending-up' },
+  { key: 'productos-mayor-ganancia', titulo: 'Productos con mayor ganancia', descripcion: 'Top 10 por ganancia total (venta - compra) × cantidad', icon: 'i-lucide-coin' },
+  { key: 'productos-menor-rotacion', titulo: 'Productos con menor rotación', descripcion: 'Productos activos con menos ventas en el período', icon: 'i-lucide-package-x' },
+  { key: 'evolucion-producto', titulo: 'Evolución de un producto', descripcion: 'Ventas diarias de un producto seleccionado', icon: 'i-lucide-line-chart' },
+  { key: 'precio-usado-vs-oficial', titulo: 'Precio usado vs. oficial', descripcion: 'Comparativa del precio de venta usado en cuadre vs. precio oficial', icon: 'i-lucide-git-compare' },
+  { key: 'ganancia-por-periodo', titulo: 'Ganancia por período', descripcion: 'Ganancia neta agrupada por día/semana/mes', icon: 'i-lucide-bar-chart-2', params: { agrupacion: 'dia' } },
+  { key: 'ingresos-por-periodo', titulo: 'Ingresos por período', descripcion: 'Total de ventas agrupado por día/semana/mes', icon: 'i-lucide-dollar-sign', params: { agrupacion: 'dia' } },
+  { key: 'regalos-descuentos-por-periodo', titulo: 'Regalos y descuentos por período', descripcion: 'Cantidad y valor de líneas tipo regalo/descuento familiar', icon: 'i-lucide-gift', params: { agrupacion: 'dia' } },
+  { key: 'proporcion-formas-pago', titulo: 'Proporción de formas de pago', descripcion: 'Efectivo vs. transferencia vs. fiado', icon: 'i-lucide-pie-chart' },
+  { key: 'estado-cuadres', titulo: 'Estado de cuadres', descripcion: 'Cuadres abiertos vs. cerrados vs. reabiertos', icon: 'i-lucide-clipboard-list' },
+  { key: 'faltantes-sobrantes-acumulados', titulo: 'Faltantes y sobrantes acumulados', descripcion: 'Suma de diferencias por día/mes', icon: 'i-lucide-minus-circle', params: { agrupacion: 'dia' } },
+  { key: 'cuadres-reabiertos', titulo: 'Cuadres reabiertos', descripcion: 'Historial de reaperturas con fechas', icon: 'i-lucide-rotate-ccw' },
+  { key: 'pagos-trabajadores', titulo: 'Pagos a trabajadores', descripcion: 'Total pagado a cada trabajador por período', icon: 'i-lucide-users' },
+  { key: 'comparativa-por-trabajador', titulo: 'Comparativa por trabajador', descripcion: 'Ventas y diferencias comparadas entre trabajadores', icon: 'i-lucide-user-round-cog' }
 ]
 
 const graficaActiva = ref(null)
@@ -119,38 +31,33 @@ const fechaHasta = ref('')
 const agrupacion = ref('dia')
 const productoSeleccionado = ref('')
 
+const productosParaSelector = ref([])
+
+onMounted(async () => {
+  const hoy = new Date().toISOString().split('T')[0]
+  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  fechaDesde.value = hace30
+  fechaHasta.value = hoy
+
+  const prods = await productoRepo.readAll({ orderBy: 'nombre' })
+  productosParaSelector.value = prods.map(p => ({ label: p.nombre, value: p.id }))
+})
+
 async function cargarGrafica(g) {
+  if (g.key === 'evolucion-producto' || g.key === 'precio-usado-vs-oficial') {
+    if (!productoSeleccionado.value) { return }
+  }
+
   graficaActiva.value = g
   cargando.value = true
   try {
-    let url = g.endpoint
-    const params = new URLSearchParams()
-    if (fechaDesde.value) params.set('desde', fechaDesde.value)
-    if (fechaHasta.value) params.set('hasta', fechaHasta.value)
-    if (g.params?.agrupacion) params.set('agrupacion', agrupacion.value)
-    if (g.key === 'evolucion-producto') {
-      if (!productoSeleccionado.value) {
-        toast.add({ title: 'Selecciona un producto', color: 'warning' })
-        return
-      }
-      url = API.graficas.evolucionProducto(productoSeleccionado.value)
-    } else if (g.key === 'precio-usado-vs-oficial') {
-      if (!productoSeleccionado.value) {
-        toast.add({ title: 'Selecciona un producto', color: 'warning' })
-        return
-      }
-      url = API.graficas.precioUsadoVsOficial(productoSeleccionado.value)
-    }
-    if (params.toString()) url += `?${params.toString()}`
-
-    const data = await $fetch(url)
-    datosGrafica.value = data
-  } catch (err) {
-    toast.add({
-      title: 'Error',
-      description: err.data?.statusMessage || err.message,
-      color: 'error'
+    datosGrafica.value = await graficasLocales.calcular(g.key, {
+      desde: fechaDesde.value,
+      hasta: fechaHasta.value,
+      agrupacion: agrupacion.value,
+      productoId: productoSeleccionado.value
     })
+  } catch (err) {
     datosGrafica.value = []
   } finally {
     cargando.value = false
@@ -158,115 +65,30 @@ async function cargarGrafica(g) {
 }
 
 function getChartComponent(key) {
-  // Mapeo simple: barras para la mayoría, línea para evolución, pie para proporción
-  if (key === 'evolucion-producto' || key === 'precio-usado-vs-oficial')
-    return 'LineChart'
+  if (key === 'evolucion-producto' || key === 'precio-usado-vs-oficial') return 'LineChart'
   if (key === 'proporcion-formas-pago') return 'PieChart'
   return 'BarChart'
 }
 
 function getChartConfig(key) {
   const configs = {
-    'productos-mas-vendidos': {
-      xKey: 'nombre',
-      yKeys: ['totalVendido'],
-      labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' }
-    },
-    'productos-mayor-ganancia': {
-      xKey: 'nombre',
-      yKeys: ['gananciaTotal'],
-      labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' }
-    },
-    'productos-menor-rotacion': {
-      xKey: 'nombre',
-      yKeys: ['totalVendido'],
-      labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' }
-    },
-    'evolucion-producto': {
-      xKey: 'fecha',
-      yKeys: ['cantidadVendida'],
-      labels: { fecha: 'Fecha', cantidadVendida: 'Cantidad' }
-    },
-    'precio-usado-vs-oficial': {
-      xKey: 'fecha',
-      yKeys: ['precioVentaUsado', 'precioOficialActual'],
-      labels: {
-        fecha: 'Fecha',
-        precioVentaUsado: 'Precio usado',
-        precioOficialActual: 'Precio oficial'
-      }
-    },
-    'ganancia-por-periodo': {
-      xKey: 'periodo',
-      yKeys: ['ganancia'],
-      labels: { periodo: 'Período', ganancia: 'Ganancia' }
-    },
-    'ingresos-por-periodo': {
-      xKey: 'periodo',
-      yKeys: ['ingresoTotal'],
-      labels: { periodo: 'Período', ingresoTotal: 'Ingreso total' }
-    },
-    'regalos-descuentos-por-periodo': {
-      xKey: 'periodo',
-      yKeys: ['valorRegalado', 'valorDescontado'],
-      labels: {
-        periodo: 'Período',
-        valorRegalado: 'Valor regalado',
-        valorDescontado: 'Valor descontado'
-      }
-    },
-    'proporcion-formas-pago': {
-      nameKey: 'forma',
-      valueKey: 'total',
-      labels: { forma: 'Forma', total: 'Total' }
-    },
-    'estado-cuadres': {
-      xKey: 'estado',
-      yKeys: ['cantidad'],
-      labels: { estado: 'Estado', cantidad: 'Cantidad' }
-    },
-    'faltantes-sobrantes-acumulados': {
-      xKey: 'periodo',
-      yKeys: ['diferencia'],
-      labels: { periodo: 'Período', diferencia: 'Diferencia' }
-    },
-    'cuadres-reabiertos': {
-      xKey: 'fecha',
-      yKeys: ['reabiertoVeces'],
-      labels: { fecha: 'Fecha', reabiertoVeces: 'Reaperturas' }
-    },
-    'pagos-trabajadores': {
-      xKey: 'trabajadorNombre',
-      yKeys: ['totalPagado'],
-      labels: { trabajadorNombre: 'Trabajador', totalPagado: 'Total pagado' }
-    },
-    'comparativa-por-trabajador': {
-      xKey: 'trabajadorNombre',
-      yKeys: ['totalCuadres', 'diferenciaPromedio', 'cuadresConFaltante'],
-      labels: {
-        trabajadorNombre: 'Trabajador',
-        totalCuadres: 'Cuadres',
-        diferenciaPromedio: 'Dif. promedio',
-        cuadresConFaltante: 'Con faltante'
-      }
-    }
+    'productos-mas-vendidos': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
+    'productos-mayor-ganancia': { xKey: 'nombre', yKeys: ['gananciaTotal'], labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' } },
+    'productos-menor-rotacion': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
+    'evolucion-producto': { xKey: 'fecha', yKeys: ['cantidadVendida'], labels: { fecha: 'Fecha', cantidadVendida: 'Cantidad' } },
+    'precio-usado-vs-oficial': { xKey: 'fecha', yKeys: ['precioVentaUsado', 'precioOficialActual'], labels: { fecha: 'Fecha', precioVentaUsado: 'Precio usado', precioOficialActual: 'Precio oficial' } },
+    'ganancia-por-periodo': { xKey: 'periodo', yKeys: ['ganancia'], labels: { periodo: 'Período', ganancia: 'Ganancia' } },
+    'ingresos-por-periodo': { xKey: 'periodo', yKeys: ['ingresoTotal'], labels: { periodo: 'Período', ingresoTotal: 'Ingreso total' } },
+    'regalos-descuentos-por-periodo': { xKey: 'periodo', yKeys: ['valorRegalado', 'valorDescontado'], labels: { periodo: 'Período', valorRegalado: 'Valor regalado', valorDescontado: 'Valor descontado' } },
+    'proporcion-formas-pago': { nameKey: 'forma', valueKey: 'total', labels: { forma: 'Forma', total: 'Total' } },
+    'estado-cuadres': { xKey: 'estado', yKeys: ['cantidad'], labels: { estado: 'Estado', cantidad: 'Cantidad' } },
+    'faltantes-sobrantes-acumulados': { xKey: 'periodo', yKeys: ['diferencia'], labels: { periodo: 'Período', diferencia: 'Diferencia' } },
+    'cuadres-reabiertos': { xKey: 'fecha', yKeys: ['reabiertoVeces'], labels: { fecha: 'Fecha', reabiertoVeces: 'Reaperturas' } },
+    'pagos-trabajadores': { xKey: 'trabajadorNombre', yKeys: ['totalPagado'], labels: { trabajadorNombre: 'Trabajador', totalPagado: 'Total pagado' } },
+    'comparativa-por-trabajador': { xKey: 'trabajadorNombre', yKeys: ['totalCuadres', 'diferenciaPromedio', 'cuadresConFaltante'], labels: { trabajadorNombre: 'Trabajador', totalCuadres: 'Cuadres', diferenciaPromedio: 'Dif. promedio', cuadresConFaltante: 'Con faltante' } }
   }
   return configs[key] || {}
 }
-
-const productosParaSelector = computed(() => [
-  { label: 'Cargando...', value: '' }
-  // En implementación real, se cargarían desde la API
-])
-
-onMounted(() => {
-  const hoy = new Date().toISOString().split('T')[0]
-  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split('T')[0]
-  fechaDesde.value = hace30
-  fechaHasta.value = hoy
-})
 </script>
 
 <template>
@@ -324,7 +146,7 @@ onMounted(() => {
           icon="i-lucide-refresh-cw"
           label="Actualizar"
           :loading="cargando"
-          @click="cargarGrafica(!graficaActiva)"
+          @click="cargarGrafica(graficaActiva)"
         />
       </div>
     </UCard>

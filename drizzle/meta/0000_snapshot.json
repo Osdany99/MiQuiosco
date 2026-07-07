@@ -787,7 +787,6 @@
       "name": "rol",
       "schema": "public",
       "values": [
-        "admin",
         "jefe",
         "trabajador"
       ]

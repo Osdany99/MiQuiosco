@@ -1,10 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { productos } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { requireAuth } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'admin')
+  const { usuario } = await requireAuth(event, 'sync')
+  if (usuario.rol !== 'jefe') {
+    throw createError({ statusCode: 403, statusMessage: 'Acceso denegado.' })
+  }
 
   const id = event.context.params?.id
   if (!id) {

@@ -1,44 +1,10 @@
-import { ref, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
-import { useAuth } from './useAuth'
-import { useLocalDb } from './useLocalDb'
-import { useRemoteApi } from './useRemoteApi'
-import { useToast } from '#imports'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 
-/**
- * useSync - Composable para sincronización bidireccional (push/pull) con el servidor.
- * Gestiona estado de red, colas de pendientes, conflictos y descarga de catálogo.
- *
- * @returns {Object} Estado y métodos de sincronización:
- * @returns {ComputedRef<boolean>} returns.sincronizando - True durante sincronización activa.
- * @returns {ComputedRef<number|null>} returns.ultimaSync - Timestamp de última sync exitosa (ms).
- * @returns {ComputedRef<number>} returns.pendientesCount - Cantidad de registros locales sin sincronizar.
- * @returns {ComputedRef<boolean>} returns.hayRed - True si hay conexión de red detectada.
- * @returns {Function} returns.cargarEstado - Inicializa listeners y carga última sync + pendientes.
- * @returns {Function} returns.sincronizarAhora - Ejecuta ciclo completo push+pull (requiere sesión + red + JWT sync).
- * @returns {Function} returns.descargarCatalogo - Descarga productos activos y guarda en cache local (trabajador).
- *
- * @example
- * const { sincronizando, ultimaSync, pendientesCount, hayRed, cargarEstado, sincronizarAhora, descargarCatalogo } = useSync()
- *
- * // En onMounted
- * await cargarEstado()
- *
- * // Botón sincronizar
- * const handleSync = async () => {
- *   const ok = await sincronizarAhora()
- *   if (ok) console.log('Sync completada')
- * }
- *
- * // Trabajador: descargar catálogo
- * await descargarCatalogo()
- */
 export function useSync() {
   const auth = useAuth()
-  const localDb = useLocalDb()
   const remoteApi = useRemoteApi()
   const toast = useToast()
 
@@ -47,33 +13,36 @@ export function useSync() {
   const pendientesCount = ref(0)
   const hayRed = ref(true)
 
+  const TABLAS_SYNC = ['productos', 'historial_precios', 'cuadres', 'cuadre_items', 'usuarios']
+
+  const MAPA_TABLAS = {
+    productos: 'productos',
+    historial_precios: 'historial_precios',
+    cuadres: 'cuadres',
+    cuadre_items: 'cuadre_items',
+    usuarios: 'usuarios'
+  }
+
   async function cargarEstado() {
     const stored = await Preferences.get({ key: PREF_ULTIMA_SYNC })
     if (stored.value) ultimaSync.value = Number(stored.value)
 
-    // Contar registros locales sin sincronizar
+    await actualizarPendientesCount()
+
     try {
-      await localDb.getConnection()
-      // Por simplicidad, usamos una query genérica
-      // En implementación real se harían queries por tabla
-      pendientesCount.value = 0 // placeholder
+      const status = await Network.getStatus()
+      hayRed.value = status.connected
     } catch {
-      console.log('prueba')
+      hayRed.value = true
     }
 
-    const status = await Network.getStatus()
-    hayRed.value = status.connected
-
-    Network.addListener('networkStatusChange', (s) => {
-      hayRed.value = s.connected
-    })
+    try {
+      Network.addListener('networkStatusChange', (s) => {
+        hayRed.value = s.connected
+      })
+    } catch {}
   }
 
-  /**
-   * Ciclo completo de sincronización: push + pull.
-   * Exige sesión local vigente + JWT de sync válido.
-   * @returns {Promise<boolean>} True si la sincronización fue exitosa.
-   */
   async function sincronizarAhora() {
     if (!auth.sesionLocalVigente()) {
       toast.add({ title: 'Sesión expirada', description: 'Vuelve a iniciar sesión para sincronizar.', color: 'warning' })
@@ -88,7 +57,6 @@ export function useSync() {
     }
 
     if (!auth.jwtSync.value) {
-      // No hay JWT de sync, pedir PIN y re-login
       toast.add({ title: 'Reautenticación', description: 'Necesitas volver a iniciar sesión para sincronizar.', color: 'warning' })
       await auth.logout()
       await navigateTo('/login')
@@ -97,31 +65,29 @@ export function useSync() {
 
     sincronizando.value = true
     try {
-      // 1. Reunir cambios locales pendientes
       const pendientes = await reunirPendientes()
 
-      // 2. Push
       const pushResult = await remoteApi.syncPush(pendientes)
 
-      // 3. Marcar aceptados como sincronizados
-      await marcarSincronizados(pushResult.aceptados)
+      // pushResult.aceptados — flat string[] de IDs aceptados
+      await marcarAceptados(pushResult.aceptados)
 
-      // 4. Absorber conflictos (sobrescribir local con servidor)
+      // pushResult.conflictos — { productos: [], historial_precios: [], ... }
       await absorberConflictos(pushResult.conflictos)
 
-      // 5. Pull
       const desde = ultimaSync.value ?? 0
       const pullResult = await remoteApi.syncPull(desde)
       await aplicarPull(pullResult)
 
-      // 6. Actualizar timestamp de última sync exitosa
-      const ahora = Date.now()
+      // Usar timestamp del servidor si viene, si no usar local
+      const ahora = pullResult.timestamp_servidor ?? Date.now()
       ultimaSync.value = ahora
       await Preferences.set({ key: PREF_ULTIMA_SYNC, value: String(ahora) })
 
+      const totalRecibidos = TABLAS_SYNC.reduce((s, t) => s + (pullResult[t]?.length ?? 0), 0)
       toast.add({
         title: 'Sincronización completada',
-        description: `Subidos: ${pushResult.aceptados.length}, Recibidos: ${pullResult.productos.length + pullResult.cuadres.length + pullResult.cuadre_items.length}`,
+        description: `Subidos: ${pushResult.aceptados?.length ?? 0}, Recibidos: ${totalRecibidos}`,
         color: 'success'
       })
       return true
@@ -134,43 +100,82 @@ export function useSync() {
       return false
     } finally {
       sincronizando.value = false
-      // Actualizar contador de pendientes
       await actualizarPendientesCount()
     }
   }
 
+  function snakeToCamelRow(row) {
+    const result = {}
+    for (const [key, value] of Object.entries(row)) {
+      result[key.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = value
+    }
+    return result
+  }
+
   async function reunirPendientes() {
-    await localDb.getConnection()
-    // En implementación real: query por cada tabla WHERE sincronizado = false
-    // Aquí devolvemos arrays vacíos como placeholder
-    return {
-      productos: [],
-      historial_precios: [],
-      cuadres: [],
-      cuadre_items: []
+    const result = {}
+    for (const t of TABLAS_SYNC) {
+      const repo = useLocalRepo(t)
+      const todos = await repo.readAll()
+      result[t] = todos
+        .filter(r => !r.sincronizado)
+        .map(snakeToCamelRow)
+        .map(({ sincronizado, ...rest }) => rest)
+    }
+    return result
+  }
+
+  async function marcarAceptados(aceptados) {
+    if (!aceptados?.length) return
+    const idsSet = new Set(aceptados)
+    for (const t of TABLAS_SYNC) {
+      const repo = useLocalRepo(t)
+      const todos = await repo.readAll()
+      for (const reg of todos) {
+        if (idsSet.has(reg.id)) {
+          try { await repo.update(reg.id, { sincronizado: 1 }) } catch {}
+        }
+      }
     }
   }
 
-  async function marcarSincronizados() {
-    // Actualizar sincronizado = true para los IDs dados
-    // Placeholder
+  async function absorberConflictos(conflictos) {
+    if (!conflictos) return
+    for (const [tabla, registros] of Object.entries(conflictos)) {
+      if (!registros?.length) continue
+      const repo = useLocalRepo(MAPA_TABLAS[tabla] ?? tabla)
+      for (const reg of registros) {
+        try { await repo.update(reg.id, { ...reg, sincronizado: 1 }) } catch {}
+      }
+    }
   }
 
-  async function absorberConflictos() {
-    // Sobrescribir local con versión del servidor
-    // Placeholder
-  }
-
-  async function aplicarPull() {
-    // Aplicar productos, historial, cuadres, items, usuarios
-    // Placeholder
+  async function aplicarPull(pullResult) {
+    for (const t of TABLAS_SYNC) {
+      const registros = pullResult[t]
+      if (!registros?.length) continue
+      const repo = useLocalRepo(MAPA_TABLAS[t] ?? t)
+      for (const reg of registros) {
+        const existing = await repo.read(reg.id)
+        if (existing) {
+          await repo.update(reg.id, { ...reg, sincronizado: 1 })
+        } else {
+          await repo.create({ ...reg, sincronizado: 1 })
+        }
+      }
+    }
   }
 
   async function actualizarPendientesCount() {
-    pendientesCount.value = 0 // placeholder
+    let total = 0
+    for (const t of TABLAS_SYNC) {
+      const repo = useLocalRepo(t)
+      const todos = await repo.readAll()
+      total += todos.filter(r => !r.sincronizado).length
+    }
+    pendientesCount.value = total
   }
 
-  // ===== Helpers para descarga de catálogo (trabajador) =====
   async function descargarCatalogo() {
     try {
       const data = await remoteApi.getProductosActivos()
@@ -182,9 +187,17 @@ export function useSync() {
   }
 
   async function guardarProductosCache(productos) {
-    await localDb.getConnection()
-    // Limpiar e insertar
-    // Placeholder
+    const repo = useLocalRepo('productos')
+    const existentes = await repo.readAll()
+
+    for (const prod of productos) {
+      const existing = existentes.find(e => e.id === prod.id)
+      if (existing) {
+        await repo.update(prod.id, { ...prod, sincronizado: 1 })
+      } else {
+        await repo.create({ ...prod, sincronizado: 1 })
+      }
+    }
   }
 
   return {
@@ -194,6 +207,8 @@ export function useSync() {
     hayRed: readonly(hayRed),
     cargarEstado,
     sincronizarAhora,
-    descargarCatalogo
+    descargarCatalogo,
+    remoteApi,
+    aplicarPull
   }
 }

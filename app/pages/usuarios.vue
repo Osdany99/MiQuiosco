@@ -1,6 +1,6 @@
 <script setup>
 definePageMeta({
-  middleware: 'admin'
+  middleware: ['jefe']
 })
 
 const tableRef = ref(null)
@@ -77,13 +77,7 @@ async function confirmarResetPin() {
       <template #rol-cell="{ row }">
         <UBadge
           :label="row.original.rol"
-          :color="
-            row.original.rol === 'admin'
-              ? 'primary'
-              : row.original.rol === 'jefe'
-                ? 'info'
-                : 'neutral'
-          "
+          :color="row.original.rol === 'jefe' ? 'info' : 'neutral'"
         />
       </template>
       <template #row-actions-extra="{ rowData }">

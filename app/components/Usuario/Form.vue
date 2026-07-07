@@ -7,7 +7,6 @@ const form = defineModel({
 })
 
 const itemsRol = [
-  { label: 'Admin', value: 'admin' },
   { label: 'Jefe', value: 'jefe' },
   { label: 'Trabajador', value: 'trabajador' }
 ]

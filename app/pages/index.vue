@@ -2,9 +2,8 @@
 const auth = useAuth()
 
 const destino = computed(() => {
-  if (auth.esAdmin.value) return '/usuarios'
   if (auth.esJefe.value) return '/cuadre'
-  if (auth.esTrabajador.value) return '/registro-trabajador'
+  if (auth.esTrabajador.value) return '/cuadre'
   return '/login'
 })
 

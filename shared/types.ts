@@ -6,7 +6,7 @@
  * estructuras sin importar de dónde vienen.
  */
 
-export type Rol = 'admin' | 'jefe' | 'trabajador'
+export type Rol = 'jefe' | 'trabajador'
 export type EstadoCuadre = 'abierto' | 'cerrado'
 export type TipoLinea = 'normal' | 'regalo' | 'descuento_familiar'
 export type AgrupacionPeriodo = 'dia' | 'semana' | 'mes'

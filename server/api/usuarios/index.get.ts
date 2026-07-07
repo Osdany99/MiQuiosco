@@ -4,7 +4,7 @@ import { usuarios } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'admin')
+  const auth = await requireRole(event, 'jefe')
 
   const rows = await db
     .select({

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { db } from '../../database/client'
 import { productos, historialPrecios } from '../../database/schema'
-import { requireRole, requireAuth } from '../../utils/auth'
+import { requireAuth } from '../../utils/auth'
 
 const crearProductoSchema = z.object({
   nombre: z.string().min(1).max(100),
@@ -15,11 +15,13 @@ const crearProductoSchema = z.object({
 /**
  * POST /api/productos
  *
- * Crea un nuevo producto. Si se proporcionan precios de compra/venta,
- * crea el primer registro en historial_precios con vigente_hasta = NULL.
+ * Crea un nuevo producto (admin o jefe).
  */
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'admin')
+  const { usuario } = await requireAuth(event, 'sync')
+  if (usuario.rol !== 'jefe') {
+    throw createError({ statusCode: 403, statusMessage: 'Acceso denegado.' })
+  }
 
   const body = await readBody(event)
   const parsed = crearProductoSchema.safeParse(body)
@@ -41,9 +43,7 @@ export default defineEventHandler(async (event) => {
     activo = true
   } = parsed.data
 
-  // Obtener puesto_id del usuario autenticado
-  const auth = await requireAuth(event, 'admin')
-  const puestoId = auth.usuario.puestoId
+  const puestoId = usuario.puestoId
 
   const nuevoProducto = await db
     .insert(productos)
@@ -66,7 +66,7 @@ export default defineEventHandler(async (event) => {
     precioCompra: String(precioCompraActual),
     precioVenta: String(precioVentaActual),
     vigenteDesde: new Date(),
-    cambiadoPor: auth.usuario.id
+    cambiadoPor: usuario.id
   })
 
   return {

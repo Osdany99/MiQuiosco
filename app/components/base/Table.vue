@@ -1,7 +1,10 @@
 <template>
   <div>
     <UCard :ui="{ body: { padding: 'p-0' } }" class="relative">
-      <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+        <TableReload @reload="reload" />
+        <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
+      </div>
 
       <TableLoading :loading="pending || loadingProp" />
 
@@ -42,6 +45,8 @@
         </template>
       </UTable>
 
+      <slot name="extra" />
+
       <template #footer>
         <TablePagination
           v-model="page"
@@ -79,7 +84,8 @@
 
 <script setup>
 const props = defineProps({
-  apiUrl: { type: String, required: true },
+  apiUrl: { type: String, default: '' },
+  data: { type: Array, default: null },
   dataKey: { type: String, default: '' },
   columns: { type: Array, required: true },
   emptyState: { type: String, default: 'No se encontraron resultados' },
@@ -96,16 +102,67 @@ const props = defineProps({
   loadingProp: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['edit', 'delete', 'success'])
+const emit = defineEmits(['edit', 'delete', 'success', 'reload'])
 const form = defineModel({ type: Object })
 
 const initialForm = ref(null)
 
 onMounted(() => {
-  initialForm.value = JSON.parse(JSON.stringify(form.value))
+  if (form.value != null) {
+    initialForm.value = JSON.parse(JSON.stringify(form.value))
+  }
 })
 
-const { page, pageCount, data, total, pending, fetchError, refresh } = useTableData(props)
+const isExternalData = computed(() => props.data !== null)
+
+const internalPage = ref(1)
+const internalPageCount = ref(props.defaultLimit)
+
+const repoTable = !isExternalData.value ? useTableData(props) : null
+
+const page = computed({
+  get: () => (repoTable ? repoTable.page.value : internalPage.value),
+  set: (v) => {
+    if (repoTable) repoTable.page.value = v
+    internalPage.value = v
+  }
+})
+
+const pageCount = computed({
+  get: () => (repoTable ? repoTable.pageCount.value : internalPageCount.value),
+  set: (v) => {
+    if (repoTable) repoTable.pageCount.value = v
+    internalPageCount.value = v
+  }
+})
+
+const data = computed(() => {
+  if (isExternalData.value) {
+    if (!props.pagination) return props.data
+    const start = (internalPage.value - 1) * internalPageCount.value
+    return (props.data || []).slice(start, start + internalPageCount.value)
+  }
+  return repoTable?.data.value ?? []
+})
+
+const total = computed(() => {
+  if (isExternalData.value) return props.data?.length ?? 0
+  return repoTable?.total.value ?? 0
+})
+
+const pending = computed(() => {
+  if (isExternalData.value) return props.loadingProp
+  return repoTable?.pending.value ?? false
+})
+
+const fetchError = computed(() => {
+  if (isExternalData.value) return null
+  return repoTable?.fetchError.value ?? null
+})
+
+function refresh() {
+  if (repoTable) repoTable.refresh()
+}
 
 const {
   isOpen,
@@ -124,6 +181,14 @@ const columnHeaders = computed(() => props.columns.map(c => c.header))
 const visibleHeaders = ref(
   props.columns.filter(c => c.visible !== false).map(c => c.header)
 )
+
+function reload() {
+  visibleHeaders.value = props.columns.filter(c => c.visible !== false).map(c => c.header)
+  internalPage.value = 1
+  if (repoTable) repoTable.page.value = 1
+  refresh()
+  emit('reload')
+}
 
 watch(columnHeaders, (newHeaders, oldHeaders) => {
   const added = newHeaders.filter(h => !oldHeaders.includes(h))

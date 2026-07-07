@@ -10,7 +10,7 @@ import {
  * Tipos de union como constantes de texto (SQLite no soporta enums nativos).
  * Se aplican con CHECK constraints en la inicialización de la base.
  */
-export const ROLES = ['admin', 'jefe', 'trabajador'] as const
+export const ROLES = ['jefe', 'trabajador'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
 export const TIPOS_LINEA = ['normal', 'regalo', 'descuento_familiar'] as const
 

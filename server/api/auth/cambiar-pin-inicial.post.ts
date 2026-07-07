@@ -102,16 +102,11 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     })
     .where(eq(usuarios.id, usuario.id))
 
-  // Generar token fresco para que entre a la app sin volver a loguear
-  const scope = usuario.rol === 'admin' ? 'admin' : 'sync'
-  const { token, expiraEn } = signToken(
-    {
-      sub: usuario.id,
-      rol: usuario.rol as Rol,
-      scope: [scope]
-    },
-    scope
-  )
+  const { token, expiraEn } = signToken({
+    sub: usuario.id,
+    rol: usuario.rol as Rol,
+    scope: ['sync']
+  })
 
   return {
     token,

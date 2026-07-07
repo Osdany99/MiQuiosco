@@ -1,54 +1,47 @@
 /**
- * useCrud - Composable para operaciones CRUD (create, read, update, delete) con manejo de loading, error y toast.
+ * useCrud — Operaciones CRUD.
  *
- * @param {string} baseUrl - URL base del recurso (ej: '/api/usuarios').
- * @param {Object} [callbacks={}] - Callbacks opcionales.
- * @param {Function} [callbacks.onSuccess] - Callback ejecutado tras operación exitosa (recibe response).
- * @param {boolean} [showToast=true] - Si mostrar toast de éxito/error automáticamente.
+ * Resuelve el repositorio según el modo de conexión:
+ * - 'local'  → useLocalRepo(tabla)
+ * - 'online' → useRemoteRepo(tabla)
  *
- * @returns {Object} Objeto con métodos CRUD y estado:
- * @returns {Ref<boolean>} returns.loading - True mientras hay una petición en curso.
- * @returns {Ref<Error|null>} returns.error - Error de la última operación.
- * @returns {Function} returns.create - Crea recurso: (body) => Promise<{data, error}>.
- * @returns {Function} returns.update - Actualiza recurso: (id, body) => Promise<{data, error}>.
- * @returns {Function} returns.remove - Elimina recurso: (id) => Promise<{data, error}>.
- * @returns {Function} returns.patch - Actualización parcial: (id, body) => Promise<{data, error}>.
- *
- * @example
- * const { create, update, remove, loading, error } = useCrud('/api/productos', {
- *   onSuccess: () => refreshTable()
- * }, true)
- *
- * // Crear
- * const { data, error } = await create({ nombre: 'Producto', precio: 100 })
- *
- * // Actualizar
- * await update('123', { precio: 150 })
- *
- * // Eliminar
- * await remove('123')
- *
- * // Actualización parcial
- * await patch('123', { precio: 150 })
+ * @param {string} baseUrl — URL base del recurso (ej: '/api/productos').
+ * @param {Object} [callbacks={}] — { onSuccess }
+ * @param {boolean} [showToast=true] — mostrar toast de éxito/error
  */
 export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
-  const { getHeaders } = useHeaders()
+  const tabla = baseUrl.split('/').filter(Boolean).pop() || 'unknown'
+  const conexion = useModoConexion()
+  const repo = computed(() =>
+    conexion.modo.value === 'online'
+      ? useRemoteRepo(tabla)
+      : useLocalRepo(tabla)
+  )
   const loading = ref(false)
   const error = ref(null)
   const toast = useToast()
 
-  async function ejecutar(method, url, body) {
+  async function ejecutar(method, body, id) {
     loading.value = true
     error.value = null
     try {
-      const response = await $fetch(url, { method, headers: getHeaders(), body })
+      const r = repo.value
+      let response
+      if (method === 'POST') {
+        response = await r.create(body)
+      } else if (method === 'PUT' || method === 'PATCH') {
+        await r.update(id, body)
+        response = { id, ...body }
+      } else if (method === 'DELETE') {
+        await r.remove(id)
+        response = { success: true }
+      }
       if (showToast) toast.add({ title: 'Operación exitosa', color: 'primary' })
       await onSuccess?.()
       return { data: response, error: null }
     } catch (err) {
       error.value = err
-      if (err?.response?.status === 401) await useAuth().logout()
-      if (showToast) toast.add({ title: 'Error', description: err.statusMessage || err.message, color: 'error' })
+      if (showToast) toast.add({ title: 'Error', description: err.message, color: 'error' })
       return { data: null, error: err }
     } finally {
       loading.value = false
@@ -58,9 +51,9 @@ export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
   return {
     loading,
     error,
-    create: body => ejecutar('POST', baseUrl, body),
-    update: (id, body) => ejecutar('PUT', `${baseUrl}/${id}`, body),
-    remove: id => ejecutar('DELETE', `${baseUrl}/${id}`),
-    patch: (id, body) => ejecutar('PATCH', `${baseUrl}/${id}`, body)
+    create: body => ejecutar('POST', body),
+    update: (id, body) => ejecutar('PUT', body, id),
+    remove: id => ejecutar('DELETE', null, id),
+    patch: (id, body) => ejecutar('PATCH', body, id)
   }
 }
