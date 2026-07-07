@@ -5,6 +5,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const auth = useAuth()
   await auth.cargarDesdePreferencias()
 
+  if (auth.sesionLocal.value && !auth.sesionLocalVigente()) {
+    await auth.invalidarSesionLocal()
+    return navigateTo('/login', { query: { reason: 'session_expired', redirect: to.fullPath } })
+  }
+
   const tieneSesion = auth.sesionLocal.value || auth.usuarioActual.value
   const tieneToken = auth.jwtSync.value
 

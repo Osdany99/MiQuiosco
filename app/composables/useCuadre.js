@@ -35,23 +35,23 @@ function normalizarCuadre(c) {
   if (!c) return c
   return {
     id: c.id,
-    puestoId: c.puesto_id ?? c.puestoId,
-    jefeId: c.jefe_id ?? c.jefeId,
+    puestoId: c.puestoId,
+    jefeId: c.jefeId,
     fecha: c.fecha,
     estado: c.estado,
-    totalEsperado: Number(c.total_esperado ?? c.totalEsperado ?? 0),
-    totalRealCaja: c.total_real_caja ?? c.totalRealCaja ?? null,
-    montoTransferencia: Number(c.monto_transferencia ?? c.montoTransferencia ?? 0),
-    montoFiado: Number(c.monto_fiado ?? c.montoFiado ?? 0),
+    totalEsperado: Number(c.totalEsperado ?? 0),
+    totalRealCaja: c.totalRealCaja ?? null,
+    montoTransferencia: Number(c.montoTransferencia ?? 0),
+    montoFiado: Number(c.montoFiado ?? 0),
     diferencia: c.diferencia ?? null,
-    trabajadorTurnoId: c.trabajador_turno_id ?? c.trabajadorTurnoId ?? null,
-    pagoTrabajador: c.pago_trabajador ?? c.pagoTrabajador ?? null,
+    trabajadorTurnoId: c.trabajadorTurnoId ?? null,
+    pagoTrabajador: c.pagoTrabajador ?? null,
     notas: c.notas ?? null,
-    cerradoEn: c.cerrado_en ?? c.cerradoEn ?? null,
-    reabiertoVeces: Number(c.reabierto_veces ?? c.reabiertoVeces ?? 0),
-    ultimaReaperturaEn: c.ultima_reapertura_en ?? c.ultimaReaperturaEn ?? null,
-    creadoEn: c.creado_en ?? c.creadoEn ?? Date.now(),
-    actualizadoEn: c.actualizado_en ?? c.actualizadoEn ?? Date.now(),
+    cerradoEn: c.cerradoEn ?? null,
+    reabiertoVeces: Number(c.reabiertoVeces ?? 0),
+    ultimaReaperturaEn: c.ultimaReaperturaEn ?? null,
+    creadoEn: c.creadoEn ?? Date.now(),
+    actualizadoEn: c.actualizadoEn ?? Date.now(),
     sincronizado: c.sincronizado ?? 0
   }
 }
@@ -59,14 +59,14 @@ function normalizarCuadre(c) {
 function normalizarLinea(i) {
   return {
     id: i.id,
-    cuadreId: i.cuadre_id ?? i.cuadreId,
-    productoId: i.producto_id ?? i.productoId,
-    precioVentaUsado: Number(i.precio_venta_usado ?? i.precioVentaUsado ?? 0),
+    cuadreId: i.cuadreId,
+    productoId: i.productoId,
+    precioVentaUsado: Number(i.precioVentaUsado ?? 0),
     cantidad: Number(i.cantidad ?? 0),
     subtotal: Number(i.subtotal ?? 0),
-    tipoLinea: i.tipo_linea ?? i.tipoLinea ?? 'normal',
+    tipoLinea: i.tipoLinea ?? 'normal',
     nota: i.nota ?? null,
-    esExtra: i.es_extra ?? i.esExtra ?? false
+    esExtra: i.esExtra ?? false
   }
 }
 
@@ -76,17 +76,9 @@ export function useCuadre() {
   const conexion = useModoConexion()
   const toast = useToast()
 
-  const cuadreRepo = computed(() =>
-    conexion.modo.value === 'online'
-      ? useRemoteRepo('cuadres')
-      : useLocalRepo('cuadres')
-  )
+  const cuadreRepo = useRepo('cuadres')
 
-  const itemsRepo = computed(() =>
-    conexion.modo.value === 'online'
-      ? useRemoteRepo('cuadre_items')
-      : useLocalRepo('cuadre_items')
-  )
+  const itemsRepo = useRepo('cuadre_items')
 
   const productRepo = computed(() =>
     conexion.modo.value === 'online'
@@ -143,7 +135,7 @@ export function useCuadre() {
   }
 
   async function buscarCuadreActual(puestoId) {
-    const todos = await cuadreRepo.value.readAll()
+    const todos = await cuadreRepo.readAll()
     const encontrado = todos.find(c => {
       const n = normalizarCuadre(c)
       return n.puestoId === puestoId && n.fecha === hoy
@@ -152,7 +144,7 @@ export function useCuadre() {
   }
 
   async function cargarLineasDeCuadre(cuadreId) {
-    const items = await itemsRepo.value.readAll()
+    const items = await itemsRepo.readAll()
     const itemsFiltrados = items.filter(i => {
       const n = normalizarLinea(i)
       return n.cuadreId === cuadreId
@@ -194,7 +186,7 @@ export function useCuadre() {
       reabiertoVeces: 0,
       ultimaReaperturaEn: null
     }
-    await cuadreRepo.value.create(cuadreObj)
+    await cuadreRepo.create(cuadreObj)
     return cuadreObj
   }
 
@@ -252,7 +244,7 @@ export function useCuadre() {
     try {
       const cambios = {
         estado: 'cerrado',
-        totalEsperado,
+        totalEsperado: totalEsperado.value,
         totalRealCaja: totalRealCaja.value,
         montoTransferencia: montoTransferencia.value,
         montoFiado: montoFiado.value,
@@ -263,18 +255,18 @@ export function useCuadre() {
         cerradoEn: Date.now()
       }
 
-      await cuadreRepo.value.update(cuadre.value.id, cambios)
+      await cuadreRepo.update(cuadre.value.id, cambios)
       cuadre.value = { ...cuadre.value, ...cambios }
 
-      const existentes = await itemsRepo.value.readAll()
+      const existentes = await itemsRepo.readAll()
       for (const item of existentes.filter(i => {
         const n = normalizarLinea(i)
         return n.cuadreId === cuadre.value.id
       })) {
-        await itemsRepo.value.remove(item.id)
+        await itemsRepo.remove(item.id)
       }
       for (const linea of lineas.value) {
-        await itemsRepo.value.create({
+        await itemsRepo.create({
           cuadreId: linea.cuadreId,
           productoId: linea.productoId,
           precioVentaUsado: linea.precioVentaUsado,
@@ -310,7 +302,7 @@ export function useCuadre() {
     if (!cuadre.value || cuadre.value.estado !== 'cerrado') return
 
     const reabiertoVeces = (cuadre.value.reabiertoVeces ?? 0) + 1
-    await cuadreRepo.value.update(cuadre.value.id, {
+    await cuadreRepo.update(cuadre.value.id, {
       estado: 'abierto',
       reabiertoVeces,
       ultimaReaperturaEn: Date.now()

@@ -15,12 +15,12 @@ export function useProductoRepo() {
   async function create(datos) {
     const producto = await repo.create(datos)
     await historialRepo.create({
-      producto_id: producto.id,
-      precio_compra: datos.precio_compra ?? 0,
-      precio_venta: datos.precio_venta ?? 0,
-      vigente_desde: Date.now(),
-      vigente_hasta: null,
-      cambiado_por: auth.usuarioActual.value?.nombre ?? 'local'
+      productoId: producto.id,
+      precioCompra: datos.precioCompra ?? 0,
+      precioVenta: datos.precioVenta ?? 0,
+      vigenteDesde: Date.now(),
+      vigenteHasta: null,
+      cambiadoPor: auth.usuarioActual.value?.nombre ?? 'local'
     })
     return producto
   }
@@ -33,10 +33,10 @@ export function useProductoRepo() {
     const actual = await repo.read(id)
     if (!actual) return
 
-    const precioCambioCompra = cambios.precio_compra !== undefined
-      && Number(cambios.precio_compra) !== Number(actual.precio_compra)
-    const precioCambioVenta = cambios.precio_venta !== undefined
-      && Number(cambios.precio_venta) !== Number(actual.precio_venta)
+    const precioCambioCompra = cambios.precioCompra !== undefined
+      && Number(cambios.precioCompra) !== Number(actual.precioCompra)
+    const precioCambioVenta = cambios.precioVenta !== undefined
+      && Number(cambios.precioVenta) !== Number(actual.precioVenta)
 
     await repo.update(id, cambios)
 
@@ -44,20 +44,20 @@ export function useProductoRepo() {
       // Cerrar historial vigente
       const historiales = await historialRepo.readAll()
       const vigente = historiales.find(
-        h => h.producto_id === id && !h.vigente_hasta
+        h => h.productoId === id && !h.vigenteHasta
       )
       if (vigente) {
-        await historialRepo.update(vigente.id, { vigente_hasta: Date.now() })
+        await historialRepo.update(vigente.id, { vigenteHasta: Date.now() })
       }
 
       // Abrir nuevo historial
       await historialRepo.create({
-        producto_id: id,
-        precio_compra: cambios.precio_compra ?? Number(actual.precio_compra),
-        precio_venta: cambios.precio_venta ?? Number(actual.precio_venta),
-        vigente_desde: Date.now(),
-        vigente_hasta: null,
-        cambiado_por: auth.usuarioActual.value?.nombre ?? 'local'
+        productoId: id,
+        precioCompra: cambios.precioCompra ?? Number(actual.precioCompra),
+        precioVenta: cambios.precioVenta ?? Number(actual.precioVenta),
+        vigenteDesde: Date.now(),
+        vigenteHasta: null,
+        cambiadoPor: auth.usuarioActual.value?.nombre ?? 'local'
       })
     }
   }
@@ -66,8 +66,8 @@ export function useProductoRepo() {
    * Retorna el historial de precios de un producto, ordenado descendente.
    */
   async function getHistorial(productoId) {
-    const historiales = await historialRepo.readAll({ orderBy: 'vigente_desde', orderDir: 'desc' })
-    return historiales.filter(h => h.producto_id === productoId)
+    const historiales = await historialRepo.readAll({ orderBy: 'vigenteDesde', orderDir: 'desc' })
+    return historiales.filter(h => h.productoId === productoId)
   }
 
   return { create, update, ...repo, getHistorial }

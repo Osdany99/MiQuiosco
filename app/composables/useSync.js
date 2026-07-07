@@ -15,12 +15,8 @@ export function useSync() {
 
   const TABLAS_SYNC = ['productos', 'historial_precios', 'cuadres', 'cuadre_items', 'usuarios']
 
-  const MAPA_TABLAS = {
-    productos: 'productos',
-    historial_precios: 'historial_precios',
-    cuadres: 'cuadres',
-    cuadre_items: 'cuadre_items',
-    usuarios: 'usuarios'
+  function repoDe(tabla) {
+    return useLocalRepo(tabla)
   }
 
   async function cargarEstado() {
@@ -70,7 +66,7 @@ export function useSync() {
       const pushResult = await remoteApi.syncPush(pendientes)
 
       // pushResult.aceptados — flat string[] de IDs aceptados
-      await marcarAceptados(pushResult.aceptados)
+      await marcarAceptados(pushResult.aceptados, pendientes)
 
       // pushResult.conflictos — { productos: [], historial_precios: [], ... }
       await absorberConflictos(pushResult.conflictos)
@@ -104,14 +100,6 @@ export function useSync() {
     }
   }
 
-  function snakeToCamelRow(row) {
-    const result = {}
-    for (const [key, value] of Object.entries(row)) {
-      result[key.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = value
-    }
-    return result
-  }
-
   async function reunirPendientes() {
     const result = {}
     for (const t of TABLAS_SYNC) {
@@ -119,19 +107,19 @@ export function useSync() {
       const todos = await repo.readAll()
       result[t] = todos
         .filter(r => !r.sincronizado)
-        .map(snakeToCamelRow)
         .map(({ sincronizado, ...rest }) => rest)
     }
     return result
   }
 
-  async function marcarAceptados(aceptados) {
+  async function marcarAceptados(aceptados, pendientes) {
     if (!aceptados?.length) return
     const idsSet = new Set(aceptados)
     for (const t of TABLAS_SYNC) {
-      const repo = useLocalRepo(t)
-      const todos = await repo.readAll()
-      for (const reg of todos) {
+      const rows = pendientes[t]
+      if (!rows?.length) continue
+      const repo = repoDe(t)
+      for (const reg of rows) {
         if (idsSet.has(reg.id)) {
           try { await repo.update(reg.id, { sincronizado: 1 }) } catch {}
         }
@@ -143,7 +131,7 @@ export function useSync() {
     if (!conflictos) return
     for (const [tabla, registros] of Object.entries(conflictos)) {
       if (!registros?.length) continue
-      const repo = useLocalRepo(MAPA_TABLAS[tabla] ?? tabla)
+      const repo = repoDe(tabla)
       for (const reg of registros) {
         try { await repo.update(reg.id, { ...reg, sincronizado: 1 }) } catch {}
       }
@@ -154,7 +142,7 @@ export function useSync() {
     for (const t of TABLAS_SYNC) {
       const registros = pullResult[t]
       if (!registros?.length) continue
-      const repo = useLocalRepo(MAPA_TABLAS[t] ?? t)
+      const repo = repoDe(t)
       for (const reg of registros) {
         const existing = await repo.read(reg.id)
         if (existing) {
@@ -167,13 +155,8 @@ export function useSync() {
   }
 
   async function actualizarPendientesCount() {
-    let total = 0
-    for (const t of TABLAS_SYNC) {
-      const repo = useLocalRepo(t)
-      const todos = await repo.readAll()
-      total += todos.filter(r => !r.sincronizado).length
-    }
-    pendientesCount.value = total
+    const pendientes = await reunirPendientes()
+    pendientesCount.value = TABLAS_SYNC.reduce((s, t) => s + (pendientes[t]?.length ?? 0), 0)
   }
 
   async function descargarCatalogo() {

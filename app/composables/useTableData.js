@@ -15,13 +15,19 @@ import { refDebounced } from '@vueuse/core'
  * @param {Ref|ComputedRef} [props.search] — búsqueda reactiva (debounced 500ms)
  */
 export function useTableData(props) {
+  if (!props.apiUrl) {
+    return {
+      page: ref(1),
+      pageCount: ref(props.defaultLimit),
+      data: ref([]),
+      total: ref(0),
+      pending: ref(false),
+      fetchError: ref(null),
+      refresh: () => {}
+    }
+  }
   const tabla = props.apiUrl.split('/').filter(Boolean).pop() || 'unknown'
-  const conexion = useModoConexion()
-  const repo = computed(() =>
-    conexion.modo.value === 'online'
-      ? useRemoteRepo(tabla)
-      : useLocalRepo(tabla)
-  )
+  const repo = useRepo(tabla)
 
   const page = ref(1)
   const pageCount = ref(props.defaultLimit)
@@ -35,7 +41,7 @@ export function useTableData(props) {
     pending.value = true
     fetchError.value = null
     try {
-      allData.value = await repo.value.readAll()
+      allData.value = await repo.readAll()
     } catch (err) {
       fetchError.value = err
       allData.value = []
@@ -58,9 +64,13 @@ export function useTableData(props) {
 
     if (debouncedSearch.value) {
       const q = debouncedSearch.value.toLowerCase()
-      items = items.filter(item =>
-        Object.values(item).some(v => String(v).toLowerCase().includes(q))
-      )
+      const fields = props.searchFields?.length ? props.searchFields : null
+      items = items.filter(item => {
+        const values = fields
+          ? fields.map(f => String(item[f] ?? ''))
+          : Object.values(item).map(v => String(v))
+        return values.some(v => v.toLowerCase().includes(q))
+      })
     }
 
     return items

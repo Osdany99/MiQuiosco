@@ -54,7 +54,7 @@ export function useGraficasLocales() {
       return cMs >= desdeMs && cMs < hastaMs
     })
     const cuadreIds = new Set(cuadresFiltrados.map(c => c.id))
-    const itemsFiltrados = todosItems.filter(i => cuadreIds.has(i.cuadre_id))
+    const itemsFiltrados = todosItems.filter(i => cuadreIds.has(i.cuadreId))
 
     return { cuadres: cuadresFiltrados, items: itemsFiltrados, prodMap, todosCuadres }
   }
@@ -83,7 +83,7 @@ export function useGraficasLocales() {
     const { items, prodMap } = await cargarDatos({})
     const ventas = {}
     for (const i of items) {
-      ventas[i.producto_id] = (ventas[i.producto_id] || 0) + (Number(i.cantidad) || 0)
+      ventas[i.productoId] = (ventas[i.productoId] || 0) + (Number(i.cantidad) || 0)
     }
     return Object.entries(ventas)
       .map(([id, totalVendido]) => ({
@@ -98,9 +98,9 @@ export function useGraficasLocales() {
     const { items, prodMap } = await cargarDatos({})
     const ganancias = {}
     for (const i of items) {
-      const p = prodMap[i.producto_id]
-      const ganancia = (Number(i.precio_venta_usado) - Number(p?.precio_compra_actual || 0)) * (Number(i.cantidad) || 0)
-      ganancias[i.producto_id] = (ganancias[i.producto_id] || 0) + ganancia
+      const p = prodMap[i.productoId]
+      const ganancia = (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * (Number(i.cantidad) || 0)
+      ganancias[i.productoId] = (ganancias[i.productoId] || 0) + ganancia
     }
     return Object.entries(ganancias)
       .map(([id, gananciaTotal]) => ({
@@ -115,7 +115,7 @@ export function useGraficasLocales() {
     const { items, prodMap } = await cargarDatos({})
     const ventas = {}
     for (const i of items) {
-      ventas[i.producto_id] = (ventas[i.producto_id] || 0) + (Number(i.cantidad) || 0)
+      ventas[i.productoId] = (ventas[i.productoId] || 0) + (Number(i.cantidad) || 0)
     }
     return Object.entries(ventas)
       .filter(([id]) => prodMap[id]?.activo !== false)
@@ -131,9 +131,9 @@ export function useGraficasLocales() {
     const { items, prodMap } = await cargarDatos(opts)
     const periodos = agrupar(
       items.map(i => {
-        const p = prodMap[i.producto_id]
-        const ganancia = (Number(i.precio_venta_usado) - Number(p?.precio_compra_actual || 0)) * (Number(i.cantidad) || 0)
-        return { periodo: i.creado_en ? new Date(i.creado_en).toISOString().split('T')[0] : '', ganancia }
+        const p = prodMap[i.productoId]
+        const ganancia = (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * (Number(i.cantidad) || 0)
+        return { periodo: i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : '', ganancia }
       }),
       'periodo',
       opts.agrupacion || 'dia'
@@ -148,7 +148,7 @@ export function useGraficasLocales() {
     const { items } = await cargarDatos(opts)
     const periodos = agrupar(
       items.map(i => ({
-        periodo: i.creado_en ? new Date(i.creado_en).toISOString().split('T')[0] : '',
+        periodo: i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : '',
         ingresoTotal: Number(i.subtotal) || 0
       })),
       'periodo',
@@ -162,13 +162,13 @@ export function useGraficasLocales() {
 
   async function regalosDescuentosPeriodo(opts) {
     const { items } = await cargarDatos(opts)
-    const filtrados = items.filter(i => i.tipo_linea && i.tipo_linea !== 'normal')
+    const filtrados = items.filter(i => i.tipoLinea && i.tipoLinea !== 'normal')
     const periodos = agrupar(
       filtrados.map(i => {
         const valor = Number(i.subtotal) || 0
         return {
-          periodo: i.creado_en ? new Date(i.creado_en).toISOString().split('T')[0] : '',
-          esRegalo: i.tipo_linea === 'regalo',
+          periodo: i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : '',
+          esRegalo: i.tipoLinea === 'regalo',
           valor
         }
       }),
@@ -203,8 +203,8 @@ export function useGraficasLocales() {
     const { items } = await cargarDatos(opts)
     const diario = {}
     for (const i of items) {
-      if (i.producto_id !== opts.productoId) continue
-      const fecha = i.creado_en ? new Date(i.creado_en).toISOString().split('T')[0] : ''
+      if (i.productoId !== opts.productoId) continue
+      const fecha = i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : ''
       diario[fecha] = (diario[fecha] || 0) + (Number(i.cantidad) || 0)
     }
     return Object.entries(diario)
@@ -218,11 +218,11 @@ export function useGraficasLocales() {
     const prod = prodMap[opts.productoId]
     if (!prod) return []
     return items
-      .filter(i => i.producto_id === opts.productoId)
+      .filter(i => i.productoId === opts.productoId)
       .map(i => ({
-        fecha: i.creado_en ? new Date(i.creado_en).toISOString().split('T')[0] : '',
-        precioVentaUsado: Number(i.precio_venta_usado) || 0,
-        precioOficialActual: Number(prod.precio_venta_actual) || 0
+        fecha: i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : '',
+        precioVentaUsado: Number(i.precioVentaUsado) || 0,
+        precioOficialActual: Number(prod.precioVentaActual) || 0
       }))
       .sort((a, b) => a.fecha.localeCompare(b.fecha))
   }
@@ -231,9 +231,9 @@ export function useGraficasLocales() {
     const { cuadres } = await cargarDatos(opts)
     let efectivo = 0; let transferencia = 0; let fiado = 0
     for (const c of cuadres) {
-      efectivo += Number(c.total_real_caja) || 0
-      transferencia += Number(c.monto_transferencia) || 0
-      fiado += Number(c.monto_fiado) || 0
+      efectivo += Number(c.totalRealCaja) || 0
+      transferencia += Number(c.montoTransferencia) || 0
+      fiado += Number(c.montoFiado) || 0
     }
     return [
       { forma: 'Efectivo', total: efectivo },
@@ -247,7 +247,7 @@ export function useGraficasLocales() {
     const estados = { abierto: 0, cerrado: 0 }
     let reabiertos = 0
     for (const c of todosCuadres) {
-      if (c.reabierto_veces > 0) reabiertos++
+      if (c.reabiertoVeces > 0) reabiertos++
       else if (c.estado === 'cerrado') estados.cerrado++
       else estados.abierto++
     }
@@ -261,12 +261,12 @@ export function useGraficasLocales() {
   async function cuadresReabiertos() {
     const { todosCuadres } = await cargarDatos({})
     return todosCuadres
-      .filter(c => c.reabierto_veces > 0)
+      .filter(c => c.reabiertoVeces > 0)
       .map(c => ({
         fecha: c.fecha,
-        reabiertoVeces: c.reabierto_veces,
-        ultimaReapertura: c.ultima_reapertura_en
-          ? new Date(c.ultima_reapertura_en).toLocaleString('es-ES')
+        reabiertoVeces: c.reabiertoVeces,
+        ultimaReapertura: c.ultimaReaperturaEn
+          ? new Date(c.ultimaReaperturaEn).toLocaleString('es-ES')
           : '—'
       }))
       .sort((a, b) => b.fecha.localeCompare(a.fecha))
@@ -276,8 +276,8 @@ export function useGraficasLocales() {
     const { cuadres } = await cargarDatos(opts)
     const pagos = {}
     for (const c of cuadres) {
-      const id = c.trabajador_turno_id || 'sin-asignar'
-      pagos[id] = (pagos[id] || 0) + (Number(c.pago_trabajador) || 0)
+      const id = c.trabajadorTurnoId || 'sin-asignar'
+      pagos[id] = (pagos[id] || 0) + (Number(c.pagoTrabajador) || 0)
     }
     return Object.entries(pagos).map(([trabajadorNombre, totalPagado]) => ({
       trabajadorNombre,
@@ -289,7 +289,7 @@ export function useGraficasLocales() {
     const { cuadres } = await cargarDatos(opts)
     const stats = {}
     for (const c of cuadres) {
-      const id = c.trabajador_turno_id || 'sin-asignar'
+      const id = c.trabajadorTurnoId || 'sin-asignar'
       if (!stats[id]) stats[id] = { totalCuadres: 0, sumDiferencia: 0, cuadresConFaltante: 0 }
       stats[id].totalCuadres++
       if (c.diferencia != null) {

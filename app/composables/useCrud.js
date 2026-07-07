@@ -10,13 +10,18 @@
  * @param {boolean} [showToast=true] — mostrar toast de éxito/error
  */
 export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
+  if (!baseUrl) {
+    return {
+      loading: ref(false),
+      error: ref(null),
+      create: () => Promise.resolve({ data: null, error: null }),
+      update: () => Promise.resolve({ data: null, error: null }),
+      remove: () => Promise.resolve({ data: null, error: null }),
+      patch: () => Promise.resolve({ data: null, error: null })
+    }
+  }
   const tabla = baseUrl.split('/').filter(Boolean).pop() || 'unknown'
-  const conexion = useModoConexion()
-  const repo = computed(() =>
-    conexion.modo.value === 'online'
-      ? useRemoteRepo(tabla)
-      : useLocalRepo(tabla)
-  )
+  const repo = useRepo(tabla)
   const loading = ref(false)
   const error = ref(null)
   const toast = useToast()
@@ -25,7 +30,7 @@ export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
     loading.value = true
     error.value = null
     try {
-      const r = repo.value
+      const r = repo
       let response
       if (method === 'POST') {
         response = await r.create(body)

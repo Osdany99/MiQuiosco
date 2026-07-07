@@ -66,6 +66,7 @@ export function useLocalRepo(tabla) {
   async function update(id, cambios) {
     await localDb.update(tabla, id, {
       ...cambios,
+      sincronizado: 0,
       actualizado_en: ahora()
     })
   }

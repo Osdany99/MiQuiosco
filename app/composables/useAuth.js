@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs'
 /**
  * Dos contextos de autenticación, completamente aislados:
  *
- * A. Sesión local del jefe/trabajador/admin (offline-first, en dispositivo).
+ * A. Sesión local del jefe/trabajador (offline-first, en dispositivo).
  *    Vive en @capacitor/preferences bajo la clave 'sesion_local'.
  *
  * B. JWT de sincronización del jefe (server-side, solo /api/sync/*).
@@ -54,7 +54,6 @@ import bcrypt from 'bcryptjs'
  */
 const PREF_SESION_LOCAL = 'sesion_local'
 const PREF_JWT_SYNC = 'jwt_sync'
-const PREF_PIN_HASH_LOCAL = 'pin_hash_local'
 
 export function useAuth() {
   const sesionLocal = useState('auth.sesionLocal', () => null)
@@ -185,12 +184,7 @@ export function useAuth() {
 
     if (!usuario || !usuario.activo) return null
 
-    const hashLocal = await Preferences.get({
-      key: `${PREF_PIN_HASH_LOCAL}_${usuario.id}`
-    })
-    if (!hashLocal.value) return null
-
-    const pinOk = await bcrypt.compare(pin, hashLocal.value)
+    const pinOk = await bcrypt.compare(pin, usuario.pinHash)
     if (!pinOk) return null
 
     const ahora = Date.now()
@@ -286,12 +280,9 @@ export function useAuth() {
   }
 
   function esErrorDeRed(err) {
-    if (typeof err === 'object' && err !== null) {
-      const e = err
-      if (!e.statusCode) return true
-      if (e.message?.toLowerCase().includes('fetch')) return true
-      if (e.message?.toLowerCase().includes('network')) return true
-    }
+    if (typeof err !== 'object' || err === null) return false
+    if (err.name === 'TypeError' && err.message?.includes('fetch')) return true
+    if (err.message?.toLowerCase().includes('network')) return true
     return false
   }
 

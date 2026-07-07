@@ -132,7 +132,8 @@ async function initializeSchema(conn) {
         id TEXT PRIMARY KEY, producto_id TEXT NOT NULL,
         precio_compra REAL NOT NULL, precio_venta REAL NOT NULL,
         vigente_desde INTEGER NOT NULL, vigente_hasta INTEGER,
-        cambiado_por TEXT, creado_en INTEGER NOT NULL
+        cambiado_por TEXT, creado_en INTEGER NOT NULL,
+        actualizado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS cuadres (
         id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, fecha TEXT NOT NULL,
@@ -184,6 +185,93 @@ function initializeSchemaMemory(mem) {
 }
 
 // =====================================================================
+// Column type map y coerceRow — reemplaza los 4 mappers específicos
+// =====================================================================
+
+const COLUMN_TYPES = {
+  usuarios: {
+    id: 'String',
+    puestoId: 'String',
+    nombre: 'String',
+    rol: 'String',
+    pinHash: 'String',
+    activo: 'Boolean',
+    debeCambiarPin: 'Boolean',
+    creadoEn: 'Number',
+    actualizadoEn: 'Number'
+  },
+  productos: {
+    id: 'String',
+    puestoId: 'String',
+    nombre: 'String',
+    descripcion: 'passthrough',
+    activo: 'Boolean',
+    orden: 'Number',
+    precioCompraActual: 'Number',
+    precioVentaActual: 'Number',
+    creadoEn: 'Number',
+    actualizadoEn: 'Number',
+    sincronizado: 'Number'
+  },
+  cuadres: {
+    id: 'String',
+    puestoId: 'String',
+    fecha: 'String',
+    jefeId: 'String',
+    trabajadorTurnoId: 'nullableNumber',
+    pagoTrabajador: 'nullableNumber',
+    totalEsperado: 'Number',
+    totalRealCaja: 'nullableNumber',
+    montoTransferencia: 'Number',
+    montoFiado: 'Number',
+    diferencia: 'nullableNumber',
+    estado: 'String',
+    notas: 'passthrough',
+    cerradoEn: 'nullableNumber',
+    reabiertoVeces: 'Number',
+    ultimaReaperturaEn: 'nullableNumber',
+    creadoEn: 'Number',
+    actualizadoEn: 'Number',
+    sincronizado: 'Number'
+  },
+  cuadre_items: {
+    id: 'String',
+    cuadreId: 'String',
+    productoId: 'String',
+    precioVentaUsado: 'Number',
+    cantidad: 'Number',
+    subtotal: 'Number',
+    tipoLinea: 'String',
+    nota: 'passthrough',
+    esExtra: 'Boolean',
+    creadoEn: 'Number',
+    actualizadoEn: 'Number',
+    sincronizado: 'Number'
+  }
+}
+
+function coerceRow(row, tableName) {
+  const types = COLUMN_TYPES[tableName]
+  if (!types) return row
+  const result = { ...row }
+  for (const [key, type] of Object.entries(types)) {
+    const val = result[key]
+    if (val === undefined || val === null) {
+      if (type === 'nullableNumber' || type === 'passthrough') continue
+      result[key] = type === 'Number' ? 0 : type === 'Boolean' ? false : type === 'String' ? '' : null
+      continue
+    }
+    switch (type) {
+      case 'String': result[key] = String(val); break
+      case 'Number': result[key] = Number(val); break
+      case 'Boolean': result[key] = Boolean(val); break
+      case 'nullableNumber': result[key] = Number(val); break
+    }
+  }
+  return result
+}
+
+// =====================================================================
 // API pública del composable
 // =====================================================================
 
@@ -196,14 +284,14 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('usuarios', r => r.nombre === nombre)
-      return rows.length > 0 ? rowToUsuarioSQLite(rows[0]) : null
+      return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), 'usuarios') : null
     }
 
     const result = await conn.query({
       statement: 'SELECT * FROM usuarios WHERE nombre = ? LIMIT 1',
       values: [nombre]
     })
-    return result.values && result.values[0] ? rowToUsuarioSQLite(result.values[0]) : null
+    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), 'usuarios') : null
   }
 
   /**
@@ -217,14 +305,14 @@ export function useLocalDb() {
         const pid = r.puesto_id ?? r.puestoId
         return pid === puestoId && (r.activo === 1 || r.activo === true)
       })
-      return rows.map(rowToProducto)
+      return rows.map(r => coerceRow(snakeToCamelRow(r), 'productos'))
     }
 
     const result = await conn.query({
       statement: 'SELECT * FROM productos WHERE puesto_id = ? AND activo = 1 ORDER BY orden',
       values: [puestoId]
     })
-    return (result.values ?? []).map(rowToProducto)
+    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), 'productos'))
   }
 
   /**
@@ -235,14 +323,14 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('cuadres', r => r.puesto_id === puestoId && r.fecha === fecha)
-      return rows.length > 0 ? rowToCuadre(rows[0]) : null
+      return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), 'cuadres') : null
     }
 
     const result = await conn.query({
       statement: 'SELECT * FROM cuadres WHERE puesto_id = ? AND fecha = ? LIMIT 1',
       values: [puestoId, fecha]
     })
-    return result.values && result.values[0] ? rowToCuadre(result.values[0]) : null
+    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), 'cuadres') : null
   }
 
   /**
@@ -253,14 +341,14 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('cuadre_items', r => r.cuadre_id === cuadreId)
-      return rows.map(rowToCuadreItem)
+      return rows.map(r => coerceRow(snakeToCamelRow(r), 'cuadre_items'))
     }
 
     const result = await conn.query({
       statement: 'SELECT * FROM cuadre_items WHERE cuadre_id = ? ORDER BY creado_en',
       values: [cuadreId]
     })
-    return (result.values ?? []).map(rowToCuadreItem)
+    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), 'cuadre_items'))
   }
 
   /**
@@ -268,20 +356,21 @@ export function useLocalDb() {
    * Los keys del objeto datos se usan como nombres de columna (snake_case).
    */
   async function insert(tabla, datos) {
+    const row = camelToSnakeRow(datos)
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
       conn.ensureTable(tabla, '')
-      conn.insert(tabla, { ...datos })
+      conn.insert(tabla, { ...row })
       return datos
     }
 
-    const keys = Object.keys(datos)
+    const keys = Object.keys(row)
     const placeholders = keys.map(() => '?').join(', ')
     const cols = keys.join(', ')
     await conn.execute({
       statement: `INSERT INTO ${tabla} (${cols}) VALUES (${placeholders})`,
-      values: keys.map(k => datos[k])
+      values: keys.map(k => row[k])
     })
     return datos
   }
@@ -290,19 +379,20 @@ export function useLocalDb() {
    * Actualiza una fila por su campo `id`.
    */
   async function update(tabla, id, cambios) {
+    const cambiosSnake = camelToSnakeRow(cambios)
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
       const existing = conn.getById(tabla, id)
-      if (existing) Object.assign(existing, cambios)
+      if (existing) Object.assign(existing, cambiosSnake)
       return existing
     }
 
-    const keys = Object.keys(cambios)
+    const keys = Object.keys(cambiosSnake)
     const setClause = keys.map(k => `${k} = ?`).join(', ')
     await conn.execute({
       statement: `UPDATE ${tabla} SET ${setClause} WHERE id = ?`,
-      values: [...keys.map(k => cambios[k]), id]
+      values: [...keys.map(k => cambiosSnake[k]), id]
     })
   }
 
@@ -330,14 +420,14 @@ export function useLocalDb() {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
-      return conn.all(tabla).map(r => ({ ...r }))
+      return conn.all(tabla).map(r => snakeToCamelRow(r))
     }
 
     const result = await conn.query({
       statement: `SELECT * FROM ${tabla}`,
       values: []
     })
-    return (result.values ?? []).map(r => ({ ...r }))
+    return (result.values ?? []).map(r => snakeToCamelRow(r))
   }
 
   /**
@@ -348,14 +438,14 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const row = conn.getById(tabla, id)
-      return row ? { ...row } : null
+      return row ? snakeToCamelRow(row) : null
     }
 
     const result = await conn.query({
       statement: `SELECT * FROM ${tabla} WHERE id = ? LIMIT 1`,
       values: [id]
     })
-    return result.values && result.values[0] ? { ...result.values[0] } : null
+    return result.values && result.values[0] ? snakeToCamelRow(result.values[0]) : null
   }
 
   /**
@@ -366,16 +456,14 @@ export function useLocalDb() {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
-      // En InMemoryDb, whereSql se ignora y usamos un predicado genérico
-      // Para usos simples se recomienda queryAll + filter propio
-      return conn.all(tabla).map(r => ({ ...r }))
+      return conn.all(tabla).map(r => snakeToCamelRow(r))
     }
 
     const result = await conn.query({
       statement: `SELECT * FROM ${tabla} WHERE ${whereSql}`,
       values: values ?? []
     })
-    return (result.values ?? []).map(r => ({ ...r }))
+    return (result.values ?? []).map(r => snakeToCamelRow(r))
   }
 
   return {
@@ -392,77 +480,3 @@ export function useLocalDb() {
   }
 }
 
-// =====================================================================
-// Mappers: filas de SQLite → objetos usados en la app
-// =====================================================================
-
-function rowToUsuarioSQLite(r) {
-  return {
-    id: String(r.id),
-    puestoId: String(r.puesto_id),
-    nombre: String(r.nombre),
-    rol: r.rol,
-    pinHash: String(r.pin_hash),
-    activo: Boolean(r.activo),
-    debeCambiarPin: Boolean(r.debe_cambiar_pin),
-    creadoEn: Number(r.creado_en),
-    actualizadoEn: Number(r.actualizado_en)
-  }
-}
-
-function rowToProducto(r) {
-  return {
-    id: String(r.id),
-    puestoId: String(r.puesto_id),
-    nombre: String(r.nombre),
-    descripcion: r.descripcion,
-    activo: Boolean(r.activo),
-    orden: Number(r.orden),
-    precioCompraActual: Number(r.precio_compra_actual),
-    precioVentaActual: Number(r.precio_venta_actual),
-    creadoEn: Number(r.creado_en),
-    actualizadoEn: Number(r.actualizado_en),
-    sincronizado: Boolean(r.sincronizado)
-  }
-}
-
-function rowToCuadre(r) {
-  return {
-    id: String(r.id),
-    puestoId: String(r.puesto_id),
-    fecha: String(r.fecha),
-    jefeId: String(r.jefe_id),
-    trabajadorTurnoId: r.trabajador_turno_id,
-    pagoTrabajador: r.pago_trabajador != null ? Number(r.pago_trabajador) : null,
-    totalEsperado: Number(r.total_esperado),
-    totalRealCaja: r.total_real_caja != null ? Number(r.total_real_caja) : null,
-    montoTransferencia: Number(r.monto_transferencia),
-    montoFiado: Number(r.monto_fiado),
-    diferencia: r.diferencia != null ? Number(r.diferencia) : null,
-    estado: r.estado,
-    notas: r.notas,
-    cerradoEn: r.cerrado_en != null ? Number(r.cerrado_en) : null,
-    reabiertoVeces: Number(r.reabierto_veces),
-    ultimaReaperturaEn: r.ultima_reapertura_en != null ? Number(r.ultima_reapertura_en) : null,
-    creadoEn: Number(r.creado_en),
-    actualizadoEn: Number(r.actualizado_en),
-    sincronizado: Boolean(r.sincronizado)
-  }
-}
-
-function rowToCuadreItem(r) {
-  return {
-    id: String(r.id),
-    cuadreId: String(r.cuadre_id),
-    productoId: String(r.producto_id),
-    precioVentaUsado: Number(r.precio_venta_usado),
-    cantidad: Number(r.cantidad),
-    subtotal: Number(r.subtotal),
-    tipoLinea: r.tipo_linea,
-    nota: r.nota,
-    esExtra: Boolean(r.es_extra),
-    creadoEn: Number(r.creado_en),
-    actualizadoEn: Number(r.actualizado_en),
-    sincronizado: Boolean(r.sincronizado)
-  }
-}
