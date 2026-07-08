@@ -56,6 +56,7 @@ export default defineNuxtConfig({
         'lucide:arrow-up-down',
         'lucide:database',
         'lucide:alert-circle',
+        'lucide:upload',
         'lucide:loader-2'
       ]
     },

@@ -8,8 +8,10 @@
 
 export type Rol = 'jefe' | 'trabajador'
 export type EstadoCuadre = 'abierto' | 'cerrado'
-export type TipoLinea = 'normal' | 'regalo' | 'descuento_familiar'
+export type TipoLinea = 'normal' | 'descuento'
 export type AgrupacionPeriodo = 'dia' | 'semana' | 'mes'
+export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
+export type FormaPagoFiado = 'efectivo' | 'transferencia'
 
 export interface Puesto {
   id: string
@@ -173,20 +175,74 @@ export interface RegistroTrabajadorExport {
 /**
  * Estructura de los payloads de sincronización jefe ↔ servidor.
  */
+export interface Cliente {
+  id: string
+  puestoId: string
+  nombre: string
+  telefono: string | null
+  notas: string | null
+  activo: boolean
+  creadoEn: number | string
+  actualizadoEn: number | string
+  sincronizado?: boolean
+}
+
+export interface CuentaFiado {
+  id: string
+  puestoId: string
+  clienteId: string
+  cuadreOrigenId: string
+  montoTotal: number
+  montoPagado: number
+  estado: EstadoCuentaFiado
+  creadoEn: number | string
+  actualizadoEn: number | string
+  sincronizado?: boolean
+}
+
+export interface CuentaFiadoItem {
+  id: string
+  cuentaFiadoId: string
+  productoId: string
+  cantidad: number
+  precioVentaUsado: number
+  subtotal: number
+  creadoEn: number | string
+  sincronizado?: boolean
+}
+
+export interface PagoFiado {
+  id: string
+  cuentaFiadoId: string
+  cuadreId: string
+  monto: number
+  formaPago: FormaPagoFiado
+  creadoEn: number | string
+  sincronizado?: boolean
+}
+
 export interface PushPayload {
   productos: Producto[]
   historial_precios: HistorialPrecio[]
   cuadres: Cuadre[]
   cuadre_items: CuadreItem[]
+  clientes: Cliente[]
+  cuentas_fiado: CuentaFiado[]
+  cuentas_fiado_items: CuentaFiadoItem[]
+  pagos_fiado: PagoFiado[]
 }
 
 export interface PushResponse {
-  aceptados: string[] // IDs marcados como sincronizados
+  aceptados: string[]
   conflictos: {
     productos: Producto[]
     historial_precios: HistorialPrecio[]
     cuadres: Cuadre[]
     cuadre_items: CuadreItem[]
+    clientes: Cliente[]
+    cuentas_fiado: CuentaFiado[]
+    cuentas_fiado_items: CuentaFiadoItem[]
+    pagos_fiado: PagoFiado[]
   }
 }
 
@@ -196,6 +252,10 @@ export interface PullResponse {
   cuadres: Cuadre[]
   cuadre_items: CuadreItem[]
   usuarios: Usuario[]
+  clientes: Cliente[]
+  cuentas_fiado: CuentaFiado[]
+  cuentas_fiado_items: CuentaFiadoItem[]
+  pagos_fiado: PagoFiado[]
   timestamp_servidor: number
 }
 

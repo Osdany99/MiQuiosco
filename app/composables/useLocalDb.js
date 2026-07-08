@@ -171,6 +171,29 @@ async function initializeSchema(conn) {
         cantidad REAL NOT NULL DEFAULT 0, precio_anotado REAL NOT NULL DEFAULT 0,
         creado_en INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS clientes (
+        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, nombre TEXT NOT NULL,
+        telefono TEXT, notas TEXT, activo INTEGER NOT NULL DEFAULT 1,
+        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
+        sincronizado INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS cuentas_fiado (
+        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, cliente_id TEXT NOT NULL,
+        cuadre_origen_id TEXT NOT NULL, monto_total REAL NOT NULL,
+        monto_pagado REAL NOT NULL DEFAULT 0, estado TEXT NOT NULL DEFAULT 'pendiente',
+        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
+        sincronizado INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS cuentas_fiado_items (
+        id TEXT PRIMARY KEY, cuenta_fiado_id TEXT NOT NULL, producto_id TEXT NOT NULL,
+        cantidad REAL NOT NULL, precio_venta_usado REAL NOT NULL, subtotal REAL NOT NULL,
+        creado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS pagos_fiado (
+        id TEXT PRIMARY KEY, cuenta_fiado_id TEXT NOT NULL, cuadre_id TEXT NOT NULL,
+        monto REAL NOT NULL, forma_pago TEXT NOT NULL,
+        creado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
+      );
     `
   })
 }
@@ -179,7 +202,8 @@ function initializeSchemaMemory(mem) {
   const tables = [
     'puestos', 'usuarios', 'productos', 'historial_precios',
     'cuadres', 'cuadre_items', 'productos_cache',
-    'registro_trabajador', 'registro_trabajador_items'
+    'registro_trabajador', 'registro_trabajador_items',
+    'clientes', 'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado'
   ]
   for (const t of tables) mem.ensureTable(t, '')
 }
@@ -247,6 +271,48 @@ const COLUMN_TYPES = {
     creadoEn: 'Number',
     actualizadoEn: 'Number',
     sincronizado: 'Number'
+  },
+  clientes: {
+    id: 'String',
+    puestoId: 'String',
+    nombre: 'String',
+    telefono: 'passthrough',
+    notas: 'passthrough',
+    activo: 'Boolean',
+    creadoEn: 'Number',
+    actualizadoEn: 'Number',
+    sincronizado: 'Number'
+  },
+  cuentas_fiado: {
+    id: 'String',
+    puestoId: 'String',
+    clienteId: 'String',
+    cuadreOrigenId: 'String',
+    montoTotal: 'Number',
+    montoPagado: 'Number',
+    estado: 'String',
+    creadoEn: 'Number',
+    actualizadoEn: 'Number',
+    sincronizado: 'Number'
+  },
+  cuentas_fiado_items: {
+    id: 'String',
+    cuentaFiadoId: 'String',
+    productoId: 'String',
+    cantidad: 'Number',
+    precioVentaUsado: 'Number',
+    subtotal: 'Number',
+    creadoEn: 'Number',
+    sincronizado: 'Number'
+  },
+  pagos_fiado: {
+    id: 'String',
+    cuentaFiadoId: 'String',
+    cuadreId: 'String',
+    monto: 'Number',
+    formaPago: 'String',
+    creadoEn: 'Number',
+    sincronizado: 'Number'
   }
 }
 
@@ -262,10 +328,14 @@ function coerceRow(row, tableName) {
       continue
     }
     switch (type) {
-      case 'String': result[key] = String(val); break
-      case 'Number': result[key] = Number(val); break
-      case 'Boolean': result[key] = Boolean(val); break
-      case 'nullableNumber': result[key] = Number(val); break
+      case 'String': result[key] = String(val)
+        break
+      case 'Number': result[key] = Number(val)
+        break
+      case 'Boolean': result[key] = Boolean(val)
+        break
+      case 'nullableNumber': result[key] = Number(val)
+        break
     }
   }
   return result
@@ -301,7 +371,7 @@ export function useLocalDb() {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
-      const rows = conn.where('productos', r => {
+      const rows = conn.where('productos', (r) => {
         const pid = r.puesto_id ?? r.puestoId
         return pid === puestoId && (r.activo === 1 || r.activo === true)
       })
@@ -479,4 +549,3 @@ export function useLocalDb() {
     queryWhere
   }
 }
-

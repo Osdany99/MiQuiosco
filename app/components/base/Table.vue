@@ -2,8 +2,45 @@
   <div>
     <UCard :ui="{ body: { padding: 'p-0' } }" class="relative">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-        <TableReload @reload="reload" />
-        <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
+        <TableToolbarLeft @reload="reload">
+          <slot name="toolbar-leading" />
+        </TableToolbarLeft>
+        <div class="flex items-center gap-2">
+          <UButton
+            v-if="filterFields.length"
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-filter"
+            :badge="activeFiltersCount || undefined"
+            @click="showFilters = !showFilters"
+          />
+          <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
+        </div>
+      </div>
+
+      <div v-if="showFilters && filterFields.length" class="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+        <div class="flex flex-wrap gap-3">
+          <div v-for="field in filterFields" :key="field.key" class="flex items-center gap-2">
+            <label class="text-xs text-gray-500 whitespace-nowrap">{{ field.label }}</label>
+            <USelectMenu
+              v-if="field.type === 'select'"
+              v-model="filters[field.key]"
+              :items="field.options"
+              value-attribute="value"
+              text-attribute="label"
+              class="w-40"
+              clearable
+            />
+            <UInput
+              v-else
+              v-model="filters[field.key]"
+              :placeholder="field.label"
+              class="w-40"
+              clearable
+            />
+          </div>
+          <UButton v-if="activeFiltersCount" size="xs" variant="ghost" color="neutral" label="Limpiar" @click="limpiarFiltros" />
+        </div>
       </div>
 
       <TableLoading :loading="pending || loadingProp" />
@@ -95,6 +132,7 @@ const props = defineProps({
   search: { type: String, default: '' },
   searchFields: { type: Array, default: () => [] },
   query: { type: Object, default: () => ({}) },
+  filterFields: { type: Array, default: () => [] },
   pagination: { type: Boolean, default: true },
   defaultLimit: { type: Number, default: 10 },
   formRef: { type: Object, default: null },
@@ -112,6 +150,27 @@ onMounted(() => {
     initialForm.value = JSON.parse(JSON.stringify(form.value))
   }
 })
+
+const showFilters = ref(false)
+
+const filters = reactive(
+  Object.fromEntries(props.filterFields.map(f => [f.key, '']))
+)
+
+const activeFilters = computed(() =>
+  Object.fromEntries(
+    Object.entries(filters).filter(([, v]) => v != null && v !== '')
+  )
+)
+
+const activeFiltersCount = computed(() => Object.keys(activeFilters.value).length)
+
+function limpiarFiltros() {
+  Object.keys(filters).forEach(k => { filters[k] = '' })
+  page.value = 1
+}
+
+watch(activeFilters, () => { page.value = 1 }, { deep: true })
 
 const isExternalData = computed(() => props.data !== null)
 
@@ -136,19 +195,33 @@ const pageCount = computed({
   }
 })
 
-const data = computed(() => {
+function aplicarFiltros(items) {
+  const af = activeFilters.value
+  if (!Object.keys(af).length) return items
+  return items.filter(item =>
+    Object.entries(af).every(([key, value]) =>
+      String(item[key] ?? '').toLowerCase().includes(String(value).toLowerCase())
+    )
+  )
+}
+
+const filteredAll = computed(() => {
+  let items
   if (isExternalData.value) {
-    if (!props.pagination) return props.data
-    const start = (internalPage.value - 1) * internalPageCount.value
-    return (props.data || []).slice(start, start + internalPageCount.value)
+    items = props.data || []
+  } else {
+    items = repoTable?.filtered.value ?? []
   }
-  return repoTable?.data.value ?? []
+  return aplicarFiltros(items)
 })
 
-const total = computed(() => {
-  if (isExternalData.value) return props.data?.length ?? 0
-  return repoTable?.total.value ?? 0
+const data = computed(() => {
+  if (!props.pagination) return filteredAll.value
+  const start = (page.value - 1) * pageCount.value
+  return filteredAll.value.slice(start, start + pageCount.value)
 })
+
+const total = computed(() => filteredAll.value.length)
 
 const pending = computed(() => {
   if (isExternalData.value) return props.loadingProp
@@ -219,7 +292,10 @@ defineExpose({
     isOpen.value = true
   },
   refresh,
-  data
+  data,
+  filters,
+  showFilters,
+  limpiarFiltros
 })
 
 defineOptions({ inheritAttrs: false })

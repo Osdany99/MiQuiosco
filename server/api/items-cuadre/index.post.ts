@@ -9,7 +9,7 @@ const crearItemSchema = z.object({
   precioVentaUsado: z.number().min(0),
   cantidad: z.number().min(0),
   subtotal: z.number().min(0),
-  tipoLinea: z.enum(['normal', 'regalo', 'descuento_familiar']).optional(),
+  tipoLinea: z.enum(['normal', 'descuento']).optional(),
   nota: z.string().nullable().optional(),
   esExtra: z.boolean().optional()
 })

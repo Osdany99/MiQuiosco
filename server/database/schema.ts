@@ -18,8 +18,16 @@ export const rolEnum = pgEnum('rol', ['jefe', 'trabajador'])
 export const estadoCuadreEnum = pgEnum('estado_cuadre', ['abierto', 'cerrado'])
 export const tipoLineaEnum = pgEnum('tipo_linea', [
   'normal',
-  'regalo',
-  'descuento_familiar'
+  'descuento'
+])
+export const estadoCuentaFiadoEnum = pgEnum('estado_cuenta_fiado', [
+  'pendiente',
+  'parcial',
+  'pagada'
+])
+export const formaPagoFiadoEnum = pgEnum('forma_pago_fiado', [
+  'efectivo',
+  'transferencia'
 ])
 
 /**
@@ -177,6 +185,9 @@ export const cuadres = pgTable(
     montoFiado: numeric('monto_fiado', { precision: 10, scale: 2 })
       .notNull()
       .default('0'),
+    montoCobradoFiado: numeric('monto_cobrado_fiado', { precision: 10, scale: 2 })
+      .notNull()
+      .default('0'),
     diferencia: numeric('diferencia', { precision: 10, scale: 2 }),
     estado: estadoCuadreEnum('estado').notNull().default('abierto'),
     notas: text('notas'),
@@ -240,6 +251,122 @@ export const cuadreItems = pgTable(
 )
 
 /**
+ * Clientes: personas que compran fiado.
+ */
+export const clientes = pgTable(
+  'clientes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    notas: text('notas'),
+    activo: boolean('activo').notNull().default(true),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
+    activoIdx: index('clientes_activo_idx').on(table.activo)
+  })
+)
+
+/**
+ * Cuentas de fiado: deuda generada en un cuadre específico.
+ * montoTotal = suma de subtotales de cuentas_fiado_items.
+ * montoPagado = suma de pagos recibidos contra esta cuenta.
+ */
+export const cuentasFiado = pgTable(
+  'cuentas_fiado',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    clienteId: uuid('cliente_id')
+      .notNull()
+      .references(() => clientes.id),
+    cuadreOrigenId: uuid('cuadre_origen_id')
+      .notNull()
+      .references(() => cuadres.id),
+    montoTotal: numeric('monto_total', { precision: 10, scale: 2 }).notNull(),
+    montoPagado: numeric('monto_pagado', { precision: 10, scale: 2 })
+      .notNull()
+      .default('0'),
+    estado: estadoCuentaFiadoEnum('estado').notNull().default('pendiente'),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    clienteIdx: index('cuentas_fiado_cliente_idx').on(table.clienteId),
+    estadoIdx: index('cuentas_fiado_estado_idx').on(table.estado),
+    cuadreOrigenIdx: index('cuentas_fiado_cuadre_origen_idx').on(table.cuadreOrigenId)
+  })
+)
+
+/**
+ * Items de una cuenta de fiado: productos, cantidades y precios al momento de la deuda.
+ */
+export const cuentasFiadoItems = pgTable(
+  'cuentas_fiado_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cuentaFiadoId: uuid('cuenta_fiado_id')
+      .notNull()
+      .references(() => cuentasFiado.id, { onDelete: 'cascade' }),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+    cantidad: numeric('cantidad', { precision: 10, scale: 2 }).notNull(),
+    precioVentaUsado: numeric('precio_venta_usado', { precision: 10, scale: 2 }).notNull(),
+    subtotal: numeric('subtotal', { precision: 10, scale: 2 }).notNull(),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    cuentaIdx: index('cuentas_fiado_items_cuenta_idx').on(table.cuentaFiadoId),
+    productoIdx: index('cuentas_fiado_items_producto_idx').on(table.productoId)
+  })
+)
+
+/**
+ * Pagos recibidos contra cuentas de fiado.
+ * cuadreId = el cuadre donde se recibe el pago (no necesariamente el de origen de la deuda).
+ */
+export const pagosFiado = pgTable(
+  'pagos_fiado',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cuentaFiadoId: uuid('cuenta_fiado_id')
+      .notNull()
+      .references(() => cuentasFiado.id, { onDelete: 'cascade' }),
+    cuadreId: uuid('cuadre_id')
+      .notNull()
+      .references(() => cuadres.id),
+    monto: numeric('monto', { precision: 10, scale: 2 }).notNull(),
+    formaPago: formaPagoFiadoEnum('forma_pago').notNull(),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    cuentaIdx: index('pagos_fiado_cuenta_idx').on(table.cuentaFiadoId),
+    cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId)
+  })
+)
+
+/**
  * Tipos inferidos de las tablas para uso en el código de la app.
  */
 export type Puesto = typeof puestos.$inferSelect
@@ -254,7 +381,17 @@ export type Cuadre = typeof cuadres.$inferSelect
 export type NuevoCuadre = typeof cuadres.$inferInsert
 export type CuadreItem = typeof cuadreItems.$inferSelect
 export type NuevoCuadreItem = typeof cuadreItems.$inferInsert
+export type Cliente = typeof clientes.$inferSelect
+export type NuevoCliente = typeof clientes.$inferInsert
+export type CuentaFiado = typeof cuentasFiado.$inferSelect
+export type NuevaCuentaFiado = typeof cuentasFiado.$inferInsert
+export type CuentaFiadoItem = typeof cuentasFiadoItems.$inferSelect
+export type NuevaCuentaFiadoItem = typeof cuentasFiadoItems.$inferInsert
+export type PagoFiado = typeof pagosFiado.$inferSelect
+export type NuevoPagoFiado = typeof pagosFiado.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador'
 export type EstadoCuadre = 'abierto' | 'cerrado'
-export type TipoLinea = 'normal' | 'regalo' | 'descuento_familiar'
+export type TipoLinea = 'normal' | 'descuento'
+export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
+export type FormaPagoFiado = 'efectivo' | 'transferencia'

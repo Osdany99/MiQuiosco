@@ -8,21 +8,35 @@
     :pagination="false"
     @reload="reload"
   >
-    <template #producto="{ row }">
+    <template #toolbar-leading>
+      <UFileUpload
+        v-model="importJsonFile"
+        variant="button"
+        accept=".json"
+        size="sm"
+      />
+    </template>
+
+    <template #producto-cell="{ row }">
       <div>
         <div class="flex items-center gap-2">
-          <span class="font-medium">{{ getProductoNombre(row.productoId) }}</span>
-          <UBadge v-if="row.esExtra" label="Extra" color="amber" size="xs" />
+          <span class="font-medium">{{ getProductoNombre(row.original.productoId) }}</span>
+          <UBadge
+            v-if="row.original.esExtra"
+            label="Extra"
+            color="amber"
+            size="xs"
+          />
           <UButton
-            :icon="expandida.has(row.id) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            :icon="expandida.has(row.original.id) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
             variant="ghost"
             size="xs"
-            @click="toggleExpandir(row.id)"
+            @click="toggleExpandir(row.original.id)"
           />
         </div>
-        <div v-if="expandida.has(row.id)" class="mt-1">
+        <div v-if="expandida.has(row.original.id)" class="mt-1">
           <UInput
-            v-model="row.nota"
+            v-model="row.original.nota"
             placeholder="Nota libre (opcional)"
             size="sm"
             class="w-64"
@@ -32,46 +46,37 @@
       </div>
     </template>
 
-    <template #precioVentaUsado="{ row }">
-      <UInputNumber
-        v-model="row.precioVentaUsado"
-        :min="0"
-        :step="10"
-        size="sm"
+    <template #precioVentaUsado-cell="{ row }">
+      <BaseInputNumber
+        v-model="row.original.precioVentaUsado"
         class="w-28"
         :disabled="readonly"
-        @update:model-value="recalcularSubtotal(row)"
+        @update:model-value="recalcularSubtotal(row.original)"
       />
     </template>
 
-    <template #cantidad="{ row }">
-      <UInputNumber
-        v-model="row.cantidad"
-        :min="0"
-        :step="0.5"
-        size="sm"
+    <template #cantidad-cell="{ row }">
+      <BaseInputNumber
+        v-model="row.original.cantidad"
+        :step="1"
         class="w-20"
         :disabled="readonly"
-        @update:model-value="recalcularSubtotal(row)"
+        @update:model-value="recalcularSubtotal(row.original)"
       />
     </template>
 
-    <template #tipoLinea="{ row }">
+    <template #tipoLinea-cell="{ row }">
       <USelectMenu
-        v-model="row.tipoLinea"
-        :items="[
-          { label: 'Normal', value: 'normal' },
-          { label: 'Regalo', value: 'regalo' },
-          { label: 'Desc. familiar', value: 'descuento_familiar' }
-        ]"
+        v-model="row.original.tipoLinea"
+        :items="tipoVenta"
         size="sm"
         class="w-36"
         :disabled="readonly"
       />
     </template>
 
-    <template #subtotal="{ row }">
-      <span class="font-mono font-semibold">{{ fmtMoneda(row.subtotal) }}</span>
+    <template #subtotal-cell="{ row }">
+      <span class="font-mono font-semibold">{{ fmtPrecio(row.original.subtotal) }}</span>
     </template>
 
     <template #extra>
@@ -79,18 +84,35 @@
         <USelectMenu
           v-model="productoSeleccionado"
           :items="productosActivos.map(p => ({ label: p.nombre, value: p.id }))"
+          value-key="value"
           placeholder="Seleccionar producto..."
           class="w-48"
         />
-        <UButton icon="i-lucide-plus" size="sm" :disabled="readonly" @click="agregarLineaExtra">
-          Agregar
-        </UButton>
-        <UButton variant="ghost" size="sm" :disabled="readonly" @click="showAgregarProducto = false">
-          Cancelar
-        </UButton>
+        <USelectMenu
+          v-model="tipoLineaExtra"
+          :items="tipoVenta"
+          value-key="value"
+          size="sm"
+          class="w-36"
+        />
+        <BaseButtonActions
+          confirm-text="Agregar"
+          confirm-icon="i-lucide-plus"
+          size="sm"
+          cancel-variant="ghost"
+          :disabled-guardar="readonly"
+          @confirm="agregarLineaExtra(tipoLineaExtra)"
+          @cancel="showAgregarProducto = false"
+        />
       </div>
       <div v-else class="p-2 text-right">
-        <UButton variant="ghost" size="sm" icon="i-lucide-plus" :disabled="readonly" @click="showAgregarProducto = true">
+        <UButton
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-plus"
+          :disabled="readonly"
+          @click="showAgregarProducto = true"
+        >
           Agregar producto extra
         </UButton>
       </div>
@@ -103,14 +125,28 @@ const emit = defineEmits(['reload'])
 
 const {
   lineas, productosActivos, expandida, cargando,
-  showAgregarProducto, productoSeleccionado,
+  showAgregarProducto, productoSeleccionado, tipoLineaExtra,
   recalcularSubtotal, agregarLineaExtra, toggleExpandir,
-  fmtMoneda, getProductoNombre
+  getProductoNombre, procesarImportacionJSON
 } = useCuadre()
+
+const importJsonFile = ref(null)
+watch(importJsonFile, (file) => {
+  if (!file) return
+  procesarImportacionJSON(file)
+  importJsonFile.value = null
+})
 
 defineProps({
   readonly: { type: Boolean, default: false }
 })
+
+const tipoVenta = [
+  { label: 'Normal', value: 'normal' },
+  { label: 'Regalo', value: 'regalo' },
+  { label: 'Deuda', value: 'deuda' },
+  { label: 'Desc. familiar', value: 'descuento_familiar' }
+]
 
 const columnDefs = [
   { id: 'producto', header: 'Producto' },

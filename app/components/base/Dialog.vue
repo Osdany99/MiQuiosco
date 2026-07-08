@@ -19,28 +19,17 @@
       <slot />
     </template>
     <template #footer>
-      <div class="flex justify-end gap-3 w-full">
-        <slot name="actions">
-          <UButton
-            color="primary"
-            variant="outline"
-            :disabled="loading"
-            @click="$emit('cancel')"
-          >
-            {{ cancelText }}
-          </UButton>
-          <UButton
-            :color="confirmColor"
-            variant="solid"
-            class="flex-1 sm:flex-none"
-            :disabled="disabledGuardar"
-            :loading="loading"
-            @click="$emit('confirm')"
-          >
-            {{ confirmText }}
-          </UButton>
-        </slot>
-      </div>
+      <BaseButtonActions
+        :cancel-text="cancelText"
+        :confirm-text="confirmText"
+        :confirm-color="confirmColor"
+        :loading="loading"
+        :disabled-guardar="disabledGuardar"
+        @cancel="$emit('cancel')"
+        @confirm="$emit('confirm')"
+      >
+        <slot name="actions" />
+      </BaseButtonActions>
     </template>
   </UModal>
 </template>

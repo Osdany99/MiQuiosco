@@ -12,7 +12,7 @@ import {
  */
 export const ROLES = ['jefe', 'trabajador'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
-export const TIPOS_LINEA = ['normal', 'regalo', 'descuento_familiar'] as const
+export const TIPOS_LINEA = ['normal', 'descuento'] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
@@ -242,6 +242,112 @@ export const registroTrabajadorItems = sqliteTable(
 )
 
 /**
+ * Clientes.
+ */
+export const clientes = sqliteTable(
+  'clientes',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    notas: text('notas'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('clientes_puesto_idx').on(table.puestoId)
+  })
+)
+
+/**
+ * Cuentas de fiado.
+ */
+export const cuentasFiado = sqliteTable(
+  'cuentas_fiado',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    clienteId: text('cliente_id').notNull(),
+    cuadreOrigenId: text('cuadre_origen_id').notNull(),
+    montoTotal: real('monto_total').notNull(),
+    montoPagado: real('monto_pagado').notNull().default(0),
+    estado: text('estado', { enum: ['pendiente', 'parcial', 'pagada'] })
+      .notNull()
+      .default('pendiente'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    clienteIdx: index('cuentas_fiado_cliente_idx').on(table.clienteId),
+    estadoIdx: index('cuentas_fiado_estado_idx').on(table.estado)
+  })
+)
+
+/**
+ * Items de cuentas de fiado.
+ */
+export const cuentasFiadoItems = sqliteTable(
+  'cuentas_fiado_items',
+  {
+    id: text('id').primaryKey(),
+    cuentaFiadoId: text('cuenta_fiado_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    cantidad: real('cantidad').notNull(),
+    precioVentaUsado: real('precio_venta_usado').notNull(),
+    subtotal: real('subtotal').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    cuentaIdx: index('cuentas_fiado_items_cuenta_idx').on(table.cuentaFiadoId)
+  })
+)
+
+/**
+ * Pagos de fiado.
+ */
+export const pagosFiado = sqliteTable(
+  'pagos_fiado',
+  {
+    id: text('id').primaryKey(),
+    cuentaFiadoId: text('cuenta_fiado_id').notNull(),
+    cuadreId: text('cuadre_id').notNull(),
+    monto: real('monto').notNull(),
+    formaPago: text('forma_pago').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    cuentaIdx: index('pagos_fiado_cuenta_idx').on(table.cuentaFiadoId),
+    cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect
@@ -252,3 +358,7 @@ export type CuadreItemSQLite = typeof cuadreItems.$inferSelect
 export type ProductoCache = typeof productosCache.$inferSelect
 export type RegistroTrabajador = typeof registroTrabajador.$inferSelect
 export type RegistroTrabajadorItem = typeof registroTrabajadorItems.$inferSelect
+export type ClienteSQLite = typeof clientes.$inferSelect
+export type CuentaFiadoSQLite = typeof cuentasFiado.$inferSelect
+export type CuentaFiadoItemSQLite = typeof cuentasFiadoItems.$inferSelect
+export type PagoFiadoSQLite = typeof pagosFiado.$inferSelect

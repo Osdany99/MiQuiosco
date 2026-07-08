@@ -193,7 +193,7 @@ export function useAuth() {
       usuario_nombre: usuario.nombre,
       rol: usuario.rol === 'jefe' ? 'jefe' : 'trabajador',
       puesto_id: usuario.puestoId,
-      pin_hash_local: hashLocal.value,
+      pin_hash_local: usuario.pinHash,
       expira_en:
         usuario.rol === 'trabajador' ? ahora + 24 * 60 * 60 * 1000 : null,
       ultima_actividad_en: ahora

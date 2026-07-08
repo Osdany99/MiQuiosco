@@ -18,7 +18,10 @@ const MAPA_ENDPOINTS = {
   productos: API.productos,
   usuarios: API.usuarios,
   cuadres: API.cuadres,
-  cuadre_items: API.itemsCuadre
+  cuadre_items: API.itemsCuadre,
+  clientes: API.clientes,
+  cuentas_fiado: API.cuentasFiado,
+  pagos_fiado: API.pagosFiado
 }
 
 export function useRemoteRepo(tabla) {

@@ -19,7 +19,7 @@ function onUserActivity() {
 
 onMounted(() => {
   cargarEstado()
-  conexion.cargar()
+  conexion.cargar().catch(() => {})
   document.addEventListener('click', onUserActivity)
   document.addEventListener('keydown', onUserActivity)
   document.addEventListener('touchstart', onUserActivity)
@@ -47,19 +47,29 @@ const links = computed(() => {
   if (auth.esJefe.value) {
     items.push(
       {
-        label: 'Usuarios',
-        icon: 'i-lucide-users',
-        to: '/usuarios'
-      },
-      {
         label: 'Cuadre del día',
         icon: 'i-lucide-clipboard-check',
         to: '/cuadre'
       },
       {
+        label: 'Historial',
+        icon: 'i-lucide-clock',
+        to: '/cuadres'
+      },
+      {
+        label: 'Clientes',
+        icon: 'i-lucide-users',
+        to: '/clientes'
+      },
+      {
         label: 'Productos',
         icon: 'i-lucide-package',
         to: '/productos'
+      },
+      {
+        label: 'Usuarios',
+        icon: 'i-lucide-user-cog',
+        to: '/usuarios'
       },
       {
         label: 'Gráficas',

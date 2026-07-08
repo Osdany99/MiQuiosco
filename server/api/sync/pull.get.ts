@@ -5,10 +5,14 @@ import {
   historialPrecios,
   cuadres,
   cuadreItems,
-  usuarios
+  usuarios,
+  clientes,
+  cuentasFiado,
+  cuentasFiadoItems,
+  pagosFiado
 } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
-import type { PullResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Usuario } from '../../../shared/types'
+import type { PullResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Usuario, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '../../../shared/types'
 
 /**
  * GET /api/sync/pull?desde=<timestamp_ms>
@@ -28,7 +32,7 @@ export default defineEventHandler(async (event): Promise<PullResponse> => {
   const desdeMs = typeof desdeRaw === 'string' ? Number(desdeRaw) : 0
   const desde = new Date(isNaN(desdeMs) ? 0 : desdeMs)
 
-  const [prods, hist, cuad, items, users] = await Promise.all([
+  const [prods, hist, cuad, items, users, clis, cuentas, citems, pags] = await Promise.all([
     db
       .select()
       .from(productos)
@@ -48,7 +52,23 @@ export default defineEventHandler(async (event): Promise<PullResponse> => {
     db
       .select()
       .from(usuarios)
-      .where(and(gt(usuarios.actualizadoEn, desde)))
+      .where(and(gt(usuarios.actualizadoEn, desde))),
+    db
+      .select()
+      .from(clientes)
+      .where(gt(clientes.actualizadoEn, desde)),
+    db
+      .select()
+      .from(cuentasFiado)
+      .where(gt(cuentasFiado.actualizadoEn, desde)),
+    db
+      .select()
+      .from(cuentasFiadoItems)
+      .where(gt(cuentasFiadoItems.creadoEn, desde)),
+    db
+      .select()
+      .from(pagosFiado)
+      .where(gt(pagosFiado.creadoEn, desde))
   ])
 
   return {
@@ -118,6 +138,44 @@ export default defineEventHandler(async (event): Promise<PullResponse> => {
       creadoEn: u.creadoEn.toISOString(),
       actualizadoEn: u.actualizadoEn.toISOString()
     } satisfies Usuario)),
+    clientes: clis.map(c => ({
+      id: c.id,
+      puestoId: c.puestoId,
+      nombre: c.nombre,
+      telefono: c.telefono,
+      notas: c.notas,
+      activo: c.activo,
+      creadoEn: c.creadoEn.toISOString(),
+      actualizadoEn: c.actualizadoEn.toISOString()
+    } satisfies Cliente)),
+    cuentas_fiado: cuentas.map(c => ({
+      id: c.id,
+      puestoId: c.puestoId,
+      clienteId: c.clienteId,
+      cuadreOrigenId: c.cuadreOrigenId,
+      montoTotal: Number(c.montoTotal),
+      montoPagado: Number(c.montoPagado),
+      estado: c.estado,
+      creadoEn: c.creadoEn.toISOString(),
+      actualizadoEn: c.actualizadoEn.toISOString()
+    } satisfies CuentaFiado)),
+    cuentas_fiado_items: citems.map(i => ({
+      id: i.id,
+      cuentaFiadoId: i.cuentaFiadoId,
+      productoId: i.productoId,
+      cantidad: Number(i.cantidad),
+      precioVentaUsado: Number(i.precioVentaUsado),
+      subtotal: Number(i.subtotal),
+      creadoEn: i.creadoEn.toISOString()
+    } satisfies CuentaFiadoItem)),
+    pagos_fiado: pags.map(p => ({
+      id: p.id,
+      cuentaFiadoId: p.cuentaFiadoId,
+      cuadreId: p.cuadreId,
+      monto: Number(p.monto),
+      formaPago: p.formaPago,
+      creadoEn: p.creadoEn.toISOString()
+    } satisfies PagoFiado)),
     timestamp_servidor: Date.now()
   }
 })

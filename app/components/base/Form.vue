@@ -45,7 +45,7 @@
           </template>
 
           <template v-else-if="field.type === 'number'">
-            <UInputNumber
+            <BaseInputNumber
               v-model="form[field.name]"
               v-bind="field.props"
               :placeholder="field.placeholder"

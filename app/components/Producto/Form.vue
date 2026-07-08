@@ -1,6 +1,4 @@
 <script setup>
-import { schemas } from '@/utils/validations'
-
 const form = defineModel({
   type: Object,
   default: () => ({})

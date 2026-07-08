@@ -2,14 +2,15 @@ const cuadre = ref(null)
 const lineas = ref([])
 const productosActivos = ref([])
 const cargando = ref(false)
-const showImportar = ref(false)
 const showAgregarProducto = ref(false)
 const productoSeleccionado = ref('')
+const tipoLineaExtra = ref('normal')
 const expandida = ref(new Set())
 
 const totalRealCaja = ref(null)
 const montoTransferencia = ref(0)
 const montoFiado = ref(0)
+const montoCobradoFiado = ref(0)
 const trabajadorTurnoId = ref(null)
 const pagoTrabajador = ref(null)
 const notasCuadre = ref('')
@@ -22,7 +23,7 @@ const totalEsperado = computed(() =>
 
 const diferencia = computed(() => {
   if (totalRealCaja.value === null) return null
-  return (totalRealCaja.value + montoTransferencia.value) - totalEsperado.value
+  return (totalRealCaja.value + montoTransferencia.value + montoCobradoFiado.value) - totalEsperado.value
 })
 
 const tipoDiferencia = computed(() => {
@@ -43,6 +44,7 @@ function normalizarCuadre(c) {
     totalRealCaja: c.totalRealCaja ?? null,
     montoTransferencia: Number(c.montoTransferencia ?? 0),
     montoFiado: Number(c.montoFiado ?? 0),
+    montoCobradoFiado: Number(c.montoCobradoFiado ?? 0),
     diferencia: c.diferencia ?? null,
     trabajadorTurnoId: c.trabajadorTurnoId ?? null,
     pagoTrabajador: c.pagoTrabajador ?? null,
@@ -80,21 +82,29 @@ export function useCuadre() {
 
   const itemsRepo = useRepo('cuadre_items')
 
-  const productRepo = computed(() =>
-    conexion.modo.value === 'online'
-      ? useRemoteRepo('productos')
-      : null
-  )
+  const esTrabajador = computed(() => auth.esTrabajador.value)
 
-  const esTrabajador = computed(() => auth.esTrabajador)
+  const tituloCuadre = computed(() => {
+    const d = new Date(hoy + 'T12:00:00')
+    return 'Cuadre del día ' + d.toLocaleDateString('es-ES', { weekday: 'long' })
+  })
 
   async function cargarDatos(puestoId) {
     cargando.value = true
     try {
-      if (!puestoId) return
+      if (!puestoId) {
+        toast.add({ title: 'Configuración incompleta', description: 'No tienes un puesto asignado. Contacta al administrador.', color: 'warning' })
+        return
+      }
 
-      if (conexion.modo.value === 'online') {
-        const allProds = await productRepo.value.readAll()
+      await conexion.cargar().catch(() => {})
+      const modo = conexion.modo.value
+      const repo = modo === 'online' ? useRemoteRepo : useLocalRepo
+      const cuadreApi = repo('cuadres')
+      const itemsApi = repo('cuadre_items')
+
+      if (modo === 'online') {
+        const allProds = await repo('productos').readAll()
         productosActivos.value = allProds
           .filter(p => p.activo)
           .map(p => ({
@@ -113,17 +123,18 @@ export function useCuadre() {
         }))
       }
 
-      let c = await buscarCuadreActual(puestoId)
+      let c = await buscarCuadreActual(puestoId, cuadreApi)
       if (!c) {
-        c = await crearCuadreNuevo(puestoId)
+        c = await crearCuadreNuevo(puestoId, cuadreApi)
       }
 
       cuadre.value = c
-      await cargarLineasDeCuadre(c.id)
+      await cargarLineasDeCuadre(c.id, itemsApi)
 
       if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
       if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
       if (c.montoFiado != null) montoFiado.value = Number(c.montoFiado)
+      if (c.montoCobradoFiado != null) montoCobradoFiado.value = Number(c.montoCobradoFiado)
       if (c.trabajadorTurnoId != null) trabajadorTurnoId.value = c.trabajadorTurnoId
       if (c.pagoTrabajador != null) pagoTrabajador.value = Number(c.pagoTrabajador)
       if (c.notas != null) notasCuadre.value = c.notas ?? ''
@@ -134,18 +145,18 @@ export function useCuadre() {
     }
   }
 
-  async function buscarCuadreActual(puestoId) {
-    const todos = await cuadreRepo.readAll()
-    const encontrado = todos.find(c => {
+  async function buscarCuadreActual(puestoId, repo) {
+    const todos = await repo.readAll()
+    const encontrado = todos.find((c) => {
       const n = normalizarCuadre(c)
       return n.puestoId === puestoId && n.fecha === hoy
     })
     return encontrado ? normalizarCuadre(encontrado) : null
   }
 
-  async function cargarLineasDeCuadre(cuadreId) {
-    const items = await itemsRepo.readAll()
-    const itemsFiltrados = items.filter(i => {
+  async function cargarLineasDeCuadre(cuadreId, repo) {
+    const items = await repo.readAll()
+    const itemsFiltrados = items.filter((i) => {
       const n = normalizarLinea(i)
       return n.cuadreId === cuadreId
     })
@@ -166,7 +177,7 @@ export function useCuadre() {
     }
   }
 
-  async function crearCuadreNuevo(puestoId) {
+  async function crearCuadreNuevo(puestoId, repo) {
     const nuevoId = crypto.randomUUID()
     const cuadreObj = {
       id: nuevoId,
@@ -177,8 +188,9 @@ export function useCuadre() {
       totalEsperado: 0,
       totalRealCaja: null,
       montoTransferencia: 0,
-      montoFiado: 0,
-      diferencia: null,
+    montoFiado: 0,
+    montoCobradoFiado: 0,
+    diferencia: null,
       trabajadorTurnoId: null,
       pagoTrabajador: null,
       notas: null,
@@ -186,7 +198,7 @@ export function useCuadre() {
       reabiertoVeces: 0,
       ultimaReaperturaEn: null
     }
-    await cuadreRepo.create(cuadreObj)
+    await repo.create(cuadreObj)
     return cuadreObj
   }
 
@@ -194,27 +206,42 @@ export function useCuadre() {
     linea.subtotal = linea.precioVentaUsado * linea.cantidad
   }
 
-  async function agregarLineaExtra() {
-    if (!productoSeleccionado.value) {
-      toast.add({ title: 'Selecciona un producto', color: 'warning' })
-      return
-    }
-    const prod = productosActivos.value.find(p => p.id === productoSeleccionado.value)
-    if (!prod) return
+  async function agregarLineaExtra(tipoLinea) {
+    try {
+      if (!productoSeleccionado.value) {
+        toast.add({ title: 'Selecciona un producto', color: 'warning' })
+        return
+      }
+      const prod = productosActivos.value.find(p => p.id === productoSeleccionado.value)
+      if (!prod) {
+        console.warn('agregarLineaExtra: producto no encontrado para ID', productoSeleccionado.value)
+        toast.add({ title: 'Producto no encontrado', description: 'Selecciona otro producto.', color: 'error' })
+        return
+      }
 
-    lineas.value.push({
-      id: crypto.randomUUID(),
-      cuadreId: cuadre.value.id,
-      productoId: prod.id,
-      precioVentaUsado: prod.precioVentaActual,
-      cantidad: 1,
-      subtotal: prod.precioVentaActual,
-      tipoLinea: 'normal',
-      nota: null,
-      esExtra: true
-    })
-    productoSeleccionado.value = ''
-    showAgregarProducto.value = false
+      if (!cuadre.value) {
+        toast.add({ title: 'Cuadre no cargado', description: 'Espera a que termine la carga.', color: 'warning' })
+        return
+      }
+
+      lineas.value.push({
+        id: crypto.randomUUID(),
+        cuadreId: cuadre.value.id,
+        productoId: prod.id,
+        precioVentaUsado: prod.precioVentaActual,
+        cantidad: 1,
+        subtotal: prod.precioVentaActual,
+        tipoLinea: tipoLinea ?? 'normal',
+        nota: null,
+        esExtra: true
+      })
+      productoSeleccionado.value = ''
+      tipoLineaExtra.value = 'normal'
+      showAgregarProducto.value = false
+    } catch (err) {
+      console.error('Error al agregar línea extra:', err)
+      toast.add({ title: 'Error', description: err.message, color: 'error' })
+    }
   }
 
   function toggleExpandir(lineaId) {
@@ -248,6 +275,7 @@ export function useCuadre() {
         totalRealCaja: totalRealCaja.value,
         montoTransferencia: montoTransferencia.value,
         montoFiado: montoFiado.value,
+        montoCobradoFiado: montoCobradoFiado.value,
         diferencia: diff,
         trabajadorTurnoId: trabajadorTurnoId.value,
         pagoTrabajador: pagoTrabajador.value,
@@ -259,7 +287,7 @@ export function useCuadre() {
       cuadre.value = { ...cuadre.value, ...cambios }
 
       const existentes = await itemsRepo.readAll()
-      for (const item of existentes.filter(i => {
+      for (const item of existentes.filter((i) => {
         const n = normalizarLinea(i)
         return n.cuadreId === cuadre.value.id
       })) {
@@ -280,8 +308,8 @@ export function useCuadre() {
 
       let mensaje = 'Cuadre cerrado: '
       if (tipo === 'exacto') mensaje += 'todo correcto, caja exacta.'
-      else if (tipo === 'sobrante') mensaje += `sobrante de ${fmtMoneda(diff)}.`
-      else mensaje += `faltante de ${fmtMoneda(-diff)}.`
+      else if (tipo === 'sobrante') mensaje += `sobrante de ${fmtPrecio(diff)}.`
+      else mensaje += `faltante de ${fmtPrecio(-diff)}.`
 
       toast.add({
         title: 'Cuadre cerrado',
@@ -316,13 +344,45 @@ export function useCuadre() {
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
   }
 
-  function importarRegistroTrabajador() {
-    toast.add({ title: 'Función en desarrollo', description: 'Selector de archivo JSON próximamente.', color: 'info' })
-    showImportar.value = false
-  }
+  async function procesarImportacionJSON(file) {
+    try {
+      const texto = await file.text()
+      const datos = JSON.parse(texto)
+      if (!Array.isArray(datos)) {
+        toast.add({ title: 'Formato inválido', description: 'El archivo debe contener un array de líneas.', color: 'error' })
+        return
+      }
 
-  function fmtMoneda(v) {
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'CUP', minimumFractionDigits: 0 }).format(v)
+      let actualizadas = 0
+      let noEncontradas = 0
+
+      for (const item of datos) {
+        if (!item.productoId) continue
+        const index = lineas.value.findIndex(l => l.productoId === item.productoId)
+        if (index === -1) {
+          noEncontradas++
+          continue
+        }
+        const linea = lineas.value[index]
+        if (item.cantidad != null) linea.cantidad = Number(item.cantidad)
+        if (item.precioVentaUsado != null) linea.precioVentaUsado = Number(item.precioVentaUsado)
+        recalcularSubtotal(linea)
+        actualizadas++
+      }
+
+      if (actualizadas > 0) {
+        toast.add({
+          title: 'Importación completada',
+          description: `${actualizadas} línea(s) actualizada(s)${noEncontradas > 0 ? `. ${noEncontradas} no encontrada(s).` : '.'}`,
+          color: 'success'
+        })
+      } else {
+        toast.add({ title: 'Sin cambios', description: 'Ninguna línea coincidió con los productos del cuadre.', color: 'warning' })
+      }
+    } catch (err) {
+      console.error('Error al importar JSON:', err)
+      toast.add({ title: 'Error al importar', description: err.message, color: 'error' })
+    }
   }
 
   function getProductoNombre(productoId) {
@@ -331,13 +391,13 @@ export function useCuadre() {
 
   return {
     cuadre, lineas, productosActivos, cargando,
-    showImportar, showAgregarProducto, productoSeleccionado, expandida,
-    totalRealCaja, montoTransferencia, montoFiado,
+    showAgregarProducto, productoSeleccionado, tipoLineaExtra, expandida,
+    totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
     trabajadorTurnoId, pagoTrabajador, notasCuadre,
-    totalEsperado, diferencia, tipoDiferencia, esTrabajador,
+    totalEsperado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
     cargarDatos, recalcularSubtotal,
     agregarLineaExtra, toggleExpandir, cerrarCuadre, reabrirCuadre,
-    importarRegistroTrabajador, fmtMoneda, getProductoNombre,
+    procesarImportacionJSON, getProductoNombre,
     hoy
   }
 }

@@ -27,6 +27,13 @@ export const schemas = {
     activo: fields.boolean().default(true)
   }),
 
+  cliente: z.object({
+    nombre: fields.name('El nombre del cliente'),
+    telefono: fields.phone(),
+    notas: fields.description(),
+    activo: fields.boolean()
+  }),
+
   product: z.object({
     nombre: fields.name('El nombre del producto'),
     descripcion: fields.description(),

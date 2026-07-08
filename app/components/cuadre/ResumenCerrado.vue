@@ -9,23 +9,27 @@
     <div class="space-y-2 text-sm">
       <div class="flex justify-between">
         <span>Total esperado:</span>
-        <span class="font-mono">{{ fmtMoneda(cuadre.totalEsperado) }}</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.totalEsperado) }}</span>
       </div>
       <div class="flex justify-between">
         <span>Dinero real:</span>
-        <span class="font-mono">{{ fmtMoneda(cuadre.totalRealCaja ?? 0) }}</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.totalRealCaja ?? 0) }}</span>
       </div>
       <div class="flex justify-between">
         <span>Transferencia:</span>
-        <span class="font-mono">{{ fmtMoneda(cuadre.montoTransferencia) }}</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.montoTransferencia) }}</span>
       </div>
       <div class="flex justify-between">
-        <span>Fiado:</span>
-        <span class="font-mono">{{ fmtMoneda(cuadre.montoFiado) }}</span>
+        <span>Fiado generado:</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.montoFiado) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span>Cobrado fiado:</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.montoCobradoFiado ?? 0) }}</span>
       </div>
       <div class="flex justify-between font-bold">
         <span>Diferencia:</span>
-        <span class="font-mono">{{ fmtMoneda(cuadre.diferencia ?? 0) }}</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.diferencia ?? 0) }}</span>
       </div>
       <div class="flex justify-between">
         <span>Trabajador:</span>
@@ -33,7 +37,7 @@
       </div>
       <div class="flex justify-between">
         <span>Pago trabajador:</span>
-        <span>{{ cuadre.pagoTrabajador ? fmtMoneda(cuadre.pagoTrabajador) : '—' }}</span>
+        <span>{{ cuadre.pagoTrabajador ? fmtPrecio(cuadre.pagoTrabajador) : '—' }}</span>
       </div>
       <div class="flex justify-between">
         <span>Cerrado el:</span>
@@ -52,8 +56,6 @@
 </template>
 
 <script setup>
-const { fmtMoneda } = useCuadre()
-
 defineProps({
   cuadre: { type: Object, required: true }
 })

@@ -22,6 +22,7 @@ export default defineEventHandler(async (event) => {
     totalRealCaja: c.totalRealCaja ? Number(c.totalRealCaja) : null,
     montoTransferencia: Number(c.montoTransferencia),
     montoFiado: Number(c.montoFiado),
+    montoCobradoFiado: Number(c.montoCobradoFiado ?? 0),
     diferencia: c.diferencia ? Number(c.diferencia) : null,
     estado: c.estado,
     notas: c.notas,

@@ -3,11 +3,6 @@ import { db } from '../../database/client'
 import { cuadreItems, cuadres, historialPrecios } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
-/**
- * GET /api/graficas/regalos-descuentos-por-periodo?agrupacion=dia|mes&desde=&hasta=
- *
- * Cantidad y valor de líneas tipo regalo/descuento familiar por período.
- */
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
 
@@ -33,20 +28,20 @@ export default defineEventHandler(async (event) => {
   const rows = await db
     .select({
       periodo: sql<string>`to_char(${cuadres.fecha}, ${fechaFormat})`.as('periodo'),
-      valorRegalado: sql<number>`
-        sum(
-          case when ${cuadreItems.tipoLinea} = 'regalo'
-          then ${cuadreItems.cantidad} * ${historialPrecios.precioVenta}
-          else 0 end
-        )
-      `.as('valor_regalado'),
       valorDescontado: sql<number>`
         sum(
-          case when ${cuadreItems.tipoLinea} = 'descuento_familiar'
+          case when ${cuadreItems.tipoLinea} = 'descuento'
           then ${cuadreItems.cantidad} * (${historialPrecios.precioVenta} - ${cuadreItems.precioVentaUsado})
           else 0 end
         )
-      `.as('valor_descontado')
+      `.as('valor_descontado'),
+      valorRegalado: sql<number>`
+        sum(
+          case when ${cuadreItems.tipoLinea} = 'descuento' and ${cuadreItems.precioVentaUsado} = 0
+          then ${cuadreItems.cantidad} * ${historialPrecios.precioVenta}
+          else 0 end
+        )
+      `.as('valor_regalado')
     })
     .from(cuadreItems)
     .innerJoin(cuadres, eq(cuadres.id, cuadreItems.cuadreId))

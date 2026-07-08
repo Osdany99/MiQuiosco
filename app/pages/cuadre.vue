@@ -6,28 +6,31 @@ definePageMeta({
 
 const auth = useAuth()
 const {
-  cuadre, cargando, totalEsperado, hoy,
-  cerrarCuadre, reabrirCuadre, cargarDatos, fmtMoneda,
-  esTrabajador
+  cuadre, totalEsperado, productosActivos, hoy,
+  cerrarCuadre, reabrirCuadre, cargarDatos,
+  tituloCuadre, esTrabajador
 } = useCuadre()
 
 onMounted(() => {
-  console.log('esTrabajador:', esTrabajador.value)
-  console.log('esJefe:', auth.esJefe.value)
-  cargarDatos(auth.usuarioActual.value?.puestoId || '')
+  const pid = auth.usuarioActual.value?.puestoId
+  if (!pid) {
+    console.warn('puestoId no disponible en usuarioActual:', auth.usuarioActual.value)
+    return
+  }
+  cargarDatos(pid)
 })
 </script>
 
 <template>
   <BaseHeaderPage
-    title="Cuadre del día"
+    :title="tituloCuadre"
     :description="hoy"
     leading-icon="i-lucide-clipboard-check"
     :show-button="false"
   >
-    <template v-if="!esTrabajador" #trailing>
+    <template #trailing>
       <UButton
-        v-if="cuadre?.estado === 'cerrado'"
+        v-if="!esTrabajador && cuadre?.estado === 'cerrado'"
         variant="outline"
         color="warning"
         icon="i-lucide-rotate-ccw"
@@ -35,7 +38,7 @@ onMounted(() => {
         @click="reabrirCuadre"
       />
       <UButton
-        v-if="cuadre?.estado === 'abierto'"
+        v-if="!esTrabajador && cuadre?.estado === 'abierto'"
         color="success"
         icon="i-lucide-lock"
         label="Cerrar cuadre"
@@ -52,13 +55,20 @@ onMounted(() => {
         <UCard class="bg-primary/5 border-primary">
           <div class="flex justify-between items-center">
             <span class="font-semibold">Total esperado en caja</span>
-            <span class="text-2xl font-mono font-bold text-primary">{{ fmtMoneda(totalEsperado) }}</span>
+            <span class="text-2xl font-mono font-bold text-primary">{{ fmtPrecio(totalEsperado) }}</span>
           </div>
         </UCard>
 
+        <CuadreFiadoCard
+          v-if="!esTrabajador"
+          :cuadre-id="cuadre?.id ?? ''"
+          :productos-activos="productosActivos"
+          :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
+          :readonly="cuadre?.estado !== 'abierto'"
+          @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '')"
+        />
         <CuadreCierreForm v-if="cuadre?.estado === 'abierto' && !esTrabajador" />
         <CuadreResumenCerrado v-if="cuadre?.estado === 'cerrado'" :cuadre="cuadre" />
-        <CuadreImportarTrabajador v-if="!esTrabajador" />
       </div>
     </div>
   </BaseHeaderPage>

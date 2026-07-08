@@ -45,7 +45,9 @@ onMounted(async () => {
 
 async function cargarGrafica(g) {
   if (g.key === 'evolucion-producto' || g.key === 'precio-usado-vs-oficial') {
-    if (!productoSeleccionado.value) { return }
+    if (!productoSeleccionado.value) {
+      return
+    }
   }
 
   graficaActiva.value = g
@@ -57,7 +59,7 @@ async function cargarGrafica(g) {
       agrupacion: agrupacion.value,
       productoId: productoSeleccionado.value
     })
-  } catch (err) {
+  } catch {
     datosGrafica.value = []
   } finally {
     cargando.value = false

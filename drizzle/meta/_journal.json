@@ -8,6 +8,20 @@
       "when": 1782493644770,
       "tag": "0000_jittery_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783486483647,
+      "tag": "0001_woozy_randall_flagg",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783516823699,
+      "tag": "0002_keen_expediter",
+      "breakpoints": true
     }
   ]
 }

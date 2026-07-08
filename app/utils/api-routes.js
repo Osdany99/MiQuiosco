@@ -27,6 +27,17 @@ export const API = {
     list: '/api/items-cuadre',
     byId: id => `/api/items-cuadre/${id}`
   },
+  clientes: {
+    list: '/api/clientes',
+    byId: id => `/api/clientes/${id}`
+  },
+  cuentasFiado: {
+    list: '/api/cuentas-fiado',
+    byId: id => `/api/cuentas-fiado/${id}`
+  },
+  pagosFiado: {
+    list: '/api/pagos-fiado'
+  },
   graficas: {
     productosMasVendidos: '/api/graficas/productos-mas-vendidos',
     productosMayorGanancia: '/api/graficas/productos-mayor-ganancia',
@@ -35,7 +46,11 @@ export const API = {
     precioUsadoVsOficial: id => `/api/graficas/precio-usado-vs-oficial/${id}`,
     gananciaPorPeriodo: '/api/graficas/ganancia-por-periodo',
     ingresosPorPeriodo: '/api/graficas/ingresos-por-periodo',
-    regalosDescuentosPorPeriodo: '/api/graficas/regalos-descuentos-por-periodo',
+    descuentosPorPeriodo: '/api/graficas/descuentos-por-periodo',
+    deudaPorCliente: '/api/graficas/deuda-por-cliente',
+    deudaPorProducto: '/api/graficas/deuda-por-producto',
+    fiadoGeneradoVsCobrado: '/api/graficas/fiado-generado-vs-cobrado',
+    antiguedadCuentasFiado: '/api/graficas/antiguedad-cuentas-fiado',
     proporcionFormasPago: '/api/graficas/proporcion-formas-pago',
     estadoCuadres: '/api/graficas/estado-cuadres',
     faltantesSobrantesAcumulados: '/api/graficas/faltantes-sobrantes-acumulados',

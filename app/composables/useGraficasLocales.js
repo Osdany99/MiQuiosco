@@ -49,7 +49,7 @@ export function useGraficasLocales() {
     const desdeMs = opts.desde ? new Date(opts.desde).getTime() : 0
     const hastaMs = opts.hasta ? new Date(opts.hasta).getTime() + 86400000 : Infinity
 
-    const cuadresFiltrados = todosCuadres.filter(c => {
+    const cuadresFiltrados = todosCuadres.filter((c) => {
       const cMs = new Date(c.fecha).getTime()
       return cMs >= desdeMs && cMs < hastaMs
     })
@@ -130,7 +130,7 @@ export function useGraficasLocales() {
   async function gananciaPorPeriodo(opts) {
     const { items, prodMap } = await cargarDatos(opts)
     const periodos = agrupar(
-      items.map(i => {
+      items.map((i) => {
         const p = prodMap[i.productoId]
         const ganancia = (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * (Number(i.cantidad) || 0)
         return { periodo: i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : '', ganancia }
@@ -164,7 +164,7 @@ export function useGraficasLocales() {
     const { items } = await cargarDatos(opts)
     const filtrados = items.filter(i => i.tipoLinea && i.tipoLinea !== 'normal')
     const periodos = agrupar(
-      filtrados.map(i => {
+      filtrados.map((i) => {
         const valor = Number(i.subtotal) || 0
         return {
           periodo: i.creadoEn ? new Date(i.creadoEn).toISOString().split('T')[0] : '',

@@ -5,16 +5,24 @@ import {
   productos,
   historialPrecios,
   cuadres,
-  cuadreItems
+  cuadreItems,
+  clientes,
+  cuentasFiado,
+  cuentasFiadoItems,
+  pagosFiado
 } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
-import type { PushResponse, Producto, HistorialPrecio, Cuadre, CuadreItem } from '../../../shared/types'
+import type { PushResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '../../../shared/types'
 
 const pushSchema = z.object({
   productos: z.array(z.any()).default([]),
   historial_precios: z.array(z.any()).default([]),
   cuadres: z.array(z.any()).default([]),
-  cuadre_items: z.array(z.any()).default([])
+  cuadre_items: z.array(z.any()).default([]),
+  clientes: z.array(z.any()).default([]),
+  cuentas_fiado: z.array(z.any()).default([]),
+  cuentas_fiado_items: z.array(z.any()).default([]),
+  pagos_fiado: z.array(z.any()).default([])
 })
 
 /**
@@ -47,7 +55,11 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
     productos: [],
     historial_precios: [],
     cuadres: [],
-    cuadre_items: []
+    cuadre_items: [],
+    clientes: [],
+    cuentas_fiado: [],
+    cuentas_fiado_items: [],
+    pagos_fiado: []
   }
 
   // Productos
@@ -233,7 +245,133 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
     }
   }
 
-  console.log(`[sync/push] usuario=${auth.usuario.id} aceptados=${aceptados.length} conflictos=${conflictos.productos.length + conflictos.historial_precios.length + conflictos.cuadres.length + conflictos.cuadre_items.length}`)
+  // Clientes
+  for (const cli of parsed.data.clientes as Cliente[]) {
+    const existing = await db
+      .select()
+      .from(clientes)
+      .where(eq(clientes.id, cli.id))
+      .limit(1)
+
+    if (existing.length === 0) {
+      await db.insert(clientes).values({
+        id: cli.id,
+        puestoId: cli.puestoId,
+        nombre: cli.nombre,
+        telefono: cli.telefono,
+        notas: cli.notas,
+        activo: cli.activo,
+        creadoEn: new Date(cli.creadoEn as string | number),
+        actualizadoEn: new Date(cli.actualizadoEn as string | number)
+      })
+      aceptados.push(cli.id)
+    } else {
+      const serverTs = new Date(existing[0]!.actualizadoEn).getTime()
+      const clientTs = new Date(cli.actualizadoEn as string | number).getTime()
+
+      if (clientTs > serverTs) {
+        await db
+          .update(clientes)
+          .set({
+            nombre: cli.nombre,
+            telefono: cli.telefono,
+            notas: cli.notas,
+            activo: cli.activo,
+            actualizadoEn: new Date(cli.actualizadoEn as string | number)
+          })
+          .where(eq(clientes.id, cli.id))
+        aceptados.push(cli.id)
+      } else {
+        conflictos.clientes.push(serverClienteToCliente(existing[0]!))
+      }
+    }
+  }
+
+  // Cuentas fiado
+  for (const cf of parsed.data.cuentas_fiado as CuentaFiado[]) {
+    const existing = await db
+      .select()
+      .from(cuentasFiado)
+      .where(eq(cuentasFiado.id, cf.id))
+      .limit(1)
+
+    if (existing.length === 0) {
+      await db.insert(cuentasFiado).values({
+        id: cf.id,
+        puestoId: cf.puestoId,
+        clienteId: cf.clienteId,
+        cuadreOrigenId: cf.cuadreOrigenId,
+        montoTotal: String(cf.montoTotal),
+        montoPagado: String(cf.montoPagado),
+        estado: cf.estado,
+        creadoEn: new Date(cf.creadoEn as string | number),
+        actualizadoEn: new Date(cf.actualizadoEn as string | number)
+      })
+      aceptados.push(cf.id)
+    } else {
+      const serverTs = new Date(existing[0]!.actualizadoEn).getTime()
+      const clientTs = new Date(cf.actualizadoEn as string | number).getTime()
+
+      if (clientTs > serverTs) {
+        await db
+          .update(cuentasFiado)
+          .set({
+            montoPagado: String(cf.montoPagado),
+            estado: cf.estado,
+            actualizadoEn: new Date(cf.actualizadoEn as string | number)
+          })
+          .where(eq(cuentasFiado.id, cf.id))
+        aceptados.push(cf.id)
+      } else {
+        conflictos.cuentas_fiado.push(serverCuentaFiadoToCliente(existing[0]!))
+      }
+    }
+  }
+
+  // Cuentas fiado items (nunca se actualizan)
+  for (const ci of parsed.data.cuentas_fiado_items as CuentaFiadoItem[]) {
+    const existing = await db
+      .select()
+      .from(cuentasFiadoItems)
+      .where(eq(cuentasFiadoItems.id, ci.id))
+      .limit(1)
+
+    if (existing.length === 0) {
+      await db.insert(cuentasFiadoItems).values({
+        id: ci.id,
+        cuentaFiadoId: ci.cuentaFiadoId,
+        productoId: ci.productoId,
+        cantidad: String(ci.cantidad),
+        precioVentaUsado: String(ci.precioVentaUsado),
+        subtotal: String(ci.subtotal),
+        creadoEn: new Date(ci.creadoEn as string | number)
+      })
+    }
+    aceptados.push(ci.id)
+  }
+
+  // Pagos fiado (nunca se actualizan)
+  for (const pf of parsed.data.pagos_fiado as PagoFiado[]) {
+    const existing = await db
+      .select()
+      .from(pagosFiado)
+      .where(eq(pagosFiado.id, pf.id))
+      .limit(1)
+
+    if (existing.length === 0) {
+      await db.insert(pagosFiado).values({
+        id: pf.id,
+        cuentaFiadoId: pf.cuentaFiadoId,
+        cuadreId: pf.cuadreId,
+        monto: String(pf.monto),
+        formaPago: pf.formaPago,
+        creadoEn: new Date(pf.creadoEn as string | number)
+      })
+    }
+    aceptados.push(pf.id)
+  }
+
+  console.log(`[sync/push] usuario=${auth.usuario.id} aceptados=${aceptados.length} conflictos=${conflictos.productos.length + conflictos.historial_precios.length + conflictos.cuadres.length + conflictos.cuadre_items.length + conflictos.clientes.length + conflictos.cuentas_fiado.length + conflictos.cuentas_fiado_items.length + conflictos.pagos_fiado.length}`)
 
   return { aceptados, conflictos }
 })
@@ -271,6 +409,33 @@ function serverCuadreToCliente(r: typeof cuadres.$inferSelect): Cuadre {
     cerradoEn: r.cerradoEn?.toISOString() ?? null,
     reabiertoVeces: r.reabiertoVeces,
     ultimaReaperturaEn: r.ultimaReaperturaEn?.toISOString() ?? null,
+    creadoEn: r.creadoEn.toISOString(),
+    actualizadoEn: r.actualizadoEn.toISOString()
+  }
+}
+
+function serverClienteToCliente(r: typeof clientes.$inferSelect): Cliente {
+  return {
+    id: r.id,
+    puestoId: r.puestoId,
+    nombre: r.nombre,
+    telefono: r.telefono,
+    notas: r.notas,
+    activo: r.activo,
+    creadoEn: r.creadoEn.toISOString(),
+    actualizadoEn: r.actualizadoEn.toISOString()
+  }
+}
+
+function serverCuentaFiadoToCliente(r: typeof cuentasFiado.$inferSelect): CuentaFiado {
+  return {
+    id: r.id,
+    puestoId: r.puestoId,
+    clienteId: r.clienteId,
+    cuadreOrigenId: r.cuadreOrigenId,
+    montoTotal: Number(r.montoTotal),
+    montoPagado: Number(r.montoPagado),
+    estado: r.estado,
     creadoEn: r.creadoEn.toISOString(),
     actualizadoEn: r.actualizadoEn.toISOString()
   }

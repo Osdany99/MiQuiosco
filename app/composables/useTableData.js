@@ -65,7 +65,7 @@ export function useTableData(props) {
     if (debouncedSearch.value) {
       const q = debouncedSearch.value.toLowerCase()
       const fields = props.searchFields?.length ? props.searchFields : null
-      items = items.filter(item => {
+      items = items.filter((item) => {
         const values = fields
           ? fields.map(f => String(item[f] ?? ''))
           : Object.values(item).map(v => String(v))
@@ -85,10 +85,14 @@ export function useTableData(props) {
 
   const total = computed(() => filtered.value.length)
 
-  watch(debouncedSearch, () => { page.value = 1 })
-  watch(() => props.query, () => { page.value = 1 }, { deep: true })
+  watch(debouncedSearch, () => {
+    page.value = 1
+  })
+  watch(() => props.query, () => {
+    page.value = 1
+  }, { deep: true })
 
   if (import.meta.client) fetchAll()
 
-  return { page, pageCount, data, total, pending, fetchError, refresh: fetchAll }
+  return { page, pageCount, data, total, pending, fetchError, refresh: fetchAll, filtered }
 }

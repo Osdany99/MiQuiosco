@@ -13,7 +13,7 @@ export function useSync() {
   const pendientesCount = ref(0)
   const hayRed = ref(true)
 
-  const TABLAS_SYNC = ['productos', 'historial_precios', 'cuadres', 'cuadre_items', 'usuarios']
+  const TABLAS_SYNC = ['productos', 'historial_precios', 'cuadres', 'cuadre_items', 'usuarios', 'clientes', 'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado']
 
   function repoDe(tabla) {
     return useLocalRepo(tabla)
@@ -121,7 +121,9 @@ export function useSync() {
       const repo = repoDe(t)
       for (const reg of rows) {
         if (idsSet.has(reg.id)) {
-          try { await repo.update(reg.id, { sincronizado: 1 }) } catch {}
+          try {
+            await repo.update(reg.id, { sincronizado: 1 })
+          } catch {}
         }
       }
     }
@@ -133,7 +135,9 @@ export function useSync() {
       if (!registros?.length) continue
       const repo = repoDe(tabla)
       for (const reg of registros) {
-        try { await repo.update(reg.id, { ...reg, sincronizado: 1 }) } catch {}
+        try {
+          await repo.update(reg.id, { ...reg, sincronizado: 1 })
+        } catch {}
       }
     }
   }

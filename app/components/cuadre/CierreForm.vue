@@ -7,69 +7,68 @@
     </template>
 
     <div class="space-y-4">
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Dinero real en caja" required>
-          <UInputNumber
+          <BaseInputNumber
             v-model="totalRealCaja"
-            :min="0"
-            :step="100"
             placeholder="0"
             :disabled="readonly"
           />
         </UFormField>
 
         <UFormField label="Monto en transferencia">
-          <UInputNumber
+          <BaseInputNumber
             v-model="montoTransferencia"
-            :min="0"
-            :step="100"
             placeholder="0"
             :disabled="readonly"
           />
         </UFormField>
       </div>
 
-      <UFormField label="Monto fiado / por cobrar">
-        <UInputNumber
-          v-model="montoFiado"
-          :min="0"
-          :step="100"
-          placeholder="0"
-          :disabled="readonly"
-        />
-      </UFormField>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <UFormField label="Monto fiado / por cobrar (generado hoy)">
+          <p class="font-mono text-lg">{{ fmtPrecio(montoFiado) }}</p>
+        </UFormField>
 
-      <UFormField label="Trabajador de turno">
-        <USelectMenu
-          v-model="trabajadorTurnoId"
-          :items="[
-            { label: 'Sin asignar', value: '' },
-            { label: 'Juan', value: 'trabajador-1' },
-            { label: 'María', value: 'trabajador-2' }
-          ]"
-          placeholder="Seleccionar..."
-          :disabled="readonly"
-        />
-      </UFormField>
+        <UFormField label="Cobrado hoy de deudas anteriores">
+          <p class="font-mono text-lg">{{ fmtPrecio(montoCobradoFiado) }}</p>
+        </UFormField>
+      </div>
 
-      <UFormField label="Pago al trabajador">
-        <UInputNumber
-          v-model="pagoTrabajador"
-          :min="0"
-          :step="100"
-          placeholder="0"
-          :disabled="readonly"
-        />
-      </UFormField>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <UFormField label="Pago al trabajador">
+          <BaseInputNumber
+            v-model="pagoTrabajador"
+            placeholder="0"
+            :disabled="readonly"
+          />
+        </UFormField>
+      </div>
 
-      <UFormField label="Notas">
-        <UTextarea
-          v-model="notasCuadre"
-          placeholder="Observaciones del cierre..."
-          :rows="3"
-          :disabled="readonly"
-        />
-      </UFormField>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <UFormField label="Trabajador de turno">
+          <USelectMenu
+            v-model="trabajadorTurnoId"
+            :items="[
+              { label: 'Sin asignar', value: '' },
+              { label: 'Juan', value: 'trabajador-1' },
+              { label: 'María', value: 'trabajador-2' }
+            ]"
+            placeholder="Seleccionar..."
+            class="w-full"
+            :disabled="readonly"
+          />
+        </UFormField>
+
+        <UFormField label="Notas">
+          <UTextarea
+            v-model="notasCuadre"
+            placeholder="Observaciones del cierre..."
+            :rows="3"
+            :disabled="readonly"
+          />
+        </UFormField>
+      </div>
 
       <div
         class="flex items-center justify-between p-4 rounded-lg"
@@ -87,7 +86,7 @@
                 : '— Ingresa dinero real en caja' }}
         </span>
         <span v-if="diferencia !== null" class="text-xl font-mono font-bold">
-          {{ fmtMoneda(diferencia) }}
+          {{ fmtPrecio(diferencia) }}
         </span>
       </div>
     </div>
@@ -96,9 +95,9 @@
 
 <script setup>
 const {
-  totalRealCaja, montoTransferencia, montoFiado,
+  totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
-  diferencia, tipoDiferencia, fmtMoneda
+  diferencia, tipoDiferencia
 } = useCuadre()
 
 defineProps({
