@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MiQuiosco</string>
+    <string name="title_activity_main">MiQuiosco</string>
+    <string name="package_name">com.miquiosco.app</string>
+    <string name="custom_url_scheme">com.miquiosco.app</string>
+</resources>
