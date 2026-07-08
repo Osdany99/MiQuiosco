@@ -4,157 +4,142 @@
 
 ### 1. Java Development Kit (JDK 17+)
 ```bash
-# Verificar instalación
 java -version
 # Debe mostrar 17.x o superior
-
-# En Windows (con winget):
-winget install Microsoft.OpenJDK.17
-
-# En WSL/Ubuntu:
-sudo apt update && sudo apt install openjdk-17-jdk
 ```
 
-### 2. Android SDK Command Line Tools
-**NO instalar Android Studio completo**, solo las herramientas de línea de comandos:
+Android Studio incluye su propio JDK (ubicado en `C:\Program Files\Android\Android Studio\jbr\`). Si prefieres usar tu propio JDK:
+- **Windows**: descargar de https://adoptium.net/ y configurar `JAVA_HOME`
+- Android Studio detecta automáticamente el JDK incluido
 
-```bash
-# Descargar desde: https://developer.android.com/studio#command-tools
-# Windows: commandlinetools-win-<version>_latest.zip
-# Linux: commandlinetools-linux-<version>_latest.zip
+### 2. Android Studio
+Descargar e instalar desde: https://developer.android.com/studio
 
-# Descomprimir en:
-# Windows: C:\Android\cmdline-tools\latest\
-# Linux/WSL: ~/Android/cmdline-tools/latest/
+Durante la instalación asegúrate de incluir:
+- **Android SDK Platform 34**
+- **Android SDK Build-Tools 34.0.0**
+- **Android Emulator** (opcional, para probar sin dispositivo físico)
 
-# Configurar variables de entorno (agregar a ~/.bashrc o ~/.zshrc):
-export ANDROID_HOME=$HOME/Android
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+Android Studio instalará el SDK en:
+- **Windows**: `C:\Users\<tu_usuario>\AppData\Local\Android\Sdk`
+- **Linux**: `~/Android/Sdk`
 
-# Windows (PowerShell):
-# $env:ANDROID_HOME = "C:\Android"
-# $env:PATH += ";$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:ANDROID_HOME\platform-tools"
-```
-
-### 3. Instalar paquetes SDK necesarios
-```bash
-# Aceptar licencias primero
-sdkmanager --licenses
-
-# Instalar paquetes requeridos
-sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-```
-
-### 4. Verificar instalación
-```bash
-# Verificar Android SDK
-sdkmanager --list_installed | grep -E "platform-tools|platforms;android-34|build-tools;34"
-
-# Verificar Gradle wrapper
-cd android && ./gradlew --version
-```
+### 3. Verificar SDK desde Android Studio
+1. Abrir Android Studio
+2. Ir a **File → Settings** (Windows/Linux) o **Android Studio → Preferences** (macOS)
+3. Navegar a **Appearance & Behavior → System Settings → Android SDK**
+4. Verificar que **Android 14.0 (API 34)** esté instalado en la pestaña **SDK Platforms**
+5. En la pestaña **SDK Tools**, verificar **Android SDK Build-Tools 34** y **Android Emulator**
+6. Anotar la ruta del SDK (se necesita para `local.properties`)
 
 ---
 
-## Build del APK
+## Setup inicial (primera vez)
 
-### Desarrollo (Debug)
 ```bash
-# 1. Build de Nuxt (genera .output/public)
+# 1. Instalar dependencias del proyecto
+pnpm install
+
+# 2. Build de Nuxt (genera la versión estática en .output/public)
 pnpm run build
 
-# 2. Sincronizar Capacitor con assets web
+# 3. Añadir la plataforma Android (SOLO LA PRIMERA VEZ)
+npx cap add android
+
+# 4. Sincronizar Capacitor: copia assets web + configura plugins a android/
 pnpm run cap:sync
-
-# 3. Build APK debug
-pnpm run android:build
-
-# El APK queda en:
-# android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### Producción (Release - firmado)
-```bash
-# 1. Generar keystore (solo la primera vez)
-keytool -genkey -v -keystore miquioco-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias miquioco
+### Abrir proyecto en Android Studio
+1. **File → Open...** → seleccionar la carpeta `android/` dentro del proyecto
+2. Android Studio detecta `build.gradle.kts` y empieza a sincronizar Gradle automáticamente
+3. Esperar que la barra de progreso "Sync" termine (primera vez descarga dependencias)
 
-# 2. Configurar signing en android/app/build.gradle.kts:
-# android {
-#     signingConfigs {
-#         create("release") {
-#             storeFile = file("miquioco-release-key.jks")
-#             storePassword = "tu_password"
-#             keyAlias = "miquioco"
-#             keyPassword = "tu_password"
-#         }
-#     }
-#     buildTypes {
-#         release {
-#             signingConfig = signingConfigs.getByName("release")
-#         }
-#     }
-# }
+### Configurar SDK en el proyecto (solo primera vez)
+Android Studio crea automáticamente `android/local.properties` con la ruta del SDK. Si no aparece:
+- **File → Project Structure → SDK Location** → verificar que la ruta al SDK sea correcta
 
-# 3. Build release
-pnpm run android:assemble-release
+---
 
-# El AAB/APK queda en:
-# android/app/build/outputs/bundle/release/app-release.aab
-# android/app/build/outputs/apk/release/app-release.apk
+## Build Debug APK + Run en dispositivo
+
+### Método recomendado — Android Studio Run ▶
+1. Conectar dispositivo Android por USB con **depuración USB** activada
+   - En el dispositivo: **Settings → Developer Options → USB Debugging**
+   - Si no ves Developer Options: **Settings → About Phone** → tocar "Build Number" 7 veces
+2. En Android Studio: seleccionar el dispositivo en el dropdown de **Run/Debug Configurations**
+3. Hacer clic en **Run ▶** (o **Shift+F10**)
+4. Android Studio compila, firma con debug keystore, instala y ejecuta la app
+
+### APK debug sin Run (para distribuir)
+**Compilar → Compilar lote(s) / APK(s) → Compilar APK(s)**
+El APK firmado con debug keystore queda en:
+```
+android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
 
-## Instalación en dispositivo Android
+## Build Release APK (firmado para producción)
 
-### Opción A: ADB (recomendado para desarrollo)
-```bash
-# Conectar dispositivo por USB con depuración USB activada
-adb devices
+En Android Studio:
+1. **Compilar → Generar paquete / APK firmado...**
+2. Seleccionar **APK** → **Siguiente**
+3. Si no tienes keystore: hacer clic en **Crear nuevo...** (Key store path, Password, Key alias, etc.)
+4. Si ya tienes keystore: seleccionar archivo y llenar credenciales
+5. Elegir **release** en la lista **Build Variants**
+6. Seleccionar **V1 (Jar Signature)** y **V2 (Full APK Signature)** → **Terminar**
 
-# Instalar APKKL
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+El APK firmado queda en:
 ```
-
-### Opción B: Transferencia manual
-1. Copiar `app-debug.apk` al dispositivo (USB, WhatsApp Web, Google Drive, etc.)
-2. En el dispositivo: habilitar "Instalar apps de orígenes desconocidos"
-3. Abrir el APK e instalar
-
-### Opción C: Servir desde la laptop (red local)
-```bash
-# En la laptop (directorio del proyecto)
-python -m http.server 8080
-
-# En el móvil (navegador): http://<IP_LAPTOP>:8080/android/app/build/outputs/apk/debug/app-debug.apk
+android/app/build/outputs/apk/release/app-release.apk
 ```
 
 ---
 
-## Configuración del servidor para acceso desde Android
+## Build con emulador (sin dispositivo físico)
 
-### En la laptop (servidor Nuxt)
+1. En Android Studio: **Tools → Device Manager**
+2. **Create device** → seleccionar modelo (Pixel 6, etc.) → **Next**
+3. Seleccionar **API 34** (Android 14) → descargar si no está instalada
+4. **Finish**
+5. En el dropdown de Run, seleccionar el emulador creado y hacer clic en **Run ▶**
+
+---
+
+## Flujo de trabajo diario
+
+Cada vez que cambies código frontend:
 ```bash
-# .env
-SERVER_HOST=0.0.0.0
-SERVER_PORT=3000
+# Terminal — rebuild assets web
+pnpm run build && pnpm run cap:sync
 ```
+Luego en Android Studio:
+- Si ya está corriendo: el botón **Apply Changes** (⚡) actualiza solo los assets sin reinstalar
+- O hacer clic en **Run ▶** (▶) para reinstalar completo
 
-```bash
-# Iniciar servidor accesible en red local
-pnpm run dev
-# Servidor escucha en http://0.0.0.0:3000
+### Solo cambios en el frontend (sin cambios en plugins nativos)
+`pnpm run cap:sync` copia `capacitor.config.json` y los assets de `.output/public` a `android/`.
+Después de sync, **Run ▶** o **Apply Changes** en Android Studio.
 
-# Obtener IP de la laptop en la red WiFi:
-# Windows: ipconfig | findstr IPv4
-# Linux/WSL: ip route get 1 | awk '{print $7}'
+---
+
+## Logs y depuración
+
+### Usando Android Studio — Logcat
+1. Abrir la pestaña **Logcat** en la parte inferior de Android Studio
+2. En el filtro, escribir `MiQuiosco` o `com.miquiosco.app`
+3. Los logs de WebView (console.log, errores JS) aparecen aquí con tag `Capacitor/WebView`
+
+### Ver logs en tiempo real filtrados
+En el campo de búsqueda del Logcat:
 ```
-
-### En el Android
-- La app intentará conectar a `http://<IP_LAPTOP>:3000` para:
-  - Login inicial (descargar hash PIN, catálogo productos)
-  - Sincronización (push/pull)
-- **Requisito**: Móvil y laptop en la misma WiFi
+package:com.miquiosco.app
+```
+O para ver solo errores:
+```
+package:com.miquiosco.app level:ERROR
+```
 
 ---
 
@@ -173,6 +158,7 @@ android/
 ├── build.gradle.kts
 ├── settings.gradle.kts
 ├── gradle.properties
+├── local.properties                  # Ruta del SDK (auto-generado)
 └── gradlew / gradlew.bat
 ```
 
@@ -185,100 +171,107 @@ android/
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 ```
 
+Estos permisos se mantienen automáticamente al hacer `cap sync` desde `capacitor.config.json`.
+
+---
+
+## Configuración del servidor para acceso desde Android
+
+### En la laptop (servidor Nuxt)
+```bash
+# .env
+SERVER_HOST=0.0.0.0
+SERVER_PORT=3000
+```
+
+```bash
+pnpm run dev
+# Servidor escucha en http://0.0.0.0:3000
+
+# Obtener IP de la laptop en la red WiFi:
+# Windows: ipconfig | findstr IPv4
+```
+
+### En el Android
+- La app intenta conectar a `http://<IP_LAPTOP>:3000` para login inicial y sincronización
+- **Requisito**: móvil y laptop en la misma WiFi
+
 ---
 
 ## Troubleshooting común
 
 ### Error: "SDK location not found"
-```bash
-# Verificar ANDROID_HOME
-echo $ANDROID_HOME
-# Debe apuntar a la carpeta que contiene cmdline-tools/, platform-tools/, platforms/
-```
+Android Studio debería crear `android/local.properties` automáticamente. Si no:
+- **File → Project Structure → SDK Location** → establecer la ruta al SDK
 
-### Error: "Gradle version incompatible"
-```bash
-# En android/gradle/wrapper/gradle-wrapper.properties
-# distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
-```
+### Error: "Gradle sync failed"
+- **File → Sync Project with Gradle Files**
+- Si persiste: **File → Invalidate Caches → Invalidate and Restart**
 
-### Error: "cleartext traffic not permitted"
-La config `android:usesCleartextTraffic="true"` ya está en capacitor.config.json → android.allowMixedContent
+### Error: "INSTALL_FAILED_UPDATE_INCOMPATIBLE"
+El dispositivo tiene una versión anterior instalada. Desinstalar la app manualmente y volver a hacer **Run ▶**
 
-### Error: WebView no carga recursos locales
-```bash
-# Verificar capacitor.config.json:
-# "webDir": ".output/public"
-# "server": { "androidScheme": "https" }
+### Error: "Cleartext traffic not permitted"
+La app necesita HTTP para conectarse al servidor local. Verificar `capacitor.config.json`:
+```json
+{
+  "android": { "allowMixedContent": true }
+}
 ```
+Después de cambiar, ejecutar `pnpm run cap:sync` y **Run ▶** de nuevo.
 
 ### App se cierra al abrir (crash en WebView)
-```bash
-# Ver logs:
-adb logcat | grep -i miquioco
-# Buscar errores de SQLite, permisos, o JS console
-```
+1. Abrir la pestaña **Logcat** en Android Studio
+2. Filtrar por `com.miquiosco.app`
+3. Buscar errores de SQLite, permisos, o excepciones de WebView
 
 ### SQLite no funciona en Android
 ```bash
-# Verificar @capacitor-community/sqlite versión compatible
-# Requiere Capacitor 5+ y Android 7+ (API 24+)
+# Verificar que @capacitor-community/sqlite esté en package.json
+pnpm run cap:sync   # regenera la configuración de plugins
+```
+Si el problema persiste, verificar que `MainActivity.kt` incluya el plugin:
+```kotlin
+import com.getcapacitor.BridgeActivity
+import com.capacitorjs.plugins.sqlite.SQLitePlugin
 
-# En MainActivity.kt agregar:
-# import com.capacitorjs.plugins.sqlite.SQLitePlugin
-# this.init(savedInstanceState, arrayOf(SQLitePlugin::class.java))
+class MainActivity : BridgeActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        registerPlugin(SQLitePlugin::class.java)
+    }
+}
+```
+
+### Copiar base de datos SQLite del dispositivo (para debug)
+```bash
+# Desde terminal
+adb shell run-as com.miquiosco.app cp /data/data/com.miquiosco.app/databases/miquioco.db /sdcard/miquioco.db
+adb pull /sdcard/miquioco.db .
+
+# O desde Android Studio: Device Explorer (View → Tool Windows → Device Explorer)
 ```
 
 ---
 
-## Flujo de trabajo diario
-
-### Desarrollo (con laptop como servidor)
-```bash
-# Terminal 1 - Servidor Nuxt
-pnpm run dev
-
-# Terminal 2 - App Android (cuando cambies código frontend)
-pnpm run build && pnpm run cap:sync && pnpm run android:build && adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Solo cambios en frontend (sin tocar backend)
-```bash
-pnpm run build && pnpm run cap:sync && adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Probar sincronización
-1. Abrir app en Android → Login como Jefe
-2. Crear/modificar productos, hacer cuadre
-3. Botón "Sincronizar ahora" → debe conectar a `http://<IP_LAPTOP>:3000/api/sync/...`
-
----
-
-## Comandos útiles
+## Comandos útiles (terminal)
 
 ```bash
-# Ver logs de la app en tiempo real
-adb logcat | grep -i miquioco
-
-# Limpiar build Android
-cd android && ./gradlew clean
+# Build + sync rápido (para luego abrir Android Studio)
+pnpm run build && pnpm run cap:sync
 
 # Ver dispositivos conectados
 adb devices
 
-# Reiniciar servidor ADB
-adb kill-server && adb start-server
-
-# Copiar base de datos SQLite del dispositivo (para debug)
-adb shell run-as com.miquiosco.app cp /data/data/com.miquiosco.app/databases/miquioco.db /sdcard/miquioco.db
-adb pull /sdcard/miquioco.db .
+# Instalar APK manual (alternativa a Run ▶)
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
 
 ## Checklist previo a entrega a la jefa/trabajadores
 
-- [ ] Build release firmado (`pnpm run android:assemble-release`)
+- [ ] Build release firmado (Android Studio: Build → Generate Signed Bundle / APK)
 - [ ] Probar en dispositivo físico (no solo emulador)
 - [ ] Verificar login offline (sin WiFi)
 - [ ] Verificar cuadre completo offline
