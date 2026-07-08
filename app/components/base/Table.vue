@@ -39,7 +39,14 @@
               clearable
             />
           </div>
-          <UButton v-if="activeFiltersCount" size="xs" variant="ghost" color="neutral" label="Limpiar" @click="limpiarFiltros" />
+          <UButton
+            v-if="activeFiltersCount"
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            label="Limpiar"
+            @click="limpiarFiltros"
+          />
         </div>
       </div>
 
@@ -166,11 +173,13 @@ const activeFilters = computed(() =>
 const activeFiltersCount = computed(() => Object.keys(activeFilters.value).length)
 
 function limpiarFiltros() {
-  Object.keys(filters).forEach(k => { filters[k] = '' })
+  Object.keys(filters).forEach(k => filters[k] = '')
   page.value = 1
 }
 
-watch(activeFilters, () => { page.value = 1 }, { deep: true })
+watch(activeFilters, () => {
+  page.value = 1
+}, { deep: true })
 
 const isExternalData = computed(() => props.data !== null)
 

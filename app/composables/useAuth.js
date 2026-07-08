@@ -1,6 +1,7 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import bcrypt from 'bcryptjs'
+import { $api, esErrorDeRed } from '../utils/api'
 
 /**
  * Dos contextos de autenticación, completamente aislados:
@@ -24,7 +25,6 @@ import bcrypt from 'bcryptjs'
  * @returns {ComputedRef<Object|null>} returns.sesionLocal - Sesión local (jefe/trabajador) reactiva de solo lectura.
  * @returns {ComputedRef<string|null>} returns.jwtSync - JWT de sincronización reactivo de solo lectura.
  * @returns {ComputedRef<Object|null>} returns.usuarioActual - Usuario actual reactivo de solo lectura.
- * @returns {ComputedRef<boolean>} returns.requiereCambioPin - Si el usuario debe cambiar PIN.
  * @returns {ComputedRef<boolean>} returns.cargando - True durante operaciones async.
  * @returns {ComputedRef<boolean>} returns.esJefe - True si rol === 'jefe'.
  * @returns {ComputedRef<boolean>} returns.esTrabajador - True si rol === 'trabajador'.
@@ -59,7 +59,6 @@ export function useAuth() {
   const sesionLocal = useState('auth.sesionLocal', () => null)
   const jwtSync = useState('auth.jwtSync', () => null)
   const usuarioActual = useState('auth.usuarioActual', () => null)
-  const requiereCambioPin = useState('auth.requiereCambioPin', () => false)
   const cargando = useState('auth.cargando', () => false)
 
   const esJefe = computed(() => usuarioActual.value?.rol === 'jefe')
@@ -97,7 +96,7 @@ export function useAuth() {
     cargando.value = true
     try {
       try {
-        const response = await $fetch(API.auth.login, {
+        const response = await $api(API.auth.login, {
           method: 'POST',
           body: { nombre_usuario: nombreUsuario, pin }
         })
@@ -130,11 +129,6 @@ export function useAuth() {
       throw new Error('Respuesta del servidor sin datos de usuario.')
     }
     usuarioActual.value = response.usuario
-    requiereCambioPin.value = response.requiereCambioPin ?? false
-
-    if (response.requiereCambioPin) {
-      return
-    }
 
     const ahora = Date.now()
     const horasExp = Number(
@@ -158,6 +152,11 @@ export function useAuth() {
         value: JSON.stringify(sesion)
       })
       sesionLocal.value = sesion
+
+      // Hidratar caché local con datos del servidor (pinHash incluido)
+      // No bloqueante — si falla (sin red, etc.), el login igual es exitoso.
+      const { pullServidor } = useSync()
+      pullServidor({ silent: true }).catch(() => {})
     } else {
       if (response.usuario.rol === 'trabajador') {
         const sesion = {
@@ -261,7 +260,7 @@ export function useAuth() {
     try {
       const token = jwtSync.value
       if (token) {
-        await $fetch(API.auth.logout, {
+        await $api(API.auth.logout, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => {})
@@ -274,23 +273,14 @@ export function useAuth() {
       jwtSync.value = null
       sesionLocal.value = null
       usuarioActual.value = null
-      requiereCambioPin.value = false
       await navigateTo('/login')
     }
-  }
-
-  function esErrorDeRed(err) {
-    if (typeof err !== 'object' || err === null) return false
-    if (err.name === 'TypeError' && err.message?.includes('fetch')) return true
-    if (err.message?.toLowerCase().includes('network')) return true
-    return false
   }
 
   return {
     sesionLocal: readonly(sesionLocal),
     jwtSync: readonly(jwtSync),
     usuarioActual: readonly(usuarioActual),
-    requiereCambioPin: readonly(requiereCambioPin),
     cargando: readonly(cargando),
     esJefe,
     esTrabajador,

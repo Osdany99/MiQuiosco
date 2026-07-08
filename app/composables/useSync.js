@@ -39,6 +39,22 @@ export function useSync() {
     } catch {}
   }
 
+  /**
+   * Ejecuta solo el pull (sin push). Reutilizado por sincronizarAhora() y
+   * pullServidor(). Asume que los guards (sesión, red, JWT) ya pasaron.
+   */
+  async function _ejecutarPull() {
+    const desde = ultimaSync.value ?? 0
+    const pullResult = await remoteApi.syncPull(desde)
+    await aplicarPull(pullResult)
+
+    const ahora = pullResult.timestamp_servidor ?? Date.now()
+    ultimaSync.value = ahora
+    await Preferences.set({ key: PREF_ULTIMA_SYNC, value: String(ahora) })
+
+    return pullResult
+  }
+
   async function sincronizarAhora() {
     if (!auth.sesionLocalVigente()) {
       toast.add({ title: 'Sesión expirada', description: 'Vuelve a iniciar sesión para sincronizar.', color: 'warning' })
@@ -71,14 +87,7 @@ export function useSync() {
       // pushResult.conflictos — { productos: [], historial_precios: [], ... }
       await absorberConflictos(pushResult.conflictos)
 
-      const desde = ultimaSync.value ?? 0
-      const pullResult = await remoteApi.syncPull(desde)
-      await aplicarPull(pullResult)
-
-      // Usar timestamp del servidor si viene, si no usar local
-      const ahora = pullResult.timestamp_servidor ?? Date.now()
-      ultimaSync.value = ahora
-      await Preferences.set({ key: PREF_ULTIMA_SYNC, value: String(ahora) })
+      const pullResult = await _ejecutarPull()
 
       const totalRecibidos = TABLAS_SYNC.reduce((s, t) => s + (pullResult[t]?.length ?? 0), 0)
       toast.add({
@@ -93,6 +102,55 @@ export function useSync() {
         description: err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido.',
         color: 'error'
       })
+      return false
+    } finally {
+      sincronizando.value = false
+      await actualizarPendientesCount()
+    }
+  }
+
+  /**
+   * Solo pull (sin push), con toasts opcionales.
+   * Útil para triggers automáticos post-login o post-cambio-de-PIN donde
+   * solo se necesita hidratar el caché local, no subir datos.
+   */
+  async function pullServidor({ silent = false } = {}) {
+    if (!auth.sesionLocalVigente()) {
+      if (!silent) {
+        toast.add({ title: 'Sesión expirada', description: 'Vuelve a iniciar sesión para sincronizar.', color: 'warning' })
+      }
+      return false
+    }
+
+    if (!hayRed.value) {
+      return false
+    }
+
+    if (!auth.jwtSync.value) {
+      return false
+    }
+
+    sincronizando.value = true
+    try {
+      const pullResult = await _ejecutarPull()
+
+      if (!silent) {
+        const totalRecibidos = TABLAS_SYNC.reduce((s, t) => s + (pullResult[t]?.length ?? 0), 0)
+        toast.add({
+          title: 'Sincronización completada',
+          description: `${totalRecibidos} registros recibidos.`,
+          color: 'success'
+        })
+      }
+      return true
+    } catch (err) {
+      if (!silent) {
+        toast.add({
+          title: 'Error en sincronización',
+          description: err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido.',
+          color: 'error'
+        })
+      }
       return false
     } finally {
       sincronizando.value = false
@@ -194,6 +252,7 @@ export function useSync() {
     hayRed: readonly(hayRed),
     cargarEstado,
     sincronizarAhora,
+    pullServidor,
     descargarCatalogo,
     remoteApi,
     aplicarPull

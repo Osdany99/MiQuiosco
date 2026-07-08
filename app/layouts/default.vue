@@ -123,6 +123,13 @@ const userMenuItems = computed(() => {
     ],
     [
       {
+        label: 'Configuración',
+        icon: 'i-lucide-settings',
+        to: '/settings'
+      }
+    ],
+    [
+      {
         label: 'Cerrar sesión',
         icon: 'i-lucide-log-out',
         onSelect: () => { auth.logout() }

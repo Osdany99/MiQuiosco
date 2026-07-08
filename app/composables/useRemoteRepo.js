@@ -1,3 +1,5 @@
+import { $api } from '../utils/api'
+
 /**
  * useRemoteRepo(tabla) — Repositorio contra REST API.
  *
@@ -33,7 +35,7 @@ export function useRemoteRepo(tabla) {
   }
 
   async function crear(payload) {
-    const data = await $fetch(baseUrl.list, {
+    const data = await $api(baseUrl.list, {
       method: 'POST',
       body: payload,
       headers: getHeaders()
@@ -42,21 +44,21 @@ export function useRemoteRepo(tabla) {
   }
 
   async function leer(id) {
-    const data = await $fetch(baseUrl.byId(id), {
+    const data = await $api(baseUrl.byId(id), {
       headers: getHeaders()
     })
     return normalizar(data)
   }
 
   async function leerTodos() {
-    const list = await $fetch(baseUrl.list, {
+    const list = await $api(baseUrl.list, {
       headers: getHeaders()
     })
     return (list ?? []).map(normalizar)
   }
 
   async function actualizar(id, cambios) {
-    const data = await $fetch(baseUrl.byId(id), {
+    const data = await $api(baseUrl.byId(id), {
       method: 'PUT',
       body: cambios,
       headers: getHeaders()
@@ -65,14 +67,14 @@ export function useRemoteRepo(tabla) {
   }
 
   async function eliminar(id) {
-    await $fetch(baseUrl.byId(id), {
+    await $api(baseUrl.byId(id), {
       method: 'DELETE',
       headers: getHeaders()
     })
   }
 
   async function parchear(id, cambios) {
-    const data = await $fetch(baseUrl.byId(id), {
+    const data = await $api(baseUrl.byId(id), {
       method: 'PATCH',
       body: cambios,
       headers: getHeaders()

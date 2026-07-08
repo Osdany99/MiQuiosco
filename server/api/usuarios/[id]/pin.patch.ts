@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
 
   const actualizado = await db
     .update(usuarios)
-    .set({ pinHash, debeCambiarPin: true, actualizadoEn: new Date() })
+    .set({ pinHash, actualizadoEn: new Date() })
     .where(eq(usuarios.id, id))
     .returning({ id: usuarios.id, nombre: usuarios.nombre })
 

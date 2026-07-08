@@ -36,8 +36,7 @@ export default defineEventHandler(async (event) => {
       rol,
       pinHash,
       activo,
-      salario: salario != null ? String(salario) : '600',
-      debeCambiarPin: true
+      salario: salario != null ? String(salario) : '600'
     })
     .returning()
 
@@ -48,7 +47,6 @@ export default defineEventHandler(async (event) => {
     rol: u.rol,
     activo: u.activo,
     salario: Number(u.salario),
-    debeCambiarPin: u.debeCambiarPin,
     creadoEn: u.creadoEn.toISOString(),
     actualizadoEn: u.actualizadoEn.toISOString()
   }

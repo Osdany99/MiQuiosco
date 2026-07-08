@@ -25,7 +25,7 @@ const filterFields = [
     { label: 'Todos', value: '' },
     { label: 'Abierto', value: 'abierto' },
     { label: 'Cerrado', value: 'cerrado' }
-  ]}
+  ] }
 ]
 
 function abrirDetalle(row) {
@@ -82,9 +82,10 @@ function abrirDetalle(row) {
       </template>
 
       <template #diferencia-cell="{ row }">
-        <span :class="row.original.diferencia != null
-          ? (row.original.diferencia >= 0 ? 'text-success' : 'text-error')
-          : ''"
+        <span
+          :class="row.original.diferencia != null
+            ? (row.original.diferencia >= 0 ? 'text-success' : 'text-error')
+            : ''"
         >
           {{ row.original.diferencia != null ? fmtPrecio(row.original.diferencia) : '—' }}
         </span>

@@ -16,7 +16,6 @@ export interface AuthContext {
     nombre: string
     rol: Rol
     puestoId: string
-    debeCambiarPin: boolean
   }
   scope: ('sync')[]
 }
@@ -108,8 +107,7 @@ export async function requireAuth(
       nombre: usuarios.nombre,
       rol: usuarios.rol,
       puestoId: usuarios.puestoId,
-      activo: usuarios.activo,
-      debeCambiarPin: usuarios.debeCambiarPin
+      activo: usuarios.activo
     })
     .from(usuarios)
     .where(eq(usuarios.id, payload.sub))
@@ -128,8 +126,7 @@ export async function requireAuth(
       id: usuario.id,
       nombre: usuario.nombre,
       rol: usuario.rol,
-      puestoId: usuario.puestoId,
-      debeCambiarPin: usuario.debeCambiarPin
+      puestoId: usuario.puestoId
     },
     scope: payload.scope
   }

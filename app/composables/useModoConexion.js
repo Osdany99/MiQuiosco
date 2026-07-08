@@ -1,13 +1,34 @@
 import { Preferences } from '@capacitor/preferences'
+import { serverAlcanzable } from '../utils/api'
 
 const PREF_MODO = 'modo_conexion'
 
 const modo = ref('local')
 const transicionando = ref(false)
 
+let _watcherInstalled = false
+
 export function useModoConexion() {
   const auth = useAuth()
   const toast = useToast()
+
+  if (!_watcherInstalled) {
+    _watcherInstalled = true
+    let fallosConsecutivos = 0
+
+    watch(serverAlcanzable, (alcanzable) => {
+      if (alcanzable) {
+        fallosConsecutivos = 0
+        return
+      }
+      fallosConsecutivos++
+      if (fallosConsecutivos >= 2 && modo.value === 'online') {
+        fallosConsecutivos = 0
+        modo.value = 'local'
+        Preferences.set({ key: PREF_MODO, value: 'local' })
+      }
+    })
+  }
 
   async function cargar() {
     const stored = await Preferences.get({ key: PREF_MODO })

@@ -27,11 +27,15 @@
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Monto fiado / por cobrar (generado hoy)">
-          <p class="font-mono text-lg">{{ fmtPrecio(montoFiado) }}</p>
+          <p class="font-mono text-lg">
+            {{ fmtPrecio(montoFiado) }}
+          </p>
         </UFormField>
 
         <UFormField label="Cobrado hoy de deudas anteriores">
-          <p class="font-mono text-lg">{{ fmtPrecio(montoCobradoFiado) }}</p>
+          <p class="font-mono text-lg">
+            {{ fmtPrecio(montoCobradoFiado) }}
+          </p>
         </UFormField>
       </div>
 

@@ -17,9 +17,6 @@ const loginSchema = z.object({
  * - jefe: recibe JWT con scope 'sync'
  * - jefe: recibe JWT con scope 'sync' (acceso SOLO a /api/sync/*)
  * - trabajador: NO recibe token (la app usa la sesión local y el hash del PIN)
- *
- * Si el usuario tiene `debeCambiarPin = true`, no se emite token y la
- * respuesta incluye `requiereCambioPin: true` para forzar el flujo de cambio.
  */
 export default defineEventHandler(async (event): Promise<LoginResponse> => {
   const body = await readBody(event)
@@ -43,8 +40,7 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
       rol: usuarios.rol,
       puestoId: usuarios.puestoId,
       pinHash: usuarios.pinHash,
-      activo: usuarios.activo,
-      debeCambiarPin: usuarios.debeCambiarPin
+      activo: usuarios.activo
     })
     .from(usuarios)
     .where(eq(usuarios.nombre, nombre_usuario))
@@ -74,14 +70,6 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
       nombre: usuario.nombre,
       rol: usuario.rol,
       puestoId: usuario.puestoId
-    }
-  }
-
-  // Si debe cambiar PIN, no emitir ningún token
-  if (usuario.debeCambiarPin) {
-    return {
-      ...baseResponse,
-      requiereCambioPin: true
     }
   }
 

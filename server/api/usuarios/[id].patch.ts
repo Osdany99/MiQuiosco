@@ -43,7 +43,6 @@ export default defineEventHandler(async (event) => {
     nombre: u.nombre,
     rol: u.rol,
     activo: u.activo,
-    debeCambiarPin: u.debeCambiarPin,
     creadoEn: u.creadoEn.toISOString(),
     actualizadoEn: u.actualizadoEn.toISOString()
   }

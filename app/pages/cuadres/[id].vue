@@ -67,7 +67,12 @@ onMounted(cargarDatos)
     :show-button="false"
   >
     <template #trailing>
-      <UButton variant="outline" icon="i-lucide-arrow-left" label="Volver" to="/cuadres" />
+      <UButton
+        variant="outline"
+        icon="i-lucide-arrow-left"
+        label="Volver"
+        to="/cuadres"
+      />
     </template>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -80,7 +85,12 @@ onMounted(cargarDatos)
           >
             <template #producto-cell="{ row }">
               <span>{{ getProductoNombre(row.original.productoId) }}</span>
-              <UBadge v-if="row.original.esExtra" label="Extra" color="amber" size="xs" />
+              <UBadge
+                v-if="row.original.esExtra"
+                label="Extra"
+                color="amber"
+                size="xs"
+              />
             </template>
 
             <template #precioVentaUsado-cell="{ row }">

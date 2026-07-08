@@ -10,8 +10,6 @@ const route = useRoute()
 const nombreUsuario = ref('')
 const pin = ref('')
 const error = ref(null)
-const requiereCambioPinLocal = ref(false)
-const usuarioPendiente = ref(null)
 
 async function onSubmit() {
   error.value = null
@@ -28,18 +26,6 @@ async function onSubmit() {
 
   try {
     const response = await auth.login(nombreUsuario.value, pin.value)
-
-    if (response.requiereCambioPin && response.usuario) {
-      requiereCambioPinLocal.value = true
-      usuarioPendiente.value = response.usuario
-      toast.add({
-        title: 'Cambio de PIN requerido',
-        description: 'Debes cambiar tu PIN antes de continuar.',
-        color: 'warning'
-      })
-      await navigateTo('/cambiar-pin')
-      return
-    }
 
     if (response.usuario) {
       toast.add({
@@ -93,7 +79,6 @@ async function onSubmit() {
             v-model="nombreUsuario"
             placeholder="Ej. jefe"
             autocomplete="username"
-            :disabled="requiereCambioPinLocal"
             size="lg"
           />
         </UFormField>
@@ -105,7 +90,6 @@ async function onSubmit() {
             placeholder="••••"
             inputmode="numeric"
             autocomplete="current-password"
-            :disabled="requiereCambioPinLocal"
             size="lg"
             :maxlength="6"
           />
@@ -118,20 +102,11 @@ async function onSubmit() {
           :title="error"
         />
 
-        <UAlert
-          v-if="requiereCambioPinLocal && usuarioPendiente"
-          color="warning"
-          icon="i-lucide-key"
-          :title="`Hola ${usuarioPendiente.nombre}, debes cambiar tu PIN antes de continuar.`"
-          description="Te redirigiremos a la pantalla de cambio en un momento."
-        />
-
         <UButton
           type="submit"
           block
           size="md"
           :loading="auth.cargando.value"
-          :disabled="requiereCambioPinLocal"
         >
           Entrar
         </UButton>

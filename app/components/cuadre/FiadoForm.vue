@@ -11,10 +11,21 @@
           class="w-full"
         />
       </UFormField>
-      <UButton icon="i-lucide-plus" size="sm" variant="outline" @click="showCrearCliente = true" />
+      <UButton
+        icon="i-lucide-plus"
+        size="sm"
+        variant="outline"
+        @click="showCrearCliente = true"
+      />
     </div>
 
-    <BaseDialog v-model="showCrearCliente" title="Nuevo cliente" confirm-text="Crear" @confirm="confirmarCrearCliente" @cancel="showCrearCliente = false">
+    <BaseDialog
+      v-model="showCrearCliente"
+      title="Nuevo cliente"
+      confirm-text="Crear"
+      @confirm="confirmarCrearCliente"
+      @cancel="showCrearCliente = false"
+    >
       <UFormField label="Nombre del cliente" required>
         <UInput v-model="nuevoNombre" placeholder="Nombre..." />
       </UFormField>
@@ -38,10 +49,23 @@
       <UFormField label="Precio" class="w-28">
         <BaseInputNumber v-model="item.precioVentaUsado" placeholder="0" />
       </UFormField>
-      <UButton icon="i-lucide-x" size="xs" color="error" variant="ghost" class="mt-6" @click="model.items.splice(idx, 1)" />
+      <UButton
+        icon="i-lucide-x"
+        size="xs"
+        color="error"
+        variant="ghost"
+        class="mt-6"
+        @click="model.items.splice(idx, 1)"
+      />
     </div>
 
-    <UButton size="sm" variant="outline" icon="i-lucide-plus" label="Agregar producto" @click="agregarItem" />
+    <UButton
+      size="sm"
+      variant="outline"
+      icon="i-lucide-plus"
+      label="Agregar producto"
+      @click="agregarItem"
+    />
 
     <div class="grid grid-cols-2 gap-4 pt-2">
       <UFormField label="Pago inicial (opcional)">

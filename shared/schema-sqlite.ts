@@ -43,9 +43,6 @@ export const usuarios = sqliteTable(
     rol: text('rol', { enum: ROLES }).notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
-    debeCambiarPin: integer('debe_cambiar_pin', { mode: 'boolean' })
-      .notNull()
-      .default(false),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

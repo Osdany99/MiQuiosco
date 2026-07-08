@@ -1,7 +1,9 @@
 <template>
   <UCard>
     <template #header>
-      <h3 class="font-semibold">Fiado del día</h3>
+      <h3 class="font-semibold">
+        Fiado del día
+      </h3>
     </template>
     <div class="space-y-3 text-sm">
       <div class="flex justify-between">
@@ -13,14 +15,45 @@
         <span class="font-mono">{{ fmtPrecio(montoCobradoFiadoCalculado) }}</span>
       </div>
       <div v-if="!readonly" class="flex gap-2 pt-2">
-        <UButton size="sm" icon="i-lucide-user-plus" label="Nueva deuda" @click="nuevaDeudaOpen = true" />
-        <UButton size="sm" variant="outline" icon="i-lucide-hand-coins" label="Cobrar deuda" @click="cobrarOpen = true" />
+        <UButton
+          size="sm"
+          icon="i-lucide-user-plus"
+          label="Nueva deuda"
+          @click="nuevaDeudaOpen = true"
+        />
+        <UButton
+          size="sm"
+          variant="outline"
+          icon="i-lucide-hand-coins"
+          label="Cobrar deuda"
+          @click="cobrarOpen = true"
+        />
       </div>
     </div>
-    <BaseDialog v-model="nuevaDeudaOpen" title="Nueva deuda" confirm-text="Registrar" :loading="cargando" @confirm="confirmarNuevaDeuda" @cancel="nuevaDeudaOpen = false">
-      <CuadreFiadoForm ref="fiadoFormRef" v-model="fiadoForm" :productos-activos="productosActivos" :clientes="clientes" @crear-cliente="onCrearCliente" />
+    <BaseDialog
+      v-model="nuevaDeudaOpen"
+      title="Nueva deuda"
+      confirm-text="Registrar"
+      :loading="cargando"
+      @confirm="confirmarNuevaDeuda"
+      @cancel="nuevaDeudaOpen = false"
+    >
+      <CuadreFiadoForm
+        ref="fiadoFormRef"
+        v-model="fiadoForm"
+        :productos-activos="productosActivos"
+        :clientes="clientes"
+        @crear-cliente="onCrearCliente"
+      />
     </BaseDialog>
-    <BaseDialog v-model="cobrarOpen" title="Cobrar deuda" confirm-text="Registrar pago" :loading="cargando" @confirm="confirmarCobro" @cancel="cobrarOpen = false">
+    <BaseDialog
+      v-model="cobrarOpen"
+      title="Cobrar deuda"
+      confirm-text="Registrar pago"
+      :loading="cargando"
+      @confirm="confirmarCobro"
+      @cancel="cobrarOpen = false"
+    >
       <CuadreCobrarDeudaForm ref="cobrarFormRef" v-model="cobrarForm" />
     </BaseDialog>
   </UCard>

@@ -17,6 +17,12 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  runtimeConfig: {
+    public: {
+      syncServerUrl: process.env.NUXT_PUBLIC_SYNC_SERVER_URL || ''
+    }
+  },
+
   routeRules: {
     '/api/**': {
       cors: true

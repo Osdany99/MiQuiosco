@@ -59,11 +59,6 @@ export const usuarios = pgTable(
     pinHash: text('pin_hash').notNull(),
     activo: boolean('activo').notNull().default(true),
     salario: numeric('salario', { precision: 10, scale: 2 }).notNull().default('600'),
-    /**
-     * Si es true, el usuario debe cambiar su PIN antes de poder usar la app.
-     * El usuario seed tiene este flag en true para forzar el primer cambio.
-     */
-    debeCambiarPin: boolean('debe_cambiar_pin').notNull().default(false),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),

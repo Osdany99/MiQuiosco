@@ -28,7 +28,6 @@ export interface Usuario {
   pinHash: string
   activo: boolean
   salario: number
-  debeCambiarPin: boolean
   creadoEn: number | string
   actualizadoEn: number | string
 }
@@ -152,8 +151,6 @@ export interface LoginResponse {
     puestoId: string
   }
   expiraEn?: number
-  /** Si true, el cliente debe redirigir a /cambiar-pin antes de continuar */
-  requiereCambioPin?: boolean
 }
 
 /**

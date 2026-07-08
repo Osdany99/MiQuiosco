@@ -13,7 +13,6 @@ export default defineEventHandler(async (event) => {
       rol: usuarios.rol,
       activo: usuarios.activo,
       salario: usuarios.salario,
-      debeCambiarPin: usuarios.debeCambiarPin,
       creadoEn: usuarios.creadoEn,
       actualizadoEn: usuarios.actualizadoEn
     })

@@ -22,7 +22,6 @@ const columns = [
   { accessorKey: 'nombre', header: 'Nombre' },
   { accessorKey: 'rol', header: 'Rol' },
   { accessorKey: 'salario', header: 'Salario' },
-  { accessorKey: 'debeCambiarPin', header: 'Cambiar PIN' },
   { accessorKey: 'activo', header: 'Activo' },
   { accessorKey: 'action', header: 'Acciones' }
 ]
@@ -72,9 +71,6 @@ async function confirmarResetPin() {
           :api-url="API.usuarios.list"
           :table-ref="tableRef"
         />
-      </template>
-      <template #debeCambiarPin-cell="{ row }">
-        <BaseBadgeTrueOrFalse :value="row.original.debeCambiarPin" color-true="warning" color-false="success" />
       </template>
       <template #rol-cell="{ row }">
         <UBadge

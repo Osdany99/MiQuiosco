@@ -2,15 +2,19 @@ import { eq } from 'drizzle-orm'
 import { db, closeDb } from './client'
 import { puestos, usuarios } from './schema'
 import { hashPin } from '../utils/auth'
+import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '../../shared/constants'
 
 /**
  * Script de inicialización: crea el puesto por defecto y el usuario jefe
- * con PIN temporal `1234` y flag `debeCambiarPin = true` para forzar el
- * primer cambio de PIN desde la UI.
+ * con PIN temporal `1234`.
+ *
+ * Usa IDs fijos (JEFE_ID_FIJO / PUESTO_PRINCIPAL_ID_FIJO) para que el
+ * seed local del cliente (useLocalDb.js) pueda insertar los mismos IDs
+ * en SQLite y coincidan con el servidor en el primer sync.
  *
  * Uso: pnpm db:seed
  *
- * Es idempotente: si el puesto o el jefe ya existen, los respeta.
+ * Es idempotente: si el puesto o el jefe ya existen (por ID fijo), los respeta.
  */
 
 const PUESTO_NOMBRE = 'Puesto principal'
@@ -20,50 +24,46 @@ const ADMIN_PIN_TEMPORAL = '1234'
 async function main() {
   console.log('Iniciando seed de MiQuiosco...')
 
-  // 1. Puesto por defecto
+  // 1. Puesto por defecto (ID fijo)
   const existingPuesto = await db
     .select()
     .from(puestos)
-    .where(eq(puestos.nombre, PUESTO_NOMBRE))
+    .where(eq(puestos.id, PUESTO_PRINCIPAL_ID_FIJO))
     .limit(1)
 
-  let puestoId: string
-
   if (existingPuesto.length > 0) {
-    puestoId = existingPuesto[0]!.id
-    console.log(`✔ Puesto "${PUESTO_NOMBRE}" ya existe (id=${puestoId})`)
+    console.log(`✔ Puesto "${PUESTO_NOMBRE}" ya existe (id=${PUESTO_PRINCIPAL_ID_FIJO})`)
   } else {
-    const inserted = await db
-      .insert(puestos)
-      .values({ nombre: PUESTO_NOMBRE, activo: true })
-      .returning({ id: puestos.id })
-    puestoId = inserted[0]!.id
-    console.log(`✔ Puesto "${PUESTO_NOMBRE}" creado (id=${puestoId})`)
+    await db.insert(puestos).values({
+      id: PUESTO_PRINCIPAL_ID_FIJO,
+      nombre: PUESTO_NOMBRE,
+      activo: true
+    })
+    console.log(`✔ Puesto "${PUESTO_NOMBRE}" creado (id=${PUESTO_PRINCIPAL_ID_FIJO})`)
   }
 
-  // 2. Admin con PIN temporal
+  // 2. Jefe con PIN temporal (ID fijo)
   const existingAdmin = await db
     .select()
     .from(usuarios)
-    .where(eq(usuarios.nombre, ADMIN_NOMBRE))
+    .where(eq(usuarios.id, JEFE_ID_FIJO))
     .limit(1)
 
   if (existingAdmin.length > 0) {
-    console.log(`✔ Usuario "${ADMIN_NOMBRE}" ya existe`)
-    console.log(`  Rol: ${existingAdmin[0]!.rol}, debe cambiar PIN: ${existingAdmin[0]!.debeCambiarPin}`)
+    console.log(`✔ Usuario "${ADMIN_NOMBRE}" ya existe (id=${JEFE_ID_FIJO})`)
   } else {
     const pinHash = await hashPin(ADMIN_PIN_TEMPORAL)
     await db.insert(usuarios).values({
-      puestoId,
+      id: JEFE_ID_FIJO,
+      puestoId: PUESTO_PRINCIPAL_ID_FIJO,
       nombre: ADMIN_NOMBRE,
       rol: 'jefe',
       pinHash,
-      activo: true,
-      debeCambiarPin: true
+      activo: true
     })
-    console.log(`✔ Usuario jefe creado`)
+    console.log(`✔ Usuario jefe creado (id=${JEFE_ID_FIJO})`)
     console.log(`  Nombre: ${ADMIN_NOMBRE}`)
-    console.log(`  PIN temporal: ${ADMIN_PIN_TEMPORAL} (cámbialo en el primer login)`)
+    console.log(`  PIN temporal: ${ADMIN_PIN_TEMPORAL}`)
   }
 
   console.log('\nSeed completado.')

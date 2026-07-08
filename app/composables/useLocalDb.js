@@ -1,4 +1,6 @@
 import { Capacitor } from '@capacitor/core'
+import bcrypt from 'bcryptjs'
+import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '../../shared/constants'
 
 /**
  * Wrapper sobre @capacitor-community/sqlite.
@@ -87,14 +89,12 @@ class InMemoryDb {
 async function getConnection() {
   if (Capacitor.isNativePlatform()) {
     if (!dbConnection) {
-      const sqlite = (await import('@capacitor-community/sqlite')).default
-      dbConnection = await sqlite.createConnection({
-        database: DB_NAME,
-        encrypted: false,
-        mode: 'no-encryption'
-      })
+      const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
+      const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
+      dbConnection = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
       await dbConnection.open()
       await initializeSchema(dbConnection)
+      await sembrarJefeLocal(dbConnection)
     }
     return dbConnection
   }
@@ -102,13 +102,13 @@ async function getConnection() {
   if (!inMemoryDb) {
     inMemoryDb = new InMemoryDb()
     initializeSchemaMemory(inMemoryDb)
+    await sembrarJefeLocal(inMemoryDb)
   }
   return inMemoryDb
 }
 
 async function initializeSchema(conn) {
-  await conn.execute({
-    statements: `
+  await conn.execute(`
       CREATE TABLE IF NOT EXISTS puestos (
         id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
         activo INTEGER NOT NULL DEFAULT 1, creado_en INTEGER NOT NULL
@@ -116,7 +116,7 @@ async function initializeSchema(conn) {
       CREATE TABLE IF NOT EXISTS usuarios (
         id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, nombre TEXT NOT NULL,
         rol TEXT NOT NULL, pin_hash TEXT NOT NULL,
-        activo INTEGER NOT NULL DEFAULT 1, salario REAL NOT NULL DEFAULT 600, debe_cambiar_pin INTEGER NOT NULL DEFAULT 0,
+        activo INTEGER NOT NULL DEFAULT 1, salario REAL NOT NULL DEFAULT 600,
         creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
         sincronizado INTEGER NOT NULL DEFAULT 1
       );
@@ -194,8 +194,7 @@ async function initializeSchema(conn) {
         monto REAL NOT NULL, forma_pago TEXT NOT NULL,
         creado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
       );
-    `
-  })
+    `)
 }
 
 function initializeSchemaMemory(mem) {
@@ -206,6 +205,73 @@ function initializeSchemaMemory(mem) {
     'clientes', 'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado'
   ]
   for (const t of tables) mem.ensureTable(t, '')
+}
+
+/**
+ * Siembra el puesto principal y el jefe local con IDs fijos para que
+ * el login offline funcione desde el primer arranque sin conexión.
+ *
+ * Solo se ejecuta si la tabla usuarios está vacía (primera instalación).
+ *
+ * El PIN de fábrica (1234) es válido OFFLINE hasta que ocurra el primer
+ * sync online exitoso, momento en el cual el pull sobrescribirá este
+ * registro con los datos reales del servidor (incluyendo pinHash real).
+ *
+ * Si el jefe ya cambió su PIN en el servidor en otro dispositivo y este
+ * es un dispositivo nuevo sin red, el PIN de fábrica 1234 quedará activo
+ * hasta que haya conexión — ventana de riesgo aceptada y documentada.
+ */
+async function sembrarJefeLocal(conn) {
+  const ahora = Date.now()
+
+  if (conn instanceof InMemoryDb) {
+    const usuarios = conn.all('usuarios')
+    if (usuarios.length > 0) return
+
+    const puesto = conn.getById('puestos', PUESTO_PRINCIPAL_ID_FIJO)
+    if (!puesto) {
+      conn.insert('puestos', {
+        id: PUESTO_PRINCIPAL_ID_FIJO,
+        nombre: 'Puesto principal',
+        activo: 1,
+        creado_en: ahora
+      })
+    }
+
+    conn.insert('usuarios', {
+      id: JEFE_ID_FIJO,
+      puesto_id: PUESTO_PRINCIPAL_ID_FIJO,
+      nombre: 'jefe',
+      rol: 'jefe',
+      pin_hash: bcrypt.hashSync('1234', 10),
+      activo: 1,
+      salario: 600,
+      creado_en: ahora,
+      actualizado_en: ahora,
+      sincronizado: 0
+    })
+    return
+  }
+
+  // SQLite nativo (Capacitor)
+  const countResult = await conn.query('SELECT COUNT(*) AS cnt FROM usuarios', [])
+  const count = countResult.values?.[0]?.cnt ?? 0
+  if (count > 0) return
+
+  const puestoResult = await conn.query('SELECT id FROM puestos WHERE id = ? LIMIT 1', [PUESTO_PRINCIPAL_ID_FIJO])
+  if (!puestoResult.values?.[0]) {
+    await conn.run(
+      'INSERT INTO puestos (id, nombre, activo, creado_en) VALUES (?, ?, 1, ?)',
+      [PUESTO_PRINCIPAL_ID_FIJO, 'Puesto principal', ahora]
+    )
+  }
+
+  const pinHash = bcrypt.hashSync('1234', 10)
+  await conn.run(
+    `INSERT INTO usuarios (id, puesto_id, nombre, rol, pin_hash, activo, salario, creado_en, actualizado_en, sincronizado)
+     VALUES (?, ?, ?, ?, ?, 1, 600, 1, ?, ?, 0)`,
+    [JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO, 'jefe', 'jefe', pinHash, ahora, ahora]
+  )
 }
 
 // =====================================================================
@@ -221,7 +287,7 @@ const COLUMN_TYPES = {
     pinHash: 'String',
     activo: 'Boolean',
     salario: 'Number',
-    debeCambiarPin: 'Boolean',
+
     creadoEn: 'Number',
     actualizadoEn: 'Number'
   },
@@ -358,10 +424,7 @@ export function useLocalDb() {
       return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), 'usuarios') : null
     }
 
-    const result = await conn.query({
-      statement: 'SELECT * FROM usuarios WHERE nombre = ? LIMIT 1',
-      values: [nombre]
-    })
+    const result = await conn.query('SELECT * FROM usuarios WHERE nombre = ? LIMIT 1', [nombre])
     return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), 'usuarios') : null
   }
 
@@ -379,10 +442,7 @@ export function useLocalDb() {
       return rows.map(r => coerceRow(snakeToCamelRow(r), 'productos'))
     }
 
-    const result = await conn.query({
-      statement: 'SELECT * FROM productos WHERE puesto_id = ? AND activo = 1 ORDER BY orden',
-      values: [puestoId]
-    })
+    const result = await conn.query('SELECT * FROM productos WHERE puesto_id = ? AND activo = 1 ORDER BY orden', [puestoId])
     return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), 'productos'))
   }
 
@@ -397,10 +457,7 @@ export function useLocalDb() {
       return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), 'cuadres') : null
     }
 
-    const result = await conn.query({
-      statement: 'SELECT * FROM cuadres WHERE puesto_id = ? AND fecha = ? LIMIT 1',
-      values: [puestoId, fecha]
-    })
+    const result = await conn.query('SELECT * FROM cuadres WHERE puesto_id = ? AND fecha = ? LIMIT 1', [puestoId, fecha])
     return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), 'cuadres') : null
   }
 
@@ -415,10 +472,7 @@ export function useLocalDb() {
       return rows.map(r => coerceRow(snakeToCamelRow(r), 'cuadre_items'))
     }
 
-    const result = await conn.query({
-      statement: 'SELECT * FROM cuadre_items WHERE cuadre_id = ? ORDER BY creado_en',
-      values: [cuadreId]
-    })
+    const result = await conn.query('SELECT * FROM cuadre_items WHERE cuadre_id = ? ORDER BY creado_en', [cuadreId])
     return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), 'cuadre_items'))
   }
 
@@ -439,10 +493,7 @@ export function useLocalDb() {
     const keys = Object.keys(row)
     const placeholders = keys.map(() => '?').join(', ')
     const cols = keys.join(', ')
-    await conn.execute({
-      statement: `INSERT INTO ${tabla} (${cols}) VALUES (${placeholders})`,
-      values: keys.map(k => row[k])
-    })
+    await conn.run(`INSERT INTO ${tabla} (${cols}) VALUES (${placeholders})`, keys.map(k => row[k]))
     return datos
   }
 
@@ -461,10 +512,7 @@ export function useLocalDb() {
 
     const keys = Object.keys(cambiosSnake)
     const setClause = keys.map(k => `${k} = ?`).join(', ')
-    await conn.execute({
-      statement: `UPDATE ${tabla} SET ${setClause} WHERE id = ?`,
-      values: [...keys.map(k => cambiosSnake[k]), id]
-    })
+    await conn.run(`UPDATE ${tabla} SET ${setClause} WHERE id = ?`, [...keys.map(k => cambiosSnake[k]), id])
   }
 
   /**
@@ -478,10 +526,7 @@ export function useLocalDb() {
       return
     }
 
-    await conn.execute({
-      statement: `DELETE FROM ${tabla} WHERE id = ?`,
-      values: [id]
-    })
+    await conn.run(`DELETE FROM ${tabla} WHERE id = ?`, [id])
   }
 
   /**
@@ -494,10 +539,7 @@ export function useLocalDb() {
       return conn.all(tabla).map(r => snakeToCamelRow(r))
     }
 
-    const result = await conn.query({
-      statement: `SELECT * FROM ${tabla}`,
-      values: []
-    })
+    const result = await conn.query(`SELECT * FROM ${tabla}`, [])
     return (result.values ?? []).map(r => snakeToCamelRow(r))
   }
 
@@ -512,10 +554,7 @@ export function useLocalDb() {
       return row ? snakeToCamelRow(row) : null
     }
 
-    const result = await conn.query({
-      statement: `SELECT * FROM ${tabla} WHERE id = ? LIMIT 1`,
-      values: [id]
-    })
+    const result = await conn.query(`SELECT * FROM ${tabla} WHERE id = ? LIMIT 1`, [id])
     return result.values && result.values[0] ? snakeToCamelRow(result.values[0]) : null
   }
 
@@ -530,10 +569,7 @@ export function useLocalDb() {
       return conn.all(tabla).map(r => snakeToCamelRow(r))
     }
 
-    const result = await conn.query({
-      statement: `SELECT * FROM ${tabla} WHERE ${whereSql}`,
-      values: values ?? []
-    })
+    const result = await conn.query(`SELECT * FROM ${tabla} WHERE ${whereSql}`, values ?? [])
     return (result.values ?? []).map(r => snakeToCamelRow(r))
   }
 

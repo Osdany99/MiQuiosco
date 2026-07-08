@@ -41,7 +41,6 @@ export default defineEventHandler(async (event) => {
   if (parsed.data.salario !== undefined) updateData.salario = String(parsed.data.salario)
   if (parsed.data.pin !== undefined) {
     updateData.pinHash = await hashPin(parsed.data.pin)
-    updateData.debeCambiarPin = true
   }
 
   if (Object.keys(updateData).length <= 1) {
@@ -65,7 +64,6 @@ export default defineEventHandler(async (event) => {
     rol: u.rol,
     activo: u.activo,
     salario: Number(u.salario),
-    debeCambiarPin: u.debeCambiarPin,
     creadoEn: u.creadoEn.toISOString(),
     actualizadoEn: u.actualizadoEn.toISOString()
   }

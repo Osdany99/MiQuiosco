@@ -1,8 +1,7 @@
 export const API = {
   auth: {
     login: '/api/auth/login',
-    logout: '/api/auth/logout',
-    cambiarPinInicial: '/api/auth/cambiar-pin-inicial'
+    logout: '/api/auth/logout'
   },
   usuarios: {
     list: '/api/usuarios',
