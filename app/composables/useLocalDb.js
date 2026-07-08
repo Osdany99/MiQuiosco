@@ -116,7 +116,7 @@ async function initializeSchema(conn) {
       CREATE TABLE IF NOT EXISTS usuarios (
         id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, nombre TEXT NOT NULL,
         rol TEXT NOT NULL, pin_hash TEXT NOT NULL,
-        activo INTEGER NOT NULL DEFAULT 1, debe_cambiar_pin INTEGER NOT NULL DEFAULT 0,
+        activo INTEGER NOT NULL DEFAULT 1, salario REAL NOT NULL DEFAULT 600, debe_cambiar_pin INTEGER NOT NULL DEFAULT 0,
         creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
         sincronizado INTEGER NOT NULL DEFAULT 1
       );
@@ -220,6 +220,7 @@ const COLUMN_TYPES = {
     rol: 'String',
     pinHash: 'String',
     activo: 'Boolean',
+    salario: 'Number',
     debeCambiarPin: 'Boolean',
     creadoEn: 'Number',
     actualizadoEn: 'Number'

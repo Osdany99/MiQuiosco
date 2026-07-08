@@ -1,0 +1,1 @@
+ALTER TABLE "usuarios" ADD COLUMN "salario" numeric(10, 2) DEFAULT '600' NOT NULL;

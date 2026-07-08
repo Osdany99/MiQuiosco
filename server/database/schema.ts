@@ -58,6 +58,7 @@ export const usuarios = pgTable(
     rol: rolEnum('rol').notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: boolean('activo').notNull().default(true),
+    salario: numeric('salario', { precision: 10, scale: 2 }).notNull().default('600'),
     /**
      * Si es true, el usuario debe cambiar su PIN antes de poder usar la app.
      * El usuario seed tiene este flag en true para forzar el primer cambio.

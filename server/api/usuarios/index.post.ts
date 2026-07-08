@@ -7,7 +7,8 @@ const crearUsuarioSchema = z.object({
   nombre: z.string().min(1).max(100),
   rol: z.enum(['jefe', 'trabajador']),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos numéricos.'),
-  activo: z.boolean().optional()
+  activo: z.boolean().optional(),
+  salario: z.coerce.number().min(0).optional()
 })
 
 export default defineEventHandler(async (event) => {
@@ -24,7 +25,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { nombre, rol, pin, activo = true } = parsed.data
+  const { nombre, rol, pin, activo = true, salario } = parsed.data
   const pinHash = await hashPin(pin)
 
   const nuevo = await db
@@ -35,6 +36,7 @@ export default defineEventHandler(async (event) => {
       rol,
       pinHash,
       activo,
+      salario: salario != null ? String(salario) : '600',
       debeCambiarPin: true
     })
     .returning()
@@ -45,6 +47,7 @@ export default defineEventHandler(async (event) => {
     nombre: u.nombre,
     rol: u.rol,
     activo: u.activo,
+    salario: Number(u.salario),
     debeCambiarPin: u.debeCambiarPin,
     creadoEn: u.creadoEn.toISOString(),
     actualizadoEn: u.actualizadoEn.toISOString()

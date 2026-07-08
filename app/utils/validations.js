@@ -24,6 +24,7 @@ export const schemas = {
     nombre: fields.name(),
     pin: fields.pin().optional(),
     rol: z.enum(['jefe', 'trabajador']),
+    salario: fields.number(0).optional(),
     activo: fields.boolean().default(true)
   }),
 

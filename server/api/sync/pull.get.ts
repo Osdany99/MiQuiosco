@@ -134,6 +134,7 @@ export default defineEventHandler(async (event): Promise<PullResponse> => {
       rol: u.rol,
       pinHash: u.pinHash,
       activo: u.activo,
+      salario: Number(u.salario),
       debeCambiarPin: u.debeCambiarPin,
       creadoEn: u.creadoEn.toISOString(),
       actualizadoEn: u.actualizadoEn.toISOString()

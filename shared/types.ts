@@ -27,6 +27,7 @@ export interface Usuario {
   rol: Rol
   pinHash: string
   activo: boolean
+  salario: number
   debeCambiarPin: boolean
   creadoEn: number | string
   actualizadoEn: number | string

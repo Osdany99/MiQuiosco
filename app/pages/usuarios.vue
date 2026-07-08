@@ -14,12 +14,14 @@ const form = ref({
   nombre: '',
   rol: 'trabajador',
   pin: '',
+  salario: 600,
   activo: true
 })
 const columns = [
   { accessorKey: 'id', header: 'ID', visible: false },
   { accessorKey: 'nombre', header: 'Nombre' },
   { accessorKey: 'rol', header: 'Rol' },
+  { accessorKey: 'salario', header: 'Salario' },
   { accessorKey: 'debeCambiarPin', header: 'Cambiar PIN' },
   { accessorKey: 'activo', header: 'Activo' },
   { accessorKey: 'action', header: 'Acciones' }
@@ -58,7 +60,7 @@ async function confirmarResetPin() {
       empty-state="No se encontraron usuarios"
       modal-title="Usuario"
       :form-ref="usuarioFormRef"
-      :submit-fields="['nombre', 'rol', 'pin', 'activo']"
+      :submit-fields="['nombre', 'rol', 'pin', 'salario', 'activo']"
     >
       <template #form>
         <UsuarioForm ref="usuarioFormRef" v-model="form" />
@@ -79,6 +81,10 @@ async function confirmarResetPin() {
           :label="row.original.rol"
           :color="row.original.rol === 'jefe' ? 'info' : 'neutral'"
         />
+      </template>
+      <template #salario-cell="{ row }">
+        <span v-if="row.original.salario != null" class="font-mono">{{ fmtPrecio(row.original.salario) }}</span>
+        <span v-else class="text-gray-400">—</span>
       </template>
       <template #row-actions-extra="{ rowData }">
         <UTooltip text="Cambiar pin" :delay-duration="0">

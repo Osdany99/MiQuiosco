@@ -12,6 +12,7 @@ export default defineEventHandler(async (event) => {
       nombre: usuarios.nombre,
       rol: usuarios.rol,
       activo: usuarios.activo,
+      salario: usuarios.salario,
       debeCambiarPin: usuarios.debeCambiarPin,
       creadoEn: usuarios.creadoEn,
       actualizadoEn: usuarios.actualizadoEn
@@ -22,6 +23,7 @@ export default defineEventHandler(async (event) => {
 
   return rows.map(r => ({
     ...r,
+    salario: Number(r.salario),
     creadoEn: r.creadoEn.toISOString(),
     actualizadoEn: r.actualizadoEn.toISOString()
   }))

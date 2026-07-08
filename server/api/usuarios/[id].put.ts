@@ -8,7 +8,8 @@ const editarUsuarioSchema = z.object({
   nombre: z.string().min(1).max(100).optional(),
   rol: z.enum(['jefe', 'trabajador']).optional(),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos numéricos.').optional(),
-  activo: z.boolean().optional()
+  activo: z.boolean().optional(),
+  salario: z.coerce.number().min(0).optional()
 })
 
 export default defineEventHandler(async (event) => {
@@ -37,6 +38,7 @@ export default defineEventHandler(async (event) => {
   if (parsed.data.nombre !== undefined) updateData.nombre = parsed.data.nombre
   if (parsed.data.rol !== undefined) updateData.rol = parsed.data.rol
   if (parsed.data.activo !== undefined) updateData.activo = parsed.data.activo
+  if (parsed.data.salario !== undefined) updateData.salario = String(parsed.data.salario)
   if (parsed.data.pin !== undefined) {
     updateData.pinHash = await hashPin(parsed.data.pin)
     updateData.debeCambiarPin = true
@@ -62,6 +64,7 @@ export default defineEventHandler(async (event) => {
     nombre: u.nombre,
     rol: u.rol,
     activo: u.activo,
+    salario: Number(u.salario),
     debeCambiarPin: u.debeCambiarPin,
     creadoEn: u.creadoEn.toISOString(),
     actualizadoEn: u.actualizadoEn.toISOString()

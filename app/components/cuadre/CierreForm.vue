@@ -44,16 +44,17 @@
           />
         </UFormField>
       </div>
+      <p v-if="trabajadorTurnoId && salarioCalculado" class="text-xs text-gray-500 -mt-3">
+        Salario calculado: {{ fmtPrecio(salarioCalculado) }} (base {{ fmtPrecio(salarioBase) }} + bono por ventas). Editable manualmente.
+      </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Trabajador de turno">
           <USelectMenu
             v-model="trabajadorTurnoId"
-            :items="[
-              { label: 'Sin asignar', value: '' },
-              { label: 'Juan', value: 'trabajador-1' },
-              { label: 'María', value: 'trabajador-2' }
-            ]"
+            :items="trabajadores"
+            value-attribute="id"
+            text-attribute="nombre"
             placeholder="Seleccionar..."
             class="w-full"
             :disabled="readonly"
@@ -97,8 +98,21 @@
 const {
   totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
-  diferencia, tipoDiferencia
+  totalEsperado, salarioCalculado, diferencia, tipoDiferencia
 } = useCuadre()
+
+const repo = useRepo('usuarios')
+const trabajadores = ref([])
+const salarioBase = computed(() => {
+  if (!trabajadorTurnoId.value) return 0
+  const t = trabajadores.value.find(t => t.id === trabajadorTurnoId.value)
+  return t?.salario ?? 600
+})
+
+onMounted(async () => {
+  const users = await repo.readAll()
+  trabajadores.value = users.filter(u => u.rol === 'trabajador')
+})
 
 defineProps({
   readonly: { type: Boolean, default: false }

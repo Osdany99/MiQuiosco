@@ -17,8 +17,14 @@ const notasCuadre = ref('')
 
 const hoy = new Date().toISOString().split('T')[0]
 
+const salarioBaseTrabajador = ref(600)
+
 const totalEsperado = computed(() =>
   lineas.value.reduce((sum, l) => sum + l.subtotal, 0)
+)
+
+const salarioCalculado = computed(() =>
+  calcularSalario(salarioBaseTrabajador.value, totalEsperado.value)
 )
 
 const diferencia = computed(() => {
@@ -82,11 +88,22 @@ export function useCuadre() {
 
   const itemsRepo = useRepo('cuadre_items')
 
+  const usuariosRepo = useRepo('usuarios')
+
   const esTrabajador = computed(() => auth.esTrabajador.value)
 
   const tituloCuadre = computed(() => {
     const d = new Date(hoy + 'T12:00:00')
     return 'Cuadre del día ' + d.toLocaleDateString('es-ES', { weekday: 'long' })
+  })
+
+  watch(trabajadorTurnoId, async (nuevoId) => {
+    await cargarSalarioTrabajador(nuevoId)
+    if (nuevoId) {
+      pagoTrabajador.value = salarioCalculado.value
+    } else {
+      pagoTrabajador.value = null
+    }
   })
 
   async function cargarDatos(puestoId) {
@@ -135,14 +152,43 @@ export function useCuadre() {
       if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
       if (c.montoFiado != null) montoFiado.value = Number(c.montoFiado)
       if (c.montoCobradoFiado != null) montoCobradoFiado.value = Number(c.montoCobradoFiado)
-      if (c.trabajadorTurnoId != null) trabajadorTurnoId.value = c.trabajadorTurnoId
-      if (c.pagoTrabajador != null) pagoTrabajador.value = Number(c.pagoTrabajador)
+      if (c.trabajadorTurnoId != null) {
+        trabajadorTurnoId.value = c.trabajadorTurnoId
+        await cargarSalarioTrabajador(c.trabajadorTurnoId)
+      }
+      if (c.pagoTrabajador != null) {
+        pagoTrabajador.value = Number(c.pagoTrabajador)
+      } else if (trabajadorTurnoId.value) {
+        pagoTrabajador.value = salarioCalculado.value
+      }
       if (c.notas != null) notasCuadre.value = c.notas ?? ''
     } catch (err) {
       toast.add({ title: 'Error', description: err.message || 'No se pudo cargar el cuadre.', color: 'error' })
     } finally {
       cargando.value = false
     }
+  }
+
+  async function cargarSalarioTrabajador(usuarioId) {
+    if (!usuarioId) {
+      salarioBaseTrabajador.value = 600
+      return
+    }
+    try {
+      const user = await usuariosRepo.read(usuarioId)
+      salarioBaseTrabajador.value = user?.salario ?? 600
+    } catch {
+      salarioBaseTrabajador.value = 600
+    }
+  }
+
+  async function actualizarPagoTrabajador() {
+    if (!trabajadorTurnoId.value) {
+      pagoTrabajador.value = null
+      return
+    }
+    await cargarSalarioTrabajador(trabajadorTurnoId.value)
+    pagoTrabajador.value = salarioCalculado.value
   }
 
   async function buscarCuadreActual(puestoId, repo) {
@@ -394,7 +440,7 @@ export function useCuadre() {
     showAgregarProducto, productoSeleccionado, tipoLineaExtra, expandida,
     totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
     trabajadorTurnoId, pagoTrabajador, notasCuadre,
-    totalEsperado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
+    totalEsperado, salarioCalculado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
     cargarDatos, recalcularSubtotal,
     agregarLineaExtra, toggleExpandir, cerrarCuadre, reabrirCuadre,
     procesarImportacionJSON, getProductoNombre,
