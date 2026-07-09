@@ -1,5 +1,4 @@
 export function useCuentasFiado() {
-  const auth = useAuth()
   const toast = useToast()
   const clientesRepo = useRepo('clientes')
   const cuentasRepo = useRepo('cuentas_fiado')

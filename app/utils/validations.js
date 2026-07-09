@@ -19,28 +19,5 @@ export const fields = {
 export const schemas = {
   pinReset: z.object({
     pin: fields.pin()
-  }),
-  user: z.object({
-    nombre: fields.name(),
-    pin: fields.pin().optional(),
-    rol: z.enum(['jefe', 'trabajador']),
-    salario: fields.number(0).optional(),
-    activo: fields.boolean().default(true)
-  }),
-
-  cliente: z.object({
-    nombre: fields.name('El nombre del cliente'),
-    telefono: fields.phone(),
-    notas: fields.description(),
-    activo: fields.boolean()
-  }),
-
-  product: z.object({
-    nombre: fields.name('El nombre del producto'),
-    descripcion: fields.description(),
-    precioCompraActual: z.coerce.number().min(0, 'No puede ser menor a 0'),
-    precioVentaActual: z.coerce.number().min(0, 'No puede ser menor a 0'),
-    orden: z.coerce.number().int().min(1, 'Debe ser 1 o más'),
-    activo: fields.boolean()
   })
 }

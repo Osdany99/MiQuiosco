@@ -7,7 +7,6 @@ export function useGraficasLocales() {
   const productoRepo = useLocalRepo('productos')
   const cuadreRepo = useLocalRepo('cuadres')
   const itemsRepo = useLocalRepo('cuadre_items')
-  const historialRepo = useLocalRepo('historial_precios')
 
   /**
    * Retorna los datos para la gráfica solicitada.

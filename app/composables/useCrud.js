@@ -1,3 +1,5 @@
+import { ENTIDADES } from '~/config/entidades'
+
 /**
  * useCrud — Operaciones CRUD.
  *
@@ -5,12 +7,12 @@
  * - 'local'  → useLocalRepo(tabla)
  * - 'online' → useRemoteRepo(tabla)
  *
- * @param {string} baseUrl — URL base del recurso (ej: '/api/productos').
+ * @param {string} entidad — Nombre de la entidad (ej: 'productos').
  * @param {Object} [callbacks={}] — { onSuccess }
  * @param {boolean} [showToast=true] — mostrar toast de éxito/error
  */
-export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
-  if (!baseUrl) {
+export const useCrud = (entidad, { onSuccess } = {}, showToast = true) => {
+  if (!entidad || !ENTIDADES[entidad]) {
     return {
       loading: ref(false),
       error: ref(null),
@@ -20,8 +22,7 @@ export const useCrud = (baseUrl, { onSuccess } = {}, showToast = true) => {
       patch: () => Promise.resolve({ data: null, error: null })
     }
   }
-  const tabla = baseUrl.split('/').filter(Boolean).pop() || 'unknown'
-  const repo = useRepo(tabla)
+  const repo = useRepo(entidad)
   const loading = ref(false)
   const error = ref(null)
   const toast = useToast()

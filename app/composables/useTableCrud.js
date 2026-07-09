@@ -3,7 +3,7 @@
  * Maneja estado de modales, validación de formularios y llamadas a API vía useCrud.
  *
  * @param {Object} props - Props del componente padre (BaseTable).
- * @param {string} props.apiUrl - URL base del endpoint API.
+ * @param {string} props.entidad - Nombre de la entidad (ej: 'productos').
  * @param {number} [props.defaultLimit] - Límite por defecto de paginación.
  * @param {Object} [props.query={}] - Filtros adicionales para queries.
  * @param {boolean} [props.pagination=true] - Si usar paginación server-side.
@@ -60,7 +60,7 @@ export function useTableCrud(props, emit, form, refresh) {
   }
 
   // ─── API Delete ───────────────────────────────────────────────
-  const { remove, loading: deleteLoading } = useCrud(props.apiUrl, {
+  const { remove, loading: deleteLoading } = useCrud(props.entidad, {
     onSuccess: () => {
       isDeleteOpen.value = false
       refresh()
@@ -77,7 +77,7 @@ export function useTableCrud(props, emit, form, refresh) {
   // ─── API Create / Update ──────────────────────────────────────
   const successMessage = ref('Operación exitosa')
 
-  const { create, update, loading } = useCrud(props.apiUrl, {
+  const { create, update, loading } = useCrud(props.entidad, {
     onSuccess: () => {
       handleCloseModal()
       refresh()

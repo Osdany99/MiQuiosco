@@ -26,7 +26,7 @@ const columns = [
   { accessorKey: 'action', header: 'Acciones' }
 ]
 
-const { update: apiUpdate, loading: pinResetLoading } = useCrud(API.usuarios.list)
+const { update: apiUpdate, loading: pinResetLoading } = useCrud('usuarios')
 
 function abrirResetPin(user) {
   pinResetUser.value = user
@@ -54,7 +54,7 @@ async function confirmarResetPin() {
     <BaseTable
       ref="tableRef"
       v-model="form"
-      :api-url="API.usuarios.list"
+      entidad="usuarios"
       :columns="columns"
       empty-state="No se encontraron usuarios"
       modal-title="Usuario"
@@ -68,7 +68,7 @@ async function confirmarResetPin() {
         <BaseChangeActivation
           :id="row.original.id"
           :default-value="row.original.activo"
-          :api-url="API.usuarios.list"
+          entidad="usuarios"
           :table-ref="tableRef"
         />
       </template>

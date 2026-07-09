@@ -1,4 +1,5 @@
 import { refDebounced } from '@vueuse/core'
+import { ENTIDADES } from '~/config/entidades'
 
 /**
  * useTableData - Gestión de datos de tabla.
@@ -8,14 +9,14 @@ import { refDebounced } from '@vueuse/core'
  * - 'online' → useRemoteRepo (REST API, búsqueda/filtros/paginación cliente)
  *
  * @param {Object} props
- * @param {string} props.apiUrl — URL base
+ * @param {string} props.entidad — Nombre de la entidad (ej: 'productos')
  * @param {number} [props.defaultLimit=20]
  * @param {Object} [props.query={}] — filtros { campo: valor }
  * @param {boolean} [props.pagination=true]
  * @param {Ref|ComputedRef} [props.search] — búsqueda reactiva (debounced 500ms)
  */
 export function useTableData(props) {
-  if (!props.apiUrl) {
+  if (!props.entidad || !ENTIDADES[props.entidad]) {
     return {
       page: ref(1),
       pageCount: ref(props.defaultLimit),
@@ -26,8 +27,7 @@ export function useTableData(props) {
       refresh: () => {}
     }
   }
-  const tabla = props.apiUrl.split('/').filter(Boolean).pop() || 'unknown'
-  const repo = useRepo(tabla)
+  const repo = useRepo(props.entidad)
 
   const page = ref(1)
   const pageCount = ref(props.defaultLimit)

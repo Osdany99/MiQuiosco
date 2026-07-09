@@ -1,7 +1,11 @@
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
+import { ENTIDADES } from '~/config/entidades'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
+const TABLAS_SYNC = Object.entries(ENTIDADES)
+  .filter(([, def]) => def.sync)
+  .map(([tabla]) => tabla)
 
 export function useSync() {
   const auth = useAuth()
@@ -12,8 +16,6 @@ export function useSync() {
   const ultimaSync = ref(null)
   const pendientesCount = ref(0)
   const hayRed = ref(true)
-
-  const TABLAS_SYNC = ['productos', 'historial_precios', 'cuadres', 'cuadre_items', 'usuarios', 'clientes', 'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado']
 
   function repoDe(tabla) {
     return useLocalRepo(tabla)

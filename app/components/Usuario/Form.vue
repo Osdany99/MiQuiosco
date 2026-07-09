@@ -1,4 +1,6 @@
 <script setup>
+import { ENTIDADES } from '~/config/entidades'
+
 const form = defineModel({
   type: Object,
   default: () => ({})
@@ -51,6 +53,6 @@ defineExpose({
     ref="formRef"
     v-model="form"
     :fields="fields"
-    :schema="schemas.user"
+    :schema="ENTIDADES.usuarios.schema"
   />
 </template>

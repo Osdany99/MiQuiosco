@@ -1,6 +1,10 @@
 import { Capacitor } from '@capacitor/core'
 import bcrypt from 'bcryptjs'
 import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '../../shared/constants'
+import ddlGenerado from '../../drizzle/sqlite/0000_exotic_mentallo.sql?raw'
+import * as schemaSqlite from '../../shared/schema-sqlite'
+import { deriveColumnTypes, coerceRow, deriveTableNames } from '../../utils/schemaTypes'
+import { deriveColumnMap, validateColumns } from '../../utils/tablaColumnas'
 
 /**
  * Wrapper sobre @capacitor-community/sqlite.
@@ -108,107 +112,17 @@ async function getConnection() {
 }
 
 async function initializeSchema(conn) {
-  await conn.execute(`
-      CREATE TABLE IF NOT EXISTS puestos (
-        id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
-        activo INTEGER NOT NULL DEFAULT 1, creado_en INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS usuarios (
-        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, nombre TEXT NOT NULL,
-        rol TEXT NOT NULL, pin_hash TEXT NOT NULL,
-        activo INTEGER NOT NULL DEFAULT 1, salario REAL NOT NULL DEFAULT 600,
-        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
-        sincronizado INTEGER NOT NULL DEFAULT 1
-      );
-      CREATE TABLE IF NOT EXISTS productos (
-        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, nombre TEXT NOT NULL,
-        descripcion TEXT, activo INTEGER NOT NULL DEFAULT 1, orden INTEGER NOT NULL DEFAULT 0,
-        precio_compra_actual REAL NOT NULL DEFAULT 0,
-        precio_venta_actual REAL NOT NULL DEFAULT 0,
-        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
-        sincronizado INTEGER NOT NULL DEFAULT 1
-      );
-      CREATE TABLE IF NOT EXISTS historial_precios (
-        id TEXT PRIMARY KEY, producto_id TEXT NOT NULL,
-        precio_compra REAL NOT NULL, precio_venta REAL NOT NULL,
-        vigente_desde INTEGER NOT NULL, vigente_hasta INTEGER,
-        cambiado_por TEXT, creado_en INTEGER NOT NULL,
-        actualizado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS cuadres (
-        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, fecha TEXT NOT NULL,
-        jefe_id TEXT NOT NULL, trabajador_turno_id TEXT,
-        pago_trabajador REAL, total_esperado REAL NOT NULL DEFAULT 0,
-        total_real_caja REAL, monto_transferencia REAL NOT NULL DEFAULT 0,
-        monto_fiado REAL NOT NULL DEFAULT 0, monto_cobrado_fiado REAL,
-        diferencia REAL, estado TEXT NOT NULL DEFAULT 'abierto', notas TEXT,
-        cerrado_en INTEGER, reabierto_veces INTEGER NOT NULL DEFAULT 0,
-        ultima_reapertura_en INTEGER,
-        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
-        sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS cuadre_items (
-        id TEXT PRIMARY KEY, cuadre_id TEXT NOT NULL, producto_id TEXT NOT NULL,
-        precio_venta_usado REAL NOT NULL, cantidad REAL NOT NULL DEFAULT 0,
-        subtotal REAL NOT NULL DEFAULT 0,
-        tipo_linea TEXT NOT NULL DEFAULT 'normal', nota TEXT,
-        es_extra INTEGER NOT NULL DEFAULT 0,
-        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
-        sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS productos_cache (
-        id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
-        precio_venta_actual REAL NOT NULL, orden INTEGER NOT NULL DEFAULT 0,
-        descargado_en INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS registro_trabajador (
-        id TEXT PRIMARY KEY, fecha TEXT NOT NULL, trabajador_id TEXT NOT NULL,
-        exportado INTEGER NOT NULL DEFAULT 0, exportado_en INTEGER,
-        creado_en INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS registro_trabajador_items (
-        id TEXT PRIMARY KEY, registro_id TEXT NOT NULL, producto_id TEXT NOT NULL,
-        cantidad REAL NOT NULL DEFAULT 0, precio_anotado REAL NOT NULL DEFAULT 0,
-        creado_en INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS clientes (
-        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, nombre TEXT NOT NULL,
-        telefono TEXT, notas TEXT, activo INTEGER NOT NULL DEFAULT 1,
-        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
-        sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS cuentas_fiado (
-        id TEXT PRIMARY KEY, puesto_id TEXT NOT NULL, cliente_id TEXT NOT NULL,
-        cuadre_origen_id TEXT NOT NULL, monto_total REAL NOT NULL,
-        monto_pagado REAL NOT NULL DEFAULT 0, estado TEXT NOT NULL DEFAULT 'pendiente',
-        creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
-        sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS cuentas_fiado_items (
-        id TEXT PRIMARY KEY, cuenta_fiado_id TEXT NOT NULL, producto_id TEXT NOT NULL,
-        cantidad REAL NOT NULL, precio_venta_usado REAL NOT NULL, subtotal REAL NOT NULL,
-        creado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS pagos_fiado (
-        id TEXT PRIMARY KEY, cuenta_fiado_id TEXT NOT NULL, cuadre_id TEXT NOT NULL,
-        monto REAL NOT NULL, forma_pago TEXT NOT NULL,
-        creado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
-      );
-    `)
-
-  // Migraciones para tablas existentes (agrega columnas faltantes)
-  try {
-    await conn.run('ALTER TABLE cuadres ADD COLUMN monto_cobrado_fiado REAL', [])
-  } catch (_) {
-    // Columna ya existe — ok en instalaciones nuevas
-  }
+  // DDL generado por Drizzle Kit desde shared/schema-sqlite.ts.
+  // Regenerar con: pnpm db:generate:sqlite
+  const result = await conn.query('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'usuarios\'', [])
+  if (result.values?.length > 0) return
+  await conn.execute(ddlGenerado)
 }
 
 function initializeSchemaMemory(mem) {
   const tables = [
     'puestos', 'usuarios', 'productos', 'historial_precios',
     'cuadres', 'cuadre_items', 'productos_cache',
-    'registro_trabajador', 'registro_trabajador_items',
     'clientes', 'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado'
   ]
   for (const t of tables) mem.ensureTable(t, '')
@@ -282,139 +196,11 @@ async function sembrarJefeLocal(conn) {
 }
 
 // =====================================================================
-// Column type map y coerceRow — reemplaza los 4 mappers específicos
+// Column type map derivado automáticamente del schema Drizzle
 // =====================================================================
 
-const COLUMN_TYPES = {
-  usuarios: {
-    id: 'String',
-    puestoId: 'String',
-    nombre: 'String',
-    rol: 'String',
-    pinHash: 'String',
-    activo: 'Boolean',
-    salario: 'Number',
-
-    creadoEn: 'Number',
-    actualizadoEn: 'Number'
-  },
-  productos: {
-    id: 'String',
-    puestoId: 'String',
-    nombre: 'String',
-    descripcion: 'passthrough',
-    activo: 'Boolean',
-    orden: 'Number',
-    precioCompraActual: 'Number',
-    precioVentaActual: 'Number',
-    creadoEn: 'Number',
-    actualizadoEn: 'Number',
-    sincronizado: 'Number'
-  },
-  cuadres: {
-    id: 'String',
-    puestoId: 'String',
-    fecha: 'String',
-    jefeId: 'String',
-    trabajadorTurnoId: 'nullableNumber',
-    pagoTrabajador: 'nullableNumber',
-    totalEsperado: 'Number',
-    totalRealCaja: 'nullableNumber',
-    montoTransferencia: 'Number',
-    montoFiado: 'Number',
-    montoCobradoFiado: 'nullableNumber',
-    diferencia: 'nullableNumber',
-    estado: 'String',
-    notas: 'passthrough',
-    cerradoEn: 'nullableNumber',
-    reabiertoVeces: 'Number',
-    ultimaReaperturaEn: 'nullableNumber',
-    creadoEn: 'Number',
-    actualizadoEn: 'Number',
-    sincronizado: 'Number'
-  },
-  cuadre_items: {
-    id: 'String',
-    cuadreId: 'String',
-    productoId: 'String',
-    precioVentaUsado: 'Number',
-    cantidad: 'Number',
-    subtotal: 'Number',
-    tipoLinea: 'String',
-    nota: 'passthrough',
-    esExtra: 'Boolean',
-    creadoEn: 'Number',
-    actualizadoEn: 'Number',
-    sincronizado: 'Number'
-  },
-  clientes: {
-    id: 'String',
-    puestoId: 'String',
-    nombre: 'String',
-    telefono: 'passthrough',
-    notas: 'passthrough',
-    activo: 'Boolean',
-    creadoEn: 'Number',
-    actualizadoEn: 'Number',
-    sincronizado: 'Number'
-  },
-  cuentas_fiado: {
-    id: 'String',
-    puestoId: 'String',
-    clienteId: 'String',
-    cuadreOrigenId: 'String',
-    montoTotal: 'Number',
-    montoPagado: 'Number',
-    estado: 'String',
-    creadoEn: 'Number',
-    actualizadoEn: 'Number',
-    sincronizado: 'Number'
-  },
-  cuentas_fiado_items: {
-    id: 'String',
-    cuentaFiadoId: 'String',
-    productoId: 'String',
-    cantidad: 'Number',
-    precioVentaUsado: 'Number',
-    subtotal: 'Number',
-    creadoEn: 'Number',
-    sincronizado: 'Number'
-  },
-  pagos_fiado: {
-    id: 'String',
-    cuentaFiadoId: 'String',
-    cuadreId: 'String',
-    monto: 'Number',
-    formaPago: 'String',
-    creadoEn: 'Number',
-    sincronizado: 'Number'
-  }
-}
-
-function coerceRow(row, tableName) {
-  const types = COLUMN_TYPES[tableName]
-  if (!types) return row
-  const result = { ...row }
-  for (const [key, type] of Object.entries(types)) {
-    const val = result[key]
-    if (val === undefined || val === null) {
-      if (type === 'nullableNumber' || type === 'passthrough') continue
-      result[key] = type === 'Number' ? 0 : type === 'Boolean' ? false : type === 'String' ? '' : null
-      continue
-    }
-    switch (type) {
-      case 'String': result[key] = String(val)
-        break
-      case 'Number': result[key] = Number(val)
-        break
-      case 'Boolean': result[key] = Boolean(val)
-        break
-      case 'nullableNumber': result[key] = Number(val)
-        break
-    }
-  }
-  return result
-}
+const COLUMN_TYPES = deriveColumnTypes(schemaSqlite)
+const COLUMN_MAP = deriveColumnMap(schemaSqlite)
 
 // =====================================================================
 // API pública del composable
@@ -429,11 +215,11 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('usuarios', r => r.nombre === nombre)
-      return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), 'usuarios') : null
+      return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), COLUMN_TYPES.usuarios) : null
     }
 
     const result = await conn.query('SELECT * FROM usuarios WHERE nombre = ? LIMIT 1', [nombre])
-    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), 'usuarios') : null
+    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), COLUMN_TYPES.usuarios) : null
   }
 
   /**
@@ -447,11 +233,11 @@ export function useLocalDb() {
         const pid = r.puesto_id ?? r.puestoId
         return pid === puestoId && (r.activo === 1 || r.activo === true)
       })
-      return rows.map(r => coerceRow(snakeToCamelRow(r), 'productos'))
+      return rows.map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES.productos))
     }
 
     const result = await conn.query('SELECT * FROM productos WHERE puesto_id = ? AND activo = 1 ORDER BY orden', [puestoId])
-    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), 'productos'))
+    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES.productos))
   }
 
   /**
@@ -462,7 +248,7 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('cuadres', r => r.puesto_id === puestoId && r.fecha === fecha)
-      return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), 'cuadres') : null
+      return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), COLUMN_TYPES.cuadres) : null
     }
 
     const result = await conn.query('SELECT * FROM cuadres WHERE puesto_id = ? AND fecha = ? LIMIT 1', [puestoId, fecha])
@@ -477,11 +263,11 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('cuadre_items', r => r.cuadre_id === cuadreId)
-      return rows.map(r => coerceRow(snakeToCamelRow(r), 'cuadre_items'))
+      return rows.map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES['cuadre_items']))
     }
 
     const result = await conn.query('SELECT * FROM cuadre_items WHERE cuadre_id = ? ORDER BY creado_en', [cuadreId])
-    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), 'cuadre_items'))
+    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES['cuadre_items']))
   }
 
   /**
@@ -489,6 +275,7 @@ export function useLocalDb() {
    * Los keys del objeto datos se usan como nombres de columna (snake_case).
    */
   async function insert(tabla, datos) {
+    validateColumns(tabla, COLUMN_MAP, datos)
     const row = camelToSnakeRow(datos)
     const conn = await getConnection()
 
@@ -509,6 +296,7 @@ export function useLocalDb() {
    * Actualiza una fila por su campo `id`.
    */
   async function update(tabla, id, cambios) {
+    validateColumns(tabla, COLUMN_MAP, cambios)
     const cambiosSnake = camelToSnakeRow(cambios)
     const conn = await getConnection()
 
@@ -581,6 +369,24 @@ export function useLocalDb() {
     return (result.values ?? []).map(r => snakeToCamelRow(r))
   }
 
+  /**
+   * Resetea la base de datos local: elimina todas las tablas y las recrea.
+   * Útil durante desarrollo para partir de un estado limpio.
+   */
+  async function resetLocalDatabase() {
+    const conn = await getConnection()
+    const tableNames = deriveTableNames(schemaSqlite)
+    for (const t of tableNames) {
+      try {
+        await conn.run(`DROP TABLE IF EXISTS ${t}`, [])
+      } catch (_) {
+        // ignore — la tabla puede no existir aún
+      }
+    }
+    inMemoryDb = null
+    dbConnection = null
+  }
+
   return {
     getUsuarioPorNombreLocal,
     getProductosActivos,
@@ -591,6 +397,7 @@ export function useLocalDb() {
     remove,
     queryAll,
     getById,
-    queryWhere
+    queryWhere,
+    resetLocalDatabase
   }
 }

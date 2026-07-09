@@ -43,6 +43,7 @@ export const usuarios = sqliteTable(
     rol: text('rol', { enum: ROLES }).notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    salario: real('salario').notNull().default(600),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -102,7 +103,13 @@ export const historialPrecios = sqliteTable(
     cambiadoPor: text('cambiado_por'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
-      .$defaultFn(() => new Date())
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
   },
   table => ({
     productoIdx: index('historial_precios_producto_idx').on(table.productoId)
@@ -196,48 +203,6 @@ export const productosCache = sqliteTable('productos_cache', {
     .notNull()
     .$defaultFn(() => new Date())
 })
-
-/**
- * Registro informal del trabajador (un registro por día).
- */
-export const registroTrabajador = sqliteTable(
-  'registro_trabajador',
-  {
-    id: text('id').primaryKey(),
-    fecha: text('fecha').notNull(), // ISO date YYYY-MM-DD
-    trabajadorId: text('trabajador_id').notNull(),
-    exportado: integer('exportado', { mode: 'boolean' }).notNull().default(false),
-    exportadoEn: integer('exportado_en', { mode: 'timestamp_ms' }),
-    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
-      .notNull()
-      .$defaultFn(() => new Date())
-  },
-  table => ({
-    fechaIdx: index('registro_trabajador_fecha_idx').on(table.fecha)
-  })
-)
-
-/**
- * Items del registro del trabajador.
- */
-export const registroTrabajadorItems = sqliteTable(
-  'registro_trabajador_items',
-  {
-    id: text('id').primaryKey(),
-    registroId: text('registro_id').notNull(),
-    productoId: text('producto_id').notNull(),
-    cantidad: real('cantidad').notNull().default(0),
-    precioAnotado: real('precio_anotado').notNull().default(0),
-    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
-      .notNull()
-      .$defaultFn(() => new Date())
-  },
-  table => ({
-    registroIdx: index('registro_trabajador_items_registro_idx').on(
-      table.registroId
-    )
-  })
-)
 
 /**
  * Clientes.
@@ -354,8 +319,6 @@ export type ProductoSQLite = typeof productos.$inferSelect
 export type CuadreSQLite = typeof cuadres.$inferSelect
 export type CuadreItemSQLite = typeof cuadreItems.$inferSelect
 export type ProductoCache = typeof productosCache.$inferSelect
-export type RegistroTrabajador = typeof registroTrabajador.$inferSelect
-export type RegistroTrabajadorItem = typeof registroTrabajadorItems.$inferSelect
 export type ClienteSQLite = typeof clientes.$inferSelect
 export type CuentaFiadoSQLite = typeof cuentasFiado.$inferSelect
 export type CuentaFiadoItemSQLite = typeof cuentasFiadoItems.$inferSelect

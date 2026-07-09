@@ -1,0 +1,75 @@
+const TABLE_NAME = Symbol.for('drizzle:Name')
+const TABLE_COLUMNS = Symbol.for('drizzle:Columns')
+
+function deriveColumnType(col) {
+  if (col.dataType === 'string') return col.notNull ? 'String' : 'passthrough'
+  if (col.dataType === 'boolean') return col.notNull ? 'Boolean' : 'nullableNumber'
+  if (col.dataType === 'number') return col.notNull ? 'Number' : 'nullableNumber'
+  return 'passthrough'
+}
+
+/**
+ * Deriva el mapa COLUMN_TYPES desde las tablas Drizzle.
+ * Retorna { nombre_tabla: { columnaCamel: 'String'|'Number'|'Boolean'|'nullableNumber'|'passthrough' } }
+ */
+export function deriveColumnTypes(schema) {
+  const map = {}
+  for (const table of Object.values(schema)) {
+    if (!table || typeof table !== 'object') continue
+    const tableName = table[TABLE_NAME]
+    if (!tableName) continue
+    const columns = table[TABLE_COLUMNS]
+    if (!columns) continue
+    const types = {}
+    for (const [key, col] of Object.entries(columns)) {
+      types[key] = deriveColumnType(col)
+    }
+    map[tableName] = types
+  }
+  return map
+}
+
+/**
+ * Deriva la lista de nombres de tabla desde el schema Drizzle.
+ */
+export function deriveTableNames(schema) {
+  const names = []
+  for (const table of Object.values(schema)) {
+    if (!table || typeof table !== 'object') continue
+    const tableName = table[TABLE_NAME]
+    if (tableName) names.push(tableName)
+  }
+  return names
+}
+
+/**
+ * Convierte los valores de una fila a sus tipos JS correctos
+ * según el mapa de tipos derivado del schema.
+ */
+export function coerceRow(row, columnTypes) {
+  if (!columnTypes) return row
+  const result = { ...row }
+  for (const [key, type] of Object.entries(columnTypes)) {
+    const val = result[key]
+    if (val === undefined || val === null) {
+      if (type === 'nullableNumber' || type === 'passthrough') continue
+      result[key] = type === 'Number' ? 0 : type === 'Boolean' ? false : type === 'String' ? '' : null
+      continue
+    }
+    switch (type) {
+      case 'String':
+        result[key] = String(val)
+        break
+      case 'Number':
+        result[key] = Number(val)
+        break
+      case 'Boolean':
+        result[key] = Boolean(val)
+        break
+      case 'nullableNumber':
+        result[key] = Number(val)
+        break
+    }
+  }
+  return result
+}

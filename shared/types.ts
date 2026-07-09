@@ -107,24 +107,6 @@ export interface CuadreItem {
   sincronizado?: boolean
 }
 
-export interface RegistroTrabajadorItem {
-  id: string
-  registroId: string
-  productoId: string
-  cantidad: number
-  precioAnotado: number
-  creadoEn: number | string
-}
-
-export interface RegistroTrabajador {
-  id: string
-  fecha: string
-  trabajadorId: string
-  exportado: boolean
-  exportadoEn: number | string | null
-  creadoEn: number | string
-}
-
 /**
  * Sesión local del jefe/trabajador, almacenada en @capacitor/preferences.
  * Vive solo en el dispositivo, nunca se envía al servidor.
@@ -152,23 +134,6 @@ export interface LoginResponse {
     puestoId: string
   }
   expiraEn?: number
-}
-
-/**
- * Estructura del archivo de exportación del registro del trabajador.
- * Ver spec sección 1.4.
- */
-export interface RegistroTrabajadorExport {
-  version: 1
-  fecha: string
-  trabajador_id: string
-  trabajador_nombre: string
-  items: Array<{
-    producto_id: string
-    nombre_producto: string
-    cantidad: number
-    precio_anotado: number
-  }>
 }
 
 /**

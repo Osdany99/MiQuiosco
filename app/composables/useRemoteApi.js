@@ -34,6 +34,6 @@ export function useRemoteApi() {
     getProductosActivos: () => fetch(API.sync.productosActivos),
     syncPush: payload =>
       fetch(API.sync.push, { method: 'POST', body: payload }),
-    syncPull: desde => fetch(API.sync.pull(desde)),
+    syncPull: desde => fetch(API.sync.pull(desde))
   }
 }

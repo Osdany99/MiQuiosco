@@ -30,7 +30,7 @@ const columns = [
 const showHistorial = ref(false)
 const historialProducto = ref(null)
 
-const { patch, loading: reorderLoading } = useCrud(API.productos.list, {}, false)
+const { patch, loading: reorderLoading } = useCrud('productos', {}, false)
 
 function esPrimero(p) {
   const rows = toValue(tableRef.value?.data) ?? []
@@ -90,7 +90,7 @@ async function moverAbajo(p) {
     <BaseTable
       ref="tableRef"
       v-model="form"
-      :api-url="API.productos.list"
+      entidad="productos"
       :columns="columns"
       empty-state="No se encontraron productos"
       modal-title="Producto"
@@ -134,7 +134,7 @@ async function moverAbajo(p) {
         <BaseChangeActivation
           :id="row.original.id"
           :default-value="row.original.activo"
-          :api-url="API.productos.list"
+          entidad="productos"
           :table-ref="tableRef"
         />
       </template>

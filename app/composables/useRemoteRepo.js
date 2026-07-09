@@ -1,4 +1,5 @@
 import { $api } from '../utils/api'
+import { ENTIDADES } from '~/config/entidades'
 
 /**
  * useRemoteRepo(tabla) — Repositorio contra REST API.
@@ -16,20 +17,11 @@ function isoToEpoch(v) {
   return Number.isNaN(n) ? null : n
 }
 
-const MAPA_ENDPOINTS = {
-  productos: API.productos,
-  usuarios: API.usuarios,
-  cuadres: API.cuadres,
-  cuadre_items: API.itemsCuadre,
-  clientes: API.clientes,
-  cuentas_fiado: API.cuentasFiado,
-  pagos_fiado: API.pagosFiado
-}
-
 export function useRemoteRepo(tabla) {
   const { getHeaders } = useHeaders()
 
-  const baseUrl = MAPA_ENDPOINTS[tabla]
+  const entidad = ENTIDADES[tabla]
+  const baseUrl = entidad?.endpoint
   if (!baseUrl) {
     throw new Error(`useRemoteRepo: tabla "${tabla}" no tiene endpoint mapeado`)
   }

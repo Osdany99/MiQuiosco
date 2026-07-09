@@ -34,7 +34,7 @@ const columns = [
     <BaseTable
       ref="tableRef"
       v-model="form"
-      :api-url="API.clientes.list"
+      entidad="clientes"
       :columns="columns"
       empty-state="No se encontraron clientes"
       modal-title="Cliente"
@@ -49,7 +49,7 @@ const columns = [
         <BaseChangeActivation
           :id="row.original.id"
           :default-value="row.original.activo"
-          :api-url="API.clientes.list"
+          entidad="clientes"
           :table-ref="tableRef"
         />
       </template>

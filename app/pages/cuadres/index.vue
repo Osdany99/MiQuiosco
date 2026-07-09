@@ -40,7 +40,7 @@ function abrirDetalle(row) {
   >
     <BaseTable
       ref="tableRef"
-      :api-url="API.cuadres.list"
+      entidad="cuadres"
       :columns="columns"
       :filter-fields="filterFields"
       empty-state="No se encontraron cuadres"

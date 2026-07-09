@@ -34,6 +34,10 @@ export const API = {
     list: '/api/cuentas-fiado',
     byId: id => `/api/cuentas-fiado/${id}`
   },
+  itemsCuentaFiado: {
+    list: '/api/items-cuenta-fiado',
+    byId: id => `/api/items-cuenta-fiado/${id}`
+  },
   pagosFiado: {
     list: '/api/pagos-fiado'
   },

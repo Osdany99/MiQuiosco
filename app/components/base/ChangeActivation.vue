@@ -9,14 +9,14 @@
 </template>
 
 <script setup>
-const { defaultValue, id, apiUrl, tableRef } = defineProps({
+const { defaultValue, id, entidad, tableRef } = defineProps({
   defaultValue: { type: Boolean, default: false },
-  apiUrl: { type: String, required: true },
+  entidad: { type: String, required: true },
   tableRef: { type: Object, default: null },
   id: { type: String, default: null }
 })
 
-const { update, loading } = useCrud(apiUrl)
+const { update, loading } = useCrud(entidad)
 
 async function toggleActivo() {
   await update(id, { activo: !defaultValue })

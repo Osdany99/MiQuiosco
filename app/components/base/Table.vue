@@ -128,7 +128,7 @@
 
 <script setup>
 const props = defineProps({
-  apiUrl: { type: String, default: '' },
+  entidad: { type: String, default: '' },
   data: { type: Array, default: null },
   dataKey: { type: String, default: '' },
   columns: { type: Array, required: true },
