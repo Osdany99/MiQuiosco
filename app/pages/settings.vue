@@ -1,7 +1,6 @@
 <script setup>
 import { $api, getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 
-const auth = useAuth()
 const toast = useToast()
 const conexion = useModoConexion()
 

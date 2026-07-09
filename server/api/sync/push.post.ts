@@ -403,6 +403,7 @@ function serverCuadreToCliente(r: typeof cuadres.$inferSelect): Cuadre {
     totalRealCaja: r.totalRealCaja != null ? Number(r.totalRealCaja) : null,
     montoTransferencia: Number(r.montoTransferencia),
     montoFiado: Number(r.montoFiado),
+    montoCobradoFiado: Number(r.montoCobradoFiado ?? 0),
     diferencia: r.diferencia != null ? Number(r.diferencia) : null,
     estado: r.estado,
     notas: r.notas,

@@ -1,9 +1,4 @@
 <script setup>
-definePageMeta({
-  // Sin middleware de rol — auth.global.js ya verifica sesión.
-  // El control de acceso por rol se maneja en el template (v-if esTrabajador).
-})
-
 const auth = useAuth()
 const {
   cuadre, totalEsperado, productosActivos, hoy,

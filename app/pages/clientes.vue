@@ -45,14 +45,6 @@ const columns = [
         <ClienteForm ref="clienteFormRef" v-model="form" />
       </template>
 
-      <template #telefono-cell="{ row }">
-        {{ row.original.telefono || '—' }}
-      </template>
-
-      <template #notas-cell="{ row }">
-        {{ row.original.notas || '—' }}
-      </template>
-
       <template #activo-cell="{ row }">
         <BaseChangeActivation
           :id="row.original.id"

@@ -140,8 +140,8 @@ async function initializeSchema(conn) {
         jefe_id TEXT NOT NULL, trabajador_turno_id TEXT,
         pago_trabajador REAL, total_esperado REAL NOT NULL DEFAULT 0,
         total_real_caja REAL, monto_transferencia REAL NOT NULL DEFAULT 0,
-        monto_fiado REAL NOT NULL DEFAULT 0, diferencia REAL,
-        estado TEXT NOT NULL DEFAULT 'abierto', notas TEXT,
+        monto_fiado REAL NOT NULL DEFAULT 0, monto_cobrado_fiado REAL,
+        diferencia REAL, estado TEXT NOT NULL DEFAULT 'abierto', notas TEXT,
         cerrado_en INTEGER, reabierto_veces INTEGER NOT NULL DEFAULT 0,
         ultima_reapertura_en INTEGER,
         creado_en INTEGER NOT NULL, actualizado_en INTEGER NOT NULL,
@@ -195,6 +195,13 @@ async function initializeSchema(conn) {
         creado_en INTEGER NOT NULL, sincronizado INTEGER NOT NULL DEFAULT 0
       );
     `)
+
+  // Migraciones para tablas existentes (agrega columnas faltantes)
+  try {
+    await conn.run('ALTER TABLE cuadres ADD COLUMN monto_cobrado_fiado REAL', [])
+  } catch (_) {
+    // Columna ya existe — ok en instalaciones nuevas
+  }
 }
 
 function initializeSchemaMemory(mem) {
@@ -315,6 +322,7 @@ const COLUMN_TYPES = {
     totalRealCaja: 'nullableNumber',
     montoTransferencia: 'Number',
     montoFiado: 'Number',
+    montoCobradoFiado: 'nullableNumber',
     diferencia: 'nullableNumber',
     estado: 'String',
     notas: 'passthrough',

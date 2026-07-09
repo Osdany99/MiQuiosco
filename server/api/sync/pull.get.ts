@@ -105,6 +105,7 @@ export default defineEventHandler(async (event): Promise<PullResponse> => {
       totalRealCaja: c.totalRealCaja != null ? Number(c.totalRealCaja) : null,
       montoTransferencia: Number(c.montoTransferencia),
       montoFiado: Number(c.montoFiado),
+      montoCobradoFiado: Number(c.montoCobradoFiado ?? 0),
       diferencia: c.diferencia != null ? Number(c.diferencia) : null,
       estado: c.estado,
       notas: c.notas,

@@ -80,6 +80,7 @@ export interface Cuadre {
   totalRealCaja: number | null
   montoTransferencia: number
   montoFiado: number
+  montoCobradoFiado: number
   diferencia: number | null
   estado: EstadoCuadre
   notas: string | null

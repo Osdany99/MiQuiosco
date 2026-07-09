@@ -125,6 +125,7 @@ export const cuadres = sqliteTable(
     totalRealCaja: real('total_real_caja'),
     montoTransferencia: real('monto_transferencia').notNull().default(0),
     montoFiado: real('monto_fiado').notNull().default(0),
+    montoCobradoFiado: real('monto_cobrado_fiado'),
     diferencia: real('diferencia'),
     estado: text('estado', { enum: ESTADOS_CUADRE }).notNull().default('abierto'),
     notas: text('notas'),
