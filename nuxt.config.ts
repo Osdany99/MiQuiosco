@@ -19,7 +19,9 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      syncServerUrl: process.env.NUXT_PUBLIC_SYNC_SERVER_URL || ''
+      syncServerUrl: process.env.NUXT_PUBLIC_SYNC_SERVER_URL || '',
+      sessionExpirationTrabajadorHoras: process.env.NUXT_PUBLIC_SESSION_EXPIRATION_TRABAJADOR_HORAS || '24',
+      sessionInactivityTimeoutJefeSegundos: process.env.NUXT_PUBLIC_SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || '60'
     }
   },
 

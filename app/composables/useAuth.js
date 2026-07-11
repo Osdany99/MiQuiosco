@@ -56,6 +56,7 @@ const PREF_SESION_LOCAL = 'sesion_local'
 const PREF_JWT_SYNC = 'jwt_sync'
 
 export function useAuth() {
+  const config = useRuntimeConfig()
   const sesionLocal = useState('auth.sesionLocal', () => null)
   const jwtSync = useState('auth.jwtSync', () => null)
   const usuarioActual = useState('auth.usuarioActual', () => null)
@@ -131,9 +132,7 @@ export function useAuth() {
     usuarioActual.value = response.usuario
 
     const ahora = Date.now()
-    const horasExp = Number(
-      process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || 24
-    )
+    const horasExp = Number(config.public.sessionExpirationTrabajadorHoras)
 
     if (response.token) {
       await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
@@ -181,10 +180,18 @@ export function useAuth() {
     const { getUsuarioPorNombreLocal } = useLocalDb()
     const usuario = await getUsuarioPorNombreLocal(nombreUsuario)
 
-    if (!usuario || !usuario.activo) return null
+    if (!usuario) {
+      throw new Error('Credenciales inválidas.')
+    }
+
+    if (!usuario.activo) {
+      throw new Error('Usuario no activo. Contacta al jefe.')
+    }
 
     const pinOk = await bcrypt.compare(pin, usuario.pinHash)
-    if (!pinOk) return null
+    if (!pinOk) {
+      throw new Error('Credenciales inválidas.')
+    }
 
     const ahora = Date.now()
     const sesion = {
@@ -223,9 +230,7 @@ export function useAuth() {
       return true
     }
 
-    const inactTimeout = Number(
-      process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || 60
-    )
+    const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos)
     const limiteMs = inactTimeout * 1000
     if (ahora - sesion.ultima_actividad_en > limiteMs) return false
     return true

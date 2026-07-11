@@ -40,11 +40,7 @@ async function onSubmit() {
         await navigateTo(destino)
         return
       }
-      if (response.usuario.rol === 'jefe') {
-        await navigateTo('/cuadre')
-      } else if (response.usuario.rol === 'trabajador') {
-        await navigateTo('/cuadre')
-      }
+      await navigateTo('/cuadre')
     }
   } catch (err) {
     error.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido al iniciar sesión.'

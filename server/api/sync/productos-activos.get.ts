@@ -1,23 +1,16 @@
 import { eq, asc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { productos } from '../../database/schema'
+import { requireAuth } from '../../utils/auth'
 
 /**
  * GET /api/sync/productos-activos
  *
  * Devuelve solo los productos activos del catálogo, con campos reducidos:
  * - id, nombre, precioVentaActual, orden
- *
- * Deliberadamente NO incluye precio_compra, descripción ni historial.
- * Este es el único endpoint que toca el trabajador.
- *
- * Accesible sin autenticación específica — pensado para ser llamado por
- * el dispositivo del trabajador en su primer login o al actualizar el
- * catálogo. En la práctica lo más seguro es requerir un JWT de admin o
- * sync; por simplicidad inicial lo dejamos abierto (la información que
- * devuelve es pública al equipo de trabajo).
  */
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  await requireAuth(event, 'sync')
   const rows = await db
     .select({
       id: productos.id,

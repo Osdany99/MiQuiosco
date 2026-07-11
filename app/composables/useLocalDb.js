@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs'
 import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '../../shared/constants'
 import ddlGenerado from '../../drizzle/sqlite/0000_exotic_mentallo.sql?raw'
 import * as schemaSqlite from '../../shared/schema-sqlite'
-import { deriveColumnTypes, coerceRow, deriveTableNames } from '../../utils/schemaTypes'
-import { deriveColumnMap, validateColumns } from '../../utils/tablaColumnas'
+import { deriveColumnTypes, coerceRow, deriveTableNames } from '../utils/schemaTypes'
+import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 
 /**
  * Wrapper sobre @capacitor-community/sqlite.
@@ -88,6 +88,10 @@ class InMemoryDb {
     const idx = rows.findIndex(r => r.id === id)
     if (idx !== -1) rows.splice(idx, 1)
   }
+
+  run(_sql, _params) {
+    return Promise.resolve()
+  }
 }
 
 async function getConnection() {
@@ -112,11 +116,10 @@ async function getConnection() {
 }
 
 async function initializeSchema(conn) {
-  // DDL generado por Drizzle Kit desde shared/schema-sqlite.ts.
-  // Regenerar con: pnpm db:generate:sqlite
   const result = await conn.query('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'usuarios\'', [])
   if (result.values?.length > 0) return
-  await conn.execute(ddlGenerado)
+  const ddl = ddlGenerado.replace(/--> statement-breakpoint/g, '')
+  await conn.execute(ddl)
 }
 
 function initializeSchemaMemory(mem) {
@@ -128,20 +131,6 @@ function initializeSchemaMemory(mem) {
   for (const t of tables) mem.ensureTable(t, '')
 }
 
-/**
- * Siembra el puesto principal y el jefe local con IDs fijos para que
- * el login offline funcione desde el primer arranque sin conexión.
- *
- * Solo se ejecuta si la tabla usuarios está vacía (primera instalación).
- *
- * El PIN de fábrica (1234) es válido OFFLINE hasta que ocurra el primer
- * sync online exitoso, momento en el cual el pull sobrescribirá este
- * registro con los datos reales del servidor (incluyendo pinHash real).
- *
- * Si el jefe ya cambió su PIN en el servidor en otro dispositivo y este
- * es un dispositivo nuevo sin red, el PIN de fábrica 1234 quedará activo
- * hasta que haya conexión — ventana de riesgo aceptada y documentada.
- */
 async function sembrarJefeLocal(conn) {
   const ahora = Date.now()
 
@@ -190,7 +179,7 @@ async function sembrarJefeLocal(conn) {
   const pinHash = bcrypt.hashSync('1234', 10)
   await conn.run(
     `INSERT INTO usuarios (id, puesto_id, nombre, rol, pin_hash, activo, salario, creado_en, actualizado_en, sincronizado)
-     VALUES (?, ?, ?, ?, ?, 1, 600, 1, ?, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, 1, 600, ?, ?, 0)`,
     [JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO, 'jefe', 'jefe', pinHash, ahora, ahora]
   )
 }
@@ -217,7 +206,6 @@ export function useLocalDb() {
       const rows = conn.where('usuarios', r => r.nombre === nombre)
       return rows.length > 0 ? coerceRow(snakeToCamelRow(rows[0]), COLUMN_TYPES.usuarios) : null
     }
-
     const result = await conn.query('SELECT * FROM usuarios WHERE nombre = ? LIMIT 1', [nombre])
     return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), COLUMN_TYPES.usuarios) : null
   }
@@ -252,7 +240,7 @@ export function useLocalDb() {
     }
 
     const result = await conn.query('SELECT * FROM cuadres WHERE puesto_id = ? AND fecha = ? LIMIT 1', [puestoId, fecha])
-    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), 'cuadres') : null
+    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), COLUMN_TYPES.cuadres) : null
   }
 
   /**
@@ -332,11 +320,11 @@ export function useLocalDb() {
     const conn = await getConnection()
 
     if (conn instanceof InMemoryDb) {
-      return conn.all(tabla).map(r => snakeToCamelRow(r))
+      return conn.all(tabla).map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES[tabla]))
     }
 
     const result = await conn.query(`SELECT * FROM ${tabla}`, [])
-    return (result.values ?? []).map(r => snakeToCamelRow(r))
+    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES[tabla]))
   }
 
   /**
@@ -347,11 +335,13 @@ export function useLocalDb() {
 
     if (conn instanceof InMemoryDb) {
       const row = conn.getById(tabla, id)
-      return row ? snakeToCamelRow(row) : null
+      return row ? coerceRow(snakeToCamelRow(row), COLUMN_TYPES[tabla]) : null
     }
 
     const result = await conn.query(`SELECT * FROM ${tabla} WHERE id = ? LIMIT 1`, [id])
-    return result.values && result.values[0] ? snakeToCamelRow(result.values[0]) : null
+    return result.values && result.values[0]
+      ? coerceRow(snakeToCamelRow(result.values[0]), COLUMN_TYPES[tabla])
+      : null
   }
 
   /**
@@ -379,7 +369,7 @@ export function useLocalDb() {
     for (const t of tableNames) {
       try {
         await conn.run(`DROP TABLE IF EXISTS ${t}`, [])
-      } catch (_) {
+      } catch {
         // ignore — la tabla puede no existir aún
       }
     }

@@ -32,8 +32,9 @@ export function validateColumns(tableName, columnMap, data) {
   if (!columnMap) return
   const known = columnMap[tableName]
   if (!known) return
+  const knownValues = Object.values(known)
   for (const key of Object.keys(data)) {
-    if (!(key in known)) {
+    if (!(key in known) && !knownValues.includes(key)) {
       console.warn(`[tablaColumnas] Columna inesperada "${key}" en tabla "${tableName}"`)
     }
   }

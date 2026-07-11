@@ -25,7 +25,7 @@ const fields = computed(() => {
   ]
 
   if (isTrabajador.value) {
-    f.push({ name: 'salario', label: 'Salario base', placeholder: '600', type: 'number', props: { min: 0, class: 'w-full' }, colSpan: 'sm:col-span-2' })
+    f.push({ name: 'salario', label: 'Salario base', placeholder: '600', type: 'number', props: { min: 0, class: 'w-full' } })
   }
 
   if (!esEdicion.value) {

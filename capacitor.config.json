@@ -4,7 +4,7 @@
   "webDir": ".output/public",
   "android": {
     "allowMixedContent": true,
-    "captureInput": true,
+    "captureInput": false,
     "webContentsDebuggingEnabled": true
   },
   "server": {

@@ -94,7 +94,7 @@ async function onCrearCliente(nombre) {
 }
 
 async function confirmarNuevaDeuda() {
-  await registrarNuevaDeuda({ ...fiadoForm.value, cuadreId: props.cuadreId })
+  await registrarNuevaDeuda({ ...fiadoForm.value, cuadreId: props.cuadreId, puestoId: props.puestoId })
   nuevaDeudaOpen.value = false
   fiadoForm.value = { clienteId: null, items: [], montoPagadoInicial: 0, formaPagoInicial: 'efectivo' }
   emit('actualizado')

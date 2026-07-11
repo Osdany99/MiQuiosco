@@ -3,7 +3,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (publicRoutes.includes(to.path)) return
 
   const auth = useAuth()
-  await auth.cargarDesdePreferencias()
+
+  // Si ya hay sesión en memoria (cargada en una navegación anterior),
+  // nos saltamos el I/O a Capacitor Preferences para evitar lecturas repetidas.
+  if (!auth.usuarioActual.value) {
+    await auth.cargarDesdePreferencias()
+  }
 
   if (auth.sesionLocal.value && !auth.sesionLocalVigente()) {
     await auth.invalidarSesionLocal()

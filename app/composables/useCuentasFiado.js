@@ -38,13 +38,14 @@ export function useCuentasFiado() {
     return nuevo
   }
 
-  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoPagadoInicial, formaPagoInicial }) {
+  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoPagadoInicial, formaPagoInicial, puestoId }) {
     cargando.value = true
     try {
       const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
       const nueva = await cuentasRepo.create({
         clienteId,
         cuadreOrigenId: cuadreId,
+        puestoId,
         montoTotal,
         montoPagado: montoPagadoInicial || 0,
         estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= montoTotal ? 'pagada' : 'parcial'

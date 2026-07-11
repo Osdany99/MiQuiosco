@@ -228,7 +228,9 @@ export function useGraficasLocales() {
 
   async function proporcionFormasPago(opts) {
     const { cuadres } = await cargarDatos(opts)
-    let efectivo = 0; let transferencia = 0; let fiado = 0
+    let efectivo = 0
+    let transferencia = 0
+    let fiado = 0
     for (const c of cuadres) {
       efectivo += Number(c.totalRealCaja) || 0
       transferencia += Number(c.montoTransferencia) || 0

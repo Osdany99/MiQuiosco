@@ -38,7 +38,9 @@ export function useSync() {
       Network.addListener('networkStatusChange', (s) => {
         hayRed.value = s.connected
       })
-    } catch {}
+    } catch {
+      // eliminar error eslint
+    }
   }
 
   /**
@@ -59,19 +61,31 @@ export function useSync() {
 
   async function sincronizarAhora() {
     if (!auth.sesionLocalVigente()) {
-      toast.add({ title: 'Sesión expirada', description: 'Vuelve a iniciar sesión para sincronizar.', color: 'warning' })
+      toast.add({
+        title: 'Sesión expirada',
+        description: 'Vuelve a iniciar sesión para sincronizar.',
+        color: 'warning'
+      })
       await auth.invalidarSesionLocal()
       await navigateTo('/login')
       return false
     }
 
     if (!hayRed.value) {
-      toast.add({ title: 'Sin conexión', description: 'No hay red disponible para sincronizar.', color: 'error' })
+      toast.add({
+        title: 'Sin conexión',
+        description: 'No hay red disponible para sincronizar.',
+        color: 'error'
+      })
       return false
     }
 
     if (!auth.jwtSync.value) {
-      toast.add({ title: 'Reautenticación', description: 'Necesitas volver a iniciar sesión para sincronizar.', color: 'warning' })
+      toast.add({
+        title: 'Reautenticación',
+        description: 'Necesitas volver a iniciar sesión para sincronizar.',
+        color: 'warning'
+      })
       await auth.logout()
       await navigateTo('/login')
       return false
@@ -91,7 +105,10 @@ export function useSync() {
 
       const pullResult = await _ejecutarPull()
 
-      const totalRecibidos = TABLAS_SYNC.reduce((s, t) => s + (pullResult[t]?.length ?? 0), 0)
+      const totalRecibidos = TABLAS_SYNC.reduce(
+        (s, t) => s + (pullResult[t]?.length ?? 0),
+        0
+      )
       toast.add({
         title: 'Sincronización completada',
         description: `Subidos: ${pushResult.aceptados?.length ?? 0}, Recibidos: ${totalRecibidos}`,
@@ -101,12 +118,17 @@ export function useSync() {
     } catch (err) {
       toast.add({
         title: 'Error en sincronización',
-        description: err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido.',
+        description:
+          err.data?.statusMessage
+          || err.statusMessage
+          || err.message
+          || 'Error desconocido.',
         color: 'error'
       })
       return false
     } finally {
       sincronizando.value = false
+      // Recalculamos pendientes frescos tras el sync (los anteriores ya fueron enviados y marcados)
       await actualizarPendientesCount()
     }
   }
@@ -119,7 +141,11 @@ export function useSync() {
   async function pullServidor({ silent = false } = {}) {
     if (!auth.sesionLocalVigente()) {
       if (!silent) {
-        toast.add({ title: 'Sesión expirada', description: 'Vuelve a iniciar sesión para sincronizar.', color: 'warning' })
+        toast.add({
+          title: 'Sesión expirada',
+          description: 'Vuelve a iniciar sesión para sincronizar.',
+          color: 'warning'
+        })
       }
       return false
     }
@@ -137,7 +163,10 @@ export function useSync() {
       const pullResult = await _ejecutarPull()
 
       if (!silent) {
-        const totalRecibidos = TABLAS_SYNC.reduce((s, t) => s + (pullResult[t]?.length ?? 0), 0)
+        const totalRecibidos = TABLAS_SYNC.reduce(
+          (s, t) => s + (pullResult[t]?.length ?? 0),
+          0
+        )
         toast.add({
           title: 'Sincronización completada',
           description: `${totalRecibidos} registros recibidos.`,
@@ -149,7 +178,11 @@ export function useSync() {
       if (!silent) {
         toast.add({
           title: 'Error en sincronización',
-          description: err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido.',
+          description:
+            err.data?.statusMessage
+            || err.statusMessage
+            || err.message
+            || 'Error desconocido.',
           color: 'error'
         })
       }
@@ -183,7 +216,9 @@ export function useSync() {
         if (idsSet.has(reg.id)) {
           try {
             await repo.update(reg.id, { sincronizado: 1 })
-          } catch {}
+          } catch {
+            // eliminar error eslint
+          }
         }
       }
     }
@@ -197,7 +232,9 @@ export function useSync() {
       for (const reg of registros) {
         try {
           await repo.update(reg.id, { ...reg, sincronizado: 1 })
-        } catch {}
+        } catch {
+        // eliminar error eslint
+        }
       }
     }
   }
@@ -218,18 +255,29 @@ export function useSync() {
     }
   }
 
-  async function actualizarPendientesCount() {
-    const pendientes = await reunirPendientes()
-    pendientesCount.value = TABLAS_SYNC.reduce((s, t) => s + (pendientes[t]?.length ?? 0), 0)
+  async function actualizarPendientesCount(pendientesYaCalculados = null) {
+    const pendientes = pendientesYaCalculados ?? (await reunirPendientes())
+    pendientesCount.value = TABLAS_SYNC.reduce(
+      (s, t) => s + (pendientes[t]?.length ?? 0),
+      0
+    )
   }
 
   async function descargarCatalogo() {
     try {
       const data = await remoteApi.getProductosActivos()
       await guardarProductosCache(data)
-      toast.add({ title: 'Catálogo actualizado', description: `${data.length} productos descargados.`, color: 'success' })
+      toast.add({
+        title: 'Catálogo actualizado',
+        description: `${data.length} productos descargados.`,
+        color: 'success'
+      })
     } catch (err) {
-      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      toast.add({
+        title: 'Error',
+        description: err.data?.statusMessage || err.message,
+        color: 'error'
+      })
     }
   }
 

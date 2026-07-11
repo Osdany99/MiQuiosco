@@ -5,8 +5,9 @@ const mobileOpen = ref(false)
 
 const { hayRed, cargarEstado } = useSync()
 const conexion = useModoConexion()
+const config = useRuntimeConfig()
 
-const inactTimeout = Number(process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || 60)
+const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos)
 const ACTIVITY_THROTTLE_MS = Math.max(5000, (inactTimeout * 1000) / 2)
 let ultimoRegistroActividad = 0
 function onUserActivity() {

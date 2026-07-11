@@ -1,3 +1,5 @@
+/** Hacerlo un triger */
+
 export function useProductoRepo() {
   const repo = useLocalRepo('productos')
   const historialRepo = useLocalRepo('historial_precios')
@@ -10,7 +12,10 @@ export function useProductoRepo() {
   }
 
   async function create(datos) {
-    const producto = await repo.create(datos)
+    const producto = await repo.create({
+      ...datos,
+      puestoId: datos.puestoId ?? auth.usuarioActual.value?.puestoId
+    })
     await historialRepo.create({
       productoId: producto.id,
       precioCompra: datos.precioCompraActual ?? 0,

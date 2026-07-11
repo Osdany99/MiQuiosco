@@ -1,43 +1,3 @@
-const cuadre = ref(null)
-const lineas = ref([])
-const productosActivos = ref([])
-const cargando = ref(false)
-const showAgregarProducto = ref(false)
-const productoSeleccionado = ref('')
-const tipoLineaExtra = ref('normal')
-const expandida = ref(new Set())
-
-const totalRealCaja = ref(null)
-const montoTransferencia = ref(0)
-const montoFiado = ref(0)
-const montoCobradoFiado = ref(0)
-const trabajadorTurnoId = ref(null)
-const pagoTrabajador = ref(null)
-const notasCuadre = ref('')
-
-const hoy = new Date().toISOString().split('T')[0]
-
-const salarioBaseTrabajador = ref(600)
-
-const totalEsperado = computed(() =>
-  lineas.value.reduce((sum, l) => sum + l.subtotal, 0)
-)
-
-const salarioCalculado = computed(() =>
-  calcularSalario(salarioBaseTrabajador.value, totalEsperado.value)
-)
-
-const diferencia = computed(() => {
-  if (totalRealCaja.value === null) return null
-  return (totalRealCaja.value + montoTransferencia.value + montoCobradoFiado.value) - totalEsperado.value
-})
-
-const tipoDiferencia = computed(() => {
-  if (diferencia.value === null) return null
-  if (diferencia.value === 0) return 'exacto'
-  return diferencia.value > 0 ? 'sobrante' : 'faltante'
-})
-
 function normalizarCuadre(c) {
   if (!c) return c
   return {
@@ -85,12 +45,49 @@ export function useCuadre() {
   const toast = useToast()
 
   const cuadreRepo = useRepo('cuadres')
-
   const itemsRepo = useRepo('cuadre_items')
-
   const usuariosRepo = useRepo('usuarios')
 
+  const cuadre = useState('cuadre-cuadre', () => null)
+  const lineas = useState('cuadre-lineas', () => [])
+  const productosActivos = useState('cuadre-productos-activos', () => [])
+  const cargando = useState('cuadre-cargando', () => false)
+  const totalRealCaja = useState('cuadre-total-real-caja', () => null)
+  const montoTransferencia = useState('cuadre-monto-transferencia', () => 0)
+  const montoFiado = useState('cuadre-monto-fiado', () => 0)
+  const montoCobradoFiado = useState('cuadre-monto-cobrado-fiado', () => 0)
+  const trabajadorTurnoId = useState('cuadre-trabajador-turno-id', () => null)
+  const pagoTrabajador = useState('cuadre-pago-trabajador', () => null)
+  const notasCuadre = useState('cuadre-notas', () => '')
+  const salarioBaseTrabajador = useState('cuadre-salario-base', () => 600)
+
+  const showAgregarProducto = ref(false)
+  const productoSeleccionado = ref('')
+  const tipoLineaExtra = ref('normal')
+  const expandida = ref(new Set())
+
+  const hoy = new Date().toISOString().split('T')[0]
+
   const esTrabajador = computed(() => auth.esTrabajador.value)
+
+  const totalEsperado = computed(() =>
+    lineas.value.reduce((sum, l) => sum + l.subtotal, 0)
+  )
+
+  const salarioCalculado = computed(() =>
+    calcularSalario(salarioBaseTrabajador.value, totalEsperado.value)
+  )
+
+  const diferencia = computed(() => {
+    if (totalRealCaja.value === null) return null
+    return (totalRealCaja.value + montoTransferencia.value + montoCobradoFiado.value) - totalEsperado.value
+  })
+
+  const tipoDiferencia = computed(() => {
+    if (diferencia.value === null) return null
+    if (diferencia.value === 0) return 'exacto'
+    return diferencia.value > 0 ? 'sobrante' : 'faltante'
+  })
 
   const tituloCuadre = computed(() => {
     const d = new Date(hoy + 'T12:00:00')
@@ -116,12 +113,11 @@ export function useCuadre() {
 
       await conexion.cargar().catch(() => {})
       const modo = conexion.modo.value
-      const repo = modo === 'online' ? useRemoteRepo : useLocalRepo
-      const cuadreApi = repo('cuadres')
-      const itemsApi = repo('cuadre_items')
 
+      // Carga de productos: en online usamos el repo remoto; en local usamos
+      // getProductosActivos() que filtra directamente en SQLite por puestoId.
       if (modo === 'online') {
-        const allProds = await repo('productos').readAll()
+        const allProds = await useRemoteRepo('productos').readAll()
         productosActivos.value = allProds
           .filter(p => p.activo)
           .map(p => ({
@@ -140,13 +136,13 @@ export function useCuadre() {
         }))
       }
 
-      let c = await buscarCuadreActual(puestoId, cuadreApi)
+      let c = await buscarCuadreActual(puestoId, cuadreRepo)
       if (!c) {
-        c = await crearCuadreNuevo(puestoId, cuadreApi)
+        c = await crearCuadreNuevo(puestoId, cuadreRepo)
       }
 
       cuadre.value = c
-      await cargarLineasDeCuadre(c.id, itemsApi)
+      await cargarLineasDeCuadre(c.id, itemsRepo)
 
       if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
       if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
@@ -180,15 +176,6 @@ export function useCuadre() {
     } catch {
       salarioBaseTrabajador.value = 600
     }
-  }
-
-  async function actualizarPagoTrabajador() {
-    if (!trabajadorTurnoId.value) {
-      pagoTrabajador.value = null
-      return
-    }
-    await cargarSalarioTrabajador(trabajadorTurnoId.value)
-    pagoTrabajador.value = salarioCalculado.value
   }
 
   async function buscarCuadreActual(puestoId, repo) {

@@ -1,14 +1,15 @@
-import { asc } from 'drizzle-orm'
+import { eq, asc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
 
   const rows = await db
     .select()
     .from(cuadres)
+    .where(eq(cuadres.puestoId, auth.usuario.puestoId))
     .orderBy(asc(cuadres.fecha))
 
   return rows.map(c => ({
