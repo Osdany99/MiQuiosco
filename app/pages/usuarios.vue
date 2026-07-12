@@ -26,7 +26,7 @@ const columns = [
   { accessorKey: 'action', header: 'Acciones' }
 ]
 
-const { update: apiUpdate, loading: pinResetLoading } = useCrud('usuarios')
+const { update: apiUpdate, loading: pinResetLoading } = useRepoAction('usuarios', { toast: false })
 
 function abrirResetPin(user) {
   pinResetUser.value = user

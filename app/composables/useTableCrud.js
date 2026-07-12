@@ -1,6 +1,6 @@
 /**
  * useTableCrud - Composable para gestión de modales CRUD (crear/editar/eliminar) en tablas.
- * Maneja estado de modales, validación de formularios y llamadas a API vía useCrud.
+ * Maneja estado de modales, validación de formularios y llamadas a API vía useRepoAction.
  *
  * @param {Object} props - Props del componente padre (BaseTable).
  * @param {string} props.entidad - Nombre de la entidad (ej: 'productos').
@@ -35,7 +35,7 @@
  * // <ConfirmModal v-model="isDeleteOpen" @confirm="confirmDelete">...</ConfirmModal>
  */
 export function useTableCrud(props, emit, form, refresh) {
-  // ─── Estado de modales ────────────────────────────────────────
+  // --- Estado de modales ---
   const isOpen = ref(false)
   const isEditing = ref(false)
   const isDeleteOpen = ref(false)
@@ -46,7 +46,7 @@ export function useTableCrud(props, emit, form, refresh) {
     isEditing.value = false
   }
 
-  // ─── Handlers de tabla ────────────────────────────────────────
+  // --- Handlers de tabla ---
   const handleEdit = (row) => {
     form.value = JSON.parse(JSON.stringify(row))
     isEditing.value = true
@@ -59,13 +59,12 @@ export function useTableCrud(props, emit, form, refresh) {
     isDeleteOpen.value = true
   }
 
-  // ─── API Delete ───────────────────────────────────────────────
-  const { remove, loading: deleteLoading } = useCrud(props.entidad, {
-    onSuccess: () => {
-      isDeleteOpen.value = false
-      refresh()
-      emit('success', 'Eliminado correctamente')
-    }
+  // --- API Delete (toast silenciado, ya hay modal de confirmación) ---
+  const { remove, loading: deleteLoading } = useRepoAction(props.entidad, { toast: false })
+  remove.onSuccess(() => {
+    isDeleteOpen.value = false
+    refresh()
+    emit('success', 'Eliminado correctamente')
   })
 
   const confirmDelete = async () => {
@@ -74,18 +73,22 @@ export function useTableCrud(props, emit, form, refresh) {
     }
   }
 
-  // ─── API Create / Update ──────────────────────────────────────
+  // --- API Create / Update (toast silenciado, el componente padre emite su propio success) ---
   const successMessage = ref('Operación exitosa')
 
-  const { create, update, loading } = useCrud(props.entidad, {
-    onSuccess: () => {
-      handleCloseModal()
-      refresh()
-      emit('success', successMessage.value)
-    }
+  const { create, update, loading } = useRepoAction(props.entidad, { toast: false })
+  create.onSuccess(() => {
+    handleCloseModal()
+    refresh()
+    emit('success', successMessage.value)
+  })
+  update.onSuccess(() => {
+    handleCloseModal()
+    refresh()
+    emit('success', successMessage.value)
   })
 
-  // ─── Submit ───────────────────────────────────────────────────
+  // --- Submit ---
   const handleSubmit = async () => {
     if (props.formRef) {
       try {

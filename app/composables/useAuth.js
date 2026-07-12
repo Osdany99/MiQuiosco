@@ -1,7 +1,7 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
-import bcrypt from 'bcryptjs'
 import { $api, esErrorDeRed } from '../utils/api'
+import { login as loginOfflineApi } from '../api-offline/auth/login'
 
 /**
  * Dos contextos de autenticación, completamente aislados:
@@ -177,21 +177,14 @@ export function useAuth() {
   }
 
   async function loginOffline(nombreUsuario, pin) {
-    const { getUsuarioPorNombreLocal } = useLocalDb()
-    const usuario = await getUsuarioPorNombreLocal(nombreUsuario)
-
-    if (!usuario) {
+    const resultado = await loginOfflineApi(nombreUsuario, pin)
+    if (!resultado.ok) {
+      if (resultado.motivo === 'usuario_inactivo') {
+        throw new Error('Usuario no activo. Contacta al jefe.')
+      }
       throw new Error('Credenciales inválidas.')
     }
-
-    if (!usuario.activo) {
-      throw new Error('Usuario no activo. Contacta al jefe.')
-    }
-
-    const pinOk = await bcrypt.compare(pin, usuario.pinHash)
-    if (!pinOk) {
-      throw new Error('Credenciales inválidas.')
-    }
+    const usuario = resultado.usuario
 
     const ahora = Date.now()
     const sesion = {

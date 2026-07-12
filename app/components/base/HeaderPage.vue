@@ -1,8 +1,12 @@
 <template>
   <div class="space-y-6">
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <UIcon v-if="leadingIcon" :name="leadingIcon" class="size-6 text-muted-foreground shrink-0" />
+    <div class="flex flex-row flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3 flex-1 min-w-[200px]">
+        <UIcon
+          v-if="leadingIcon"
+          :name="leadingIcon"
+          class="size-6 text-muted-foreground shrink-0"
+        />
         <div>
           <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
             {{ title }}
@@ -12,7 +16,7 @@
           </p>
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <slot name="trailing" />
         <UButton
           v-if="showButton"
@@ -21,6 +25,7 @@
           size="lg"
           variant="solid"
           :label="titleButton"
+          :ui="{ label: 'hidden sm:inline' }"
           @click="$emit('new')"
         />
       </div>

@@ -1,50 +1,41 @@
 /**
- * useLocalRepo(tabla) — Capa de repositorio local sobre useLocalDb.
+ * useLocalRepo(tabla) — Capa de repositorio local sobre api-offline.
  *
- * Cada escritura genera id, timestamps y marca sincronizado = 0
+ * Si la tabla tiene un módulo dedicado en app/api-offline/<tabla>/, lo usa.
+ * Si no, cae a un wrapper CRUD genérico sobre useDb().
+ *
+ * Las escrituras generan id, timestamps y marca sincronizado = 0
  * para que el sync eventual los recoja.
- *
- * @param {string} tabla — nombre de la tabla (snake_case)
- * @returns {Object} { create, read, readAll, update, patch, remove }
  */
-export function useLocalRepo(tabla) {
-  const localDb = useLocalDb()
+import { getModulo } from '../api-offline'
+import { useDb } from '../db-offline/client'
 
+/**
+ * Construye un repositorio CRUD genérico para tablas sin módulo dedicado.
+ * @param {string} tabla
+ */
+function crearRepoGenerico(tabla) {
+  const db = useDb()
   const ahora = () => Date.now()
 
-  /**
-   * Crea un registro. Si datos ya trae id/timestamps/sincronizado
-   * los respeta; si no, los genera automáticamente.
-   */
   async function create(datos) {
-    const ahoraMs = ahora()
     const registro = {
       id: crypto.randomUUID(),
       ...datos,
-      creado_en: datos.creado_en ?? ahoraMs,
-      actualizado_en: datos.actualizado_en ?? ahoraMs,
+      creado_en: datos.creado_en ?? ahora(),
+      actualizado_en: datos.actualizado_en ?? ahora(),
       sincronizado: datos.sincronizado ?? 0
     }
-    await localDb.insert(tabla, registro)
+    await db.insert(tabla, registro)
     return registro
   }
 
-  /**
-   * Lee un registro por id.
-   * @param {string} id
-   * @returns {Promise<Object|null>}
-   */
   async function read(id) {
-    return localDb.getById(tabla, id)
+    return db.getById(tabla, id)
   }
 
-  /**
-   * Lee todos los registros, opcionalmente ordenados.
-   * @param {Object} opts — { orderBy, orderDir }
-   * @returns {Promise<Object[]>}
-   */
   async function readAll(opts) {
-    const rows = await localDb.queryAll(tabla)
+    const rows = await db.queryAll(tabla)
     if (opts?.orderBy) {
       const dir = opts.orderDir === 'desc' ? -1 : 1
       rows.sort((a, b) => {
@@ -58,33 +49,48 @@ export function useLocalRepo(tabla) {
     return rows
   }
 
-  /**
-   * Actualiza un registro (solo cambia los campos provistos).
-   * @param {string} id
-   * @param {Object} cambios — campos a modificar
-   */
   async function update(id, cambios) {
-    await localDb.update(tabla, id, {
+    await db.update(tabla, id, {
       ...cambios,
       sincronizado: 0,
       actualizado_en: ahora()
     })
   }
 
-  /**
-   * Alias de update. Misma firma.
-   */
-  async function patch(id, cambios) {
-    return update(id, cambios)
-  }
-
-  /**
-   * Elimina un registro.
-   * @param {string} id
-   */
   async function remove(id) {
-    await localDb.remove(tabla, id)
+    await db.remove(tabla, id)
   }
 
-  return { create, read, readAll, update, patch, remove }
+  return { create, read, readAll, update, patch: update, remove }
+}
+
+/**
+ * Construye un repositorio a partir del módulo de api-offline/<tabla>/.
+ * Pasa auth al create/update/patch/remove (que pueden requerirlo).
+ * @param {object} modulo
+ */
+function crearRepoDesdeModulo(modulo) {
+  const auth = useAuth()
+
+  async function call(fn, args) {
+    if (typeof fn !== 'function') {
+      throw new Error(`Operación no implementada en módulo offline: ${fn?.name ?? 'unknown'}`)
+    }
+    return fn(...args, auth)
+  }
+
+  return {
+    create: datos => call(modulo.create, [datos]),
+    read: id => call(modulo.get, [id]),
+    readAll: opts => call(modulo.list, [opts ?? {}]),
+    update: (id, cambios) => call(modulo.update, [id, cambios]),
+    patch: (id, cambios) => call(modulo.patch, [id, cambios]),
+    remove: id => call(modulo.remove, [id])
+  }
+}
+
+export function useLocalRepo(tabla) {
+  const modulo = getModulo(tabla)
+  if (modulo) return crearRepoDesdeModulo(modulo)
+  return crearRepoGenerico(tabla)
 }

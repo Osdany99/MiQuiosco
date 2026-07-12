@@ -1,3 +1,5 @@
+import { useDb } from '../db-offline/client'
+
 function normalizarCuadre(c) {
   if (!c) return c
   return {
@@ -23,7 +25,6 @@ function normalizarCuadre(c) {
     sincronizado: c.sincronizado ?? 0
   }
 }
-
 function normalizarLinea(i) {
   return {
     id: i.id,
@@ -40,7 +41,7 @@ function normalizarLinea(i) {
 
 export function useCuadre() {
   const auth = useAuth()
-  const localDb = useLocalDb()
+  const db = useDb()
   const conexion = useModoConexion()
   const toast = useToast()
 
@@ -127,7 +128,7 @@ export function useCuadre() {
             orden: Number(p.orden ?? 0)
           }))
       } else {
-        const prods = await localDb.getProductosActivos(puestoId)
+        const prods = await db.getProductosActivos(puestoId)
         productosActivos.value = prods.map(p => ({
           id: p.id,
           nombre: p.nombre,

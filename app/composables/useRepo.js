@@ -1,10 +1,6 @@
 export function useRepo(tabla) {
   const conexion = useModoConexion()
-  const localRepo = tabla === 'productos'
-    ? useProductoRepo()
-    : tabla === 'usuarios'
-      ? useUsuarioRepo()
-      : useLocalRepo(tabla)
+  const localRepo = useLocalRepo(tabla)
   let remoteRepo = null
   const repo = computed(() => {
     if (conexion.modo.value === 'online') {

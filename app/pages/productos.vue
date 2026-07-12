@@ -30,7 +30,7 @@ const columns = [
 const showHistorial = ref(false)
 const historialProducto = ref(null)
 
-const { patch, loading: reorderLoading } = useCrud('productos', {}, false)
+const { patch, loading: reorderLoading } = useRepoAction('productos', { toast: false })
 
 function esPrimero(p) {
   const rows = toValue(tableRef.value?.data) ?? []

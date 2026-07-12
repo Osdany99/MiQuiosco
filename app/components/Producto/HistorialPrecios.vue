@@ -40,7 +40,7 @@ const props = defineProps({
 })
 
 const isOpen = defineModel({ type: Boolean, default: false })
-const productoRepo = useProductoRepo()
+const productoRepo = useRepo('productos')
 
 const historial = ref([])
 const pending = ref(false)

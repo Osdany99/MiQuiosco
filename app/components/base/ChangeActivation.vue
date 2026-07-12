@@ -16,7 +16,7 @@ const { defaultValue, id, entidad, tableRef } = defineProps({
   id: { type: String, default: null }
 })
 
-const { update, loading } = useCrud(entidad)
+const { update, loading } = useRepoAction(entidad, { toast: false })
 
 async function toggleActivo() {
   await update(id, { activo: !defaultValue })

@@ -1,6 +1,7 @@
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
 import { ENTIDADES } from '~/config/entidades'
+import { push as pushOffline, pull as pullOffline } from '../api-offline/sync'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 const TABLAS_SYNC = Object.entries(ENTIDADES)
@@ -194,15 +195,7 @@ export function useSync() {
   }
 
   async function reunirPendientes() {
-    const result = {}
-    for (const t of TABLAS_SYNC) {
-      const repo = useLocalRepo(t)
-      const todos = await repo.readAll()
-      result[t] = todos
-        .filter(r => !r.sincronizado)
-        .map(({ sincronizado, ...rest }) => rest)
-    }
-    return result
+    return pushOffline({}, null)
   }
 
   async function marcarAceptados(aceptados, pendientes) {
@@ -240,19 +233,7 @@ export function useSync() {
   }
 
   async function aplicarPull(pullResult) {
-    for (const t of TABLAS_SYNC) {
-      const registros = pullResult[t]
-      if (!registros?.length) continue
-      const repo = repoDe(t)
-      for (const reg of registros) {
-        const existing = await repo.read(reg.id)
-        if (existing) {
-          await repo.update(reg.id, { ...reg, sincronizado: 1 })
-        } else {
-          await repo.create({ ...reg, sincronizado: 1 })
-        }
-      }
-    }
+    return pullOffline(pullResult, {}, null)
   }
 
   async function actualizarPendientesCount(pendientesYaCalculados = null) {
