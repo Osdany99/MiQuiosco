@@ -1,22 +1,22 @@
 import { refDebounced } from '@vueuse/core'
-import { ENTIDADES } from '~/config/entidades'
 
 /**
  * useTableData - Gestión de datos de tabla.
  *
+ * Acepta un objeto entity (de shared/entities) en props.entidad.
  * Resuelve la fuente según el modo de conexión:
  * - 'local'  → useLocalRepo (SQLite, búsqueda/filtros/paginación cliente)
  * - 'online' → useRemoteRepo (REST API, búsqueda/filtros/paginación cliente)
  *
  * @param {Object} props
- * @param {string} props.entidad — Nombre de la entidad (ej: 'productos')
+ * @param {Object} [props.entidad] — entity de shared/entities (preferido)
  * @param {number} [props.defaultLimit=20]
  * @param {Object} [props.query={}] — filtros { campo: valor }
  * @param {boolean} [props.pagination=true]
  * @param {Ref|ComputedRef} [props.search] — búsqueda reactiva (debounced 500ms)
  */
 export function useTableData(props) {
-  if (!props.entidad || !ENTIDADES[props.entidad]) {
+  if (!props.entidad) {
     return {
       page: ref(1),
       pageCount: ref(props.defaultLimit),

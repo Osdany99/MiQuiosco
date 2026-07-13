@@ -1,23 +1,8 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const reemplazarCuadreSchema = z.object({
-  totalEsperado: z.number().min(0),
-  totalRealCaja: z.number().min(0).nullable(),
-  montoTransferencia: z.number().min(0),
-  montoFiado: z.number().min(0),
-  diferencia: z.number().nullable(),
-  estado: z.enum(['abierto', 'cerrado']),
-  notas: z.string().nullable().optional(),
-  cerradoEn: z.number().nullable().optional(),
-  reabiertoVeces: z.number().int(),
-  ultimaReaperturaEn: z.number().nullable().optional(),
-  trabajadorTurnoId: z.string().nullable().optional(),
-  pagoTrabajador: z.number().min(0).nullable().optional()
-})
+import { replaceCuadreSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
@@ -28,7 +13,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = reemplazarCuadreSchema.safeParse(body)
+  const parsed = replaceCuadreSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

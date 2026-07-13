@@ -1,13 +1,11 @@
-import { z } from 'zod'
 import { db } from '../../database/client'
 import { cuentasFiadoItems } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { createCuentaFiadoItemSchema } from '../../../shared/schemas'
+import { z } from 'zod'
 
-const crearItemSchema = z.object({
-  cuentaFiadoId: z.string(),
-  productoId: z.string(),
-  cantidad: z.number().min(0),
-  precioVentaUsado: z.number().min(0),
+const itemConCuentaSchema = createCuentaFiadoItemSchema.extend({
+  cuentaFiadoId: z.string().min(1, 'ID requerido'),
   subtotal: z.number().min(0)
 })
 
@@ -15,7 +13,7 @@ export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
 
   const body = await readBody(event)
-  const parsed = crearItemSchema.safeParse(body)
+  const parsed = itemConCuentaSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

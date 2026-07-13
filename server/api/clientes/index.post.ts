@@ -1,18 +1,12 @@
-import { z } from 'zod'
 import { db } from '../../database/client'
 import { clientes } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const crearClienteSchema = z.object({
-  nombre: z.string().min(1).max(200),
-  telefono: z.string().nullable().optional(),
-  notas: z.string().nullable().optional()
-})
+import { createClienteSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
   const body = await readBody(event)
-  const parsed = crearClienteSchema.safeParse(body)
+  const parsed = createClienteSchema.safeParse(body)
   if (!parsed.success) {
     throw createError({ statusCode: 400, statusMessage: 'Datos inválidos.', data: parsed.error.flatten() })
   }

@@ -1,14 +1,8 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { clientes } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const editarClienteSchema = z.object({
-  nombre: z.string().min(1).max(200),
-  telefono: z.string().nullable().optional(),
-  notas: z.string().nullable().optional()
-})
+import { updateClienteSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
@@ -19,7 +13,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = editarClienteSchema.safeParse(body)
+  const parsed = updateClienteSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

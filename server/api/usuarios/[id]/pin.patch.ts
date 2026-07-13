@@ -1,12 +1,8 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../../database/client'
 import { usuarios } from '../../../database/schema'
 import { requireRole, hashPin } from '../../../utils/auth'
-
-const resetPinSchema = z.object({
-  pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos numéricos.')
-})
+import { resetPinSchema } from '../../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')

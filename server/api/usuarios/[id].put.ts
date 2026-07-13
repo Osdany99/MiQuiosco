@@ -1,16 +1,8 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { usuarios } from '../../database/schema'
 import { requireRole, hashPin } from '../../utils/auth'
-
-const editarUsuarioSchema = z.object({
-  nombre: z.string().min(1).max(100).optional(),
-  rol: z.enum(['jefe', 'trabajador']).optional(),
-  pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos numéricos.').optional(),
-  activo: z.boolean().optional(),
-  salario: z.coerce.number().min(0).optional()
-})
+import { updateUsuarioSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
@@ -21,7 +13,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = editarUsuarioSchema.safeParse(body)
+  const parsed = updateUsuarioSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

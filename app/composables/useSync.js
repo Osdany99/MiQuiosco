@@ -1,12 +1,12 @@
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
-import { ENTIDADES } from '~/config/entidades'
-import { push as pushOffline, pull as pullOffline } from '../api-offline/sync'
+import { ALL_ENTITIES } from '~~/shared/entities'
+import { push as pushOffline, pull as pullOffline } from '../server-offline/api/sync'
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
-const TABLAS_SYNC = Object.entries(ENTIDADES)
-  .filter(([, def]) => def.sync)
-  .map(([tabla]) => tabla)
+const TABLAS_SYNC = ALL_ENTITIES
+  .filter(e => e.sync)
+  .map(e => e.tabla)
 
 export function useSync() {
   const auth = useAuth()
@@ -19,7 +19,8 @@ export function useSync() {
   const hayRed = ref(true)
 
   function repoDe(tabla) {
-    return useLocalRepo(tabla)
+    const entity = ALL_ENTITIES.find(e => e.tabla === tabla)
+    return useLocalRepo(entity)
   }
 
   async function cargarEstado() {
@@ -263,7 +264,8 @@ export function useSync() {
   }
 
   async function guardarProductosCache(productos) {
-    const repo = useLocalRepo('productos')
+    const { producto } = await import('~~/shared/entities')
+    const repo = useLocalRepo(producto)
     const existentes = await repo.readAll()
 
     for (const prod of productos) {

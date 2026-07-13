@@ -1,36 +1,16 @@
 <script setup>
+import { producto } from '~~/shared/entities'
+
 definePageMeta({
   middleware: ['jefe']
 })
 
-const tableRef = ref(null)
-const productoFormRef = ref(null)
-
-const form = ref({
-  id: null,
-  nombre: '',
-  descripcion: '',
-  precioCompraActual: 0,
-  precioVentaActual: 0,
-  orden: 0,
-  activo: true
-})
-
-const columns = [
-  { accessorKey: 'id', header: 'ID', visible: false },
-  { accessorKey: 'orden', header: 'Orden' },
-  { accessorKey: 'nombre', header: 'Producto' },
-  { accessorKey: 'descripcion', header: 'Descripción' },
-  { accessorKey: 'precioCompraActual', header: 'Precio Compra' },
-  { accessorKey: 'precioVentaActual', header: 'Precio Venta' },
-  { accessorKey: 'activo', header: 'Estado' },
-  { accessorKey: 'action', header: 'Acciones' }
-]
+const { entity, columns, form, submitFields, tableRef, formRef, modalTitle } = useEntityTable(producto)
 
 const showHistorial = ref(false)
 const historialProducto = ref(null)
 
-const { patch, loading: reorderLoading } = useRepoAction('productos', { toast: false })
+const { patch, loading: reorderLoading } = useRepoAction(producto, { toast: false })
 
 function esPrimero(p) {
   const rows = toValue(tableRef.value?.data) ?? []
@@ -90,16 +70,16 @@ async function moverAbajo(p) {
     <BaseTable
       ref="tableRef"
       v-model="form"
-      entidad="productos"
+      :entidad="entity"
       :columns="columns"
       empty-state="No se encontraron productos"
-      modal-title="Producto"
-      :form-ref="productoFormRef"
-      :submit-fields="['nombre', 'descripcion', 'precioCompraActual', 'precioVentaActual', 'orden', 'activo']"
+      :modal-title="modalTitle"
+      :form-ref="formRef"
+      :submit-fields="submitFields"
       :pagination="false"
     >
       <template #form>
-        <ProductoForm ref="productoFormRef" v-model="form" />
+        <BaseEntityForm ref="formRef" :entity="entity" v-model="form" />
       </template>
 
       <template #orden-cell="{ row }">
@@ -120,23 +100,6 @@ async function moverAbajo(p) {
             @click="moverAbajo(row.original)"
           />
         </div>
-      </template>
-
-      <template #precioCompraActual-cell="{ row }">
-        {{ fmtPrecio(row.original.precioCompraActual) }}
-      </template>
-
-      <template #precioVentaActual-cell="{ row }">
-        {{ fmtPrecio(row.original.precioVentaActual) }}
-      </template>
-
-      <template #activo-cell="{ row }">
-        <BaseChangeActivation
-          :id="row.original.id"
-          :default-value="row.original.activo"
-          entidad="productos"
-          :table-ref="tableRef"
-        />
       </template>
 
       <template #row-actions-extra="{ rowData }">

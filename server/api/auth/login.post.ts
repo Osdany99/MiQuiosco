@@ -1,14 +1,9 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { usuarios } from '../../database/schema'
 import { verifyPin, signToken } from '../../utils/auth'
+import { loginSchema } from '../../../shared/schemas'
 import type { LoginResponse, Rol } from '../../../shared/types'
-
-const loginSchema = z.object({
-  nombre_usuario: z.string().min(1).max(50),
-  pin: z.string().regex(/^\d{4,6}$/, 'El PIN debe tener 4-6 dígitos numéricos.')
-})
 
 /**
  * POST /api/auth/login

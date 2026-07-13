@@ -35,14 +35,17 @@
 </template>
 
 <script setup>
+import { producto as productoEntity } from '~~/shared/entities'
+
 const props = defineProps({
   producto: { type: Object, default: null }
 })
 
 const isOpen = defineModel({ type: Boolean, default: false })
-const productoRepo = useRepo('productos')
+const productoRepo = useRepo(productoEntity)
 
 const historial = ref([])
+
 const pending = ref(false)
 
 watch(isOpen, async (open) => {

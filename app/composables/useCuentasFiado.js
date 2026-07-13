@@ -1,9 +1,17 @@
+import { cliente, cuentaFiado, cuentaFiadoItem, pagoFiado } from '~~/shared/entities'
+
+/**
+ * useCuentasFiado - Composable de dominio para gestión de cuentas de fiado.
+ *
+ * Compone repos de varias entities (cliente, cuentaFiado, cuentaFiadoItem, pagoFiado)
+ * con lógica de negocio (cobro de deuda, registro de nueva deuda).
+ */
 export function useCuentasFiado() {
   const toast = useToast()
-  const clientesRepo = useRepo('clientes')
-  const cuentasRepo = useRepo('cuentas_fiado')
-  const itemsRepo = useRepo('cuentas_fiado_items')
-  const pagosRepo = useRepo('pagos_fiado')
+  const clientesRepo = useRepo(cliente)
+  const cuentasRepo = useRepo(cuentaFiado)
+  const itemsRepo = useRepo(cuentaFiadoItem)
+  const pagosRepo = useRepo(pagoFiado)
 
   const clientes = ref([])
   const cuentasDelCuadre = ref([])

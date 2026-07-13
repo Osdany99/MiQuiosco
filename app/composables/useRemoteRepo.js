@@ -1,33 +1,31 @@
 import { $api } from '../utils/api'
-import { ENTIDADES } from '~/config/entidades'
 
 /**
- * useRemoteRepo(tabla) — Repositorio contra REST API.
+ * useRemoteRepo(entity) — Repositorio contra REST API.
  *
- * Mismo contrato que useLocalRepo:
+ * Deriva los endpoints desde la entity. Mismo contrato que useLocalRepo:
  *   { create, read, readAll, update, remove, patch }
  *
  * Normaliza timestamps ISO a epoch para mantener compatibilidad
- * con consumidores (useCrud, useTableData).
+ * con consumidores (useTableData).
+ *
+ * @param {Object} entity — entity de shared/entities
  */
-
 function isoToEpoch(v) {
   if (v == null) return null
   const n = typeof v === 'number' ? v : Date.parse(v)
   return Number.isNaN(n) ? null : n
 }
 
-export function useRemoteRepo(tabla) {
-  const { getHeaders } = useHeaders()
-
-  const entidad = ENTIDADES[tabla]
-  const baseUrl = entidad?.endpoint
-  if (!baseUrl) {
-    throw new Error(`useRemoteRepo: tabla "${tabla}" no tiene endpoint mapeado`)
+export function useRemoteRepo(entity) {
+  if (!entity?.endpoints) {
+    throw new Error(`useRemoteRepo: entity inválida (sin endpoints)`)
   }
+  const { getHeaders } = useHeaders()
+  const base = entity.endpoints
 
   async function crear(payload) {
-    const data = await $api(baseUrl.list, {
+    const data = await $api(base.list, {
       method: 'POST',
       body: payload,
       headers: getHeaders()
@@ -36,21 +34,17 @@ export function useRemoteRepo(tabla) {
   }
 
   async function leer(id) {
-    const data = await $api(baseUrl.byId(id), {
-      headers: getHeaders()
-    })
+    const data = await $api(base.byId(id), { headers: getHeaders() })
     return normalizar(data)
   }
 
   async function leerTodos() {
-    const list = await $api(baseUrl.list, {
-      headers: getHeaders()
-    })
+    const list = await $api(base.list, { headers: getHeaders() })
     return (list ?? []).map(normalizar)
   }
 
   async function actualizar(id, cambios) {
-    const data = await $api(baseUrl.byId(id), {
+    const data = await $api(base.byId(id), {
       method: 'PUT',
       body: cambios,
       headers: getHeaders()
@@ -59,14 +53,11 @@ export function useRemoteRepo(tabla) {
   }
 
   async function eliminar(id) {
-    await $api(baseUrl.byId(id), {
-      method: 'DELETE',
-      headers: getHeaders()
-    })
+    await $api(base.byId(id), { method: 'DELETE', headers: getHeaders() })
   }
 
   async function parchear(id, cambios) {
-    const data = await $api(baseUrl.byId(id), {
+    const data = await $api(base.byId(id), {
       method: 'PATCH',
       body: cambios,
       headers: getHeaders()

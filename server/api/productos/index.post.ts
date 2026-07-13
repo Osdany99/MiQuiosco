@@ -1,16 +1,7 @@
-import { z } from 'zod'
 import { db } from '../../database/client'
 import { productos, historialPrecios } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
-
-const crearProductoSchema = z.object({
-  nombre: z.string().min(1).max(100),
-  descripcion: z.string().nullable().optional(),
-  precioCompraActual: z.number().min(0),
-  precioVentaActual: z.number().min(0),
-  orden: z.number().int().min(0).optional(),
-  activo: z.boolean().optional()
-})
+import { createProductoSchema } from '../../../shared/schemas'
 
 /**
  * POST /api/productos
@@ -24,7 +15,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = crearProductoSchema.safeParse(body)
+  const parsed = createProductoSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

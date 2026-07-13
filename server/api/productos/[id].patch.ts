@@ -1,17 +1,8 @@
-import { z } from 'zod'
 import { eq, and, isNull } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { productos, historialPrecios } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
-
-const editarProductoSchema = z.object({
-  nombre: z.string().min(1).max(100).optional(),
-  descripcion: z.string().nullable().optional(),
-  precioCompraActual: z.number().min(0).optional(),
-  precioVentaActual: z.number().min(0).optional(),
-  orden: z.number().int().min(0).optional(),
-  activo: z.boolean().optional()
-})
+import { updateProductoSchema } from '../../../shared/schemas'
 
 /**
  * PATCH /api/productos/:id
@@ -31,7 +22,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = editarProductoSchema.safeParse(body)
+  const parsed = updateProductoSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

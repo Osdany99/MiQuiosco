@@ -1,20 +1,13 @@
-import { z } from 'zod'
 import { db } from '../../database/client'
 import { cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const crearCuadreSchema = z.object({
-  fecha: z.string(),
-  estado: z.enum(['abierto', 'cerrado']).optional(),
-  totalEsperado: z.number().min(0).optional(),
-  notas: z.string().nullable().optional()
-})
+import { createCuadreSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
 
   const body = await readBody(event)
-  const parsed = crearCuadreSchema.safeParse(body)
+  const parsed = createCuadreSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

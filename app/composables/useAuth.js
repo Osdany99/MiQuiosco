@@ -1,7 +1,7 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import { $api, esErrorDeRed } from '../utils/api'
-import { login as loginOfflineApi } from '../api-offline/auth/login'
+import { login as loginOfflineApi } from '../server-offline/api/auth/login'
 
 /**
  * Dos contextos de autenticación, completamente aislados:

@@ -1,19 +1,15 @@
 /**
- * useRepoAction(tabla, opts) — Wrapper sobre useRepo con loading/error/toast/onSuccess.
+ * useRepoAction(entity, opts) — Wrapper sobre useRepo con loading/error/toast/onSuccess.
  *
- * Capa opcional para componentes/páginas que quieren el comportamiento
- * "tipo useCrud": un solo loading compartido, toast automático, callback de éxito.
+ * Acepta entity (de shared/entities) en lugar de un string de tabla.
  *
- * Para consumidores que ya gestionan su propio estado (useCuadre, useCuentasFiado,
- * o cualquier composable de dominio), usar `useRepo(tabla)` directo en su lugar.
- *
- * @param {string} tabla
+ * @param {Object} entity - Entity de shared/entities
  * @param {Object} [opts]
- * @param {boolean} [opts.toast=true] — mostrar toast de éxito/error
+ * @param {boolean} [opts.toast=true] - mostrar toast de éxito/error
  * @returns {Object} { loading, error, onSuccess, create, read, readAll, update, patch, remove }
  */
-export function useRepoAction(tabla, { toast = true } = {}) {
-  const repo = useRepo(tabla)
+export function useRepoAction(entity, { toast = true } = {}) {
+  const repo = useRepo(entity)
   const loading = ref(false)
   const error = ref(null)
   const callbacksExito = new Set()

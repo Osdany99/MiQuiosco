@@ -1,17 +1,8 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuadreItems } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const editarItemSchema = z.object({
-  precioVentaUsado: z.number().min(0).optional(),
-  cantidad: z.number().min(0).optional(),
-  subtotal: z.number().min(0).optional(),
-  tipoLinea: z.enum(['normal', 'descuento']).optional(),
-  nota: z.string().nullable().optional(),
-  esExtra: z.boolean().optional()
-})
+import { updateCuadreItemSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
@@ -22,7 +13,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event)
-  const parsed = editarItemSchema.safeParse(body)
+  const parsed = updateCuadreItemSchema.safeParse(body)
 
   if (!parsed.success) {
     throw createError({

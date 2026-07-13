@@ -1,4 +1,5 @@
-import { useDb } from '../db-offline/client'
+import { cuadre as cuadreEntity, cuadreItem, producto as productoEntity, usuario as usuarioEntity } from '~~/shared/entities'
+import { useDb } from '../server-offline/db/client'
 
 function normalizarCuadre(c) {
   if (!c) return c
@@ -45,9 +46,9 @@ export function useCuadre() {
   const conexion = useModoConexion()
   const toast = useToast()
 
-  const cuadreRepo = useRepo('cuadres')
-  const itemsRepo = useRepo('cuadre_items')
-  const usuariosRepo = useRepo('usuarios')
+  const cuadreRepo = useRepo(cuadreEntity)
+  const itemsRepo = useRepo(cuadreItem)
+  const usuariosRepo = useRepo(usuarioEntity)
 
   const cuadre = useState('cuadre-cuadre', () => null)
   const lineas = useState('cuadre-lineas', () => [])
@@ -118,7 +119,7 @@ export function useCuadre() {
       // Carga de productos: en online usamos el repo remoto; en local usamos
       // getProductosActivos() que filtra directamente en SQLite por puestoId.
       if (modo === 'online') {
-        const allProds = await useRemoteRepo('productos').readAll()
+        const allProds = await useRemoteRepo(productoEntity).readAll()
         productosActivos.value = allProds
           .filter(p => p.activo)
           .map(p => ({

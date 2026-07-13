@@ -1,27 +1,13 @@
-import { z } from 'zod'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, cuentasFiadoItems, pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const crearCuentaFiadoItemSchema = z.object({
-  productoId: z.string(),
-  cantidad: z.number().min(0),
-  precioVentaUsado: z.number().min(0)
-})
-
-const crearCuentaFiadoSchema = z.object({
-  clienteId: z.string(),
-  cuadreOrigenId: z.string(),
-  items: z.array(crearCuentaFiadoItemSchema).min(1),
-  montoPagadoInicial: z.number().min(0).optional(),
-  formaPagoInicial: z.enum(['efectivo', 'transferencia']).optional()
-})
+import { createCuentaFiadoSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
   const body = await readBody(event)
-  const parsed = crearCuentaFiadoSchema.safeParse(body)
+  const parsed = createCuentaFiadoSchema.safeParse(body)
   if (!parsed.success) {
     throw createError({ statusCode: 400, statusMessage: 'Datos inválidos.', data: parsed.error.flatten() })
   }

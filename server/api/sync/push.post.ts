@@ -1,4 +1,3 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import {
@@ -12,18 +11,8 @@ import {
   pagosFiado
 } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
+import { pushSyncSchema } from '../../../shared/schemas'
 import type { PushResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '../../../shared/types'
-
-const pushSchema = z.object({
-  productos: z.array(z.any()).default([]),
-  historial_precios: z.array(z.any()).default([]),
-  cuadres: z.array(z.any()).default([]),
-  cuadre_items: z.array(z.any()).default([]),
-  clientes: z.array(z.any()).default([]),
-  cuentas_fiado: z.array(z.any()).default([]),
-  cuentas_fiado_items: z.array(z.any()).default([]),
-  pagos_fiado: z.array(z.any()).default([])
-})
 
 /**
  * POST /api/sync/push
@@ -41,7 +30,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   const auth = await requireAuth(event, 'sync')
 
   const body = await readBody(event)
-  const parsed = pushSchema.safeParse(body)
+  const parsed = pushSyncSchema.safeParse(body)
   if (!parsed.success) {
     throw createError({
       statusCode: 400,

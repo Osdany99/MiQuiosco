@@ -87,6 +87,27 @@
             </TableActions>
           </slot>
         </template>
+
+        <template
+          v-for="col in autoCellColumns"
+          :key="col.accessorKey"
+          #[`${col.accessorKey}-cell`]="{ row }"
+        >
+          <template v-if="col.cell === 'currency'">
+            {{ fmtPrecio(row.original[col.accessorKey]) }}
+          </template>
+          <BaseChangeActivation
+            v-else-if="col.cell === 'activation'"
+            :id="row.original.id"
+            :default-value="row.original[col.accessorKey]"
+            :entidad="entidad"
+            :table-ref="selfTableRef"
+          />
+          <BaseBadgeTrueOrFalse
+            v-else-if="col.cell === 'boolean'"
+            :value="row.original[col.accessorKey]"
+          />
+        </template>
       </UTable>
 
       <slot name="extra" />
@@ -128,7 +149,7 @@
 
 <script setup>
 const props = defineProps({
-  entidad: { type: String, default: '' },
+  entidad: { type: Object, default: null },
   data: { type: Array, default: null },
   dataKey: { type: String, default: '' },
   columns: { type: Array, required: true },
@@ -149,6 +170,23 @@ const props = defineProps({
 
 const emit = defineEmits(['edit', 'delete', 'success', 'reload'])
 const form = defineModel({ type: Object })
+
+const slots = useSlots()
+
+/**
+ * Columnas con cell renderer declarativo (cell: 'currency' | 'activation' | 'boolean').
+ * Se auto-renderizan en el template salvo que la page provea un slot #<key>-cell propio,
+ * permitiendo override manual sin perder el default.
+ */
+const AUTO_CELL_TYPES = ['currency', 'activation', 'boolean']
+const autoCellColumns = computed(() =>
+  props.columns.filter(c =>
+    AUTO_CELL_TYPES.includes(c.cell) && !slots[`${c.accessorKey}-cell`]
+  )
+)
+
+/** Objeto pasado a BaseChangeActivation para refrescar la tabla tras un toggle. */
+const selfTableRef = { refresh: () => refresh() }
 
 const initialForm = ref(null)
 

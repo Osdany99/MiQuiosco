@@ -1,20 +1,13 @@
-import { z } from 'zod'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const crearPagoSchema = z.object({
-  cuentaFiadoId: z.string(),
-  cuadreId: z.string(),
-  monto: z.number().min(0),
-  formaPago: z.enum(['efectivo', 'transferencia'])
-})
+import { createPagoFiadoSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
   const body = await readBody(event)
-  const parsed = crearPagoSchema.safeParse(body)
+  const parsed = createPagoFiadoSchema.safeParse(body)
   if (!parsed.success) {
     throw createError({ statusCode: 400, statusMessage: 'Datos inválidos.', data: parsed.error.flatten() })
   }

@@ -1,27 +1,11 @@
 <script setup>
+import { cliente } from '~~/shared/entities'
+
 definePageMeta({
   middleware: ['jefe']
 })
 
-const tableRef = ref(null)
-const clienteFormRef = ref(null)
-
-const form = ref({
-  id: null,
-  nombre: '',
-  telefono: '',
-  notas: '',
-  activo: true
-})
-
-const columns = [
-  { accessorKey: 'id', header: 'ID', visible: false },
-  { accessorKey: 'nombre', header: 'Nombre' },
-  { accessorKey: 'telefono', header: 'Teléfono' },
-  { accessorKey: 'notas', header: 'Notas' },
-  { accessorKey: 'activo', header: 'Estado' },
-  { accessorKey: 'action', header: 'Acciones' }
-]
+const { entity, columns, form, submitFields, tableRef, formRef, modalTitle } = useEntityTable(cliente)
 </script>
 
 <template>
@@ -34,24 +18,15 @@ const columns = [
     <BaseTable
       ref="tableRef"
       v-model="form"
-      entidad="clientes"
+      :entidad="entity"
       :columns="columns"
       empty-state="No se encontraron clientes"
-      modal-title="Cliente"
-      :form-ref="clienteFormRef"
-      :submit-fields="['nombre', 'telefono', 'notas', 'activo']"
+      :modal-title="modalTitle"
+      :form-ref="formRef"
+      :submit-fields="submitFields"
     >
       <template #form>
-        <ClienteForm ref="clienteFormRef" v-model="form" />
-      </template>
-
-      <template #activo-cell="{ row }">
-        <BaseChangeActivation
-          :id="row.original.id"
-          :default-value="row.original.activo"
-          entidad="clientes"
-          :table-ref="tableRef"
-        />
+        <BaseEntityForm ref="formRef" :entity="entity" v-model="form" />
       </template>
     </BaseTable>
   </BaseHeaderPage>

@@ -1,12 +1,8 @@
-import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { usuarios } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-
-const toggleActivoSchema = z.object({
-  activo: z.boolean()
-})
+import { toggleActivoSchema } from '../../../shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')

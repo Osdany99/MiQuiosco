@@ -5,10 +5,6 @@ export default defineNuxtConfig({
     '@nuxt/ui',
     '@vueuse/nuxt'
   ],
-
-  // SPA mode: requerido para empaquetar como app estática en Capacitor.
-  // El WebView de Android apunta a la build estática del cliente; las llamadas
-  // a la API van al servidor Nitro remoto (la laptop) o a SQLite local.
   ssr: false,
 
   devtools: {

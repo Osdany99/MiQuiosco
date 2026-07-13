@@ -21,8 +21,6 @@ export async function getApiBaseUrl() {
   if (cachedBase !== undefined) return cachedBase
 
   if (Capacitor.isNativePlatform()) {
-    // App empaquetada (Android/iOS): no hay "origen actual" al que pegarle,
-    // así que sí necesitamos una URL absoluta (IP de la laptop en la LAN).
     try {
       const stored = await Preferences.get({ key: PREF_API_BASE })
       if (stored.value) {
@@ -35,12 +33,6 @@ export async function getApiBaseUrl() {
     cachedBase = config.public.syncServerUrl || null
     return cachedBase
   }
-
-  // Web (navegador, dev o build web): el mismo Nitro sirve frontend + API,
-  // así que usamos rutas relativas y dejamos que $fetch pegue al origen
-  // actual (localhost:3000 en tu laptop, o la IP si accedes desde otro
-  // dispositivo por la red). Ignoramos NUXT_PUBLIC_SYNC_SERVER_URL aquí:
-  // esa variable es solo para el build nativo.
   cachedBase = null
   return cachedBase
 }
