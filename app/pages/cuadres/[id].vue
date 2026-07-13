@@ -1,4 +1,8 @@
 <script setup>
+import { cuadre as cuadreEntity } from '~~/shared/entities/cuadre.js'
+import { cuadreItem } from '~~/shared/entities/cuadreItem.js'
+import { producto } from '~~/shared/entities/producto.js'
+
 definePageMeta({
   middleware: ['jefe']
 })
@@ -12,9 +16,9 @@ const productos = ref([])
 const cargando = ref(true)
 const error = ref(null)
 
-const repoCuadres = useRepo('cuadres')
-const repoItems = useRepo('cuadre_items')
-const repoProductos = useRepo('productos')
+const repoCuadres = useRepo(cuadreEntity)
+const repoItems = useRepo(cuadreItem)
+const repoProductos = useRepo(producto)
 
 async function cargarDatos() {
   cargando.value = true

@@ -101,23 +101,3 @@ for (const entity of ALL_ENTITIES) {
 export function getModulo(tabla) {
   return MODULOS_POR_TABLA[tabla] ?? null
 }
-
-/**
- * Crea un objeto repo con la forma estándar { create, read, readAll, update, patch, remove }
- * mapeando a las funciones del módulo (get, list, create, update, patch, remove).
- * Útil para que useRepo(tabla) devuelva un shape uniforme.
- * @param {string} tabla
- * @returns {object|null}
- */
-export function crearRepo(tabla) {
-  const m = getModulo(tabla)
-  if (!m) return null
-  return {
-    create: m.create,
-    read: m.get,
-    readAll: m.list,
-    update: m.update,
-    patch: m.patch,
-    remove: m.remove
-  }
-}

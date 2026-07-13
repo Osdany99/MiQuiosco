@@ -1,10 +1,12 @@
 <script setup>
+import { producto } from '~~/shared/entities/producto.js'
+
 definePageMeta({
   middleware: ['jefe']
 })
 
 const graficasLocales = useGraficasLocales()
-const productoRepo = useLocalRepo('productos')
+const productoRepo = useLocalRepo(producto)
 
 const graficas = [
   { key: 'productos-mas-vendidos', titulo: 'Productos más vendidos', descripcion: 'Top 10 por cantidad total vendida', icon: 'i-lucide-trending-up' },

@@ -25,7 +25,7 @@ import { db, schema } from '../database/client'
 import { createEntityHandlers } from '../utils/entityHandlers.js'
 import { OVERRIDES_ONLINE_POR_KEY } from '../utils/onlineOverrides.js'
 
-/** Handler h3 simple: (event) => any */
+/** Handler h3 simple: (event) => unknown */
 type RouteHandler = (event: H3Event) => Promise<unknown> | unknown
 
 /** Entity shape mínimo que necesitamos de la entity de shared/entities. */
@@ -33,18 +33,41 @@ interface EntityLike {
   key: string
   tabla: string
   customMutations?: unknown
-  customActions?: Record<string, { path?: string | ((id: string) => string); method?: string } | undefined>
+  customActions?: Record<string, { path?: string | ((id: string) => string), method?: string } | undefined>
 }
 
-/** Overrides shape (subset) */
+/** Context de auth que devuelven requireAuth/requireRole del server. */
+interface AuthContext {
+  usuario: { id: string, nombre: string, rol: 'jefe' | 'trabajador', puestoId: string }
+  scope: ('sync')[]
+}
+
+/** Overrides shape (subset) — todo tipado sin `any`. */
+interface ListFilterCtx {
+  query: Record<string, unknown>
+  auth: AuthContext
+  table: unknown
+  schema: unknown
+}
+
+interface CustomActionArgs {
+  event: H3Event
+  id: string | undefined
+  body: unknown
+  auth: AuthContext
+  entity: EntityLike
+  db: typeof db
+  schema: typeof schema
+}
+
 interface OnlineOverride {
   requireRole?: string | string[]
   omit?: string[]
-  beforeCreate?: (payload: any, auth: any, event: H3Event) => Promise<any> | any
-  beforeUpdate?: (cambios: any, auth: any, event: H3Event) => Promise<any> | any
-  serialize?: (row: any) => any
-  listFilter?: (ctx: { query: any; auth: any; table: any; schema: any }) => unknown
-  customActionHandlers?: Record<string, (args: any) => Promise<any> | any>
+  beforeCreate?: (payload: Record<string, unknown>, auth: AuthContext) => Record<string, unknown> | Promise<Record<string, unknown>>
+  beforeUpdate?: (cambios: Record<string, unknown>, auth: AuthContext) => Record<string, unknown> | Promise<Record<string, unknown>>
+  serialize?: (row: unknown) => unknown
+  listFilter?: (ctx: ListFilterCtx) => unknown
+  customActionHandlers?: Record<string, (args: CustomActionArgs) => unknown | Promise<unknown>>
 }
 
 let _registry: Record<string, RouteHandler> | null = null
@@ -55,22 +78,34 @@ function buildRegistry(): Record<string, RouteHandler> {
 
   for (const e of ALL_ENTITIES as unknown as EntityLike[]) {
     const overrides = (OVERRIDES_ONLINE_POR_KEY as Record<string, OnlineOverride>)[e.key] || {}
-    const h = createEntityHandlers(e as any, { db, schema, ...overrides } as any)
+    // Cast: createEntityHandlers está en JS y acepta opts dinámicamente.
+    // En runtime los campos se validan; aquí solo necesitamos el shape de los handlers.
+    const h = createEntityHandlers(
+      e as unknown as Parameters<typeof createEntityHandlers>[0],
+      { db, schema, ...overrides } as unknown as Parameters<typeof createEntityHandlers>[1]
+    ) as unknown as {
+      list?: RouteHandler
+      get?: RouteHandler
+      create?: RouteHandler
+      patch?: RouteHandler
+      put?: RouteHandler
+      remove?: RouteHandler
+      customActions?: Record<string, RouteHandler>
+    }
 
     const base = `/api/${e.tabla}`
 
-    if (h.list) reg[`GET ${base}`] = h.list as RouteHandler
-    if (h.create) reg[`POST ${base}`] = h.create as RouteHandler
+    if (h.list) reg[`GET ${base}`] = h.list
+    if (h.create) reg[`POST ${base}`] = h.create
 
-    if (h.get) reg[`GET ${base}/:id`] = h.get as RouteHandler
-    if (h.patch) reg[`PATCH ${base}/:id`] = h.patch as RouteHandler
-    if (h.put) reg[`PUT ${base}/:id`] = h.put as RouteHandler
-    if (h.remove) reg[`DELETE ${base}/:id`] = h.remove as RouteHandler
+    if (h.get) reg[`GET ${base}/:id`] = h.get
+    if (h.patch) reg[`PATCH ${base}/:id`] = h.patch
+    if (h.put) reg[`PUT ${base}/:id`] = h.put
+    if (h.remove) reg[`DELETE ${base}/:id`] = h.remove
 
     // customActions: p.ej. PATCH /api/usuarios/:id/pin
-    const customHandlers = (h as any).customActions as Record<string, RouteHandler> | undefined
-    if (customHandlers && e.customActions) {
-      for (const [name, handler] of Object.entries(customHandlers)) {
+    if (h.customActions && e.customActions) {
+      for (const [name, handler] of Object.entries(h.customActions)) {
         const action = e.customActions[name]
         if (!action) continue
         let path: string

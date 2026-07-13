@@ -19,6 +19,7 @@
  * const pullResult = await syncPull(Date.now() - 86400000)
  */
 import { $api } from '../utils/api'
+import { API_ROUTES } from '../utils/api-paths'
 
 export function useRemoteApi() {
   const { getHeaders } = useHeaders()
@@ -31,9 +32,9 @@ export function useRemoteApi() {
   }
 
   return {
-    getProductosActivos: () => fetch(API.sync.productosActivos),
+    getProductosActivos: () => fetch(API_ROUTES.syncProductosActivos),
     syncPush: payload =>
-      fetch(API.sync.push, { method: 'POST', body: payload }),
-    syncPull: desde => fetch(API.sync.pull(desde))
+      fetch(API_ROUTES.syncPush, { method: 'POST', body: payload }),
+    syncPull: desde => fetch(API_ROUTES.syncPull + '?desde=' + desde)
   }
 }

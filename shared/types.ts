@@ -7,18 +7,6 @@
  */
 
 export type Rol = 'jefe' | 'trabajador'
-export type EstadoCuadre = 'abierto' | 'cerrado'
-export type TipoLinea = 'normal' | 'descuento'
-export type AgrupacionPeriodo = 'dia' | 'semana' | 'mes'
-export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
-export type FormaPagoFiado = 'efectivo' | 'transferencia'
-
-export interface Puesto {
-  id: string
-  nombre: string
-  activo: boolean
-  creadoEn: number | string // ms (cliente) o ISO string (servidor)
-}
 
 export interface Usuario {
   id: string
@@ -50,14 +38,6 @@ export interface Producto {
   sincronizado?: boolean
 }
 
-export interface ProductoCache {
-  id: string
-  nombre: string
-  precioVentaActual: number
-  orden: number
-  descargadoEn: number
-}
-
 export interface HistorialPrecio {
   id: string
   productoId: string
@@ -82,7 +62,7 @@ export interface Cuadre {
   montoFiado: number
   montoCobradoFiado: number
   diferencia: number | null
-  estado: EstadoCuadre
+  estado: 'abierto' | 'cerrado'
   notas: string | null
   cerradoEn: number | string | null
   reabiertoVeces: number
@@ -99,27 +79,12 @@ export interface CuadreItem {
   precioVentaUsado: number
   cantidad: number
   subtotal: number
-  tipoLinea: TipoLinea
+  tipoLinea: 'normal' | 'descuento'
   nota: string | null
   esExtra: boolean
   creadoEn: number | string
   actualizadoEn: number | string
   sincronizado?: boolean
-}
-
-/**
- * Sesión local del jefe/trabajador, almacenada en @capacitor/preferences.
- * Vive solo en el dispositivo, nunca se envía al servidor.
- */
-export interface SesionLocal {
-  usuario_id: string
-  usuario_nombre: string
-  rol: 'jefe' | 'trabajador'
-  pin_hash_local: string
-  /** Solo aplica a trabajador: timestamp UNIX en ms */
-  expira_en: number | null
-  /** Solo aplica a jefe: timestamp UNIX en ms de la última interacción */
-  ultima_actividad_en: number
 }
 
 /**
@@ -158,7 +123,7 @@ export interface CuentaFiado {
   cuadreOrigenId: string
   montoTotal: number
   montoPagado: number
-  estado: EstadoCuentaFiado
+  estado: 'pendiente' | 'parcial' | 'pagada'
   creadoEn: number | string
   actualizadoEn: number | string
   sincronizado?: boolean
@@ -180,20 +145,9 @@ export interface PagoFiado {
   cuentaFiadoId: string
   cuadreId: string
   monto: number
-  formaPago: FormaPagoFiado
+  formaPago: 'efectivo' | 'transferencia'
   creadoEn: number | string
   sincronizado?: boolean
-}
-
-export interface PushPayload {
-  productos: Producto[]
-  historial_precios: HistorialPrecio[]
-  cuadres: Cuadre[]
-  cuadre_items: CuadreItem[]
-  clientes: Cliente[]
-  cuentas_fiado: CuentaFiado[]
-  cuentas_fiado_items: CuentaFiadoItem[]
-  pagos_fiado: PagoFiado[]
 }
 
 export interface PushResponse {
@@ -221,16 +175,4 @@ export interface PullResponse {
   cuentas_fiado_items: CuentaFiadoItem[]
   pagos_fiado: PagoFiado[]
   timestamp_servidor: number
-}
-
-/**
- * Resultado de cálculo de cierre de cuadre.
- */
-export interface ResultadoCierreCuadre {
-  totalEsperado: number
-  totalRealCaja: number
-  montoTransferencia: number
-  montoFiado: number
-  diferencia: number
-  tipoResultado: 'exacto' | 'sobrante' | 'faltante'
 }

@@ -14,9 +14,14 @@ export default defineEventHandler(async (event) => {
   if (hasta) whereConditions.push(lte(cuadres.fecha, hasta))
   let fechaFormat: string
   switch (agrupacion) {
-    case 'mes': fechaFormat = '%Y-%m'; break
-    case 'semana': fechaFormat = '%Y-%W'; break
-    default: fechaFormat = '%Y-%m-%d'
+    case 'mes':
+      fechaFormat = '%Y-%m'
+      break
+    case 'semana':
+      fechaFormat = '%Y-%W'
+      break
+    default:
+      fechaFormat = '%Y-%m-%d'
   }
   const rows = await db
     .select({

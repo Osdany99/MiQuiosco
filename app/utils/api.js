@@ -41,7 +41,7 @@ export async function setApiBaseUrl(url) {
   if (Capacitor.isNativePlatform()) {
     try {
       await Preferences.set({ key: PREF_API_BASE, value: url })
-    } catch {}
+    } catch { /* preferencias no disponibles — seguimos sin guardar */ }
   }
   cachedBase = url
 }

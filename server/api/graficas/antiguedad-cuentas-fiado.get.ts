@@ -1,6 +1,6 @@
-import { eq, sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { cuentasFiado, clientes } from '../../database/schema'
+import { cuentasFiado } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {

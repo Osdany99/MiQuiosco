@@ -1,6 +1,7 @@
 import { computed, readonly } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import { $api, esErrorDeRed } from '../utils/api'
+import { API_ROUTES } from '../utils/api-paths'
 import { login as loginOfflineApi } from '../server-offline/api/auth/login'
 
 /**
@@ -97,7 +98,7 @@ export function useAuth() {
     cargando.value = true
     try {
       try {
-        const response = await $api(API.auth.login, {
+        const response = await $api(API_ROUTES.authLogin, {
           method: 'POST',
           body: { nombre_usuario: nombreUsuario, pin }
         })
@@ -258,7 +259,7 @@ export function useAuth() {
     try {
       const token = jwtSync.value
       if (token) {
-        await $api(API.auth.logout, {
+        await $api(API_ROUTES.authLogout, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => {})

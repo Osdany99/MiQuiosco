@@ -102,7 +102,7 @@
 const {
   totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
-  totalEsperado, salarioCalculado, diferencia, tipoDiferencia
+  salarioCalculado, diferencia, tipoDiferencia
 } = useCuadre()
 
 const repo = useRepo('usuarios')

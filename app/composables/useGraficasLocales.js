@@ -3,10 +3,14 @@
  *
  * Reemplaza las llamadas a /api/graficas/* leyendo desde useLocalRepo.
  */
+import { producto } from '~~/shared/entities/producto.js'
+import { cuadre } from '~~/shared/entities/cuadre.js'
+import { cuadreItem } from '~~/shared/entities/cuadreItem.js'
+
 export function useGraficasLocales() {
-  const productoRepo = useLocalRepo('productos')
-  const cuadreRepo = useLocalRepo('cuadres')
-  const itemsRepo = useLocalRepo('cuadre_items')
+  const productoRepo = useLocalRepo(producto)
+  const cuadreRepo = useLocalRepo(cuadre)
+  const itemsRepo = useLocalRepo(cuadreItem)
 
   /**
    * Retorna los datos para la gráfica solicitada.

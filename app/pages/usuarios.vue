@@ -26,7 +26,7 @@ const { entity, columns, form, submitFields, tableRef, formRef, modalTitle } = u
       :submit-fields="submitFields"
     >
       <template #form>
-        <BaseEntityForm ref="formRef" :entity="entity" v-model="form" />
+        <BaseEntityForm ref="formRef" v-model="form" :entity="entity" />
       </template>
     </BaseTable>
   </BaseHeaderPage>
