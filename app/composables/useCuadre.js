@@ -233,10 +233,17 @@ export function useCuadre() {
       reabiertoVeces: 0,
       ultimaReaperturaEn: null
     }
+    const payload = Object.fromEntries(
+      Object.entries(cuadreObj).filter(([, v]) => v !== undefined)
+    )
     try {
-      await repo.create(cuadreObj)
+      await repo.create(payload)
     } catch (err) {
-      // Si falla el guardado remoto, intentar con el repo local
+      const status = err?.response?.status || err?.statusCode
+      if (status === 409) {
+        const existente = await buscarCuadreActual(puestoId, repo)
+        if (existente) return existente
+      }
       console.warn('crearCuadreNuevo: fallo en repo activo, intentando con localRepo', err?.message)
       try {
         const localRepo = useLocalRepo(cuadreEntity)

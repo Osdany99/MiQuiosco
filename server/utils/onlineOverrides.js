@@ -26,6 +26,7 @@
 import { eq, and, gte, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { hashPin } from './auth.ts'
+import { db, schema } from '../database/client'
 
 /* -------------------------------------------------------------------------- */
 /* Helpers reutilizables                                                       */
@@ -126,11 +127,25 @@ export const OVERRIDES_ONLINE_POR_KEY = {
   // =======================================================================
   cuadre: {
     requireRole: 'jefe',
-    beforeCreate: (payload, auth) => ({
-      ...payload,
-      jefeId: payload.jefeId || auth.usuario.id,
-      puestoId: payload.puestoId || auth.usuario.puestoId
-    })
+    beforeCreate: async (payload, auth) => {
+      const pId = payload.puestoId || auth.usuario.puestoId
+      const fecha = payload.fecha
+      if (pId && fecha) {
+        const existente = await db
+          .select({ id: schema.cuadres.id })
+          .from(schema.cuadres)
+          .where(and(eq(schema.cuadres.puestoId, pId), eq(schema.cuadres.fecha, fecha)))
+          .limit(1)
+        if (existente.length > 0) {
+          throw createError({ statusCode: 409, statusMessage: 'Ya existe un cuadre para este puesto en la fecha de hoy.' })
+        }
+      }
+      return {
+        ...payload,
+        jefeId: payload.jefeId || auth.usuario.id,
+        puestoId: pId
+      }
+    }
   },
 
   // =======================================================================

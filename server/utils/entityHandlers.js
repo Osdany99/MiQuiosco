@@ -157,7 +157,13 @@ export function createEntityHandlers(entity, opts) {
       const auth = await guardAuth(event, opts)
 
       const body = await readBody(event)
-      const parsed = entity.schema.safeParse(body)
+      let payload = withoutTimestamps(body)
+
+      if (opts.beforeCreate) {
+        payload = await opts.beforeCreate(payload, auth, event)
+      }
+
+      const parsed = entity.schema.safeParse(payload)
       if (!parsed.success) {
         throw createError({
           statusCode: 400,
@@ -166,14 +172,10 @@ export function createEntityHandlers(entity, opts) {
         })
       }
 
-      let payload = { ...parsed.data }
-      payload = withoutTimestamps(payload)
+      payload = { ...parsed.data }
 
       if (entity.puestoScoped && !payload.puestoId) {
         payload.puestoId = auth.usuario.puestoId
-      }
-      if (opts.beforeCreate) {
-        payload = await opts.beforeCreate(payload, auth, event)
       }
 
       // customMutation
