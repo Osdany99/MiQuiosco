@@ -214,10 +214,10 @@ export function useCuadre() {
 
   async function crearCuadreNuevo(puestoId, repo) {
     const nuevoId = crypto.randomUUID()
+    // No enviamos jefeId ni puestoId: el override online (beforeCreate) los inyecta desde auth.usuario
+    // En offline, useLocalRepo los añade automáticamente (ver crearRepoGenerico).
     const cuadreObj = {
       id: nuevoId,
-      puestoId,
-      jefeId: auth.usuarioActual.value?.id,
       fecha: hoy,
       estado: 'abierto',
       totalEsperado: 0,
@@ -233,7 +233,19 @@ export function useCuadre() {
       reabiertoVeces: 0,
       ultimaReaperturaEn: null
     }
-    await repo.create(cuadreObj)
+    try {
+      await repo.create(cuadreObj)
+    } catch (err) {
+      // Si falla el guardado remoto, intentar con el repo local
+      console.warn('crearCuadreNuevo: fallo en repo activo, intentando con localRepo', err?.message)
+      try {
+        const localRepo = useLocalRepo(cuadreEntity)
+        await localRepo.create(cuadreObj)
+      } catch (err2) {
+        console.error('crearCuadreNuevo: también falló en localRepo', err2)
+        throw err2
+      }
+    }
     return cuadreObj
   }
 

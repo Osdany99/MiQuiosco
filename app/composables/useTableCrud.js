@@ -38,8 +38,31 @@ export function useTableCrud(props, emit, form, refresh) {
     isDeleteOpen.value = true
   }
 
+  /**
+   * Acciones de repo. Sólo se crean si la tabla está ligada a una entity
+   * (props.entidad). Las tablas de datos externos (p.ej. CuadreLineaTable, que
+   * pasa :data y desactiva edición/borrado) no tienen entity: en ese caso se
+   * devuelven stubs no-op para no llamar a useRepo(null), que lanzaría.
+   */
+  function accionesRepo() {
+    if (props.entidad) return useRepoAction(props.entidad, { toast: false })
+    const stub = () => Promise.resolve({ data: null, error: null })
+    stub.onSuccess = () => () => {}
+    return {
+      loading: ref(false),
+      error: ref(null),
+      onSuccess: () => () => {},
+      create: stub,
+      read: stub,
+      readAll: stub,
+      update: stub,
+      patch: stub,
+      remove: stub
+    }
+  }
+
   // --- API Delete (toast silenciado, ya hay modal de confirmación) ---
-  const { remove, loading: deleteLoading } = useRepoAction(props.entidad, { toast: false })
+  const { remove, loading: deleteLoading } = accionesRepo()
   remove.onSuccess(() => {
     isDeleteOpen.value = false
     refresh()
@@ -55,7 +78,7 @@ export function useTableCrud(props, emit, form, refresh) {
   // --- API Create / Update (toast silenciado, el componente padre emite su propio success) ---
   const successMessage = ref('Operación exitosa')
 
-  const { create, update, loading } = useRepoAction(props.entidad, { toast: false })
+  const { create, update, loading } = accionesRepo()
   create.onSuccess(() => {
     handleCloseModal()
     refresh()

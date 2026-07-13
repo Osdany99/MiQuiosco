@@ -40,7 +40,11 @@ export function useRemoteRepo(entity) {
 
   async function leerTodos() {
     const list = await $api(base.list, { headers: getHeaders() })
-    return (list ?? []).map(normalizar)
+    if (!Array.isArray(list)) {
+      console.warn(`useRemoteRepo(${entity?.key ?? '?'}): se esperaba array en GET ${base.list}, recibido ${typeof list}`)
+      return []
+    }
+    return list.map(normalizar)
   }
 
   async function actualizar(id, cambios) {

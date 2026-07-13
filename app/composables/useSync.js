@@ -20,6 +20,10 @@ export function useSync() {
 
   function repoDe(tabla) {
     const entity = ALL_ENTITIES.find(e => e.tabla === tabla)
+    if (!entity) {
+      console.warn(`useSync.repoDe: no se encontró entity para tabla "${tabla}"`)
+      return null
+    }
     return useLocalRepo(entity)
   }
 
@@ -206,6 +210,7 @@ export function useSync() {
       const rows = pendientes[t]
       if (!rows?.length) continue
       const repo = repoDe(t)
+      if (!repo) continue
       for (const reg of rows) {
         if (idsSet.has(reg.id)) {
           try {
@@ -223,6 +228,7 @@ export function useSync() {
     for (const [tabla, registros] of Object.entries(conflictos)) {
       if (!registros?.length) continue
       const repo = repoDe(tabla)
+      if (!repo) continue
       for (const reg of registros) {
         try {
           await repo.update(reg.id, { ...reg, sincronizado: 1 })

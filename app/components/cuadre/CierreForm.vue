@@ -99,13 +99,15 @@
 </template>
 
 <script setup>
+import { usuario } from '~~/shared/entities'
+
 const {
   totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
   salarioCalculado, diferencia, tipoDiferencia
 } = useCuadre()
 
-const repo = useRepo('usuarios')
+const repo = useRepo(usuario)
 const trabajadores = ref([])
 const salarioBase = computed(() => {
   if (!trabajadorTurnoId.value) return 0

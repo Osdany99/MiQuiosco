@@ -7,11 +7,9 @@
  *
  * Espejo de la parte de aplicación de server/api/sync/pull.get.ts.
  */
-import { ENTIDADES } from '~/config/entidades'
+import { ALL_ENTITIES } from '../../../../shared/entities/index.js'
 
-const TABLAS_SYNC = Object.entries(ENTIDADES)
-  .filter(([, def]) => def.sync)
-  .map(([tabla]) => tabla)
+const ENTIDADES_SYNC = ALL_ENTITIES.filter(e => e.sync)
 
 /**
  * @param {object} pullResult — { productos: [...], usuarios: [...], ... } o {} si no hay nada nuevo
@@ -23,10 +21,11 @@ export async function pull(pullResult, _opts, _auth) {
   void _opts
   void _auth
   let aplicados = 0
-  for (const tabla of TABLAS_SYNC) {
+  for (const entity of ENTIDADES_SYNC) {
+    const tabla = entity.tabla
     const registros = pullResult[tabla]
     if (!registros?.length) continue
-    const repo = useLocalRepo(tabla)
+    const repo = useLocalRepo(entity)
     for (const reg of registros) {
       const existing = await repo.read(reg.id)
       if (existing) {

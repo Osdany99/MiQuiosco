@@ -11,8 +11,8 @@ import {
   pagosFiado
 } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
-import { pushSyncSchema } from '../../../shared/schemas'
-import type { PushResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '../../../shared/types'
+import { pushSyncSchema } from '#shared/schemas'
+import type { PushResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '#shared/types'
 
 /**
  * POST /api/sync/push
@@ -39,7 +39,12 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
     })
   }
 
+  // pushSyncSchema se genera dinámicamente desde ALL_ENTITIES, por lo que TS
+  // infiere su shape como {}. Tipamos el acceso a las tablas aquí.
+  const data = parsed.data as Record<string, unknown[]>
+
   const aceptados: string[] = []
+
   const conflictos: PushResponse['conflictos'] = {
     productos: [],
     historial_precios: [],
@@ -52,7 +57,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Productos
-  for (const p of parsed.data.productos as Producto[]) {
+  for (const p of data.productos as Producto[]) {
     const existing = await db
       .select()
       .from(productos)
@@ -98,7 +103,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Historial de precios
-  for (const h of parsed.data.historial_precios as HistorialPrecio[]) {
+  for (const h of data.historial_precios as HistorialPrecio[]) {
     const existing = await db
       .select()
       .from(historialPrecios)
@@ -124,7 +129,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Cuadres
-  for (const c of parsed.data.cuadres as Cuadre[]) {
+  for (const c of data.cuadres as Cuadre[]) {
     const existing = await db
       .select()
       .from(cuadres)
@@ -190,7 +195,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Cuadre items
-  for (const ci of parsed.data.cuadre_items as CuadreItem[]) {
+  for (const ci of data.cuadre_items as CuadreItem[]) {
     const existing = await db
       .select()
       .from(cuadreItems)
@@ -237,7 +242,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Clientes
-  for (const cli of parsed.data.clientes as Cliente[]) {
+  for (const cli of data.clientes as Cliente[]) {
     const existing = await db
       .select()
       .from(clientes)
@@ -279,7 +284,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Cuentas fiado
-  for (const cf of parsed.data.cuentas_fiado as CuentaFiado[]) {
+  for (const cf of data.cuentas_fiado as CuentaFiado[]) {
     const existing = await db
       .select()
       .from(cuentasFiado)
@@ -320,7 +325,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Cuentas fiado items (nunca se actualizan)
-  for (const ci of parsed.data.cuentas_fiado_items as CuentaFiadoItem[]) {
+  for (const ci of data.cuentas_fiado_items as CuentaFiadoItem[]) {
     const existing = await db
       .select()
       .from(cuentasFiadoItems)
@@ -342,7 +347,7 @@ export default defineEventHandler(async (event): Promise<PushResponse> => {
   }
 
   // Pagos fiado (nunca se actualizan)
-  for (const pf of parsed.data.pagos_fiado as PagoFiado[]) {
+  for (const pf of data.pagos_fiado as PagoFiado[]) {
     const existing = await db
       .select()
       .from(pagosFiado)

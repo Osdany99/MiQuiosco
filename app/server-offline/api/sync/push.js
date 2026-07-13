@@ -7,11 +7,9 @@
  *
  * Espejo de la parte de recolección de server/api/sync/push.post.ts.
  */
-import { ENTIDADES } from '~/config/entidades'
+import { ALL_ENTITIES } from '../../../../shared/entities/index.js'
 
-const TABLAS_SYNC = Object.entries(ENTIDADES)
-  .filter(([, def]) => def.sync)
-  .map(([tabla]) => tabla)
+const ENTIDADES_SYNC = ALL_ENTITIES.filter(e => e.sync)
 
 /**
  * @param {object} opts — opciones (reservado)
@@ -22,8 +20,9 @@ export async function push(opts, auth) {
   void opts
   void auth
   const result = {}
-  for (const tabla of TABLAS_SYNC) {
-    const repo = useLocalRepo(tabla)
+  for (const entity of ENTIDADES_SYNC) {
+    const tabla = entity.tabla
+    const repo = useLocalRepo(entity)
     const todos = await repo.readAll()
     result[tabla] = todos
       .filter(r => !r.sincronizado)

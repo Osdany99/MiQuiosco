@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import { getTableName, is, Table } from 'drizzle-orm'
 import * as schema from './schema'
 
 /**
@@ -45,6 +46,23 @@ export async function closeDb(): Promise<void> {
   if (pool) {
     await pool.end()
     pool = null
+  }
+}
+
+/**
+ * Mapa de tablas Drizzle indexado por su nombre físico (snake_case).
+ *
+ * El schema exporta las tablas con nombres JS en camelCase (p.ej. `cuadreItems`),
+ * pero las entities de `shared/entities` referencian la tabla por su nombre físico
+ * (`cuadre_items`). Este mapa permite resolver `schema[entity.tabla]` y los
+ * `customMutations` (que usan nombres físicos como `historial_precios`) de forma
+ * consistente. Se deriva automáticamente, así que añadir una tabla nueva no
+ * requiere tocar este archivo.
+ */
+export const schemaByTabla: Record<string, unknown> = {}
+for (const value of Object.values(schema)) {
+  if (is(value, Table)) {
+    schemaByTabla[getTableName(value)] = value
   }
 }
 

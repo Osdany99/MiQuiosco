@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-import { createPagoFiadoSchema } from '../../../shared/schemas'
+import { createPagoFiadoSchema } from '#shared/schemas'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')

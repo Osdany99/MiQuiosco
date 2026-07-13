@@ -121,13 +121,15 @@ export const OVERRIDES_ONLINE_POR_KEY = {
   },
 
   // =======================================================================
-  // cuadre — inyectar jefeId del auth en POST
+  // cuadre — inyectar jefeId y puestoId del auth en POST
+  // (si vienen vacíos o no son UUIDs válidos, los reemplazamos)
   // =======================================================================
   cuadre: {
     requireRole: 'jefe',
     beforeCreate: (payload, auth) => ({
       ...payload,
-      jefeId: payload.jefeId ?? auth.usuario.id
+      jefeId: payload.jefeId || auth.usuario.id,
+      puestoId: payload.puestoId || auth.usuario.puestoId
     })
   },
 

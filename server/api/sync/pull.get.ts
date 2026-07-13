@@ -12,7 +12,7 @@ import {
   pagosFiado
 } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
-import type { PullResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Usuario, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '../../../shared/types'
+import type { PullResponse, Producto, HistorialPrecio, Cuadre, CuadreItem, Usuario, Cliente, CuentaFiado, CuentaFiadoItem, PagoFiado } from '#shared/types'
 
 /**
  * GET /api/sync/pull?desde=<timestamp_ms>

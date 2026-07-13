@@ -5,13 +5,18 @@ import { cliente, cuentaFiado, cuentaFiadoItem, pagoFiado } from '~~/shared/enti
  *
  * Compone repos de varias entities (cliente, cuentaFiado, cuentaFiadoItem, pagoFiado)
  * con lógica de negocio (cobro de deuda, registro de nueva deuda).
+ *
+ * Estas entities tienen `omit` en el server online (endpoints custom en
+ * server/api/cuentas-fiado y server/api/pagos-fiado), así que usamos
+ * useLocalRepo directamente para evitar llamadas HTTP inválidas que devuelven
+ * strings de error en lugar de arrays.
  */
 export function useCuentasFiado() {
   const toast = useToast()
-  const clientesRepo = useRepo(cliente)
-  const cuentasRepo = useRepo(cuentaFiado)
-  const itemsRepo = useRepo(cuentaFiadoItem)
-  const pagosRepo = useRepo(pagoFiado)
+  const clientesRepo = useLocalRepo(cliente)
+  const cuentasRepo = useLocalRepo(cuentaFiado)
+  const itemsRepo = useLocalRepo(cuentaFiadoItem)
+  const pagosRepo = useLocalRepo(pagoFiado)
 
   const clientes = ref([])
   const cuentasDelCuadre = ref([])

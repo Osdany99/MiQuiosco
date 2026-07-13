@@ -20,8 +20,9 @@
  * middleware de auth (`server/middleware/auth.ts` → `event.context.auth`).
  */
 import type { H3Event } from 'h3'
-import { ALL_ENTITIES } from '../../shared/entities/index.js'
-import { db, schema } from '../database/client'
+import { ALL_ENTITIES } from '#shared/entities/index.js'
+import { db, schemaByTabla } from '../database/client'
+import type { schema } from '../database/client'
 import { createEntityHandlers } from '../utils/entityHandlers.js'
 import { OVERRIDES_ONLINE_POR_KEY } from '../utils/onlineOverrides.js'
 
@@ -82,7 +83,7 @@ function buildRegistry(): Record<string, RouteHandler> {
     // En runtime los campos se validan; aquí solo necesitamos el shape de los handlers.
     const h = createEntityHandlers(
       e as unknown as Parameters<typeof createEntityHandlers>[0],
-      { db, schema, ...overrides } as unknown as Parameters<typeof createEntityHandlers>[1]
+      { db, schema: schemaByTabla, ...overrides } as unknown as Parameters<typeof createEntityHandlers>[1]
     ) as unknown as {
       list?: RouteHandler
       get?: RouteHandler

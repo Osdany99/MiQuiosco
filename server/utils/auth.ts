@@ -4,7 +4,7 @@ import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { db } from '../database/client'
 import { usuarios } from '../database/schema'
-import type { Rol } from '../../shared/types'
+import type { Rol } from '#shared/types'
 
 /**
  * Contexto de autenticación disponible en event.context.auth

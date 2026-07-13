@@ -155,8 +155,16 @@ export function useAuth() {
 
       // Hidratar caché local con datos del servidor (pinHash incluido)
       // No bloqueante — si falla (sin red, etc.), el login igual es exitoso.
-      const { pullServidor } = useSync()
-      pullServidor({ silent: true }).catch(() => {})
+      // Llamamos directamente: procesarRespuestaLogin se invoca desde login() que está en setup context.
+      if (import.meta.client) {
+        try {
+          const { useSync } = await import('./useSync.js')
+          const { pullServidor } = useSync()
+          pullServidor({ silent: true }).catch(() => {})
+        } catch {
+          // noop
+        }
+      }
     } else {
       if (response.usuario.rol === 'trabajador') {
         const sesion = {

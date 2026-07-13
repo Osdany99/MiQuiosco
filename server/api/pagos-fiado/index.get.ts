@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-import type { PagoFiado } from '../../../shared/types'
+import type { PagoFiado } from '#shared/types'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')

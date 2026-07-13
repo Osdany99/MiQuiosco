@@ -13,9 +13,9 @@ export const cuadre = createEntity({
   ui: true,
 
   fields: {
-    puestoId: { type: 'uuid', required: true, label: 'Puesto' },
+    puestoId: { type: 'uuid', required: false, label: 'Puesto' },
     fecha: { type: 'date', required: true, label: 'Fecha' },
-    jefeId: { type: 'uuid', required: true, label: 'Jefe' },
+    jefeId: { type: 'uuid', required: false, label: 'Jefe' },
     trabajadorTurnoId: { type: 'uuid', nullable: true, label: 'Trabajador' },
     pagoTrabajador: { type: 'number', min: 0, nullable: true, label: 'Pago Trabajador' },
     totalEsperado: { type: 'number', required: true, min: 0, default: 0, label: 'Total Esperado' },

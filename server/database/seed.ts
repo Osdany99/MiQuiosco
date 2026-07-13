@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db, closeDb } from './client'
 import { puestos, usuarios } from './schema'
 import { hashPin } from '../utils/auth'
-import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '../../shared/constants'
+import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '#shared/constants'
 
 /**
  * Script de inicialización: crea el puesto por defecto y el usuario jefe
