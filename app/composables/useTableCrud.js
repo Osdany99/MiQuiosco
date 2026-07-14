@@ -63,15 +63,13 @@ export function useTableCrud(props, emit, form, refresh) {
 
   // --- API Delete (toast silenciado, ya hay modal de confirmación) ---
   const { remove, loading: deleteLoading } = accionesRepo()
-  remove.onSuccess(() => {
-    isDeleteOpen.value = false
-    refresh()
-    emit('success', 'Eliminado correctamente')
-  })
 
   const confirmDelete = async () => {
     if (itemToDelete.value) {
       await remove(itemToDelete.value.id)
+      isDeleteOpen.value = false
+      refresh()
+      emit('success', 'Eliminado correctamente')
     }
   }
 
@@ -79,17 +77,22 @@ export function useTableCrud(props, emit, form, refresh) {
   const successMessage = ref('Operación exitosa')
 
   const { create, update, loading } = accionesRepo()
-  create.onSuccess(() => {
-    handleCloseModal()
-    refresh()
-    emit('success', successMessage.value)
-  })
-  update.onSuccess(() => {
-    handleCloseModal()
-    refresh()
-    emit('success', successMessage.value)
-  })
 
+  const updateOrAdd = async (body) => {
+    if (isEditing.value) {
+      const { error } = await update(form.value.id, body)
+      handleCloseModal()
+      refresh()
+      emit('success', successMessage.value)
+      return error
+    } else {
+      const { error } = await create(body)
+      handleCloseModal()
+      refresh()
+      emit('success', successMessage.value)
+      return error
+    }
+  }
   // --- Submit ---
   const handleSubmit = async () => {
     if (props.formRef) {
@@ -110,9 +113,7 @@ export function useTableCrud(props, emit, form, refresh) {
     const body = Object.fromEntries(
       Object.entries(form.value).filter(([k]) => k !== 'id' && (!props.submitFields || props.submitFields.includes(k)))
     )
-    const { error } = isEditing.value
-      ? await update(form.value.id, body)
-      : await create(body)
+    const error = updateOrAdd(body)
 
     if (!error) {
       handleCloseModal()

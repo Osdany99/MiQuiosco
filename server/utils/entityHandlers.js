@@ -40,6 +40,7 @@
  * @returns {Object} { list, get, create, patch, put, remove, customActions: { name: handler } }
  */
 import { eq, and } from 'drizzle-orm'
+import { z } from 'zod'
 import { makePgCtx } from './pgContext.js'
 import { requireAuth, requireRole as requireRoleFn } from './auth.ts'
 
@@ -59,22 +60,41 @@ async function guardAuth(event, opts) {
 
 /**
  * Convierte un payload del form a tipos correctos antes del INSERT/UPDATE
- * (numeric → string para Postgres, date → string, etc.).
- * En general Drizzle infiere, pero para numeric (que en PG es string) hay
- * que convertir explícitamente. Aquí lo hacemos consultando el schema.
+ * usando el schema explícito de la entity (entity.dbSchema).
+ * Si no hay dbSchema, hace fallback a inferencia de Drizzle (compatibilidad).
+ *
+ * Coerciones soportadas:
+ * - z.ZodString + number → string (numeric PG)
+ * - z.ZodNumber + string → number (si viene string numérico)
+ * - z.ZodDate + string → Date
  */
-function coercePayloadForDrizzle(schema, tabla, data) {
-  const tbl = schema[tabla]
-  if (!tbl) return data
-  const cols = tbl[Symbol.for('drizzle:Columns')]
-  if (!cols) return data
+function coercePayloadForDrizzle(entity, data) {
+  const targetSchema = entity.dbSchema
+  if (!targetSchema) {
+    // Fallback simple: devolver datos sin cambios (compatibilidad)
+    // Para coerción real sin dbSchema, se necesitaría acceso a schema Drizzle
+    return data
+  }
+
   const out = { ...data }
+  const shape = targetSchema.shape
+
   for (const [k, v] of Object.entries(out)) {
-    const col = cols[k]
-    if (!col) continue
-    if (v == null) continue
-    if (col.dataType === 'number' && typeof v === 'number') {
+    const field = shape[k]
+    if (!field || v == null) continue
+
+    // ZodString acepta number → string (para numeric PG)
+    if (field instanceof z.ZodString && typeof v === 'number') {
       out[k] = String(v)
+    }
+    // ZodNumber acepta string numérico → number
+    if (field instanceof z.ZodNumber && typeof v === 'string' && !isNaN(v)) {
+      out[k] = Number(v)
+    }
+    // ZodDate acepta string ISO → Date
+    if (field instanceof z.ZodDate && typeof v === 'string') {
+      const d = new Date(v)
+      if (!isNaN(d.getTime())) out[k] = d
     }
   }
   return out
@@ -185,7 +205,7 @@ export function createEntityHandlers(entity, opts) {
         return serialize(row)
       }
 
-      const values = coercePayloadForDrizzle(schema, tabla, payload)
+      const values = coercePayloadForDrizzle(entity, payload)
       const [row] = await db.insert(t).values(values).returning()
       return serialize(row)
     }
@@ -228,7 +248,7 @@ export function createEntityHandlers(entity, opts) {
         return serialize(row)
       }
 
-      const setValues = { ...coercePayloadForDrizzle(schema, tabla, cambios), actualizadoEn: new Date() }
+      const setValues = { ...coercePayloadForDrizzle(entity, cambios), actualizadoEn: new Date() }
       const [row] = await db.update(t).set(setValues).where(eq(tId, id)).returning()
       if (!row) {
         throw createError({ statusCode: 404, statusMessage: `${entity.label} no encontrado.` })

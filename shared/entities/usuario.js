@@ -1,4 +1,5 @@
 import { createEntity } from './_factory.js'
+import { z } from 'zod'
 
 /**
  * shared/entities/usuario.js — Entity del usuario.
@@ -7,6 +8,27 @@ import { createEntity } from './_factory.js'
  * se incluye en el schema para validación del form de creación, pero en el server
  * se transforma a pinHash antes de guardar.
  */
+
+// Schema explícito para CREATE (entrada del cliente)
+const createSchema = z.object({
+  nombre: z.string().min(1).max(100),
+  rol: z.enum(['jefe', 'trabajador']).default('trabajador'),
+  salario: z.number().min(0).default(600),
+  pin: z.string().min(4).max(6),
+  pinHash: z.string().optional(), // lo inyecta beforeCreate
+  activo: z.boolean().default(true),
+  puestoId: z.string().uuid().optional() // se inyecta en handler
+})
+
+// Schema para UPDATE (todos opcionales)
+const updateSchema = createSchema.partial()
+
+// Schema para BD PostgreSQL (coerción: numeric → string)
+const dbSchema = createSchema.extend({
+  salario: z.string(), // PG numeric llega/esperado como string
+  pinHash: z.string() // requerido en DB (NOT NULL)
+}).omit({ pin: true }) // pin no va a la BD
+
 export const usuario = createEntity({
   key: 'usuario',
   tabla: 'usuarios',
@@ -16,6 +38,7 @@ export const usuario = createEntity({
   sync: true,
   ui: true,
 
+  // Campos para UI (BaseForm, BaseTable) - sin pinHash
   fields: {
     nombre: { type: 'string', required: true, max: 100, label: 'Nombre', form: { placeholder: 'Nombre completo' } },
     rol: {
@@ -32,6 +55,11 @@ export const usuario = createEntity({
     },
     activo: { type: 'boolean', required: true, default: true, label: 'Activo' }
   },
+
+  // Schemas Zod explícitos
+  schema: createSchema,
+  updateSchema: updateSchema,
+  dbSchema: dbSchema,
 
   columns: [
     { accessorKey: 'id', header: 'ID', visible: false },

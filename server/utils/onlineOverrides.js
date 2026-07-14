@@ -11,7 +11,7 @@
  *   (e.g. hashear pin, inyectar jefeId, convertir numeric → string)
  * - beforeUpdate(cambios, auth)  → modifica los cambios antes del UPDATE
  * - serialize(row)               → transforma la fila devuelta (e.g. ocultar
- *   pinHash, salario → Number). Se ejecuta DESPUÉS de la serialización por defecto.
+ *   pinHash). Se ejecuta DESPUÉS de la serialización por defecto.
  * - listFilter({ query, auth, table }) → devuelve un WHERE de Drizzle (o undefined)
  *   que se aplica con AND sobre el WHERE por defecto (puestoId).
  * - customActionHandlers: { nombre: ({ event, id, body, auth, entity, db, schema }) => any }
@@ -69,7 +69,6 @@ export const OVERRIDES_ONLINE_POR_KEY = {
       const { pin, ...resto } = payload
       const out = { ...resto }
       if (pin) out.pinHash = await hashPin(pin)
-      if (out.salario != null) out.salario = String(out.salario)
       return out
     },
     beforeUpdate: async (cambios) => {
@@ -78,7 +77,6 @@ export const OVERRIDES_ONLINE_POR_KEY = {
         out.pinHash = await hashPin(out.pin)
         delete out.pin
       }
-      if (out.salario != null) out.salario = String(out.salario)
       return out
     },
     serialize: (row) => {

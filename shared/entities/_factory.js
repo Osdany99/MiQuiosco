@@ -4,7 +4,8 @@ import { buildZodSchema } from './_zod.js'
  * shared/entities/_factory.js — createEntity() — única fuente de verdad.
  *
  * Una entity es un objeto JS plano que describe TODO sobre una tabla:
- * - schema zod (create + update)
+ * - schema zod (create + update) — explícitos o generados desde fields
+ * - dbSchema / sqliteSchema — opcionales, para coerción a tipos de BD
  * - endpoints REST del servidor online
  * - fields del form (de BaseForm)
  * - columns de la tabla (de BaseTable)
@@ -24,6 +25,8 @@ import { buildZodSchema } from './_zod.js'
  *   export const producto = createEntity({
  *     key: 'producto', tabla: 'productos', label: 'Producto',
  *     fields: { nombre: { type: 'string', required: true, max: 100 } },
+ *     schema: z.object({ nombre: z.string().max(100) }),
+ *     updateSchema: z.object({ nombre: z.string().max(100) }).partial(),
  *     columns: [ { accessorKey: 'nombre', header: 'Producto' } ],
  *     puestoScoped: true, sync: true
  *   })
@@ -34,6 +37,10 @@ import { buildZodSchema } from './_zod.js'
  * @param {string} def.label - Etiqueta singular para UI: 'Producto'
  * @param {string} [def.pluralLabel] - Etiqueta plural: 'Productos'
  * @param {Object} def.fields - { nombreField: { type, required?, min?, max?, default?, values? } }
+ * @param {z.ZodObject} [def.schema] - Schema Zod explícito para CREATE (validación entrada)
+ * @param {z.ZodObject} [def.updateSchema] - Schema Zod explícito para UPDATE (validación entrada)
+ * @param {z.ZodObject} [def.dbSchema] - Schema Zod para coerción a PostgreSQL (numeric→string, etc.)
+ * @param {z.ZodObject} [def.sqliteSchema] - Schema Zod para coerción a SQLite
  * @param {Array}  [def.columns] - Configuración de columnas para BaseTable
  * @param {boolean}[def.puestoScoped] - Si filtra por puestoId del usuario actual
  * @param {boolean}[def.sync] - Si se sincroniza (true por defecto)
@@ -50,8 +57,9 @@ export function createEntity(def) {
     throw new Error(`createEntity(${def.key}): def.fields es requerido`)
   }
 
-  const schema = buildZodSchema(def.fields)
-  const updateSchema = schema.partial()
+  // Schemas de validación: explícitos o generados desde fields
+  const schema = def.schema || buildZodSchema(def.fields)
+  const updateSchema = def.updateSchema || schema.partial()
 
   return {
     key: def.key,
@@ -62,6 +70,8 @@ export function createEntity(def) {
     columns: def.columns || [],
     schema,
     updateSchema,
+    dbSchema: def.dbSchema || null,
+    sqliteSchema: def.sqliteSchema || null,
     endpoints: buildEndpoints(def),
     sync: def.sync !== false,
     puestoScoped: !!def.puestoScoped,
