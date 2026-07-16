@@ -1,33 +1,102 @@
 <script setup>
-import { usuario } from '~~/shared/entities'
+import { usuarioSchema } from '~~/shared/schemas/usuario'
+import { usuarios as tableUsuarios } from '~/config/tables'
 
 definePageMeta({
   middleware: ['jefe']
 })
 
-const { entity, columns, form, submitFields, tableRef, formRef, modalTitle } = useEntityTable(usuario)
+const fields = [
+  { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre completo', props: { class: 'w-full', maxlength: 100 } },
+  { name: 'rol', label: 'Rol', type: 'select', required: true, items: [{ label: 'Jefe', value: 'jefe' }, { label: 'Trabajador', value: 'trabajador' }], valueKey: 'value', labelKey: 'label', props: { class: 'w-full' } },
+  { name: 'salario', label: 'Salario base', type: 'number', required: false, placeholder: '600', hidden: form => form?.rol !== 'trabajador', props: { class: 'w-full', min: 0 } },
+  { name: 'pin', label: 'PIN', type: 'password', required: true, maxlength: 6, hidden: form => !!form?.id, props: { class: 'w-full', mask: true } },
+  { name: 'activo', label: 'Activo', type: 'switch', required: true, props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } }
+]
+
+const columns = [
+  { accessorKey: 'id', header: 'ID', visible: false },
+  { accessorKey: 'nombre', header: 'Nombre' },
+  { accessorKey: 'rol', header: 'Rol' },
+  { accessorKey: 'salario', header: 'Salario' },
+  { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
+  { accessorKey: 'action', header: 'Acciones' }
+]
+
+const tableRef = ref(null)
+const formRef = ref(null)
+const form = ref({ id: null, nombre: '', rol: 'trabajador', salario: 600, pin: '', activo: true })
+
+const showPinModal = ref(false)
+const pinUsuario = ref(null)
+const pinForm = ref({ pin: '' })
+const pinFormRef = ref(null)
+const { patch, loading: pinLoading } = useRepo(tableUsuarios)
+
+function abrirPinModal(usuario) {
+  pinUsuario.value = usuario
+  pinForm.value = { pin: '' }
+  showPinModal.value = true
+}
+
+async function guardarPin() {
+  try {
+    await pinFormRef.value?.validate()
+  } catch {
+    return
+  }
+  const { error } = await patch(pinUsuario.value.id, { pin: pinForm.value.pin }, { toastTitle: 'PIN actualizado correctamente' })
+  if (!error) {
+    showPinModal.value = false
+    await tableRef.value?.refresh()
+  }
+}
 </script>
 
 <template>
   <BaseHeaderPage
-    title="Usuarios"
+    :title="tableUsuarios.label.plural"
     description="Gestiona los usuarios del puesto"
-    title-button="Nuevo Usuario"
+    :title-button="'Nuevo ' + tableUsuarios.label.singular"
     @new="tableRef.openAdd()"
   >
     <BaseTable
       ref="tableRef"
       v-model="form"
-      :entidad="entity"
+      :config="tableUsuarios"
       :columns="columns"
-      empty-state="No se encontraron usuarios"
-      :modal-title="modalTitle"
       :form-ref="formRef"
-      :submit-fields="submitFields"
     >
       <template #form>
-        <BaseEntityForm ref="formRef" v-model="form" :entity="entity" />
+        <BaseForm
+          ref="formRef"
+          v-model="form"
+          :fields="fields"
+          :schema="usuarioSchema"
+        />
+      </template>
+
+      <template #row-actions-extra="{ rowData }">
+        <UTooltip text="Cambiar PIN" :delay-duration="0">
+          <UButton
+            icon="i-lucide-key"
+            size="sm"
+            color="neutral"
+            variant="ghost"
+            @click="abrirPinModal(rowData)"
+          />
+        </UTooltip>
       </template>
     </BaseTable>
+
+    <BaseDialog
+      v-model="showPinModal"
+      title="Cambiar PIN"
+      confirm-text="Guardar PIN"
+      :loading="pinLoading"
+      @confirm="guardarPin"
+    >
+      <UsuarioPin ref="pinFormRef" v-model="pinForm" />
+    </BaseDialog>
   </BaseHeaderPage>
 </template>

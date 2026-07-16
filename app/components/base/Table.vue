@@ -2,52 +2,15 @@
   <div>
     <UCard :ui="{ body: { padding: 'p-0' } }" class="relative">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-        <TableToolbarLeft @reload="reload">
+        <TableToolbarLeft
+          v-model="activeFilters"
+          :filter-fields="resolvedFilterFields"
+          :show-filters="resolvedFilterFields.length > 0"
+          @reload="reload"
+        >
           <slot name="toolbar-leading" />
         </TableToolbarLeft>
-        <div class="flex items-center gap-2">
-          <UButton
-            v-if="filterFields.length"
-            variant="ghost"
-            size="sm"
-            icon="i-lucide-filter"
-            :badge="activeFiltersCount || undefined"
-            @click="showFilters = !showFilters"
-          />
-          <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
-        </div>
-      </div>
-
-      <div v-if="showFilters && filterFields.length" class="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-        <div class="flex flex-wrap gap-3">
-          <div v-for="field in filterFields" :key="field.key" class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 whitespace-nowrap">{{ field.label }}</label>
-            <USelectMenu
-              v-if="field.type === 'select'"
-              v-model="filters[field.key]"
-              :items="field.options"
-              value-attribute="value"
-              text-attribute="label"
-              class="w-40"
-              clearable
-            />
-            <UInput
-              v-else
-              v-model="filters[field.key]"
-              :placeholder="field.label"
-              class="w-40"
-              clearable
-            />
-          </div>
-          <UButton
-            v-if="activeFiltersCount"
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            label="Limpiar"
-            @click="limpiarFiltros"
-          />
-        </div>
+        <TableToolbar v-model:visible-headers="visibleHeaders" :column-headers="columnHeaders" />
       </div>
 
       <TableLoading :loading="pending || loadingProp" />
@@ -59,7 +22,7 @@
         :data="data"
         :columns="tableColumns"
         :loading="pending || loadingProp"
-        :empty="emptyState"
+        :empty="resolvedEmptyState"
         v-bind="$attrs"
       >
         <template v-for="(_, slotName) in $slots" #[slotName]="slotData">
@@ -100,7 +63,7 @@
             v-else-if="col.cell === 'activation'"
             :id="row.original.id"
             :default-value="row.original[col.accessorKey]"
-            :entidad="entidad"
+            :config="config"
             :table-ref="selfTableRef"
           />
           <BaseBadgeTrueOrFalse
@@ -124,8 +87,8 @@
 
     <BaseDialog
       v-model="isOpen"
-      :title="isEditing ? `Editar ${modalTitle}` : `Agregar ${modalTitle}`"
-      :confirm-text="isEditing ? 'Guardar Cambios' : `Crear ${modalTitle}`"
+      :title="isEditing ? `Editar ${resolvedModalTitle}` : `Agregar ${resolvedModalTitle}`"
+      :confirm-text="isEditing ? 'Guardar Cambios' : `Crear ${resolvedModalTitle}`"
       :loading="loading"
       @confirm="handleSubmit"
       @cancel="handleCloseModal"
@@ -149,14 +112,14 @@
 
 <script setup>
 const props = defineProps({
-  entidad: { type: Object, default: null },
+  config: { type: Object, default: null },
   data: { type: Array, default: null },
   dataKey: { type: String, default: '' },
   columns: { type: Array, required: true },
-  emptyState: { type: String, default: 'No se encontraron resultados' },
+  emptyState: { type: String, default: '' },
   showEdit: { type: Boolean, default: true },
   showDelete: { type: Boolean, default: true },
-  modalTitle: { type: String, default: 'Registro' },
+  modalTitle: { type: String, default: '' },
   search: { type: String, default: '' },
   searchFields: { type: Array, default: () => [] },
   query: { type: Object, default: () => ({}) },
@@ -164,7 +127,6 @@ const props = defineProps({
   pagination: { type: Boolean, default: true },
   defaultLimit: { type: Number, default: 10 },
   formRef: { type: Object, default: null },
-  submitFields: { type: Array, default: null },
   loadingProp: { type: Boolean, default: false }
 })
 
@@ -172,6 +134,8 @@ const emit = defineEmits(['edit', 'delete', 'success', 'reload'])
 const form = defineModel({ type: Object })
 
 const slots = useSlots()
+
+const resolvedFilterFields = computed(() => props.filterFields)
 
 /**
  * Columnas con cell renderer declarativo (cell: 'currency' | 'activation' | 'boolean').
@@ -190,6 +154,18 @@ const selfTableRef = { refresh: () => refresh() }
 
 const initialForm = ref(null)
 
+const resolvedModalTitle = computed(() => {
+  return props.modalTitle
+    || (props.config?.label ? props.config.label.singular : '')
+    || 'Registro'
+})
+
+const resolvedEmptyState = computed(() => {
+  return props.emptyState
+    || (props.config?.label ? `No se encontraron ${props.config.label.plural.toLowerCase()}` : '')
+    || 'No se encontraron resultados'
+})
+
 onMounted(() => {
   if (form.value != null) {
     initialForm.value = JSON.parse(JSON.stringify(form.value))
@@ -198,33 +174,14 @@ onMounted(() => {
 
 const showFilters = ref(false)
 
-const filters = reactive(
-  Object.fromEntries(props.filterFields.map(f => [f.key, '']))
-)
-
-const activeFilters = computed(() =>
-  Object.fromEntries(
-    Object.entries(filters).filter(([, v]) => v != null && v !== '')
-  )
-)
-
-const activeFiltersCount = computed(() => Object.keys(activeFilters.value).length)
-
-function limpiarFiltros() {
-  Object.keys(filters).forEach(k => filters[k] = '')
-  page.value = 1
-}
-
-watch(activeFilters, () => {
-  page.value = 1
-}, { deep: true })
+const activeFilters = ref({})
 
 const isExternalData = computed(() => props.data !== null)
 
 const internalPage = ref(1)
 const internalPageCount = ref(props.defaultLimit)
 
-const repoTable = !isExternalData.value ? useTableData(props) : null
+const repoTable = !isExternalData.value ? useTableData(props, activeFilters) : null
 
 const page = computed({
   get: () => (repoTable ? repoTable.page.value : internalPage.value),
@@ -242,24 +199,9 @@ const pageCount = computed({
   }
 })
 
-function aplicarFiltros(items) {
-  const af = activeFilters.value
-  if (!Object.keys(af).length) return items
-  return items.filter(item =>
-    Object.entries(af).every(([key, value]) =>
-      String(item[key] ?? '').toLowerCase().includes(String(value).toLowerCase())
-    )
-  )
-}
-
 const filteredAll = computed(() => {
-  let items
-  if (isExternalData.value) {
-    items = props.data || []
-  } else {
-    items = repoTable?.filtered.value ?? []
-  }
-  return aplicarFiltros(items)
+  if (isExternalData.value) return props.data || []
+  return repoTable?.filtered.value ?? []
 })
 
 const data = computed(() => {
@@ -340,9 +282,12 @@ defineExpose({
   },
   refresh,
   data,
-  filters,
+  filters: activeFilters,
   showFilters,
-  limpiarFiltros
+  limpiarFiltros: () => {
+    activeFilters.value = {}
+    page.value = 1
+  }
 })
 
 defineOptions({ inheritAttrs: false })

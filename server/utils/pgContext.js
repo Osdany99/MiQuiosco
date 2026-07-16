@@ -1,14 +1,4 @@
-/**
- * server/utils/pgContext.js — Capa de bajo nivel sobre Postgres (Drizzle) agnóstica de tabla.
- *
- * Devuelve un objeto con la misma forma que el ctx offline (insert/update/get/queryAll),
- * para que `entity.customMutations` pueda ser compartido entre los dos backends.
- *
- * A diferencia del ctx offline, NO filtra por columnas (Drizzle ya garantiza el shape
- * correcto del INSERT/UPDATE a partir del schema) y devuelve las filas materializadas
- * (con id y timestamps si los define la tabla).
- */
-import { eq } from 'drizzle-orm'
+import { eq, getTableName, getTableColumns } from 'drizzle-orm'
 
 /**
  * makePgCtx(db, schema) → { insert, update, get, queryAll, queryWhere }
@@ -26,38 +16,74 @@ export function makePgCtx(db, schema) {
     return table
   }
 
+  const tsKeyCache = new Map()
+
+  function esTimestamp(col) {
+    const name = (col?.constructor?.name || '').toLowerCase()
+    return name.includes('timestamp')
+  }
+
+  function getTableNameOrFallback(table) {
+    try {
+      return getTableName(table)
+    } catch {
+      return ''
+    }
+  }
+
+  function getTimestampKeys(table) {
+    let columns
+    try {
+      columns = getTableColumns(table)
+    } catch {
+      columns = null
+    }
+    if (!columns) {
+      console.warn('[pgContext] getTableColumns sin columns:', table?.constructor?.name)
+      return new Set()
+    }
+    const key = getTableNameOrFallback(table)
+    if (key && tsKeyCache.has(key)) return tsKeyCache.get(key)
+    const keys = new Set()
+    for (const [name, col] of Object.entries(columns)) {
+      if (esTimestamp(col)) keys.add(name)
+    }
+    if (key) tsKeyCache.set(key, keys)
+    return keys
+  }
+
+  function coerceTimestamps(table, data) {
+    const tsKeys = getTimestampKeys(table)
+    if (tsKeys.size === 0) return data
+    const out = { ...data }
+    for (const key of tsKeys) {
+      const v = out[key]
+      if (v == null) continue
+      if (typeof v === 'number') out[key] = new Date(v)
+      else if (typeof v === 'string') out[key] = new Date(v)
+    }
+    return out
+  }
+
   return {
-    /**
-     * Inserta una fila. Devuelve la fila materializada (con id generado por la DB).
-     * `data` viene en camelCase; Drizzle lo traduce a columnas reales.
-     */
     async insert(t, data) {
-      const [row] = await db.insert(tbl(t)).values(data).returning()
+      const [row] = await db.insert(tbl(t)).values(coerceTimestamps(tbl(t), data)).returning()
       return row
     },
 
-    /** Actualiza por id. `cambios` en camelCase. No devuelve nada. */
     async update(t, id, cambios) {
-      await db.update(tbl(t)).set(cambios).where(eq(tbl(t).id, id))
+      await db.update(tbl(t)).set(coerceTimestamps(tbl(t), cambios)).where(eq(tbl(t).id, id))
     },
 
-    /** Devuelve una fila por id o null. */
     async get(t, id) {
       const [row] = await db.select().from(tbl(t)).where(eq(tbl(t).id, id)).limit(1)
       return row ?? null
     },
 
-    /** Devuelve todas las filas de la tabla. */
     async queryAll(t) {
       return await db.select().from(tbl(t))
     },
 
-    /**
-     * Query con WHERE arbitrario. Stub mantenido por simetría con el ctx offline:
-     * en Postgres se prefiere componer la query con Drizzle directamente desde
-     * el `listFilter` del override.
-     * @returns {Promise<Array>}
-     */
     async queryWhere(t) {
       return await db.select().from(tbl(t))
     }

@@ -17,6 +17,10 @@ export function esErrorDeRed(err) {
   return false
 }
 
+export function setInitialBaseUrl(url) {
+  if (cachedBase === undefined) cachedBase = url || null
+}
+
 export async function getApiBaseUrl() {
   if (cachedBase !== undefined) return cachedBase
 
@@ -28,10 +32,6 @@ export async function getApiBaseUrl() {
         return cachedBase
       }
     } catch { /* fall through to env default */ }
-
-    const config = useRuntimeConfig()
-    cachedBase = config.public.syncServerUrl || null
-    return cachedBase
   }
   cachedBase = null
   return cachedBase

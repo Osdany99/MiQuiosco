@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, cuentasFiadoItems, pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-import { createCuentaFiadoSchema } from '#shared/schemas'
+import { createCuentaFiadoSchema } from '#shared/schemas/createCuentaFiado'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -26,8 +26,8 @@ export default defineEventHandler(async (event) => {
         puestoId: auth.usuario.puestoId,
         clienteId,
         cuadreOrigenId,
-        montoTotal: String(montoTotal),
-        montoPagado: String(montoPagadoInicial),
+        montoTotal,
+        montoPagado: montoPagadoInicial,
         estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= montoTotal ? 'pagada' : 'parcial'
       })
       .returning()
@@ -37,9 +37,9 @@ export default defineEventHandler(async (event) => {
       await tx.insert(cuentasFiadoItems).values({
         cuentaFiadoId: c.id,
         productoId: it.productoId,
-        cantidad: String(it.cantidad),
-        precioVentaUsado: String(it.precioVentaUsado),
-        subtotal: String(it.cantidad * it.precioVentaUsado)
+        cantidad: it.cantidad,
+        precioVentaUsado: it.precioVentaUsado,
+        subtotal: it.cantidad * it.precioVentaUsado
       })
     }
 
@@ -47,12 +47,12 @@ export default defineEventHandler(async (event) => {
       await tx.insert(pagosFiado).values({
         cuentaFiadoId: c.id,
         cuadreId: cuadreOrigenId,
-        monto: String(montoPagadoInicial),
+        monto: montoPagadoInicial,
         formaPago: formaPagoInicial
       })
       await tx
         .update(cuadres)
-        .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${String(montoPagadoInicial)}` })
+        .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${montoPagadoInicial}` })
         .where(eq(cuadres.id, cuadreOrigenId))
     }
 
@@ -64,8 +64,8 @@ export default defineEventHandler(async (event) => {
     id: r.id,
     clienteId: r.clienteId,
     cuadreOrigenId: r.cuadreOrigenId,
-    montoTotal: Number(r.montoTotal),
-    montoPagado: Number(r.montoPagado),
+    montoTotal: r.montoTotal,
+    montoPagado: r.montoPagado,
     estado: r.estado,
     creadoEn: r.creadoEn.toISOString(),
     actualizadoEn: r.actualizadoEn.toISOString()

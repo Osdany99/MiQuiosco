@@ -1,22 +1,18 @@
 import { refDebounced } from '@vueuse/core'
 
 /**
- * useTableData - Gestión de datos de tabla.
- *
- * Acepta un objeto entity (de shared/entities) en props.entidad.
- * Resuelve la fuente según el modo de conexión:
- * - 'local'  → useLocalRepo (SQLite, búsqueda/filtros/paginación cliente)
- * - 'online' → useRemoteRepo (REST API, búsqueda/filtros/paginación cliente)
+ * useTableData - Gestión de datos de tabla con filtrado server-side.
  *
  * @param {Object} props
- * @param {Object} [props.entidad] — entity de shared/entities (preferido)
+ * @param {Object} [props.config] — { tabla, endpoints }
  * @param {number} [props.defaultLimit=20]
- * @param {Object} [props.query={}] — filtros { campo: valor }
+ * @param {Object} [props.query={}]
  * @param {boolean} [props.pagination=true]
- * @param {Ref|ComputedRef} [props.search] — búsqueda reactiva (debounced 500ms)
+ * @param {Ref|ComputedRef} [props.search]
+ * @param {Ref} filters
  */
-export function useTableData(props) {
-  if (!props.entidad) {
+export function useTableData(props, filters = ref({})) {
+  if (!props.config) {
     return {
       page: ref(1),
       pageCount: ref(props.defaultLimit),
@@ -24,10 +20,11 @@ export function useTableData(props) {
       total: ref(0),
       pending: ref(false),
       fetchError: ref(null),
-      refresh: () => {}
+      refresh: () => {},
+      filtered: ref([])
     }
   }
-  const repo = useRepo(props.entidad)
+  const repo = useRepo(props.config)
 
   const page = ref(1)
   const pageCount = ref(props.defaultLimit)
@@ -41,7 +38,9 @@ export function useTableData(props) {
     pending.value = true
     fetchError.value = null
     try {
-      allData.value = await repo.readAll()
+      const query = { ...props.query, ...filters.value }
+      const result = await repo.readAll({ query })
+      allData.value = Array.isArray(result) ? result : (result?.data ?? [])
     } catch (err) {
       fetchError.value = err
       allData.value = []
@@ -50,17 +49,8 @@ export function useTableData(props) {
     }
   }
 
-  // Filtrado + búsqueda
   const filtered = computed(() => {
     let items = allData.value
-
-    if (props.query) {
-      Object.entries(props.query).forEach(([key, value]) => {
-        if (value != null && value !== '' && value !== 'all') {
-          items = items.filter(item => item[key] === value)
-        }
-      })
-    }
 
     if (debouncedSearch.value) {
       const q = debouncedSearch.value.toLowerCase()
@@ -76,7 +66,6 @@ export function useTableData(props) {
     return items
   })
 
-  // Paginación cliente
   const data = computed(() => {
     if (!props.pagination) return filtered.value
     const start = (page.value - 1) * pageCount.value
@@ -88,8 +77,15 @@ export function useTableData(props) {
   watch(debouncedSearch, () => {
     page.value = 1
   })
+
+  watch(filters, () => {
+    page.value = 1
+    fetchAll()
+  }, { deep: true })
+
   watch(() => props.query, () => {
     page.value = 1
+    fetchAll()
   }, { deep: true })
 
   if (import.meta.client) fetchAll()

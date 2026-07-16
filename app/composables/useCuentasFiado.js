@@ -1,9 +1,14 @@
-import { cliente, cuentaFiado, cuentaFiadoItem, pagoFiado } from '~~/shared/entities'
+import { TABLES } from '~/config/tables'
+
+const clienteConfig = TABLES.clientes
+const cuentaFiadoConfig = TABLES.cuentas_fiado
+const cuentaFiadoItemConfig = TABLES.cuentas_fiado_items
+const pagoFiadoConfig = TABLES.pagos_fiado
 
 /**
  * useCuentasFiado - Composable de dominio para gestión de cuentas de fiado.
  *
- * Compone repos de varias entities (cliente, cuentaFiado, cuentaFiadoItem, pagoFiado)
+ * Compone repos de varias entities (clienteConfig, cuentaFiadoConfig, cuentaFiadoItemConfig, pagoFiadoConfig)
  * con lógica de negocio (cobro de deuda, registro de nueva deuda).
  *
  * Estas entities tienen `omit` en el server online (endpoints custom en
@@ -13,10 +18,10 @@ import { cliente, cuentaFiado, cuentaFiadoItem, pagoFiado } from '~~/shared/enti
  */
 export function useCuentasFiado() {
   const toast = useToast()
-  const clientesRepo = useLocalRepo(cliente)
-  const cuentasRepo = useLocalRepo(cuentaFiado)
-  const itemsRepo = useLocalRepo(cuentaFiadoItem)
-  const pagosRepo = useLocalRepo(pagoFiado)
+  const clientesRepo = useLocalRepo(clienteConfig)
+  const cuentasRepo = useLocalRepo(cuentaFiadoConfig)
+  const itemsRepo = useLocalRepo(cuentaFiadoItemConfig)
+  const pagosRepo = useLocalRepo(pagoFiadoConfig)
 
   const clientes = ref([])
   const cuentasDelCuadre = ref([])

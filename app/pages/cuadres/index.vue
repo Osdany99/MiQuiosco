@@ -1,4 +1,6 @@
 <script setup>
+import { cuadres as config } from '~/config/tables'
+
 definePageMeta({
   middleware: ['jefe']
 })
@@ -20,14 +22,6 @@ const columns = [
   { accessorKey: 'action', header: 'Acciones' }
 ]
 
-const filterFields = [
-  { key: 'estado', label: 'Estado', type: 'select', options: [
-    { label: 'Todos', value: '' },
-    { label: 'Abierto', value: 'abierto' },
-    { label: 'Cerrado', value: 'cerrado' }
-  ] }
-]
-
 function abrirDetalle(row) {
   navigateTo(`/cuadres/${row.id}`)
 }
@@ -35,15 +29,13 @@ function abrirDetalle(row) {
 
 <template>
   <BaseHeaderPage
-    title="Cuadres"
+    :title="config.label.plural"
     description="Historial de cuadres del puesto"
   >
     <BaseTable
       ref="tableRef"
-      entidad="cuadres"
+      :config="config"
       :columns="columns"
-      :filter-fields="filterFields"
-      empty-state="No se encontraron cuadres"
       :show-edit="false"
       :show-delete="false"
       :pagination="true"

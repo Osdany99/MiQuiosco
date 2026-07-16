@@ -1,15 +1,9 @@
 import { $api } from '../utils/api'
 
 /**
- * useRemoteRepo(entity) — Repositorio contra REST API.
+ * useRemoteRepo(config) — Repositorio contra REST API.
  *
- * Deriva los endpoints desde la entity. Mismo contrato que useLocalRepo:
- *   { create, read, readAll, update, remove, patch }
- *
- * Normaliza timestamps ISO a epoch para mantener compatibilidad
- * con consumidores (useTableData).
- *
- * @param {Object} entity — entity de shared/entities
+ * @param {Object} config — { endpoints: { list, byId } }
  */
 function isoToEpoch(v) {
   if (v == null) return null
@@ -17,12 +11,17 @@ function isoToEpoch(v) {
   return Number.isNaN(n) ? null : n
 }
 
-export function useRemoteRepo(entity) {
-  if (!entity?.endpoints) {
-    throw new Error(`useRemoteRepo: entity inválida (sin endpoints)`)
+export function useRemoteRepo(config) {
+  if (!config?.endpoints) {
+    throw new Error('useRemoteRepo: se requiere config.endpoints')
   }
-  const { getHeaders } = useHeaders()
-  const base = entity.endpoints
+  const auth = useAuth()
+  const base = config.endpoints
+
+  function getHeaders() {
+    const token = auth.jwtSync.value
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
 
   async function crear(payload) {
     const data = await $api(base.list, {
@@ -38,10 +37,19 @@ export function useRemoteRepo(entity) {
     return normalizar(data)
   }
 
-  async function leerTodos() {
-    const list = await $api(base.list, { headers: getHeaders() })
+  async function leerTodos(opts) {
+    let url = base.list
+    if (opts?.query && Object.keys(opts.query).length) {
+      const params = new URLSearchParams()
+      for (const [k, v] of Object.entries(opts.query)) {
+        if (v != null && v !== '') params.set(k, String(v))
+      }
+      const qs = params.toString()
+      if (qs) url = `${url}?${qs}`
+    }
+    const list = await $api(url, { headers: getHeaders() })
     if (!Array.isArray(list)) {
-      console.warn(`useRemoteRepo(${entity?.key ?? '?'}): se esperaba array en GET ${base.list}, recibido ${typeof list}`)
+      console.warn(`useRemoteRepo(${config?.tabla ?? '?'}): se esperaba array en GET ${base.list}, recibido ${typeof list}`)
       return []
     }
     return list.map(normalizar)
@@ -49,7 +57,7 @@ export function useRemoteRepo(entity) {
 
   async function actualizar(id, cambios) {
     const data = await $api(base.byId(id), {
-      method: 'PUT',
+      method: 'PATCH',
       body: cambios,
       headers: getHeaders()
     })

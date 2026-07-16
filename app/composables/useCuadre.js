@@ -1,5 +1,10 @@
-import { cuadre as cuadreEntity, cuadreItem, producto as productoEntity, usuario as usuarioEntity } from '~~/shared/entities'
 import { useDb } from '../server-offline/db/client'
+import { TABLES } from '~/config/tables'
+
+const cuadreConfig = TABLES.cuadres
+const cuadreItemConfig = TABLES.cuadre_items
+const productoConfig = TABLES.productos
+const usuarioConfig = TABLES.usuarios
 
 function normalizarCuadre(c) {
   if (!c) return c
@@ -46,9 +51,9 @@ export function useCuadre() {
   const conexion = useModoConexion()
   const toast = useToast()
 
-  const cuadreRepo = useRepo(cuadreEntity)
-  const itemsRepo = useRepo(cuadreItem)
-  const usuariosRepo = useRepo(usuarioEntity)
+  const cuadreRepo = useRepo(cuadreConfig)
+  const itemsRepo = useRepo(cuadreItemConfig)
+  const usuariosRepo = useRepo(usuarioConfig)
 
   const cuadre = useState('cuadre-cuadre', () => null)
   const lineas = useState('cuadre-lineas', () => [])
@@ -119,7 +124,7 @@ export function useCuadre() {
       // Carga de productos: en online usamos el repo remoto; en local usamos
       // getProductosActivos() que filtra directamente en SQLite por puestoId.
       if (modo === 'online') {
-        const allProds = await useRemoteRepo(productoEntity).readAll()
+        const allProds = await useRemoteRepo(productoConfig).readAll()
         productosActivos.value = allProds
           .filter(p => p.activo)
           .map(p => ({
@@ -181,7 +186,8 @@ export function useCuadre() {
   }
 
   async function buscarCuadreActual(puestoId, repo) {
-    const todos = await repo.readAll()
+    const { data: todos } = await repo.readAll()
+    if (!Array.isArray(todos)) return null
     const encontrado = todos.find((c) => {
       const n = normalizarCuadre(c)
       return n.puestoId === puestoId && n.fecha === hoy
@@ -190,7 +196,11 @@ export function useCuadre() {
   }
 
   async function cargarLineasDeCuadre(cuadreId, repo) {
-    const items = await repo.readAll()
+    const { data: items } = await repo.readAll()
+    if (!Array.isArray(items)) {
+      lineas.value = []
+      return
+    }
     const itemsFiltrados = items.filter((i) => {
       const n = normalizarLinea(i)
       return n.cuadreId === cuadreId
@@ -246,7 +256,7 @@ export function useCuadre() {
       }
       console.warn('crearCuadreNuevo: fallo en repo activo, intentando con localRepo', err?.message)
       try {
-        const localRepo = useLocalRepo(cuadreEntity)
+        const localRepo = useLocalRepo(cuadreConfig)
         await localRepo.create(cuadreObj)
       } catch (err2) {
         console.error('crearCuadreNuevo: también falló en localRepo', err2)

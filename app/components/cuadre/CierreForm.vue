@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { usuario } from '~~/shared/entities'
+const usuarioConfig = { tabla: 'usuarios', endpoints: { list: '/api/usuarios', byId: id => `/api/usuarios/${id}` }, puestoScoped: true }
 
 const {
   totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
@@ -107,7 +107,7 @@ const {
   salarioCalculado, diferencia, tipoDiferencia
 } = useCuadre()
 
-const repo = useRepo(usuario)
+const repo = useRepo(usuarioConfig)
 const trabajadores = ref([])
 const salarioBase = computed(() => {
   if (!trabajadorTurnoId.value) return 0
@@ -116,8 +116,10 @@ const salarioBase = computed(() => {
 })
 
 onMounted(async () => {
-  const users = await repo.readAll()
-  trabajadores.value = users.filter(u => u.rol === 'trabajador')
+  const { data: users } = await repo.readAll()
+  if (Array.isArray(users)) {
+    trabajadores.value = users.filter(u => u.rol === 'trabajador')
+  }
 })
 
 defineProps({

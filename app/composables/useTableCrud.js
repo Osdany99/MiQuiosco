@@ -1,20 +1,14 @@
+import { toastMsg } from '~/utils/toast'
+
 /**
- * useTableCrud - Composable para gestión de modales CRUD (crear/editar/eliminar) en tablas.
- * Maneja estado de modales, validación de formularios y llamadas a API vía useRepoAction.
+ * useTableCrud - Composable para gestión de modales CRUD.
  *
- * @param {Object} props - Props del componente padre (BaseTable).
- * @param {Object} [props.entidad] - Entity de shared/entities (preferido).
- * @param {number} [props.defaultLimit] - Límite por defecto de paginación.
- * @param {Object} [props.query={}] - Filtros adicionales para queries.
- * @param {boolean} [props.pagination=true] - Si usar paginación server-side.
- * @param {string} [props.dataKey] - Clave de datos en respuesta paginada.
- * @param {Ref} [props.formRef] - Referencia a componente de formulario (para validación).
- * @param {Function} emit - Función emit del componente padre.
- * @param {Ref} form - Modelo reactivo del formulario (defineModel / v-model).
- * @param {Function} refresh - Función refresh de useTableData para recargar tabla.
+ * @param {Object} props
+ * @param {Object} [props.config] — { tabla, endpoints }
  */
 export function useTableCrud(props, emit, form, refresh) {
-  // --- Estado de modales ---
+  const toast = useToast()
+  const label = props.config?.label
   const isOpen = ref(false)
   const isEditing = ref(false)
   const isDeleteOpen = ref(false)
@@ -25,7 +19,6 @@ export function useTableCrud(props, emit, form, refresh) {
     isEditing.value = false
   }
 
-  // --- Handlers de tabla ---
   const handleEdit = (row) => {
     form.value = JSON.parse(JSON.stringify(row))
     isEditing.value = true
@@ -38,14 +31,8 @@ export function useTableCrud(props, emit, form, refresh) {
     isDeleteOpen.value = true
   }
 
-  /**
-   * Acciones de repo. Sólo se crean si la tabla está ligada a una entity
-   * (props.entidad). Las tablas de datos externos (p.ej. CuadreLineaTable, que
-   * pasa :data y desactiva edición/borrado) no tienen entity: en ese caso se
-   * devuelven stubs no-op para no llamar a useRepo(null), que lanzaría.
-   */
   function accionesRepo() {
-    if (props.entidad) return useRepoAction(props.entidad, { toast: false })
+    if (props.config) return useRepo(props.config)
     const stub = () => Promise.resolve({ data: null, error: null })
     stub.onSuccess = () => () => {}
     return {
@@ -102,22 +89,19 @@ export function useTableCrud(props, emit, form, refresh) {
           await formInstance.validate()
         }
       } catch {
+        toast.add({ title: label ? `Corrige los errores en el formulario de ${label.singular}` : 'Corrige los errores en el formulario', color: 'warning' })
         return
       }
     }
 
     successMessage.value = isEditing.value
-      ? 'Actualizado correctamente'
-      : 'Creado correctamente'
+      ? (label ? toastMsg('updated', label) : 'Actualizado correctamente')
+      : (label ? toastMsg('created', label) : 'Creado correctamente')
 
     const body = Object.fromEntries(
-      Object.entries(form.value).filter(([k]) => k !== 'id' && (!props.submitFields || props.submitFields.includes(k)))
+      Object.entries(form.value).filter(([k]) => k !== 'id')
     )
-    const error = updateOrAdd(body)
-
-    if (!error) {
-      handleCloseModal()
-    }
+    await updateOrAdd(body)
   }
 
   return {

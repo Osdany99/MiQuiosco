@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
   return rows.map(r => ({
     id: r.id,
     nombre: r.nombre,
-    precio_venta_actual: Number(r.precioVentaActual),
+    precio_venta_actual: r.precioVentaActual,
     orden: r.orden
   }))
 })

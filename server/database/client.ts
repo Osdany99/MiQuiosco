@@ -53,13 +53,13 @@ export async function closeDb(): Promise<void> {
  * Mapa de tablas Drizzle indexado por su nombre físico (snake_case).
  *
  * El schema exporta las tablas con nombres JS en camelCase (p.ej. `cuadreItems`),
- * pero las entities de `shared/entities` referencian la tabla por su nombre físico
- * (`cuadre_items`). Este mapa permite resolver `schema[entity.tabla]` y los
+ * pero los config objects referencian la tabla por su nombre físico
+ * (`cuadre_items`). Este mapa permite resolver `schemaByTabla[tabla]` y los
  * `customMutations` (que usan nombres físicos como `historial_precios`) de forma
  * consistente. Se deriva automáticamente, así que añadir una tabla nueva no
  * requiere tocar este archivo.
  */
-export const schemaByTabla: Record<string, unknown> = {}
+export const schemaByTabla: Record<string, Table> = {}
 for (const value of Object.values(schema)) {
   if (is(value, Table)) {
     schemaByTabla[getTableName(value)] = value

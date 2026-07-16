@@ -49,9 +49,9 @@ export default defineEventHandler(async (event) => {
     clienteId: r.clienteId,
     nombreCliente: r.nombreCliente,
     cuadreOrigenId: r.cuadreOrigenId,
-    montoTotal: Number(r.montoTotal),
-    montoPagado: Number(r.montoPagado),
-    saldoPendiente: Number(r.montoTotal) - Number(r.montoPagado),
+    montoTotal: r.montoTotal,
+    montoPagado: r.montoPagado,
+    saldoPendiente: r.montoTotal - r.montoPagado,
     estado: r.estado,
     creadoEn: r.creadoEn.toISOString(),
     actualizadoEn: r.actualizadoEn.toISOString()

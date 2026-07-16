@@ -1,4 +1,6 @@
 <script setup>
+import { pinResetSchema } from '~~/shared/schemas/usuario'
+
 const form = defineModel({
   type: Object,
   default: () => ({})
@@ -22,6 +24,6 @@ defineExpose({
     ref="formRef"
     v-model="form"
     :fields="fields"
-    :schema="schemas.pinReset"
+    :schema="pinResetSchema"
   />
 </template>

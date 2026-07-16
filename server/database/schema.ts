@@ -4,7 +4,7 @@ import {
   text,
   boolean,
   integer,
-  numeric,
+  doublePrecision,
   timestamp,
   date,
   pgEnum,
@@ -58,7 +58,7 @@ export const usuarios = pgTable(
     rol: rolEnum('rol').notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: boolean('activo').notNull().default(true),
-    salario: numeric('salario', { precision: 10, scale: 2 }).notNull().default('600'),
+    salario: doublePrecision('salario').notNull().default(600),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -89,18 +89,12 @@ export const productos = pgTable(
     descripcion: text('descripcion'),
     activo: boolean('activo').notNull().default(true),
     orden: integer('orden').notNull().default(0),
-    precioCompraActual: numeric('precio_compra_actual', {
-      precision: 10,
-      scale: 2
-    })
+    precioCompraActual: doublePrecision('precio_compra_actual')
       .notNull()
-      .default('0'),
-    precioVentaActual: numeric('precio_venta_actual', {
-      precision: 10,
-      scale: 2
-    })
+      .default(0),
+    precioVentaActual: doublePrecision('precio_venta_actual')
       .notNull()
-      .default('0'),
+      .default(0),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -127,9 +121,9 @@ export const historialPrecios = pgTable(
     productoId: uuid('producto_id')
       .notNull()
       .references(() => productos.id, { onDelete: 'cascade' }),
-    precioCompra: numeric('precio_compra', { precision: 10, scale: 2 })
+    precioCompra: doublePrecision('precio_compra')
       .notNull(),
-    precioVenta: numeric('precio_venta', { precision: 10, scale: 2 })
+    precioVenta: doublePrecision('precio_venta')
       .notNull(),
     vigenteDesde: timestamp('vigente_desde', { withTimezone: true })
       .notNull(),
@@ -166,25 +160,19 @@ export const cuadres = pgTable(
     trabajadorTurnoId: uuid('trabajador_turno_id').references(
       () => usuarios.id
     ),
-    pagoTrabajador: numeric('pago_trabajador', { precision: 10, scale: 2 }),
-    totalEsperado: numeric('total_esperado', {
-      precision: 10,
-      scale: 2
-    }).notNull(),
-    totalRealCaja: numeric('total_real_caja', { precision: 10, scale: 2 }),
-    montoTransferencia: numeric('monto_transferencia', {
-      precision: 10,
-      scale: 2
-    })
+    pagoTrabajador: doublePrecision('pago_trabajador'),
+    totalEsperado: doublePrecision('total_esperado').notNull(),
+    totalRealCaja: doublePrecision('total_real_caja'),
+    montoTransferencia: doublePrecision('monto_transferencia')
       .notNull()
-      .default('0'),
-    montoFiado: numeric('monto_fiado', { precision: 10, scale: 2 })
+      .default(0),
+    montoFiado: doublePrecision('monto_fiado')
       .notNull()
-      .default('0'),
-    montoCobradoFiado: numeric('monto_cobrado_fiado', { precision: 10, scale: 2 })
+      .default(0),
+    montoCobradoFiado: doublePrecision('monto_cobrado_fiado')
       .notNull()
-      .default('0'),
-    diferencia: numeric('diferencia', { precision: 10, scale: 2 }),
+      .default(0),
+    diferencia: doublePrecision('diferencia'),
     estado: estadoCuadreEnum('estado').notNull().default('abierto'),
     notas: text('notas'),
     cerradoEn: timestamp('cerrado_en', { withTimezone: true }),
@@ -222,14 +210,11 @@ export const cuadreItems = pgTable(
     productoId: uuid('producto_id')
       .notNull()
       .references(() => productos.id),
-    precioVentaUsado: numeric('precio_venta_usado', {
-      precision: 10,
-      scale: 2
-    }).notNull(),
-    cantidad: numeric('cantidad', { precision: 10, scale: 2 })
+    precioVentaUsado: doublePrecision('precio_venta_usado').notNull(),
+    cantidad: doublePrecision('cantidad')
       .notNull()
-      .default('0'),
-    subtotal: numeric('subtotal', { precision: 10, scale: 2 }).notNull(),
+      .default(0),
+    subtotal: doublePrecision('subtotal').notNull(),
     tipoLinea: tipoLineaEnum('tipo_linea').notNull().default('normal'),
     nota: text('nota'),
     esExtra: boolean('es_extra').notNull().default(false),
@@ -291,10 +276,10 @@ export const cuentasFiado = pgTable(
     cuadreOrigenId: uuid('cuadre_origen_id')
       .notNull()
       .references(() => cuadres.id),
-    montoTotal: numeric('monto_total', { precision: 10, scale: 2 }).notNull(),
-    montoPagado: numeric('monto_pagado', { precision: 10, scale: 2 })
+    montoTotal: doublePrecision('monto_total').notNull(),
+    montoPagado: doublePrecision('monto_pagado')
       .notNull()
-      .default('0'),
+      .default(0),
     estado: estadoCuentaFiadoEnum('estado').notNull().default('pendiente'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
@@ -323,9 +308,9 @@ export const cuentasFiadoItems = pgTable(
     productoId: uuid('producto_id')
       .notNull()
       .references(() => productos.id),
-    cantidad: numeric('cantidad', { precision: 10, scale: 2 }).notNull(),
-    precioVentaUsado: numeric('precio_venta_usado', { precision: 10, scale: 2 }).notNull(),
-    subtotal: numeric('subtotal', { precision: 10, scale: 2 }).notNull(),
+    cantidad: doublePrecision('cantidad').notNull(),
+    precioVentaUsado: doublePrecision('precio_venta_usado').notNull(),
+    subtotal: doublePrecision('subtotal').notNull(),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -350,7 +335,7 @@ export const pagosFiado = pgTable(
     cuadreId: uuid('cuadre_id')
       .notNull()
       .references(() => cuadres.id),
-    monto: numeric('monto', { precision: 10, scale: 2 }).notNull(),
+    monto: doublePrecision('monto').notNull(),
     formaPago: formaPagoFiadoEnum('forma_pago').notNull(),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()

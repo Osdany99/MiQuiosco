@@ -1,21 +1,13 @@
 /**
- * useLocalRepo(entity) — Capa de repositorio local sobre server-offline.
+ * useLocalRepo(config) — Capa de repositorio local sobre server-offline.
  *
- * Si la tabla tiene un módulo dedicado en app/server-offline/api/<tabla>/, lo usa.
- * Si no, cae a un wrapper CRUD genérico sobre useDb().
- *
- * Las escrituras generan id, timestamps y marca sincronizado = 0
- * para que el sync eventual los recoja.
+ * @param {Object} config — { tabla, puestoScoped?, customMutations? }
  */
 import { getModulo } from '../server-offline/index.js'
 import { useDb } from '../server-offline/db/client.js'
 
-/**
- * Construye un CRUD genérico para tablas sin módulo dedicado.
- * Usa customMutations si la entity las declara (ej: producto → historial_precios).
- */
-function crearRepoGenerico(entity) {
-  const tabla = entity.tabla
+function crearRepoGenerico(config) {
+  const tabla = config.tabla
   const auth = useAuth()
   const ahora = () => Date.now()
 
@@ -30,8 +22,8 @@ function crearRepoGenerico(entity) {
   }
 
   async function create(datos) {
-    if (entity.customMutations?.create) {
-      return entity.customMutations.create(ctx(), datos, auth)
+    if (config.customMutations?.create) {
+      return config.customMutations.create(ctx(), datos, auth)
     }
     const db = useDb()
     const registro = {
@@ -52,9 +44,16 @@ function crearRepoGenerico(entity) {
   async function readAll(opts) {
     const db = useDb()
     const all = await db.queryAll(tabla)
-    let rows = entity.puestoScoped
+    let rows = config.puestoScoped
       ? all.filter(r => r.puestoId === auth?.usuarioActual?.value?.puestoId)
       : all
+    if (opts?.query) {
+      for (const [key, value] of Object.entries(opts.query)) {
+        if (value != null && value !== '') {
+          rows = rows.filter(r => String(r[key] ?? '') === String(value))
+        }
+      }
+    }
     if (opts?.orderBy) {
       const dir = opts.orderDir === 'desc' ? -1 : 1
       rows = [...rows].sort((a, b) => {
@@ -67,8 +66,8 @@ function crearRepoGenerico(entity) {
   }
 
   async function update(id, cambios) {
-    if (entity.customMutations?.update) {
-      return entity.customMutations.update(ctx(), id, cambios, auth)
+    if (config.customMutations?.update) {
+      return config.customMutations.update(ctx(), id, cambios, auth)
     }
     return useDb().update(tabla, id, {
       ...cambios,
@@ -84,16 +83,9 @@ function crearRepoGenerico(entity) {
   return { create, read, readAll, update, patch: update, remove }
 }
 
-/** Operaciones CRUD estándar del módulo offline (se mapean a create/read/...). */
 const OPS_ESTANDAR = new Set(['list', 'get', 'create', 'update', 'patch', 'remove'])
 
-/**
- * Construye un repositorio a partir del módulo generado por el factory offline.
- * Pasa auth al create/update/patch/remove (que pueden requerirlo). Además
- * reexpone tal cual cualquier acción custom del módulo (getHistorial, resetPin, …)
- * inyectando auth como último argumento.
- */
-function crearRepoDesdeModulo(entity, modulo) {
+function crearRepoDesdeModulo(config, modulo) {
   const auth = useAuth()
 
   async function call(fn, args) {
@@ -112,7 +104,6 @@ function crearRepoDesdeModulo(entity, modulo) {
     remove: id => call(modulo.remove, [id])
   }
 
-  // Acciones custom (definidas en overrides.actions del factory): getHistorial, resetPin…
   for (const [nombre, fn] of Object.entries(modulo)) {
     if (OPS_ESTANDAR.has(nombre) || typeof fn !== 'function') continue
     repo[nombre] = (...args) => call(fn, args)
@@ -121,12 +112,12 @@ function crearRepoDesdeModulo(entity, modulo) {
   return repo
 }
 
-export function useLocalRepo(entity) {
-  if (!entity?.tabla) {
-    throw new Error('useLocalRepo: se requiere un objeto entity con .tabla')
+export function useLocalRepo(config) {
+  if (!config?.tabla) {
+    throw new Error('useLocalRepo: se requiere config.tabla')
   }
-  const modulo = getModulo(entity.tabla)
+  const modulo = getModulo(config.tabla)
 
-  if (modulo) return crearRepoDesdeModulo(entity, modulo)
-  return crearRepoGenerico(entity)
+  if (modulo) return crearRepoDesdeModulo(config, modulo)
+  return crearRepoGenerico(config)
 }

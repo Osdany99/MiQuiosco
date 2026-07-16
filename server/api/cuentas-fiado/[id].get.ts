@@ -53,9 +53,9 @@ export default defineEventHandler(async (event) => {
     clienteId: cuenta.clienteId,
     nombreCliente: cuenta.nombreCliente,
     cuadreOrigenId: cuenta.cuadreOrigenId,
-    montoTotal: Number(cuenta.montoTotal),
-    montoPagado: Number(cuenta.montoPagado),
-    saldoPendiente: Number(cuenta.montoTotal) - Number(cuenta.montoPagado),
+    montoTotal: cuenta.montoTotal,
+    montoPagado: cuenta.montoPagado,
+    saldoPendiente: cuenta.montoTotal - cuenta.montoPagado,
     estado: cuenta.estado,
     creadoEn: cuenta.creadoEn.toISOString(),
     actualizadoEn: cuenta.actualizadoEn.toISOString(),
@@ -63,13 +63,13 @@ export default defineEventHandler(async (event) => {
       id: i.id,
       productoId: i.productoId,
       nombreProducto: i.nombreProducto,
-      cantidad: Number(i.cantidad),
-      precioVentaUsado: Number(i.precioVentaUsado),
-      subtotal: Number(i.subtotal)
+      cantidad: i.cantidad,
+      precioVentaUsado: i.precioVentaUsado,
+      subtotal: i.subtotal
     })),
     pagos: pagos.map(p => ({
       id: p.id,
-      monto: Number(p.monto),
+      monto: p.monto,
       formaPago: p.formaPago,
       creadoEn: p.creadoEn.toISOString()
     }))

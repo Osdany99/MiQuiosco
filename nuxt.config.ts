@@ -62,6 +62,7 @@ export default defineNuxtConfig({
         'lucide:alert-circle',
         'lucide:upload',
         'lucide:check',
+        'lucide:key',
         'lucide:loader-2'
       ]
     },

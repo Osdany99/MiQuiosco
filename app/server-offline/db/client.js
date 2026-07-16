@@ -8,8 +8,8 @@
  * Las funciones de server-offline/* consumen esta capa.
  */
 import { Capacitor } from '@capacitor/core'
-import { deriveColumnTypes, coerceRow, deriveTableNames } from '../../utils/schemaTypes'
-import { deriveColumnMap, validateColumns } from '../../utils/tablaColumnas'
+import { deriveColumnTypes, coerceRow, deriveTableNames } from '../utils/schemaTypes'
+import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
 import * as schemaSqlite from './schema'
 import ddlGenerado from '../../../drizzle/sqlite/0000_exotic_mentallo.sql?raw'

@@ -1,12 +1,12 @@
 <script setup>
-import { producto } from '~~/shared/entities/producto.js'
+import { calcularGrafica } from '~~/app/utils/graficas'
+
+const productoConfig = { tabla: 'productos', endpoints: { list: '/api/productos', byId: id => `/api/productos/${id}` }, puestoScoped: true }
 
 definePageMeta({
   middleware: ['jefe']
 })
-
-const graficasLocales = useGraficasLocales()
-const productoRepo = useLocalRepo(producto)
+const productoRepo = useLocalRepo(productoConfig)
 
 const graficas = [
   { key: 'productos-mas-vendidos', titulo: 'Productos más vendidos', descripcion: 'Top 10 por cantidad total vendida', icon: 'i-lucide-trending-up' },
@@ -55,7 +55,7 @@ async function cargarGrafica(g) {
   graficaActiva.value = g
   cargando.value = true
   try {
-    datosGrafica.value = await graficasLocales.calcular(g.key, {
+    datosGrafica.value = await calcularGrafica(g.key, {
       desde: fechaDesde.value,
       hasta: fechaHasta.value,
       agrupacion: agrupacion.value,

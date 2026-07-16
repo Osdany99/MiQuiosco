@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { usuarios } from '../../database/schema'
 import { verifyPin, signToken } from '../../utils/auth'
-import { loginSchema } from '#shared/schemas'
+import { loginSchema } from '#shared/schemas/login'
 import type { LoginResponse, Rol } from '#shared/types'
 
 /**

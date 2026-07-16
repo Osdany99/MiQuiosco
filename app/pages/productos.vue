@@ -1,16 +1,39 @@
 <script setup>
-import { producto } from '~~/shared/entities'
+import { productoSchema } from '~~/shared/schemas/producto'
+import { productos as config } from '~/config/tables'
 
 definePageMeta({
   middleware: ['jefe']
 })
 
-const { entity, columns, form, submitFields, tableRef, formRef, modalTitle } = useEntityTable(producto)
+const fields = [
+  { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre del producto', colSpan: 'sm:col-span-2', props: { class: 'w-full', maxlength: 100 } },
+  { name: 'descripcion', label: 'Descripción', type: 'text', required: false, placeholder: 'Descripción opcional', colSpan: 'sm:col-span-2', props: { class: 'w-full' } },
+  { name: 'precioCompraActual', label: 'Precio compra', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
+  { name: 'precioVentaActual', label: 'Precio venta', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
+  { name: 'orden', label: 'Orden', type: 'number', required: false, colSpan: 'sm:col-span-2', props: { class: 'w-full', min: 1, step: 1 } },
+  { name: 'activo', label: 'Activo', type: 'switch', required: true, colSpan: 'sm:col-span-2', props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } }
+]
+
+const columns = [
+  { accessorKey: 'id', header: 'ID', visible: false },
+  { accessorKey: 'orden', header: 'Orden' },
+  { accessorKey: 'nombre', header: 'Producto' },
+  { accessorKey: 'descripcion', header: 'Descripción' },
+  { accessorKey: 'precioCompraActual', header: 'Precio Compra', cell: 'currency' },
+  { accessorKey: 'precioVentaActual', header: 'Precio Venta', cell: 'currency' },
+  { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
+  { accessorKey: 'action', header: 'Acciones' }
+]
+
+const tableRef = ref(null)
+const formRef = ref(null)
+const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true })
 
 const showHistorial = ref(false)
 const historialProducto = ref(null)
 
-const { patch, loading: reorderLoading } = useRepoAction(producto, { toast: false })
+const { patch, loading: reorderLoading } = useRepo(config)
 
 function esPrimero(p) {
   const rows = toValue(tableRef.value?.data) ?? []
@@ -62,24 +85,26 @@ async function moverAbajo(p) {
 
 <template>
   <BaseHeaderPage
-    title="Productos"
+    :title="config.label.plural"
     description="Catálogo de productos del puesto"
-    title-button="Nuevo Producto"
+    :title-button="'Nuevo ' + config.label.singular"
     @new="tableRef.openAdd()"
   >
     <BaseTable
       ref="tableRef"
       v-model="form"
-      :entidad="entity"
+      :config="config"
       :columns="columns"
-      empty-state="No se encontraron productos"
-      :modal-title="modalTitle"
       :form-ref="formRef"
-      :submit-fields="submitFields"
       :pagination="false"
     >
       <template #form>
-        <BaseEntityForm ref="formRef" v-model="form" :entity="entity" />
+        <BaseForm
+          ref="formRef"
+          v-model="form"
+          :fields="fields"
+          :schema="productoSchema"
+        />
       </template>
 
       <template #orden-cell="{ row }">

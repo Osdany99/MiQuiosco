@@ -1,16 +1,17 @@
 import { Preferences } from '@capacitor/preferences'
 import { Network } from '@capacitor/network'
-import { ALL_ENTITIES } from '~~/shared/entities'
+import { $api } from '../utils/api'
+import { API_ROUTES } from '../utils/api-paths'
 import { push as pushOffline, pull as pullOffline } from '../server-offline/api/sync'
+import { TABLES } from '~/config/tables'
+
+const SYNC_TABLES = Object.values(TABLES)
+const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
-const TABLAS_SYNC = ALL_ENTITIES
-  .filter(e => e.sync)
-  .map(e => e.tabla)
 
 export function useSync() {
   const auth = useAuth()
-  const remoteApi = useRemoteApi()
   const toast = useToast()
 
   const sincronizando = ref(false)
@@ -18,8 +19,20 @@ export function useSync() {
   const pendientesCount = ref(0)
   const hayRed = ref(true)
 
+  function getHeaders() {
+    const token = auth.jwtSync.value
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
+  function fetch(path, options = {}) {
+    return $api(path, {
+      ...options,
+      headers: { ...getHeaders(), ...options.headers }
+    })
+  }
+
   function repoDe(tabla) {
-    const entity = ALL_ENTITIES.find(e => e.tabla === tabla)
+    const entity = SYNC_TABLES.find(t => t.tabla === tabla)
     if (!entity) {
       console.warn(`useSync.repoDe: no se encontró entity para tabla "${tabla}"`)
       return null
@@ -49,14 +62,10 @@ export function useSync() {
     }
   }
 
-  /**
-   * Ejecuta solo el pull (sin push). Reutilizado por sincronizarAhora() y
-   * pullServidor(). Asume que los guards (sesión, red, JWT) ya pasaron.
-   */
   async function _ejecutarPull() {
     const desde = ultimaSync.value ?? 0
-    const pullResult = await remoteApi.syncPull(desde)
-    await aplicarPull(pullResult)
+    const pullResult = await fetch(API_ROUTES.syncPull + '?desde=' + desde)
+    await pullOffline(pullResult, {}, null)
 
     const ahora = pullResult.timestamp_servidor ?? Date.now()
     ultimaSync.value = ahora
@@ -99,14 +108,11 @@ export function useSync() {
 
     sincronizando.value = true
     try {
-      const pendientes = await reunirPendientes()
+      const pendientes = await pushOffline({}, null)
 
-      const pushResult = await remoteApi.syncPush(pendientes)
+      const pushResult = await fetch(API_ROUTES.syncPush, { method: 'POST', body: pendientes })
 
-      // pushResult.aceptados — flat string[] de IDs aceptados
       await marcarAceptados(pushResult.aceptados, pendientes)
-
-      // pushResult.conflictos — { productos: [], historial_precios: [], ... }
       await absorberConflictos(pushResult.conflictos)
 
       const pullResult = await _ejecutarPull()
@@ -134,16 +140,10 @@ export function useSync() {
       return false
     } finally {
       sincronizando.value = false
-      // Recalculamos pendientes frescos tras el sync (los anteriores ya fueron enviados y marcados)
       await actualizarPendientesCount()
     }
   }
 
-  /**
-   * Solo pull (sin push), con toasts opcionales.
-   * Útil para triggers automáticos post-login o post-cambio-de-PIN donde
-   * solo se necesita hidratar el caché local, no subir datos.
-   */
   async function pullServidor({ silent = false } = {}) {
     if (!auth.sesionLocalVigente()) {
       if (!silent) {
@@ -199,10 +199,6 @@ export function useSync() {
     }
   }
 
-  async function reunirPendientes() {
-    return pushOffline({}, null)
-  }
-
   async function marcarAceptados(aceptados, pendientes) {
     if (!aceptados?.length) return
     const idsSet = new Set(aceptados)
@@ -233,18 +229,14 @@ export function useSync() {
         try {
           await repo.update(reg.id, { ...reg, sincronizado: 1 })
         } catch {
-        // eliminar error eslint
+          // eliminar error eslint
         }
       }
     }
   }
 
-  async function aplicarPull(pullResult) {
-    return pullOffline(pullResult, {}, null)
-  }
-
   async function actualizarPendientesCount(pendientesYaCalculados = null) {
-    const pendientes = pendientesYaCalculados ?? (await reunirPendientes())
+    const pendientes = pendientesYaCalculados ?? (await pushOffline({}, null))
     pendientesCount.value = TABLAS_SYNC.reduce(
       (s, t) => s + (pendientes[t]?.length ?? 0),
       0
@@ -253,8 +245,20 @@ export function useSync() {
 
   async function descargarCatalogo() {
     try {
-      const data = await remoteApi.getProductosActivos()
-      await guardarProductosCache(data)
+      const data = await fetch(API_ROUTES.syncProductosActivos)
+      const productoConfig = SYNC_TABLES.find(t => t.tabla === 'productos')
+      const repo = useLocalRepo(productoConfig)
+      const existentes = await repo.readAll()
+
+      for (const prod of data) {
+        const existing = existentes.find(e => e.id === prod.id)
+        if (existing) {
+          await repo.update(prod.id, { ...prod, sincronizado: 1 })
+        } else {
+          await repo.create({ ...prod, sincronizado: 1 })
+        }
+      }
+
       toast.add({
         title: 'Catálogo actualizado',
         description: `${data.length} productos descargados.`,
@@ -269,21 +273,6 @@ export function useSync() {
     }
   }
 
-  async function guardarProductosCache(productos) {
-    const { producto } = await import('~~/shared/entities')
-    const repo = useLocalRepo(producto)
-    const existentes = await repo.readAll()
-
-    for (const prod of productos) {
-      const existing = existentes.find(e => e.id === prod.id)
-      if (existing) {
-        await repo.update(prod.id, { ...prod, sincronizado: 1 })
-      } else {
-        await repo.create({ ...prod, sincronizado: 1 })
-      }
-    }
-  }
-
   return {
     sincronizando: readonly(sincronizando),
     ultimaSync: readonly(ultimaSync),
@@ -292,8 +281,8 @@ export function useSync() {
     cargarEstado,
     sincronizarAhora,
     pullServidor,
+    fetchPull: desde => fetch(API_ROUTES.syncPull + '?desde=' + desde),
     descargarCatalogo,
-    remoteApi,
-    aplicarPull
+    aplicarPull: pullOffline
   }
 }

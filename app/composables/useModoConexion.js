@@ -62,7 +62,7 @@ export function useModoConexion() {
     transicionando.value = true
     try {
       const desde = sync.ultimaSync.value ?? 0
-      const pullResult = await sync.remoteApi.syncPull(desde)
+      const pullResult = await sync.fetchPull(desde)
       await sync.aplicarPull(pullResult)
       modo.value = 'local'
       await Preferences.set({ key: PREF_MODO, value: 'local' })

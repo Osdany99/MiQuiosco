@@ -35,14 +35,14 @@
 </template>
 
 <script setup>
-import { producto as productoEntity } from '~~/shared/entities'
+const productoConfig = { tabla: 'productos', endpoints: { list: '/api/productos', byId: id => `/api/productos/${id}` }, puestoScoped: true }
 
 const props = defineProps({
   producto: { type: Object, default: null }
 })
 
 const isOpen = defineModel({ type: Boolean, default: false })
-const productoRepo = useRepo(productoEntity)
+const productoRepo = useRepo(productoConfig)
 
 const historial = ref([])
 

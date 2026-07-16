@@ -42,6 +42,6 @@ export default defineEventHandler(async (event) => {
 
   return rows.map(r => ({
     periodo: r.periodo,
-    diferencia: Number(r.diferencia)
+    diferencia: r.diferencia
   }))
 })

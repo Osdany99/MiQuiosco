@@ -1,27 +1,9 @@
 /**
- * server-offline/api/_factory.js — createOfflineModule(entity, overrides)
+ * server-offline/api/_factory.js — createOfflineModule(config, overrides)
  *
- * Genera el módulo CRUD offline de una entity: { list, get, create, update,
- * patch, remove, ...actions }. Sustituye a los ~6 archivos por tabla que antes
- * vivían en server-offline/api/<tabla>/.
+ * Genera el módulo CRUD offline: { list, get, create, update, patch, remove, ...actions }.
  *
- * Lógica genérica aplicada a partir de la entity:
- * - defaults: los `default` declarados en entity.fields se aplican al crear.
- * - puestoScoped: inyecta puestoId del auth al crear y filtra por él al listar.
- * - customMutations: si la entity declara create/update custom (lógica pura JS
- *   compartida con el server online, p.ej. historial de precios), se usan.
- * - timestamps + sincronizado: creadoEn/actualizadoEn y sincronizado=0.
- *
- * Particularidades offline-only se pasan por `overrides` (no ensucian la entity,
- * que es compartida con el server online):
- * - requireRole: 'jefe'            → guardia de rol antes de crear/actualizar/borrar
- * - beforeCreate(data, auth)       → transforma el payload antes de insertar (p.ej. hashPin)
- * - beforeUpdate(cambios, auth)    → transforma los cambios antes de actualizar
- * - serialize(row)                 → transforma la fila devuelta (p.ej. ocultar pinHash)
- * - listFilter(opts, row)          → filtro extra al listar (p.ej. por fecha)
- * - actions: { nombre: fn }        → acciones custom (resetPin, getHistorial)
- *
- * @param {Object} entity - entity de shared/entities
+ * @param {Object} config — { tabla, defaults?, puestoScoped?, customMutations? }
  * @param {Object} [overrides]
  * @returns {Object} módulo { list, get, create, update, patch, remove, ...actions }
  */
@@ -32,21 +14,6 @@ import { inyectarPuestoId } from '../utils/inyectarPuestoId'
 const ahora = () => Date.now()
 const identidad = x => x
 
-/** Valores por defecto declarados en los fields de la entity. */
-function defaultsDe(entity) {
-  const out = {}
-  for (const [name, def] of Object.entries(entity.fields)) {
-    if (def.default !== undefined) out[name] = def.default
-  }
-  return out
-}
-
-/**
- * Filtra un objeto dejando sólo las claves que son columnas reales de la tabla
- * (según el schema Drizzle). Evita insertar/actualizar columnas inexistentes:
- * p.ej. `pagos_fiado` y `cuentas_fiado_items` NO tienen `actualizadoEn`, y el
- * INSERT nativo fallaría. Si la tabla no está en el mapa, devuelve el objeto tal cual.
- */
 function pruneToColumns(tabla, obj) {
   const known = COLUMN_MAP?.[tabla]
   if (!known) return obj
@@ -59,12 +26,6 @@ function pruneToColumns(tabla, obj) {
   return out
 }
 
-/**
- * ctx expuesto a customMutations. En offline, insert/update enriquecen la fila
- * con id, timestamps y sincronizado=0, y `insert` devuelve la fila materializada
- * (para que el customMutation pueda usar row.id). Así el customMutation sólo
- * expresa la lógica de negocio (qué filas van a qué tablas), agnóstico del backend.
- */
 function makeCtx() {
   const db = useDb()
   const enrich = (t, data) => pruneToColumns(t, {
@@ -86,9 +47,9 @@ function makeCtx() {
   }
 }
 
-export function createOfflineModule(entity, overrides = {}) {
-  const tabla = entity.tabla
-  const defaults = defaultsDe(entity)
+export function createOfflineModule(config, overrides = {}) {
+  const tabla = config.tabla
+  const defaults = config.defaults ?? {}
   const {
     requireRole,
     beforeCreate = identidad,
@@ -106,7 +67,7 @@ export function createOfflineModule(entity, overrides = {}) {
     const db = useDb()
     const all = await db.queryAll(tabla)
     let rows = all
-    if (entity.puestoScoped) {
+    if (config.puestoScoped) {
       const puestoId = auth?.usuarioActual?.value?.puestoId
       if (!puestoId) return []
       rows = rows.filter(r => r.puestoId === puestoId)
@@ -132,11 +93,11 @@ export function createOfflineModule(entity, overrides = {}) {
   async function create(datos, auth) {
     guard(auth)
     let payload = { ...defaults, ...datos }
-    if (entity.puestoScoped) payload = inyectarPuestoId(payload, auth)
+    if (config.puestoScoped) payload = inyectarPuestoId(payload, auth)
     payload = await beforeCreate(payload, auth)
 
-    if (entity.customMutations?.create) {
-      const row = await entity.customMutations.create(makeCtx(), payload, auth)
+    if (config.customMutations?.create) {
+      const row = await config.customMutations.create(makeCtx(), payload, auth)
       return serialize(row)
     }
 
@@ -156,8 +117,8 @@ export function createOfflineModule(entity, overrides = {}) {
     guard(auth)
     const payload = await beforeUpdate({ ...cambios }, auth)
 
-    if (entity.customMutations?.update) {
-      const row = await entity.customMutations.update(makeCtx(), id, payload, auth)
+    if (config.customMutations?.update) {
+      const row = await config.customMutations.update(makeCtx(), id, payload, auth)
       return serialize(row)
     }
 

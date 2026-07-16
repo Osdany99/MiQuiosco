@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
     id: r.id,
     cuentaFiadoId: r.cuentaFiadoId,
     cuadreId: r.cuadreId,
-    monto: Number(r.monto),
+    monto: r.monto,
     formaPago: r.formaPago,
     creadoEn: r.creadoEn.toISOString()
   } satisfies PagoFiado))
