@@ -1,8 +1,8 @@
 /**
  * server-offline/utils/inyectarPuestoId.js
  *
- * Helper compartido por las operaciones create.js de las 5 tablas
- * que tienen puestoId NOT NULL (usuarios, productos, cuadres, clientes, cuentas_fiado).
+ * Helper compartido por las operaciones create.js de las 4 tablas
+ * que tienen puestoId NOT NULL (usuarios, productos, cuadres, cuentas_fiado).
  *
  * Centraliza la regla "si no me pasan puestoId, tomar el del usuario actual"
  * para que cualquier cambio futuro (multi-puesto, sin puesto, etc.) se haga en un solo lugar.

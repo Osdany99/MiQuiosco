@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { eq, and, getTableColumns, type Table, type Column } from 'drizzle-orm'
+import { eq, and, ilike, asc, desc, getTableColumns, type Table, type Column } from 'drizzle-orm'
 import { db, schemaByTabla } from '../database/client'
 import { makePgCtx } from './pgContext'
 
@@ -115,6 +115,27 @@ function withoutTimestamps(data: Record<string, any>): Record<string, any> {
   return out
 }
 
+function buildFilterFromQuery(query: Record<string, any>, columns: Record<string, Column>) {
+  const conditions: any[] = []
+  for (const [key, value] of Object.entries(query)) {
+    if (value == null || value === '') continue
+    const col = columns[key]
+    if (!col) continue
+    if (col.dataType === 'string') {
+      conditions.push(ilike(col as any, `%${String(value)}%`))
+    } else if (col.dataType === 'number') {
+      conditions.push(eq(col as any, Number(value)))
+    } else if (col.dataType === 'boolean') {
+      conditions.push(eq(col as any, value === 'true' || value === '1'))
+    } else if (col.dataType === 'date') {
+      conditions.push(eq(col as any, new Date(String(value))))
+    } else {
+      conditions.push(eq(col as any, value))
+    }
+  }
+  return conditions.length ? and(...conditions) : undefined
+}
+
 export async function crudList(config: CrudListConfig, opts: CrudListOpts = {}) {
   const { query: queryOpts, auth, listFilter, serialize } = opts
   const table = getTable(config.tabla)
@@ -125,12 +146,27 @@ export async function crudList(config: CrudListConfig, opts: CrudListOpts = {}) 
     where = eq(columns.puestoId as Column, auth.usuario.puestoId)
   }
 
-  if (listFilter && queryOpts) {
-    const extra = await listFilter({ query: queryOpts, auth, table, columns })
+  if (queryOpts) {
+    const genericFilter = buildFilterFromQuery(queryOpts, columns)
+    if (genericFilter) where = where ? and(where, genericFilter) : genericFilter
+  }
+
+  if (listFilter) {
+    const extra = await listFilter({ query: queryOpts ?? {}, auth, table, columns })
     if (extra) where = where ? and(where, extra) : extra
   }
 
-  const rows = await db.select().from(table).where(where)
+  const queryBuilder = db.select().from(table).where(where)
+
+  if (queryOpts?.orderBy && columns[queryOpts.orderBy]) {
+    const orderCol = columns[queryOpts.orderBy] as Column
+    const rows = await queryBuilder.orderBy(
+      queryOpts.orderDir === 'desc' ? desc(orderCol) : asc(orderCol)
+    )
+    return serialize ? rows.map(serialize) : rows
+  }
+
+  const rows = await queryBuilder
   return serialize ? rows.map(serialize) : rows
 }
 

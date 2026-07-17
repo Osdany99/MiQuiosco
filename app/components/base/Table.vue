@@ -4,8 +4,9 @@
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
         <TableToolbarLeft
           v-model="activeFilters"
-          :filter-fields="resolvedFilterFields"
-          :show-filters="resolvedFilterFields.length > 0"
+          :columns="columns"
+          :filter-fields="filterFields"
+          :disable-filters="disableFilters"
           @reload="reload"
         >
           <slot name="toolbar-leading" />
@@ -127,15 +128,14 @@ const props = defineProps({
   pagination: { type: Boolean, default: true },
   defaultLimit: { type: Number, default: 10 },
   formRef: { type: Object, default: null },
-  loadingProp: { type: Boolean, default: false }
+  loadingProp: { type: Boolean, default: false },
+  disableFilters: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['edit', 'delete', 'success', 'reload'])
 const form = defineModel({ type: Object })
 
 const slots = useSlots()
-
-const resolvedFilterFields = computed(() => props.filterFields)
 
 /**
  * Columnas con cell renderer declarativo (cell: 'currency' | 'activation' | 'boolean').
@@ -171,8 +171,6 @@ onMounted(() => {
     initialForm.value = JSON.parse(JSON.stringify(form.value))
   }
 })
-
-const showFilters = ref(false)
 
 const activeFilters = ref({})
 
@@ -283,7 +281,6 @@ defineExpose({
   refresh,
   data,
   filters: activeFilters,
-  showFilters,
   limpiarFiltros: () => {
     activeFilters.value = {}
     page.value = 1

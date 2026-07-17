@@ -6,6 +6,7 @@
     :show-delete="false"
     :loading-prop="cargando"
     :pagination="false"
+    :disable-filters="true"
     @reload="reload"
   >
     <template #toolbar-leading>

@@ -7,7 +7,7 @@ import { pushSyncSchema } from '#shared/schemas/pushSync'
 import type { Table, Column } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireAuth(event, 'sync')
+  await requireAuth(event, 'sync')
 
   const body = await readBody(event)
   const parsed = pushSyncSchema.safeParse(body)

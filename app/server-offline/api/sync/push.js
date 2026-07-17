@@ -7,7 +7,6 @@
 const SYNC_TABLAS = [
   { tabla: 'productos', puestoScoped: true },
   { tabla: 'usuarios', puestoScoped: true },
-  { tabla: 'clientes', puestoScoped: true },
   { tabla: 'cuadres', puestoScoped: true },
   { tabla: 'cuadre_items' },
   { tabla: 'cuentas_fiado', puestoScoped: true },

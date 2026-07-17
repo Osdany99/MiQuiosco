@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { cuentasFiado, cuentasFiadoItems, pagosFiado, clientes, productos } from '../../database/schema'
+import { cuentasFiado, cuentasFiadoItems, pagosFiado, usuarios, productos } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
     .select({
       id: cuentasFiado.id,
       clienteId: cuentasFiado.clienteId,
-      nombreCliente: clientes.nombre,
+      nombreCliente: usuarios.nombre,
       cuadreOrigenId: cuentasFiado.cuadreOrigenId,
       montoTotal: cuentasFiado.montoTotal,
       montoPagado: cuentasFiado.montoPagado,
@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
       actualizadoEn: cuentasFiado.actualizadoEn
     })
     .from(cuentasFiado)
-    .innerJoin(clientes, eq(cuentasFiado.clienteId, clientes.id))
+    .innerJoin(usuarios, eq(cuentasFiado.clienteId, usuarios.id))
     .where(eq(cuentasFiado.id, id))
     .limit(1)
 

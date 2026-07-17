@@ -59,6 +59,13 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     })
   }
 
+  if (usuario.rol === 'cliente') {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Los clientes no pueden iniciar sesión aún. Próximamente habilitado.'
+    })
+  }
+
   const baseResponse = {
     usuario: {
       id: usuario.id,

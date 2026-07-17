@@ -10,7 +10,7 @@ import {
  * Tipos de union como constantes de texto (SQLite no soporta enums nativos).
  * Se aplican con CHECK constraints en la inicialización de la base.
  */
-export const ROLES = ['jefe', 'trabajador'] as const
+export const ROLES = ['jefe', 'trabajador', 'cliente'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
 export const TIPOS_LINEA = ['normal', 'descuento'] as const
 
@@ -40,10 +40,12 @@ export const usuarios = sqliteTable(
     id: text('id').primaryKey(),
     puestoId: text('puesto_id').notNull(),
     nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    notas: text('notas'),
     rol: text('rol', { enum: ROLES }).notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
-    salario: real('salario').notNull().default(600),
+    salario: real('salario'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -205,33 +207,6 @@ export const productosCache = sqliteTable('productos_cache', {
 })
 
 /**
- * Clientes.
- */
-export const clientes = sqliteTable(
-  'clientes',
-  {
-    id: text('id').primaryKey(),
-    puestoId: text('puesto_id').notNull(),
-    nombre: text('nombre').notNull(),
-    telefono: text('telefono'),
-    notas: text('notas'),
-    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
-    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
-      .notNull()
-      .$defaultFn(() => new Date()),
-    sincronizado: integer('sincronizado', { mode: 'boolean' })
-      .notNull()
-      .default(false)
-  },
-  table => ({
-    puestoIdx: index('clientes_puesto_idx').on(table.puestoId)
-  })
-)
-
-/**
  * Cuentas de fiado.
  */
 export const cuentasFiado = sqliteTable(
@@ -319,7 +294,6 @@ export type ProductoSQLite = typeof productos.$inferSelect
 export type CuadreSQLite = typeof cuadres.$inferSelect
 export type CuadreItemSQLite = typeof cuadreItems.$inferSelect
 export type ProductoCache = typeof productosCache.$inferSelect
-export type ClienteSQLite = typeof clientes.$inferSelect
 export type CuentaFiadoSQLite = typeof cuentasFiado.$inferSelect
 export type CuentaFiadoItemSQLite = typeof cuentasFiadoItems.$inferSelect
 export type PagoFiadoSQLite = typeof pagosFiado.$inferSelect

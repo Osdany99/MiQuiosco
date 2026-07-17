@@ -1,24 +1,13 @@
 import { TABLES } from '~/config/tables'
 
-const clienteConfig = TABLES.clientes
+const usuarioConfig = TABLES.usuarios
 const cuentaFiadoConfig = TABLES.cuentas_fiado
 const cuentaFiadoItemConfig = TABLES.cuentas_fiado_items
 const pagoFiadoConfig = TABLES.pagos_fiado
 
-/**
- * useCuentasFiado - Composable de dominio para gestión de cuentas de fiado.
- *
- * Compone repos de varias entities (clienteConfig, cuentaFiadoConfig, cuentaFiadoItemConfig, pagoFiadoConfig)
- * con lógica de negocio (cobro de deuda, registro de nueva deuda).
- *
- * Estas entities tienen `omit` en el server online (endpoints custom en
- * server/api/cuentas-fiado y server/api/pagos-fiado), así que usamos
- * useLocalRepo directamente para evitar llamadas HTTP inválidas que devuelven
- * strings de error en lugar de arrays.
- */
 export function useCuentasFiado() {
   const toast = useToast()
-  const clientesRepo = useLocalRepo(clienteConfig)
+  const usuariosRepo = useLocalRepo(usuarioConfig)
   const cuentasRepo = useLocalRepo(cuentaFiadoConfig)
   const itemsRepo = useLocalRepo(cuentaFiadoItemConfig)
   const pagosRepo = useLocalRepo(pagoFiadoConfig)
@@ -39,7 +28,7 @@ export function useCuentasFiado() {
   )
 
   async function cargarClientes(puestoId) {
-    const todos = await clientesRepo.readAll()
+    const todos = await usuariosRepo.readAll()
     clientes.value = todos.filter(c => c.puestoId === puestoId && c.activo)
   }
 
@@ -51,7 +40,8 @@ export function useCuentasFiado() {
   }
 
   async function crearCliente(nombre, puestoId) {
-    const nuevo = await clientesRepo.create({ puestoId, nombre, activo: true })
+    const pinTemp = String(Math.floor(1000 + Math.random() * 9000))
+    const nuevo = await usuariosRepo.create({ puestoId, nombre, rol: 'cliente', activo: true, pin: pinTemp })
     clientes.value.push(nuevo)
     return nuevo
   }

@@ -63,6 +63,13 @@ export function createOfflineModule(config, overrides = {}) {
     if (requireRole === 'jefe') requireJefe(auth)
   }
 
+  function matchValue(val, filter) {
+    if (filter == null || filter === '') return true
+    const s = String(val ?? '')
+    const f = String(filter)
+    return s.toLowerCase().includes(f.toLowerCase())
+  }
+
   async function list(opts, auth) {
     const db = useDb()
     const all = await db.queryAll(tabla)
@@ -72,12 +79,20 @@ export function createOfflineModule(config, overrides = {}) {
       if (!puestoId) return []
       rows = rows.filter(r => r.puestoId === puestoId)
     }
+    const filterSource = opts?.filter || opts?.query
+    if (filterSource) {
+      for (const [key, value] of Object.entries(filterSource)) {
+        if (value == null || value === '' || key === 'orderBy' || key === 'orderDir') continue
+        rows = rows.filter(r => matchValue(r[key], value))
+      }
+    }
     if (listFilter) rows = rows.filter(r => listFilter(opts ?? {}, r))
-    if (opts?.orderBy) {
-      const dir = opts.orderDir === 'desc' ? -1 : 1
+    const orderBy = opts?.orderBy ?? opts?.query?.orderBy
+    if (orderBy) {
+      const dir = (opts?.orderDir ?? opts?.query?.orderDir) === 'desc' ? -1 : 1
       rows = [...rows].sort((a, b) => {
-        const va = a[opts.orderBy] ?? ''
-        const vb = b[opts.orderBy] ?? ''
+        const va = a[orderBy] ?? ''
+        const vb = b[orderBy] ?? ''
         return typeof va === 'string' ? va.localeCompare(vb) * dir : (va - vb) * dir
       })
     }

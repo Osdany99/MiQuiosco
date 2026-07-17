@@ -3,7 +3,6 @@ import { z } from 'zod'
 const SYNC_TABLES = [
   { tabla: 'productos' },
   { tabla: 'usuarios' },
-  { tabla: 'clientes' },
   { tabla: 'cuadres' },
   { tabla: 'cuadre_items' },
   { tabla: 'cuentas_fiado' },

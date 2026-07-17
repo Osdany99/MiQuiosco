@@ -14,9 +14,11 @@ function serializarUsuario(u) {
   return {
     id: u.id,
     nombre: u.nombre,
+    telefono: u.telefono,
+    notas: u.notas,
     rol: u.rol,
     activo: u.activo,
-    salario: Number(u.salario),
+    salario: u.salario != null ? Number(u.salario) : null,
     puestoId: u.puestoId,
     creadoEn: u.creadoEn,
     actualizadoEn: u.actualizadoEn
@@ -56,10 +58,6 @@ const OFFLINE_CONFIGS = [
         resetPin: (id, datos, auth) => getModulo('usuarios').patch(id, { pin: datos.pin }, auth)
       }
     }
-  },
-  {
-    config: { tabla: 'clientes', defaults: { activo: true }, puestoScoped: true },
-    overrides: {}
   },
   {
     config: { tabla: 'cuadres', defaults: { totalEsperado: 0, montoTransferencia: 0, montoFiado: 0, montoCobradoFiado: 0, estado: 'abierto', reabiertoVeces: 0 }, puestoScoped: true },

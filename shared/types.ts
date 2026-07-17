@@ -6,16 +6,18 @@
  * estructuras sin importar de dónde vienen.
  */
 
-export type Rol = 'jefe' | 'trabajador'
+export type Rol = 'jefe' | 'trabajador' | 'cliente'
 
 export interface Usuario {
   id: string
   puestoId: string
   nombre: string
+  telefono: string | null
+  notas: string | null
   rol: Rol
   pinHash: string
   activo: boolean
-  salario: number
+  salario: number | null
   creadoEn: number | string
   actualizadoEn: number | string
 }
@@ -104,18 +106,6 @@ export interface LoginResponse {
 /**
  * Estructura de los payloads de sincronización jefe ↔ servidor.
  */
-export interface Cliente {
-  id: string
-  puestoId: string
-  nombre: string
-  telefono: string | null
-  notas: string | null
-  activo: boolean
-  creadoEn: number | string
-  actualizadoEn: number | string
-  sincronizado?: boolean
-}
-
 export interface CuentaFiado {
   id: string
   puestoId: string
@@ -157,7 +147,7 @@ export interface PushResponse {
     historial_precios: HistorialPrecio[]
     cuadres: Cuadre[]
     cuadre_items: CuadreItem[]
-    clientes: Cliente[]
+    usuarios: Usuario[]
     cuentas_fiado: CuentaFiado[]
     cuentas_fiado_items: CuentaFiadoItem[]
     pagos_fiado: PagoFiado[]
@@ -170,7 +160,6 @@ export interface PullResponse {
   cuadres: Cuadre[]
   cuadre_items: CuadreItem[]
   usuarios: Usuario[]
-  clientes: Cliente[]
   cuentas_fiado: CuentaFiado[]
   cuentas_fiado_items: CuentaFiadoItem[]
   pagos_fiado: PagoFiado[]

@@ -29,12 +29,12 @@ export function useRepo(config, { toast = true } = {}) {
   const toastNotification = useToast()
   const label = config?.label
 
-  async function ejecutar(fn, args, { title } = {}) {
+  async function ejecutar(fn, args, { title, toast: showToast } = {}) {
     loading.value = true
     error.value = null
     try {
       const result = await fn(...args)
-      if (toast && title) {
+      if ((showToast ?? toast) && title) {
         toastNotification.add({ title, color: 'primary' })
       }
       for (const cb of callbacksExito) cb(result, 'success')
@@ -60,7 +60,7 @@ export function useRepo(config, { toast = true } = {}) {
     },
     create: (datos, opts) => ejecutar(repo.value.create, [datos], { title: opts?.toastTitle ?? (label ? toastMsg('created', label) : 'Creado correctamente') }),
     read: (id, opts) => ejecutar(repo.value.read, [id], { title: opts?.toastTitle ?? (label ? toastMsg('read', label) : 'Registro obtenido correctamente') }),
-    readAll: (opts, callOpts) => ejecutar(repo.value.readAll, [opts ?? {}], { title: callOpts?.toastTitle ?? (label ? toastMsg('readAll', label) : 'Datos cargados correctamente') }),
+    readAll: (opts, callOpts) => ejecutar(repo.value.readAll, [opts ?? {}], { title: callOpts?.toastTitle ?? (label ? toastMsg('readAll', label) : 'Datos cargados correctamente'), toast: callOpts?.toast }),
     update: (id, cambios, opts) => ejecutar(repo.value.update, [id, cambios], { title: opts?.toastTitle ?? (label ? toastMsg('updated', label) : 'Actualizado correctamente') }),
     patch: (id, cambios, opts) => ejecutar(repo.value.patch, [id, cambios], { title: opts?.toastTitle ?? (label ? toastMsg('updated', label) : 'Actualizado correctamente') }),
     remove: (id, opts) => ejecutar(repo.value.remove, [id], { title: opts?.toastTitle ?? (label ? toastMsg('deleted', label) : 'Eliminado correctamente') })

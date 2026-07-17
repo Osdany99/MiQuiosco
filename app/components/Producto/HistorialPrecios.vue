@@ -35,14 +35,14 @@
 </template>
 
 <script setup>
-const productoConfig = { tabla: 'productos', endpoints: { list: '/api/productos', byId: id => `/api/productos/${id}` }, puestoScoped: true }
+import { historial_precios as config } from '~/config/tables'
 
 const props = defineProps({
   producto: { type: Object, default: null }
 })
 
 const isOpen = defineModel({ type: Boolean, default: false })
-const productoRepo = useRepo(productoConfig)
+const repo = useRepo(config)
 
 const historial = ref([])
 
@@ -52,7 +52,10 @@ watch(isOpen, async (open) => {
   if (open && props.producto?.id) {
     pending.value = true
     try {
-      historial.value = await productoRepo.getHistorial(props.producto.id)
+      const { data } = await repo.readAll({
+        query: { productoId: props.producto.id, orderBy: 'vigenteDesde', orderDir: 'desc' }
+      }, { toast: false })
+      historial.value = data ?? []
     } finally {
       pending.value = false
     }

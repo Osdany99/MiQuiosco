@@ -38,18 +38,23 @@ export function useRemoteRepo(config) {
   }
 
   async function leerTodos(opts) {
-    let url = base.list
-    if (opts?.query && Object.keys(opts.query).length) {
-      const params = new URLSearchParams()
-      for (const [k, v] of Object.entries(opts.query)) {
-        if (v != null && v !== '') params.set(k, String(v))
+    let url
+    if (opts?.endpoint) {
+      url = typeof opts.endpoint === 'function' ? opts.endpoint() : opts.endpoint
+    } else {
+      url = base.list
+      if (opts?.query && Object.keys(opts.query).length) {
+        const params = new URLSearchParams()
+        for (const [k, v] of Object.entries(opts.query)) {
+          if (v != null && v !== '') params.set(k, String(v))
+        }
+        const qs = params.toString()
+        if (qs) url = `${url}?${qs}`
       }
-      const qs = params.toString()
-      if (qs) url = `${url}?${qs}`
     }
     const list = await $api(url, { headers: getHeaders() })
     if (!Array.isArray(list)) {
-      console.warn(`useRemoteRepo(${config?.tabla ?? '?'}): se esperaba array en GET ${base.list}, recibido ${typeof list}`)
+      console.warn(`useRemoteRepo(${config?.tabla ?? '?'}): se esperaba array en GET ${url}, recibido ${typeof list}`)
       return []
     }
     return list.map(normalizar)
@@ -82,6 +87,8 @@ export function useRemoteRepo(config) {
     const out = { ...r }
     if ('creadoEn' in out) out.creadoEn = isoToEpoch(out.creadoEn) ?? Date.now()
     if ('actualizadoEn' in out) out.actualizadoEn = isoToEpoch(out.actualizadoEn) ?? Date.now()
+    if ('vigenteDesde' in out) out.vigenteDesde = isoToEpoch(out.vigenteDesde)
+    if ('vigenteHasta' in out) out.vigenteHasta = isoToEpoch(out.vigenteHasta)
     return out
   }
 

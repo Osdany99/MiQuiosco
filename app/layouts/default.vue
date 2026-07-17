@@ -58,11 +58,6 @@ const links = computed(() => {
         to: '/cuadres'
       },
       {
-        label: 'Clientes',
-        icon: 'i-lucide-users',
-        to: '/clientes'
-      },
-      {
         label: 'Productos',
         icon: 'i-lucide-package',
         to: '/productos'

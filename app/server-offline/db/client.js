@@ -95,7 +95,7 @@ function initializeSchemaMemory(mem) {
   const tables = [
     'puestos', 'usuarios', 'productos', 'historial_precios',
     'cuadres', 'cuadre_items', 'productos_cache',
-    'clientes', 'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado'
+    'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado'
   ]
   for (const t of tables) mem.ensureTable(t, '')
 }

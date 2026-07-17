@@ -13,11 +13,6 @@ export const usuarios = {
   label: { singular: 'Usuario', plural: 'Usuarios', gender: 'm' }
 }
 
-export const clientes = {
-  tabla: 'clientes', endpoints: endpoint('clientes'), puestoScoped: true,
-  label: { singular: 'Cliente', plural: 'Clientes', gender: 'm' }
-}
-
 export const cuadres = {
   tabla: 'cuadres', endpoints: endpoint('cuadres'), puestoScoped: true,
   label: { singular: 'Cuadre', plural: 'Cuadres', gender: 'm' }
@@ -49,6 +44,6 @@ export const historial_precios = {
 }
 
 export const TABLES = {
-  productos, usuarios, clientes, cuadres, cuadre_items,
+  productos, usuarios, cuadres, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios
 }

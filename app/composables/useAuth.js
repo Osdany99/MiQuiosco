@@ -191,6 +191,9 @@ export function useAuth() {
       if (resultado.motivo === 'usuario_inactivo') {
         throw new Error('Usuario no activo. Contacta al jefe.')
       }
+      if (resultado.motivo === 'cliente_no_puede_loguearse') {
+        throw new Error('Los clientes no pueden iniciar sesión aún. Próximamente habilitado.')
+      }
       throw new Error('Credenciales inválidas.')
     }
     const usuario = resultado.usuario

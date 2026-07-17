@@ -1,20 +1,20 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { cuentasFiado, clientes } from '../../database/schema'
+import { cuentasFiado, usuarios } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
   await requireRole(event, 'jefe')
   const rows = await db
     .select({
-      clienteId: clientes.id,
-      nombreCliente: clientes.nombre,
+      clienteId: usuarios.id,
+      nombreCliente: usuarios.nombre,
       deudaTotal: sql<number>`sum(${cuentasFiado.montoTotal} - ${cuentasFiado.montoPagado})`
     })
     .from(cuentasFiado)
-    .innerJoin(clientes, eq(cuentasFiado.clienteId, clientes.id))
+    .innerJoin(usuarios, eq(cuentasFiado.clienteId, usuarios.id))
     .where(eq(cuentasFiado.estado, 'pendiente'))
-    .groupBy(clientes.id, clientes.nombre)
+    .groupBy(usuarios.id, usuarios.nombre)
     .orderBy(sql`2 desc`)
   return rows.map(r => ({ clienteId: r.clienteId, nombreCliente: r.nombreCliente, deudaTotal: Number(r.deudaTotal) }))
 })

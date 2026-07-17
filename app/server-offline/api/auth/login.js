@@ -20,6 +20,10 @@ export async function login(nombreUsuario, pin) {
   if (!usuario) return { ok: false, motivo: 'usuario_no_existe' }
   if (!usuario.activo) return { ok: false, motivo: 'usuario_inactivo' }
 
+  if (usuario.rol === 'cliente') {
+    return { ok: false, motivo: 'cliente_no_puede_loguearse' }
+  }
+
   const pinOk = await verifyPin(pin, usuario.pinHash)
   if (!pinOk) return { ok: false, motivo: 'pin_incorrecto' }
 

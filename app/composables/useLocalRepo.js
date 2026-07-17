@@ -6,6 +6,38 @@
 import { getModulo } from '../server-offline/index.js'
 import { useDb } from '../server-offline/db/client.js'
 
+function readAllFromDb(targetTable, opts, auth, config) {
+  const db = useDb()
+  return db.queryAll(targetTable).then((all) => {
+    let rows = (config?.puestoScoped && targetTable === config.tabla)
+      ? all.filter(r => r.puestoId === auth?.usuarioActual?.value?.puestoId)
+      : all
+    const conditions = opts?.filter || opts?.query
+    if (conditions) {
+      for (const [key, value] of Object.entries(conditions)) {
+        if (value == null || value === '' || key === 'orderBy' || key === 'orderDir') continue
+        rows = rows.filter((r) => {
+          const cell = r[key]
+          if (typeof cell === 'string' && typeof value === 'string') {
+            return cell.toLowerCase().includes(value.toLowerCase())
+          }
+          return String(cell ?? '') === String(value)
+        })
+      }
+    }
+    const orderBy = opts?.orderBy ?? opts?.query?.orderBy
+    if (orderBy) {
+      const dir = (opts?.orderDir ?? opts?.query?.orderDir) === 'desc' ? -1 : 1
+      rows = [...rows].sort((a, b) => {
+        const va = a[orderBy] ?? ''
+        const vb = b[orderBy] ?? ''
+        return typeof va === 'string' ? va.localeCompare(vb) * dir : (va - vb) * dir
+      })
+    }
+    return rows
+  })
+}
+
 function crearRepoGenerico(config) {
   const tabla = config.tabla
   const auth = useAuth()
@@ -42,27 +74,7 @@ function crearRepoGenerico(config) {
   }
 
   async function readAll(opts) {
-    const db = useDb()
-    const all = await db.queryAll(tabla)
-    let rows = config.puestoScoped
-      ? all.filter(r => r.puestoId === auth?.usuarioActual?.value?.puestoId)
-      : all
-    if (opts?.query) {
-      for (const [key, value] of Object.entries(opts.query)) {
-        if (value != null && value !== '') {
-          rows = rows.filter(r => String(r[key] ?? '') === String(value))
-        }
-      }
-    }
-    if (opts?.orderBy) {
-      const dir = opts.orderDir === 'desc' ? -1 : 1
-      rows = [...rows].sort((a, b) => {
-        const va = a[opts.orderBy] ?? ''
-        const vb = b[opts.orderBy] ?? ''
-        return typeof va === 'string' ? va.localeCompare(vb) * dir : (va - vb) * dir
-      })
-    }
-    return rows
+    return readAllFromDb(opts?.tabla || tabla, opts, auth, config)
   }
 
   async function update(id, cambios) {
@@ -98,7 +110,12 @@ function crearRepoDesdeModulo(config, modulo) {
   const repo = {
     create: datos => call(modulo.create, [datos]),
     read: id => call(modulo.get, [id]),
-    readAll: opts => call(modulo.list, [opts ?? {}]),
+    readAll: (opts) => {
+      if (opts?.tabla && opts.tabla !== config.tabla) {
+        return readAllFromDb(opts.tabla, opts, auth, config)
+      }
+      return call(modulo.list, [opts ?? {}])
+    },
     update: (id, cambios) => call(modulo.update, [id, cambios]),
     patch: (id, cambios) => call(modulo.patch, [id, cambios]),
     remove: id => call(modulo.remove, [id])

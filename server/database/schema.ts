@@ -14,7 +14,7 @@ import {
 /**
  * Enumeraciones de la base de datos.
  */
-export const rolEnum = pgEnum('rol', ['jefe', 'trabajador'])
+export const rolEnum = pgEnum('rol', ['jefe', 'trabajador', 'cliente'])
 export const estadoCuadreEnum = pgEnum('estado_cuadre', ['abierto', 'cerrado'])
 export const tipoLineaEnum = pgEnum('tipo_linea', [
   'normal',
@@ -55,10 +55,12 @@ export const usuarios = pgTable(
       .notNull()
       .references(() => puestos.id),
     nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    notas: text('notas'),
     rol: rolEnum('rol').notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: boolean('activo').notNull().default(true),
-    salario: doublePrecision('salario').notNull().default(600),
+    salario: doublePrecision('salario'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -232,33 +234,6 @@ export const cuadreItems = pgTable(
 )
 
 /**
- * Clientes: personas que compran fiado.
- */
-export const clientes = pgTable(
-  'clientes',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    puestoId: uuid('puesto_id')
-      .notNull()
-      .references(() => puestos.id),
-    nombre: text('nombre').notNull(),
-    telefono: text('telefono'),
-    notas: text('notas'),
-    activo: boolean('activo').notNull().default(true),
-    creadoEn: timestamp('creado_en', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
-      .notNull()
-      .defaultNow()
-  },
-  table => ({
-    puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
-    activoIdx: index('clientes_activo_idx').on(table.activo)
-  })
-)
-
-/**
  * Cuentas de fiado: deuda generada en un cuadre específico.
  * montoTotal = suma de subtotales de cuentas_fiado_items.
  * montoPagado = suma de pagos recibidos contra esta cuenta.
@@ -272,7 +247,7 @@ export const cuentasFiado = pgTable(
       .references(() => puestos.id),
     clienteId: uuid('cliente_id')
       .notNull()
-      .references(() => clientes.id),
+      .references(() => usuarios.id),
     cuadreOrigenId: uuid('cuadre_origen_id')
       .notNull()
       .references(() => cuadres.id),
@@ -362,8 +337,6 @@ export type Cuadre = typeof cuadres.$inferSelect
 export type NuevoCuadre = typeof cuadres.$inferInsert
 export type CuadreItem = typeof cuadreItems.$inferSelect
 export type NuevoCuadreItem = typeof cuadreItems.$inferInsert
-export type Cliente = typeof clientes.$inferSelect
-export type NuevoCliente = typeof clientes.$inferInsert
 export type CuentaFiado = typeof cuentasFiado.$inferSelect
 export type NuevaCuentaFiado = typeof cuentasFiado.$inferInsert
 export type CuentaFiadoItem = typeof cuentasFiadoItems.$inferSelect
@@ -371,7 +344,7 @@ export type NuevaCuentaFiadoItem = typeof cuentasFiadoItems.$inferInsert
 export type PagoFiado = typeof pagosFiado.$inferSelect
 export type NuevoPagoFiado = typeof pagosFiado.$inferInsert
 
-export type Rol = 'jefe' | 'trabajador'
+export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'
 export type TipoLinea = 'normal' | 'descuento'
 export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
