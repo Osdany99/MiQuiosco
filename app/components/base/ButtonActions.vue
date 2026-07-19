@@ -11,6 +11,7 @@
       {{ cancelText }}
     </UButton>
     <UButton
+      v-if="!hideConfirm"
       :color="confirmColor"
       variant="solid"
       :size="size"
@@ -60,6 +61,10 @@ defineProps({
   cancelVariant: {
     type: String,
     default: 'outline'
+  },
+  hideConfirm: {
+    type: Boolean,
+    default: false
   }
 })
 

@@ -1,7 +1,7 @@
 <template>
   <div>
     <UBadge
-      v-if="value"
+      v-if="isTrue"
       :label="labelTrue"
       :color="colorTrue"
       size="sm"
@@ -21,6 +21,11 @@ const { colorTrue, colorFalse, labelTrue, labelFalse, value } = defineProps({
   colorFalse: { type: String, default: 'warning' },
   labelTrue: { type: String, default: 'Sí' },
   labelFalse: { type: String, default: 'No' },
-  value: { type: Boolean, default: false }
+  value: { type: [Boolean, String], default: false }
+})
+
+const isTrue = computed(() => {
+  if (typeof value === 'boolean') return value
+  return value === labelTrue
 })
 </script>

@@ -41,9 +41,12 @@
             <TableActions
               :show-edit="showEdit"
               :show-delete="showDelete"
+              :show-details="showDetails"
+              :details-condition="detailsCondition"
               :row-data="row.original || row"
               @edit="handleEdit"
               @delete="handleDelete"
+              @details="(data) => emit('details', data)"
             >
               <template #extra="slotProps">
                 <slot name="row-actions-extra" v-bind="slotProps" />
@@ -58,7 +61,30 @@
           #[`${col.accessorKey}-cell`]="{ row }"
         >
           <template v-if="col.cell === 'currency'">
-            {{ fmtPrecio(row.original[col.accessorKey]) }}
+            <div class="text-primary">
+              {{ fmtPrecio(row.original[col.accessorKey]) }}
+            </div>
+          </template>
+          <template v-if="col.cell === 'currencyWithValue'">
+            <div v-if="row.original[col.accessorKey]" class="text-primary">
+              {{ fmtPrecio(row.original[col.accessorKey]) }}
+            </div>
+            <div v-else>
+              -
+            </div>
+          </template>
+          <template v-if="col.cell === 'date'">
+            <div class="text-primary">
+              {{ fmtDate(row.original[col.accessorKey]) }}
+            </div>
+          </template>
+          <template v-if="col.cell === 'dateWithValue'">
+            <div v-if="row.original[col.accessorKey]" class="text-primary">
+              {{ fmtDate(row.original[col.accessorKey]) }}
+            </div>
+            <div v-else>
+              -
+            </div>
           </template>
           <BaseChangeActivation
             v-else-if="col.cell === 'activation'"
@@ -70,6 +96,10 @@
           <BaseBadgeTrueOrFalse
             v-else-if="col.cell === 'boolean'"
             :value="row.original[col.accessorKey]"
+            :label-true="col.labelTrue"
+            :label-false="col.labelFalse"
+            :color-true="col.colorTrue"
+            :color-false="col.colorFalse"
           />
         </template>
       </UTable>
@@ -120,6 +150,8 @@ const props = defineProps({
   emptyState: { type: String, default: '' },
   showEdit: { type: Boolean, default: true },
   showDelete: { type: Boolean, default: true },
+  showDetails: { type: Boolean, default: false },
+  detailsCondition: { type: Function, default: null },
   modalTitle: { type: String, default: '' },
   search: { type: String, default: '' },
   searchFields: { type: Array, default: () => [] },
@@ -132,17 +164,17 @@ const props = defineProps({
   disableFilters: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['edit', 'delete', 'success', 'reload'])
+const emit = defineEmits(['edit', 'delete', 'success', 'reload', 'details'])
 const form = defineModel({ type: Object })
 
 const slots = useSlots()
 
 /**
- * Columnas con cell renderer declarativo (cell: 'currency' | 'activation' | 'boolean').
+ * Columnas con cell renderer declarativo (cell: 'currency' | 'activation' | 'boolean'| 'currencyWithValue'| 'date'| 'dateWithValue',).
  * Se auto-renderizan en el template salvo que la page provea un slot #<key>-cell propio,
  * permitiendo override manual sin perder el default.
  */
-const AUTO_CELL_TYPES = ['currency', 'activation', 'boolean']
+const AUTO_CELL_TYPES = ['currency', 'currencyWithValue', 'date', 'dateWithValue', 'activation', 'boolean']
 const autoCellColumns = computed(() =>
   props.columns.filter(c =>
     AUTO_CELL_TYPES.includes(c.cell) && !slots[`${c.accessorKey}-cell`]

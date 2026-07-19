@@ -5,8 +5,8 @@
         <USelectMenu
           v-model="model.clienteId"
           :items="clientes"
-          value-attribute="id"
-          text-attribute="nombre"
+          value-key="id"
+          label-key="nombre"
           placeholder="Seleccionar cliente..."
           class="w-full"
         />
@@ -26,9 +26,12 @@
       @confirm="confirmarCrearCliente"
       @cancel="showCrearCliente = false"
     >
-      <UFormField label="Nombre del cliente" required>
-        <UInput v-model="nuevoNombre" placeholder="Nombre..." />
-      </UFormField>
+      <BaseForm
+        ref="formRef"
+        v-model="nuevoCliente"
+        :fields="clienteFields"
+        :schema="usuarioSchema"
+      />
     </BaseDialog>
 
     <div v-for="(item, idx) in model.items" :key="idx" class="flex gap-2 items-start">
@@ -36,8 +39,8 @@
         <USelectMenu
           v-model="item.productoId"
           :items="productosActivos"
-          value-attribute="id"
-          text-attribute="nombre"
+          value-key="id"
+          label-key="nombre"
           placeholder="Producto..."
           class="w-full"
           @update:model-value="onProductoChange(item)"
@@ -88,6 +91,8 @@
 </template>
 
 <script setup>
+import { usuarioSchema } from '~~/shared/schemas/usuario'
+
 const props = defineProps({
   productosActivos: { type: Array, default: () => [] },
   clientes: { type: Array, default: () => [] }
@@ -97,7 +102,15 @@ const model = defineModel({ type: Object, required: true })
 const emit = defineEmits(['crear-cliente'])
 
 const showCrearCliente = ref(false)
-const nuevoNombre = ref('')
+const nuevoCliente = ref({ nombre: '', telefono: '', notas: '', pin: '' })
+const formRef = ref(null)
+
+const clienteFields = [
+  { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre completo', props: { class: 'w-full', maxlength: 100 } },
+  { name: 'telefono', label: 'Teléfono', type: 'text', required: false, placeholder: 'Teléfono', props: { class: 'w-full' } },
+  { name: 'notas', label: 'Notas', type: 'textarea', required: false, placeholder: 'Notas adicionales', props: { class: 'w-full', rows: 3 } },
+  { name: 'pin', label: 'PIN', type: 'password', required: false, maxlength: 6, props: { class: 'w-full', mask: true } }
+]
 
 function onProductoChange(item) {
   const prod = props.productosActivos.find(p => p.id === item.productoId)
@@ -112,10 +125,14 @@ function agregarItem() {
   model.value.items.push({ productoId: '', cantidad: 0, precioVentaUsado: 0 })
 }
 
-function confirmarCrearCliente() {
-  if (!nuevoNombre.value.trim()) return
-  emit('crear-cliente', nuevoNombre.value.trim())
+async function confirmarCrearCliente() {
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
+  emit('crear-cliente', { ...nuevoCliente.value })
   showCrearCliente.value = false
-  nuevoNombre.value = ''
+  nuevoCliente.value = { nombre: '', telefono: '', notas: '', pin: '' }
 }
 </script>

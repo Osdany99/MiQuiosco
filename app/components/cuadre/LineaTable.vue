@@ -76,10 +76,6 @@
       />
     </template>
 
-    <template #subtotal-cell="{ row }">
-      <span class="font-mono font-semibold">{{ fmtPrecio(row.original.subtotal) }}</span>
-    </template>
-
     <template #extra>
       <div v-if="showAgregarProducto" class="flex items-center gap-2 p-2 border-t border-gray-200 dark:border-gray-800">
         <USelectMenu
@@ -154,7 +150,7 @@ const columnDefs = [
   { accessorKey: 'precioVentaUsado', header: 'Precio venta' },
   { accessorKey: 'cantidad', header: 'Cant.' },
   { accessorKey: 'tipoLinea', header: 'Tipo' },
-  { accessorKey: 'subtotal', header: 'Subtotal' }
+  { accessorKey: 'subtotal', header: 'Subtotal', cell: 'currency' }
 ]
 
 function reload() {

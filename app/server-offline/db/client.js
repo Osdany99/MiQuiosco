@@ -13,6 +13,7 @@ import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
 import * as schemaSqlite from './schema'
 import ddlGenerado from '../../../drizzle/sqlite/0000_exotic_mentallo.sql?raw'
+import ddlMigracion from '../../../drizzle/sqlite/0001_good_sunset_bain.sql?raw'
 import { sembrarJefeLocal } from './seed'
 
 const DB_NAME = 'miquiosco'
@@ -86,9 +87,23 @@ async function getConnection() {
 
 async function initializeSchema(conn) {
   const result = await conn.query('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'usuarios\'', [])
-  if (result.values?.length > 0) return
-  const ddl = ddlGenerado.replace(/--> statement-breakpoint/g, '')
-  await conn.execute(ddl)
+
+  if (result.values?.length === 0) {
+    const ddl = ddlGenerado.replace(/--> statement-breakpoint/g, '')
+    await conn.execute(ddl)
+    const ddl2 = ddlMigracion.replace(/--> statement-breakpoint/g, '')
+    await conn.execute(ddl2)
+    return
+  }
+
+  const cols = await conn.query('PRAGMA table_info(usuarios)', [])
+  const existingCols = new Set((cols.values ?? []).map(c => c.name))
+  if (!existingCols.has('telefono')) {
+    await conn.run('ALTER TABLE usuarios ADD COLUMN telefono text', [])
+  }
+  if (!existingCols.has('notas')) {
+    await conn.run('ALTER TABLE usuarios ADD COLUMN notas text', [])
+  }
 }
 
 function initializeSchemaMemory(mem) {
@@ -135,6 +150,7 @@ export function useDb() {
         const pid = r.puesto_id ?? r.puestoId
         return pid === puestoId && (r.activo === 1 || r.activo === true)
       })
+      rows.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
       return rows.map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES.productos))
     }
     const result = await conn.query('SELECT * FROM productos WHERE puesto_id = ? AND activo = 1 ORDER BY orden', [puestoId])

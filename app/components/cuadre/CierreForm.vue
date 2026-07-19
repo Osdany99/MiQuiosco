@@ -57,8 +57,8 @@
           <USelectMenu
             v-model="trabajadorTurnoId"
             :items="trabajadores"
-            value-attribute="id"
-            text-attribute="nombre"
+            value-key="id"
+            label-key="nombre"
             placeholder="Seleccionar..."
             class="w-full"
             :disabled="readonly"
@@ -74,26 +74,6 @@
           />
         </UFormField>
       </div>
-
-      <div
-        class="flex items-center justify-between p-4 rounded-lg"
-        :class="{
-          'bg-green-100 text-green-800': tipoDiferencia === 'exacto',
-          'bg-blue-100 text-blue-800': tipoDiferencia === 'sobrante',
-          'bg-red-100 text-red-800': tipoDiferencia === 'faltante',
-          'bg-gray-100 text-gray-600': tipoDiferencia === null
-        }"
-      >
-        <span class="font-semibold">
-          {{ tipoDiferencia === 'exacto' ? '✓ Cuadre exacto'
-            : tipoDiferencia === 'sobrante' ? '▲ Sobrante'
-              : tipoDiferencia === 'faltante' ? '▼ Faltante'
-                : '— Ingresa dinero real en caja' }}
-        </span>
-        <span v-if="diferencia !== null" class="text-xl font-mono font-bold">
-          {{ fmtPrecio(diferencia) }}
-        </span>
-      </div>
     </div>
   </UCard>
 </template>
@@ -104,7 +84,7 @@ const usuarioConfig = { tabla: 'usuarios', endpoints: { list: '/api/usuarios', b
 const {
   totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
-  salarioCalculado, diferencia, tipoDiferencia
+  salarioCalculado
 } = useCuadre()
 
 const repo = useRepo(usuarioConfig)

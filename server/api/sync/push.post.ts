@@ -82,7 +82,7 @@ function coerceRow(row: Record<string, any>, syncConfig: { syncNumeric: string[]
     }
     if (numericSet.has(key)) {
       out[key] = String(value)
-    } else if (typeof value === 'string' && columns[key]?.getSQLType()?.includes('timestamp')) {
+    } else if ((typeof value === 'string' || typeof value === 'number') && columns[key]?.getSQLType()?.includes('timestamp')) {
       const d = new Date(value)
       out[key] = isNaN(d.getTime()) ? value : d
     } else {

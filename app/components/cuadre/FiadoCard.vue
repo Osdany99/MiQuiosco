@@ -88,8 +88,8 @@ onMounted(async () => {
   await cargarActividadDelCuadre(props.cuadreId)
 })
 
-async function onCrearCliente(nombre) {
-  const nuevo = await crearCliente(nombre, props.puestoId)
+async function onCrearCliente(data) {
+  const nuevo = await crearCliente(data, props.puestoId)
   fiadoForm.value.clienteId = nuevo.id
 }
 

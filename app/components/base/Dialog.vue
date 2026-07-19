@@ -23,6 +23,7 @@
         :cancel-text="cancelText"
         :confirm-text="confirmText"
         :confirm-color="confirmColor"
+        :hide-confirm="hideConfirm"
         :loading="loading"
         :disabled-guardar="disabledGuardar"
         @cancel="$emit('cancel')"
@@ -63,6 +64,10 @@ defineProps({
     default: false
   },
   disabledGuardar: {
+    type: Boolean,
+    default: false
+  },
+  hideConfirm: {
     type: Boolean,
     default: false
   }

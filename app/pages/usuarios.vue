@@ -26,14 +26,18 @@ const columns = [
   { accessorKey: 'telefono', header: 'Teléfono' },
   { accessorKey: 'notas', header: 'Notas' },
   { accessorKey: 'rol', header: 'Rol' },
-  { accessorKey: 'salario', header: 'Salario', cell: 'salario' },
+  { accessorKey: 'salario', header: 'Salario', cell: 'currencyWithValue' },
   { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
   { accessorKey: 'action', header: 'Acciones' }
 ]
 
 const tableRef = ref(null)
 const formRef = ref(null)
-const form = ref({ id: null, nombre: '', telefono: '', notas: '', rol: 'trabajador', salario: null, pin: '', activo: true })
+const form = ref({ id: null, nombre: '', telefono: '', notas: '', rol: 'trabajador', salario: 600, pin: '', activo: true })
+
+watch(() => form.value.rol, (rol) => {
+  form.value.salario = rol === 'trabajador' ? 600 : null
+})
 
 const showPinModal = ref(false)
 const pinUsuario = ref(null)
@@ -82,10 +86,6 @@ async function guardarPin() {
           :fields="fields"
           :schema="usuarioSchema"
         />
-      </template>
-
-      <template #salario-cell="{ row }">
-        {{ row.original.salario != null ? fmtPrecio(row.original.salario) : 'No tiene' }}
       </template>
 
       <template #row-actions-extra="{ rowData }">

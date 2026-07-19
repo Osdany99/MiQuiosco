@@ -18,6 +18,15 @@
         @click="$emit('delete', rowData)"
       />
     </UTooltip>
+    <UTooltip v-if="showDetails && (!detailsCondition || detailsCondition(rowData))" text="Detalles" :delay-duration="0">
+      <UButton
+        icon="i-lucide-eye"
+        size="sm"
+        color="info"
+        variant="ghost"
+        @click="$emit('details', rowData)"
+      />
+    </UTooltip>
     <slot name="extra" :row-data="rowData" />
   </div>
 </template>
@@ -26,8 +35,10 @@
 defineProps({
   showEdit: { type: Boolean, default: true },
   showDelete: { type: Boolean, default: true },
+  showDetails: { type: Boolean, default: false },
+  detailsCondition: { type: Function, default: null },
   rowData: { type: Object, default: () => ({}) }
 })
 
-defineEmits(['edit', 'delete'])
+defineEmits(['edit', 'delete', 'details'])
 </script>

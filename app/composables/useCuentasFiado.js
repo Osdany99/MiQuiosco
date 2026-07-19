@@ -39,9 +39,10 @@ export function useCuentasFiado() {
     pagosDelCuadre.value = todosPagos.filter(p => p.cuadreId === cuadreId)
   }
 
-  async function crearCliente(nombre, puestoId) {
-    const pinTemp = String(Math.floor(1000 + Math.random() * 9000))
-    const nuevo = await usuariosRepo.create({ puestoId, nombre, rol: 'cliente', activo: true, pin: pinTemp })
+  async function crearCliente(data, puestoId) {
+    const pin = data.pin || String(Math.floor(1000 + Math.random() * 9000))
+    const { pin: _, ...rest } = data
+    const nuevo = await usuariosRepo.create({ ...rest, puestoId, rol: 'cliente', pin })
     clientes.value.push(nuevo)
     return nuevo
   }

@@ -6,6 +6,12 @@ const cuadreItemConfig = TABLES.cuadre_items
 const productoConfig = TABLES.productos
 const usuarioConfig = TABLES.usuarios
 
+function tsToEpoch(v) {
+  if (v == null) return null
+  const n = typeof v === 'number' ? v : Date.parse(v)
+  return Number.isNaN(n) ? null : n
+}
+
 function normalizarCuadre(c) {
   if (!c) return c
   return {
@@ -23,9 +29,9 @@ function normalizarCuadre(c) {
     trabajadorTurnoId: c.trabajadorTurnoId ?? null,
     pagoTrabajador: c.pagoTrabajador ?? null,
     notas: c.notas ?? null,
-    cerradoEn: c.cerradoEn ?? null,
+    cerradoEn: tsToEpoch(c.cerradoEn),
     reabiertoVeces: Number(c.reabiertoVeces ?? 0),
-    ultimaReaperturaEn: c.ultimaReaperturaEn ?? null,
+    ultimaReaperturaEn: tsToEpoch(c.ultimaReaperturaEn),
     creadoEn: c.creadoEn ?? Date.now(),
     actualizadoEn: c.actualizadoEn ?? Date.now(),
     sincronizado: c.sincronizado ?? 0
@@ -85,6 +91,11 @@ export function useCuadre() {
     calcularSalario(salarioBaseTrabajador.value, totalEsperado.value)
   )
 
+  const faltanteReal = computed(() => {
+    if (totalRealCaja.value === null) return null
+    return totalEsperado.value - totalRealCaja.value - montoTransferencia.value - montoFiado.value
+  })
+
   const diferencia = computed(() => {
     if (totalRealCaja.value === null) return null
     return (totalRealCaja.value + montoTransferencia.value + montoCobradoFiado.value) - totalEsperado.value
@@ -97,7 +108,8 @@ export function useCuadre() {
   })
 
   const tituloCuadre = computed(() => {
-    const d = new Date(hoy + 'T12:00:00')
+    const fechaStr = cuadre.value?.fecha || hoy
+    const d = new Date(fechaStr + 'T12:00:00')
     return 'Cuadre del día ' + d.toLocaleDateString('es-ES', { weekday: 'long' })
   })
 
@@ -110,7 +122,7 @@ export function useCuadre() {
     }
   })
 
-  async function cargarDatos(puestoId) {
+  async function cargarDatos(puestoId, cuadreId) {
     cargando.value = true
     try {
       if (!puestoId) {
@@ -143,13 +155,23 @@ export function useCuadre() {
         }))
       }
 
-      let c = await buscarCuadreActual(puestoId, cuadreRepo)
+      let c
+      const esHistorico = !!cuadreId
+      if (cuadreId) {
+        const { data } = await cuadreRepo.read(cuadreId)
+        c = data ? normalizarCuadre(data) : null
+      } else {
+        c = await buscarCuadreActual(puestoId, cuadreRepo)
+        if (!c) c = await crearCuadreNuevo(puestoId, cuadreRepo)
+      }
+
       if (!c) {
-        c = await crearCuadreNuevo(puestoId, cuadreRepo)
+        toast.add({ title: 'Cuadre no encontrado', color: 'error' })
+        return
       }
 
       cuadre.value = c
-      await cargarLineasDeCuadre(c.id, itemsRepo)
+      await cargarLineasDeCuadre(c.id, itemsRepo, !esHistorico)
 
       if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
       if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
@@ -195,7 +217,7 @@ export function useCuadre() {
     return encontrado ? normalizarCuadre(encontrado) : null
   }
 
-  async function cargarLineasDeCuadre(cuadreId, repo) {
+  async function cargarLineasDeCuadre(cuadreId, repo, autoPopulate = true) {
     const { data: items } = await repo.readAll()
     if (!Array.isArray(items)) {
       lineas.value = []
@@ -207,7 +229,7 @@ export function useCuadre() {
     })
     if (itemsFiltrados.length > 0) {
       lineas.value = itemsFiltrados.map(normalizarLinea)
-    } else {
+    } else if (autoPopulate) {
       lineas.value = productosActivos.value.map(prod => ({
         id: crypto.randomUUID(),
         cuadreId,
@@ -219,6 +241,8 @@ export function useCuadre() {
         nota: null,
         esExtra: false
       }))
+    } else {
+      lineas.value = []
     }
   }
 
@@ -344,14 +368,14 @@ export function useCuadre() {
         trabajadorTurnoId: trabajadorTurnoId.value,
         pagoTrabajador: pagoTrabajador.value,
         notas: notasCuadre.value,
-        cerradoEn: Date.now()
+        cerradoEn: new Date()
       }
 
       await cuadreRepo.update(cuadre.value.id, cambios)
       cuadre.value = { ...cuadre.value, ...cambios }
 
-      const existentes = await itemsRepo.readAll()
-      for (const item of existentes.filter((i) => {
+      const { data: existentes } = await itemsRepo.readAll()
+      for (const item of (existentes ?? []).filter((i) => {
         const n = normalizarLinea(i)
         return n.cuadreId === cuadre.value.id
       })) {
@@ -458,7 +482,7 @@ export function useCuadre() {
     showAgregarProducto, productoSeleccionado, tipoLineaExtra, expandida,
     totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
     trabajadorTurnoId, pagoTrabajador, notasCuadre,
-    totalEsperado, salarioCalculado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
+    totalEsperado, faltanteReal, salarioCalculado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
     cargarDatos, recalcularSubtotal,
     agregarLineaExtra, toggleExpandir, cerrarCuadre, reabrirCuadre,
     procesarImportacionJSON, getProductoNombre,

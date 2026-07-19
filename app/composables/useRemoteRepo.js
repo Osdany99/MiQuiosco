@@ -87,6 +87,8 @@ export function useRemoteRepo(config) {
     const out = { ...r }
     if ('creadoEn' in out) out.creadoEn = isoToEpoch(out.creadoEn) ?? Date.now()
     if ('actualizadoEn' in out) out.actualizadoEn = isoToEpoch(out.actualizadoEn) ?? Date.now()
+    if ('cerradoEn' in out) out.cerradoEn = isoToEpoch(out.cerradoEn)
+    if ('ultimaReaperturaEn' in out) out.ultimaReaperturaEn = isoToEpoch(out.ultimaReaperturaEn)
     if ('vigenteDesde' in out) out.vigenteDesde = isoToEpoch(out.vigenteDesde)
     if ('vigenteHasta' in out) out.vigenteHasta = isoToEpoch(out.vigenteHasta)
     return out

@@ -41,7 +41,7 @@
       </div>
       <div class="flex justify-between">
         <span>Cerrado el:</span>
-        <span>{{ cuadre.cerradoEn ? new Date(Number(cuadre.cerradoEn)).toLocaleString('es-ES') : '—' }}</span>
+        <span>{{ cuadre.cerradoEn ? fmtDate(cuadre.cerradoEn) : '—' }}</span>
       </div>
       <div v-if="cuadre.notas" class="flex justify-between">
         <span>Notas:</span>
@@ -49,7 +49,7 @@
       </div>
       <div v-if="cuadre.reabiertoVeces > 0" class="text-warning text-sm">
         ⚠ Reabierto {{ cuadre.reabiertoVeces }} vez{{ cuadre.reabiertoVeces > 1 ? 'es' : '' }}
-        (última: {{ cuadre.ultimaReaperturaEn ? new Date(Number(cuadre.ultimaReaperturaEn)).toLocaleString('es-ES') : '—' }})
+        (última: {{ cuadre.ultimaReaperturaEn ? fmtDate(cuadre.ultimaReaperturaEn) : '—' }})
       </div>
     </div>
   </UCard>

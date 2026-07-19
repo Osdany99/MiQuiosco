@@ -3,6 +3,9 @@
     v-model="isOpen"
     :title="`Historial de precios - ${producto?.nombre}`"
     :loading="pending"
+    cancel-text="Cerrar"
+    :hide-confirm="true"
+    @cancel="isOpen = false"
   >
     <div v-if="pending" class="flex justify-center py-8">
       <UIcon name="i-lucide-loader-circle" class="animate-spin size-8 text-muted-foreground" />
@@ -26,11 +29,6 @@
         {{ fmtPrecio(row.original.precioVenta) }}
       </template>
     </UTable>
-    <template #actions>
-      <UButton variant="outline" @click="isOpen = false">
-        Cerrar
-      </UButton>
-    </template>
   </BaseDialog>
 </template>
 

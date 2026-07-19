@@ -4,8 +4,8 @@
       <USelectMenu
         v-model="model.cuentaFiadoId"
         :items="cuentas"
-        value-attribute="id"
-        text-attribute="label"
+        value-key="id"
+        label-key="label"
         placeholder="Seleccionar cuenta..."
         class="w-full"
       />
