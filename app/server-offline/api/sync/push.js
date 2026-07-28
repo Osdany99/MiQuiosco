@@ -3,17 +3,12 @@
  *
  * Prepara el payload de push: reúne todos los registros con sincronizado = 0
  * de cada tabla sincronizable, listos para enviar al servidor.
+ * Incluye deletes pendientes.
  */
-const SYNC_TABLAS = [
-  { tabla: 'productos', puestoScoped: true },
-  { tabla: 'usuarios', puestoScoped: true },
-  { tabla: 'cuadres', puestoScoped: true },
-  { tabla: 'cuadre_items' },
-  { tabla: 'cuentas_fiado', puestoScoped: true },
-  { tabla: 'cuentas_fiado_items' },
-  { tabla: 'pagos_fiado' },
-  { tabla: 'historial_precios' }
-]
+import { TABLES } from '~~/shared/tables'
+import { getPendingDeletes } from '../_factory'
+
+const SYNC_TABLAS = Object.values(TABLES)
 
 export async function push(opts, auth) {
   void opts
@@ -30,5 +25,6 @@ export async function push(opts, auth) {
         return rest
       })
   }
+  result.deletes = await getPendingDeletes()
   return result
 }

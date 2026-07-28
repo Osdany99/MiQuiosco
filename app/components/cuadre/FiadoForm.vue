@@ -34,7 +34,7 @@
       />
     </BaseDialog>
 
-    <div v-for="(item, idx) in model.items" :key="idx" class="flex gap-2 items-start">
+    <div v-for="(item, idx) in model.items" :key="item.productoId" class="flex gap-2 items-start">
       <UFormField label="Producto" class="flex-1">
         <USelectMenu
           v-model="item.productoId"
@@ -81,8 +81,8 @@
             { label: 'Efectivo', value: 'efectivo' },
             { label: 'Transferencia', value: 'transferencia' }
           ]"
-          value-attribute="value"
-          text-attribute="label"
+          value-key="value"
+          label-key="label"
           class="w-full"
         />
       </UFormField>

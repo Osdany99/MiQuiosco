@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
+import { useCanvas } from '~/composables/useCanvas'
 
 const props = defineProps({
   data: {
@@ -19,20 +20,12 @@ const colors = computed(() => props.config.colors || ['#3b82f6', '#10b981', '#f5
 
 const chartCanvas = ref(null)
 
+const { initCanvas } = useCanvas(chartCanvas, props, drawChart)
+
 function drawChart() {
-  if (!chartCanvas.value || !props.data.length) return
-
-  const ctx = chartCanvas.value.getContext('2d')
-  if (!ctx) return
-
-  const canvas = chartCanvas.value
-  const dpr = window.devicePixelRatio || 1
-  const rect = canvas.getBoundingClientRect()
-  canvas.width = rect.width * dpr
-  canvas.height = rect.height * dpr
-  ctx.scale(dpr, dpr)
-
-  ctx.clearRect(0, 0, rect.width, rect.height)
+  const setup = initCanvas()
+  if (!setup) return
+  const { ctx, rect } = setup
 
   const padding = { top: 30, right: 20, bottom: 50, left: 60 }
   const chartWidth = rect.width - padding.left - padding.right
@@ -42,7 +35,6 @@ function drawChart() {
   const yKeysVal = yKeys.value
   const colorsVal = colors.value
 
-  // Find max value for scaling
   let maxVal = 0
   props.data.forEach((row) => {
     yKeysVal.forEach((key) => {
@@ -56,7 +48,6 @@ function drawChart() {
   const barWidth = chartWidth / (props.data.length * yKeysVal.length + yKeysVal.length + 1)
   const groupWidth = barWidth * yKeysVal.length + barWidth
 
-  // Draw axes
   ctx.strokeStyle = '#e5e7eb'
   ctx.lineWidth = 1
   ctx.beginPath()
@@ -65,7 +56,6 @@ function drawChart() {
   ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight)
   ctx.stroke()
 
-  // Draw bars
   props.data.forEach((row, i) => {
     const groupX = padding.left + i * groupWidth + barWidth
     yKeysVal.forEach((key, j) => {
@@ -77,21 +67,18 @@ function drawChart() {
       ctx.fillStyle = colorsVal[j % colorsVal.length]
       ctx.fillRect(x, y, barWidth * 0.8, barHeight)
 
-      // Draw value label
       ctx.fillStyle = '#1f2937'
       ctx.font = '11px system-ui'
       ctx.textAlign = 'center'
       ctx.fillText(String(val), x + barWidth * 0.4, y - 4)
     })
 
-    // Draw x-axis label
     ctx.fillStyle = '#6b7280'
     ctx.font = '11px system-ui'
     ctx.textAlign = 'center'
     ctx.fillText(String(row[xKeyVal] || ''), groupX + groupWidth / 2, padding.top + chartHeight + 20)
   })
 
-  // Draw y-axis labels
   for (let k = 0; k <= 5; k++) {
     const val = (maxVal / 5) * (5 - k)
     const y = padding.top + (chartHeight / 5) * k
@@ -100,7 +87,6 @@ function drawChart() {
     ctx.textAlign = 'right'
     ctx.fillText(fmtNumero(val), padding.left - 8, y + 4)
 
-    // Grid line
     ctx.strokeStyle = '#f3f4f6'
     ctx.beginPath()
     ctx.moveTo(padding.left, y)
@@ -108,7 +94,6 @@ function drawChart() {
     ctx.stroke()
   }
 
-  // Legend
   if (yKeysVal.length > 1) {
     yKeysVal.forEach((key, j) => {
       const label = labels.value[key] || key
@@ -123,19 +108,6 @@ function drawChart() {
     })
   }
 }
-
-function fmtNumero(v) {
-  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M'
-  if (v >= 1000) return (v / 1000).toFixed(1) + 'K'
-  return v.toFixed(0)
-}
-
-onMounted(() => {
-  drawChart()
-})
-
-watch(() => props.data, drawChart, { deep: true })
-watch(() => props.config, drawChart, { deep: true })
 </script>
 
 <template>

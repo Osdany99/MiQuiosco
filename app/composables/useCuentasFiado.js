@@ -1,4 +1,4 @@
-import { TABLES } from '~/config/tables'
+import { TABLES } from '~~/shared/tables'
 
 const usuarioConfig = TABLES.usuarios
 const cuentaFiadoConfig = TABLES.cuentas_fiado

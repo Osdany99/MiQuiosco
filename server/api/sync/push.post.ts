@@ -4,6 +4,7 @@ import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
 import { pushSyncSchema } from '#shared/schemas/pushSync'
+import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
@@ -19,8 +20,10 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const data = parsed.data as Record<string, Record<string, any>[]>
+  const data = parsed.data as Record<string, any>
+  const deletes = (data.deletes ?? []) as { tabla: string; id: string }[]
   const aceptados: string[] = []
+  const deletesAceptados: { tabla: string; id: string }[] = []
   const conflictos: Record<string, any[]> = {}
 
   for (const syncConfig of SYNC_TABLES) {
@@ -55,21 +58,56 @@ export default defineEventHandler(async (event) => {
         await db.insert(table).values(values)
         aceptados.push(row.id)
       } else {
-        const serverTs = new Date((existing[0] as any).actualizadoEn).getTime()
+        const serverTs = (existing[0] as any)?.actualizadoEn ? new Date((existing[0] as any).actualizadoEn).getTime() : 0
         if (clientTs > serverTs) {
           const updates = coerceRow(row, syncConfig, columns)
           await db.update(table).set(updates).where(eq(columns.id!, row.id))
           aceptados.push(row.id)
         } else {
           if (!conflictos[tableName]) conflictos[tableName] = []
-          conflictos[tableName].push(existing[0])
+          conflictos[tableName].push({
+            server: serializeRow(existing[0], syncConfig),
+            client: serializeRow(row, syncConfig)
+          })
         }
       }
     }
   }
 
-  return { aceptados, conflictos }
+  for (const del of deletes) {
+    const table = schemaByTabla[del.tabla] as Table | undefined
+    if (!table) continue
+    const columns = getTableColumns(table) as Record<string, Column>
+    if (!columns.id) continue
+
+    await db.delete(table).where(eq(columns.id!, del.id))
+    await db.insert(deletedRecords).values({
+      tabla: del.tabla,
+      registroId: del.id
+    })
+    deletesAceptados.push({ tabla: del.tabla, id: del.id })
+  }
+
+  return { aceptados, conflictos, deletesAceptados }
 })
+
+function serializeRow(row: Record<string, any>, syncConfig: { syncNumeric: string[] }): Record<string, any> {
+  const out: Record<string, any> = {}
+  const numericSet = new Set(syncConfig.syncNumeric)
+
+  for (const [key, value] of Object.entries(row)) {
+    if (value == null) {
+      out[key] = null
+    } else if (numericSet.has(key)) {
+      out[key] = Number(value)
+    } else if (value instanceof Date) {
+      out[key] = value.toISOString()
+    } else {
+      out[key] = value
+    }
+  }
+  return out
+}
 
 function coerceRow(row: Record<string, any>, syncConfig: { syncNumeric: string[] }, columns: Record<string, Column>): Record<string, any> {
   const out: Record<string, any> = {}

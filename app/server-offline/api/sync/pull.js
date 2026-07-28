@@ -2,22 +2,19 @@
  * server-offline/sync/pull.js
  *
  * Aplica un resultado de pull (proveniente del server) a la DB local.
+ * Incluye aplicación de deletes recibidos del servidor.
  */
-const SYNC_TABLAS = [
-  { tabla: 'productos', puestoScoped: true },
-  { tabla: 'usuarios', puestoScoped: true },
-  { tabla: 'cuadres', puestoScoped: true },
-  { tabla: 'cuadre_items' },
-  { tabla: 'cuentas_fiado', puestoScoped: true },
-  { tabla: 'cuentas_fiado_items' },
-  { tabla: 'pagos_fiado' },
-  { tabla: 'historial_precios' }
-]
+import { TABLES } from '~~/shared/tables'
+import { removePendingDeletesAccepted } from '../_factory'
+
+const SYNC_TABLAS = Object.values(TABLES)
 
 export async function pull(pullResult, _opts, _auth) {
   void _opts
   void _auth
   let aplicados = 0
+  let deletesAplicados = 0
+
   for (const cfg of SYNC_TABLAS) {
     const registros = pullResult[cfg.tabla]
     if (!registros?.length) continue
@@ -32,5 +29,23 @@ export async function pull(pullResult, _opts, _auth) {
       aplicados++
     }
   }
-  return { aplicados }
+
+  const deletes = pullResult.deletes ?? []
+  for (const del of deletes) {
+    const cfg = SYNC_TABLAS.find(t => t.tabla === del.tabla)
+    if (!cfg) continue
+    const repo = useLocalRepo(cfg)
+    try {
+      await repo.remove(del.id)
+      deletesAplicados++
+    } catch {
+      // registro ya no existe localmente
+    }
+  }
+
+  if (deletes.length > 0) {
+    await removePendingDeletesAccepted(deletes)
+  }
+
+  return { aplicados, deletesAplicados }
 }

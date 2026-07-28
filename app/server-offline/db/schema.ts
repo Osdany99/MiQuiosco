@@ -3,8 +3,10 @@ import {
   text,
   integer,
   real,
-  index
+  index,
+  check
 } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
 
 /**
  * Tipos de union como constantes de texto (SQLite no soporta enums nativos).
@@ -57,7 +59,9 @@ export const usuarios = sqliteTable(
       .default(true)
   },
   table => ({
-    rolIdx: index('usuarios_rol_idx').on(table.rol)
+    rolIdx: index('usuarios_rol_idx').on(table.rol),
+    activoIdx: index('usuarios_activo_idx').on(table.activo),
+    rolCheck: check('usuarios_rol_check', sql`${table.rol} IN ('jefe', 'trabajador', 'cliente')`)
   })
 )
 
@@ -86,7 +90,8 @@ export const productos = sqliteTable(
       .default(true)
   },
   table => ({
-    ordenIdx: index('productos_orden_idx').on(table.orden)
+    ordenIdx: index('productos_orden_idx').on(table.orden),
+    activoIdx: index('productos_activo_idx').on(table.activo)
   })
 )
 
@@ -114,7 +119,8 @@ export const historialPrecios = sqliteTable(
       .default(false)
   },
   table => ({
-    productoIdx: index('historial_precios_producto_idx').on(table.productoId)
+    productoIdx: index('historial_precios_producto_idx').on(table.productoId),
+    vigenteIdx: index('historial_precios_vigente_idx').on(table.productoId, table.vigenteHasta)
   })
 )
 
@@ -134,7 +140,7 @@ export const cuadres = sqliteTable(
     totalRealCaja: real('total_real_caja'),
     montoTransferencia: real('monto_transferencia').notNull().default(0),
     montoFiado: real('monto_fiado').notNull().default(0),
-    montoCobradoFiado: real('monto_cobrado_fiado'),
+    montoCobradoFiado: real('monto_cobrado_fiado').notNull().default(0),
     diferencia: real('diferencia'),
     estado: text('estado', { enum: ESTADOS_CUADRE }).notNull().default('abierto'),
     notas: text('notas'),
@@ -154,7 +160,9 @@ export const cuadres = sqliteTable(
   table => ({
     fechaIdx: index('cuadres_fecha_idx').on(table.fecha),
     estadoIdx: index('cuadres_estado_idx').on(table.estado),
-    sincIdx: index('cuadres_sincronizado_idx').on(table.sincronizado)
+    sincIdx: index('cuadres_sincronizado_idx').on(table.sincronizado),
+    jefeIdx: index('cuadres_jefe_idx').on(table.jefeId),
+    estadoCheck: check('cuadres_estado_check', sql`${table.estado} IN ('abierto', 'cerrado')`)
   })
 )
 
@@ -187,7 +195,8 @@ export const cuadreItems = sqliteTable(
   },
   table => ({
     cuadreIdx: index('cuadre_items_cuadre_idx').on(table.cuadreId),
-    productoIdx: index('cuadre_items_producto_idx').on(table.productoId)
+    productoIdx: index('cuadre_items_producto_idx').on(table.productoId),
+    tipoLineaCheck: check('cuadre_items_tipo_linea_check', sql`${table.tipoLinea} IN ('normal', 'descuento')`)
   })
 )
 
@@ -233,7 +242,9 @@ export const cuentasFiado = sqliteTable(
   },
   table => ({
     clienteIdx: index('cuentas_fiado_cliente_idx').on(table.clienteId),
-    estadoIdx: index('cuentas_fiado_estado_idx').on(table.estado)
+    estadoIdx: index('cuentas_fiado_estado_idx').on(table.estado),
+    cuadreOrigenIdx: index('cuentas_fiado_cuadre_origen_idx').on(table.cuadreOrigenId),
+    estadoCheck: check('cuentas_fiado_estado_check', sql`${table.estado} IN ('pendiente', 'parcial', 'pagada')`)
   })
 )
 
@@ -257,7 +268,8 @@ export const cuentasFiadoItems = sqliteTable(
       .default(false)
   },
   table => ({
-    cuentaIdx: index('cuentas_fiado_items_cuenta_idx').on(table.cuentaFiadoId)
+    cuentaIdx: index('cuentas_fiado_items_cuenta_idx').on(table.cuentaFiadoId),
+    productoIdx: index('cuentas_fiado_items_producto_idx').on(table.productoId)
   })
 )
 

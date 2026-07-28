@@ -54,6 +54,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",
     "@nuxt/eslint": "^1.15.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",

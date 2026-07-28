@@ -79,7 +79,9 @@
 </template>
 
 <script setup>
-const usuarioConfig = { tabla: 'usuarios', endpoints: { list: '/api/usuarios', byId: id => `/api/usuarios/${id}` }, puestoScoped: true }
+import { TABLES } from '~~/shared/tables'
+
+const usuarioConfig = TABLES.usuarios
 
 const {
   totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,

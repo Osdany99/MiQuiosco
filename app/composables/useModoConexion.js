@@ -19,6 +19,9 @@ export function useModoConexion() {
     watch(serverAlcanzable, (alcanzable) => {
       if (alcanzable) {
         fallosConsecutivos = 0
+        if (modo.value === 'local') {
+          cambiarAOnline().catch(() => {})
+        }
         return
       }
       fallosConsecutivos++

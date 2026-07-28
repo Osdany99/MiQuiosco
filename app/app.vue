@@ -32,7 +32,22 @@ useSeoMeta({
     <NuxtLoadingIndicator />
 
     <NuxtLayout>
-      <NuxtPage />
+      <NuxtErrorBoundary>
+        <NuxtPage />
+        <template #error="{ error }">
+          <div class="flex flex-col items-center justify-center min-h-screen p-4">
+            <h2 class="text-xl font-bold text-red-600 mb-2">
+              Algo salió mal
+            </h2>
+            <p class="text-gray-600 mb-4">
+              {{ error?.message }}
+            </p>
+            <UButton @click="clearError">
+              Volver
+            </UButton>
+          </div>
+        </template>
+      </NuxtErrorBoundary>
     </NuxtLayout>
   </UApp>
 </template>

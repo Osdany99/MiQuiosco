@@ -14,18 +14,23 @@ import { verifyPin } from '../../utils/auth'
  * @returns {Promise<{ok: true, usuario: object} | {ok: false, motivo: string}>}
  */
 export async function login(nombreUsuario, pin) {
-  const db = useDb()
-  const usuario = await db.getUsuarioPorNombreLocal(nombreUsuario)
+  try {
+    const db = useDb()
+    const usuario = await db.getUsuarioPorNombreLocal(nombreUsuario)
 
-  if (!usuario) return { ok: false, motivo: 'usuario_no_existe' }
-  if (!usuario.activo) return { ok: false, motivo: 'usuario_inactivo' }
+    if (!usuario) return { ok: false, motivo: 'usuario_no_existe' }
+    if (!usuario.activo) return { ok: false, motivo: 'usuario_inactivo' }
 
-  if (usuario.rol === 'cliente') {
-    return { ok: false, motivo: 'cliente_no_puede_loguearse' }
+    if (usuario.rol === 'cliente') {
+      return { ok: false, motivo: 'cliente_no_puede_loguearse' }
+    }
+
+    const pinOk = await verifyPin(pin, usuario.pinHash)
+    if (!pinOk) return { ok: false, motivo: 'pin_incorrecto' }
+
+    return { ok: true, usuario }
+  } catch (err) {
+    console.error('Login offline error:', err)
+    return { ok: false, motivo: 'error_interno' }
   }
-
-  const pinOk = await verifyPin(pin, usuario.pinHash)
-  if (!pinOk) return { ok: false, motivo: 'pin_incorrecto' }
-
-  return { ok: true, usuario }
 }

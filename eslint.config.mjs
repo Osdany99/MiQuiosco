@@ -11,6 +11,9 @@ export default withNuxt({
   rules: {
     'vue/no-multiple-template-root': 'off',
     'vue/max-attributes-per-line': ['error', { singleline: 3 }],
-    'no-empty': ['error', { allowEmptyCatch: true }]
+    'vue/multi-word-component-names': 'off',
+    'no-empty': ['error', { allowEmptyCatch: true }],
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-explicit-any': 'warn'
   }
 })

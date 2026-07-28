@@ -1,5 +1,6 @@
 import { useDb } from '../server-offline/db/client'
-import { TABLES } from '~/config/tables'
+import { TABLES } from '~~/shared/tables'
+import { generateId } from '~/utils/id'
 
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
@@ -47,7 +48,9 @@ function normalizarLinea(i) {
     subtotal: Number(i.subtotal ?? 0),
     tipoLinea: i.tipoLinea ?? 'normal',
     nota: i.nota ?? null,
-    esExtra: i.esExtra ?? false
+    esExtra: i.esExtra ?? false,
+    creadoEn: i.creadoEn ?? null,
+    actualizadoEn: i.actualizadoEn ?? null
   }
 }
 
@@ -77,7 +80,7 @@ export function useCuadre() {
   const showAgregarProducto = ref(false)
   const productoSeleccionado = ref('')
   const tipoLineaExtra = ref('normal')
-  const expandida = ref(new Set())
+  const expandida = reactive(new Set())
 
   const hoy = new Date().toISOString().split('T')[0]
 
@@ -208,7 +211,7 @@ export function useCuadre() {
   }
 
   async function buscarCuadreActual(puestoId, repo) {
-    const { data: todos } = await repo.readAll()
+    const { data: todos } = await repo.readAll({ query: { fecha: hoy } })
     if (!Array.isArray(todos)) return null
     const encontrado = todos.find((c) => {
       const n = normalizarCuadre(c)
@@ -231,7 +234,7 @@ export function useCuadre() {
       lineas.value = itemsFiltrados.map(normalizarLinea)
     } else if (autoPopulate) {
       lineas.value = productosActivos.value.map(prod => ({
-        id: crypto.randomUUID(),
+        id: generateId(),
         cuadreId,
         productoId: prod.id,
         precioVentaUsado: prod.precioVentaActual,
@@ -247,7 +250,7 @@ export function useCuadre() {
   }
 
   async function crearCuadreNuevo(puestoId, repo) {
-    const nuevoId = crypto.randomUUID()
+    const nuevoId = generateId()
     // No enviamos jefeId ni puestoId: el override online (beforeCreate) los inyecta desde auth.usuario
     // En offline, useLocalRepo los añade automáticamente (ver crearRepoGenerico).
     const cuadreObj = {
@@ -278,14 +281,7 @@ export function useCuadre() {
         const existente = await buscarCuadreActual(puestoId, repo)
         if (existente) return existente
       }
-      console.warn('crearCuadreNuevo: fallo en repo activo, intentando con localRepo', err?.message)
-      try {
-        const localRepo = useLocalRepo(cuadreConfig)
-        await localRepo.create(cuadreObj)
-      } catch (err2) {
-        console.error('crearCuadreNuevo: también falló en localRepo', err2)
-        throw err2
-      }
+      throw err
     }
     return cuadreObj
   }
@@ -313,7 +309,7 @@ export function useCuadre() {
       }
 
       lineas.value.push({
-        id: crypto.randomUUID(),
+        id: generateId(),
         cuadreId: cuadre.value.id,
         productoId: prod.id,
         precioVentaUsado: prod.precioVentaActual,
@@ -333,10 +329,10 @@ export function useCuadre() {
   }
 
   function toggleExpandir(lineaId) {
-    if (expandida.value.has(lineaId)) {
-      expandida.value.delete(lineaId)
+    if (expandida.has(lineaId)) {
+      expandida.delete(lineaId)
     } else {
-      expandida.value.add(lineaId)
+      expandida.add(lineaId)
     }
   }
 
@@ -374,24 +370,52 @@ export function useCuadre() {
       await cuadreRepo.update(cuadre.value.id, cambios)
       cuadre.value = { ...cuadre.value, ...cambios }
 
-      const { data: existentes } = await itemsRepo.readAll()
-      for (const item of (existentes ?? []).filter((i) => {
+      const { data: existentes } = await itemsRepo.readAll({ query: { cuadreId: cuadre.value.id } })
+      const itemsExistentes = (existentes ?? []).filter(i => {
         const n = normalizarLinea(i)
         return n.cuadreId === cuadre.value.id
-      })) {
-        await itemsRepo.remove(item.id)
-      }
+      })
+
+      const existentesMap = new Map(itemsExistentes.map(i => [i.productoId, i]))
+      const lineasGuardadas = new Set()
+
       for (const linea of lineas.value) {
-        await itemsRepo.create({
-          cuadreId: linea.cuadreId,
-          productoId: linea.productoId,
-          precioVentaUsado: linea.precioVentaUsado,
-          cantidad: linea.cantidad,
-          subtotal: linea.subtotal,
-          tipoLinea: linea.tipoLinea,
-          nota: linea.nota,
-          esExtra: linea.esExtra
-        })
+        const existente = existentesMap.get(linea.productoId)
+        if (existente) {
+          const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
+            || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
+            || existente.tipoLinea !== linea.tipoLinea
+            || existente.nota !== linea.nota
+            || existente.esExtra !== linea.esExtra
+          if (cambia) {
+            await itemsRepo.update(existente.id, {
+              cantidad: linea.cantidad,
+              precioVentaUsado: linea.precioVentaUsado,
+              subtotal: linea.subtotal,
+              tipoLinea: linea.tipoLinea,
+              nota: linea.nota,
+              esExtra: linea.esExtra
+            })
+          }
+          lineasGuardadas.add(linea.productoId)
+        } else {
+          await itemsRepo.create({
+            cuadreId: linea.cuadreId,
+            productoId: linea.productoId,
+            precioVentaUsado: linea.precioVentaUsado,
+            cantidad: linea.cantidad,
+            subtotal: linea.subtotal,
+            tipoLinea: linea.tipoLinea,
+            nota: linea.nota,
+            esExtra: linea.esExtra
+          })
+        }
+      }
+
+      for (const existente of itemsExistentes) {
+        if (!lineasGuardadas.has(existente.productoId)) {
+          await itemsRepo.remove(existente.id)
+        }
       }
 
       let mensaje = 'Cuadre cerrado: '

@@ -3,6 +3,7 @@ import { gt, getTableName, getTableColumns } from 'drizzle-orm'
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
+import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
@@ -13,6 +14,8 @@ export default defineEventHandler(async (event) => {
   const desdeMs = typeof desdeRaw === 'string' ? Number(desdeRaw) : 0
   const desde = new Date(isNaN(desdeMs) ? 0 : desdeMs)
 
+  let maxTimestamp = desde.getTime()
+
   const queries = SYNC_TABLES.map(async (syncConfig) => {
     const table = schemaByTabla[syncConfig.tabla] as Table | undefined
     if (!table) return { tabla: syncConfig.tabla, rows: [] as any[] }
@@ -20,8 +23,17 @@ export default defineEventHandler(async (event) => {
     const tableName = getTableName(table)
     const columns = getTableColumns(table) as Record<string, Column>
 
-    const filterCol = syncConfig.insertOnly ? columns.creadoEn! : columns.actualizadoEn!
+    const filterCol = syncConfig.insertOnly ? columns.creadoEn : columns.actualizadoEn
+    if (!filterCol) return { tabla: tableName, rows: [] }
     const rows = await db.select().from(table).where(gt(filterCol, desde))
+
+    for (const row of rows) {
+      const ts = (row as any).actualizadoEn ?? (row as any).creadoEn
+      if (ts) {
+        const ms = ts instanceof Date ? ts.getTime() : new Date(ts).getTime()
+        if (ms > maxTimestamp) maxTimestamp = ms
+      }
+    }
 
     return {
       tabla: tableName,
@@ -29,10 +41,22 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  const deletes = await db
+    .select({ tabla: deletedRecords.tabla, id: deletedRecords.registroId, eliminadoEn: deletedRecords.eliminadoEn })
+    .from(deletedRecords)
+    .where(gt(deletedRecords.eliminadoEn, desde))
+
+  for (const del of deletes) {
+    if (del.eliminadoEn) {
+      const ms = del.eliminadoEn instanceof Date ? del.eliminadoEn.getTime() : new Date(del.eliminadoEn).getTime()
+      if (ms > maxTimestamp) maxTimestamp = ms
+    }
+  }
+
   const results = await Promise.all(queries)
   const payload = Object.fromEntries(results.map(r => [r.tabla, r.rows]))
 
-  return { ...payload, timestamp_servidor: Date.now() }
+  return { ...payload, deletes, timestamp_servidor: maxTimestamp }
 })
 
 function serializeRow(row: Record<string, any>, syncConfig: { syncNumeric: string[] }): Record<string, any> {

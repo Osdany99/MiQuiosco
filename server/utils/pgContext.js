@@ -1,7 +1,7 @@
 import { eq, getTableName, getTableColumns } from 'drizzle-orm'
 
 /**
- * makePgCtx(db, schema) → { insert, update, get, queryAll, queryWhere }
+ * makePgCtx(db, schema) → { insert, update, get, queryAll }
  *
  * @param {ReturnType<typeof import('../database/client').db>} db
  * @param {Object} schema - módulos de schema Drizzle indexados por nombre lógico:
@@ -19,8 +19,8 @@ export function makePgCtx(db, schema) {
   const tsKeyCache = new Map()
 
   function esTimestamp(col) {
-    const name = (col?.constructor?.name || '').toLowerCase()
-    return name.includes('timestamp')
+    const sqlType = col?.getSQLType?.() || ''
+    return sqlType.includes('timestamp')
   }
 
   function getTableNameOrFallback(table) {
@@ -81,10 +81,6 @@ export function makePgCtx(db, schema) {
     },
 
     async queryAll(t) {
-      return await db.select().from(tbl(t))
-    },
-
-    async queryWhere(t) {
       return await db.select().from(tbl(t))
     }
   }

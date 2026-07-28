@@ -62,12 +62,12 @@
         >
           <template v-if="col.cell === 'currency'">
             <div class="text-primary">
-              {{ fmtPrecio(row.original[col.accessorKey]) }}
+              {{ safeFmt(fmtPrecio, row.original[col.accessorKey]) }}
             </div>
           </template>
           <template v-if="col.cell === 'currencyWithValue'">
             <div v-if="row.original[col.accessorKey]" class="text-primary">
-              {{ fmtPrecio(row.original[col.accessorKey]) }}
+              {{ safeFmt(fmtPrecio, row.original[col.accessorKey]) }}
             </div>
             <div v-else>
               -
@@ -75,12 +75,12 @@
           </template>
           <template v-if="col.cell === 'date'">
             <div class="text-primary">
-              {{ fmtDate(row.original[col.accessorKey]) }}
+              {{ safeFmt(fmtDate, row.original[col.accessorKey]) }}
             </div>
           </template>
           <template v-if="col.cell === 'dateWithValue'">
             <div v-if="row.original[col.accessorKey]" class="text-primary">
-              {{ fmtDate(row.original[col.accessorKey]) }}
+              {{ safeFmt(fmtDate, row.original[col.accessorKey]) }}
             </div>
             <div v-else>
               -
@@ -200,7 +200,7 @@ const resolvedEmptyState = computed(() => {
 
 onMounted(() => {
   if (form.value != null) {
-    initialForm.value = JSON.parse(JSON.stringify(form.value))
+    initialForm.value = structuredClone(form.value)
   }
 })
 
@@ -211,7 +211,7 @@ const isExternalData = computed(() => props.data !== null)
 const internalPage = ref(1)
 const internalPageCount = ref(props.defaultLimit)
 
-const repoTable = !isExternalData.value ? useTableData(props, activeFilters) : null
+const repoTable = useTableData(props, activeFilters)
 
 const page = computed({
   get: () => (repoTable ? repoTable.page.value : internalPage.value),
@@ -295,6 +295,14 @@ const hasActionsColumn = computed(() =>
   filteredColumns.value.some(c => ['action'].includes(c.accessorKey ?? c.key ?? c.id))
 )
 
+function safeFmt(fn, value, fallback = '-') {
+  try {
+    return fn(value)
+  } catch {
+    return fallback
+  }
+}
+
 const tableColumns = computed(() => {
   if ((props.showEdit || props.showDelete) && visibleHeaders.value.includes('Acciones') && !hasActionsColumn.value) {
     return [...filteredColumns.value, { id: 'action', header: 'Acciones' }]
@@ -305,7 +313,7 @@ const tableColumns = computed(() => {
 defineExpose({
   openAdd: () => {
     if (initialForm.value) {
-      form.value = JSON.parse(JSON.stringify(initialForm.value))
+      form.value = structuredClone(initialForm.value)
     }
     isEditing.value = false
     isOpen.value = true

@@ -1,20 +1,12 @@
-import { revokeToken } from '../../utils/auth'
+import { requireAuth } from '../../utils/auth'
 
 /**
  * POST /api/auth/logout
  *
- * Invalida el token JWT del lado del servidor (añadiéndolo a la blacklist)
- * y limpia cualquier estado de sesión.
- *
- * El cliente debe borrar sus tokens locales (@capacitor/preferences) después
- * de llamar a este endpoint.
+ * El cliente borra sus tokens locales (@capacitor/preferences).
+ * Este endpoint solo valida que el token sea válido.
  */
-export default defineEventHandler((event) => {
-  const header = getHeader(event, 'authorization')
-  if (header?.startsWith('Bearer ')) {
-    const token = header.slice(7)
-    revokeToken(token)
-  }
-
+export default defineEventHandler(async (event) => {
+  await requireAuth(event, 'sync')
   return { ok: true }
 })

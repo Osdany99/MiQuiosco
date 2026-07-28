@@ -20,7 +20,7 @@ export function useTableCrud(props, emit, form, refresh) {
   }
 
   const handleEdit = (row) => {
-    form.value = JSON.parse(JSON.stringify(row))
+    form.value = structuredClone(row)
     isEditing.value = true
     isOpen.value = true
     emit('edit', row)
@@ -49,7 +49,8 @@ export function useTableCrud(props, emit, form, refresh) {
   }
 
   // --- API Delete (toast silenciado, ya hay modal de confirmación) ---
-  const { remove, loading: deleteLoading } = accionesRepo()
+  const { remove, create, update, loading } = accionesRepo()
+  const deleteLoading = loading
 
   const confirmDelete = async () => {
     if (itemToDelete.value) {
@@ -62,8 +63,6 @@ export function useTableCrud(props, emit, form, refresh) {
 
   // --- API Create / Update (toast silenciado, el componente padre emite su propio success) ---
   const successMessage = ref('Operación exitosa')
-
-  const { create, update, loading } = accionesRepo()
 
   const updateOrAdd = async (body) => {
     if (isEditing.value) {

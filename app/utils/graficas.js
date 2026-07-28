@@ -1,6 +1,8 @@
-const productoConfig = { tabla: 'productos', endpoints: { list: '/api/productos', byId: id => `/api/productos/${id}` }, puestoScoped: true }
-const cuadreConfig = { tabla: 'cuadres', endpoints: { list: '/api/cuadres', byId: id => `/api/cuadres/${id}` }, puestoScoped: true }
-const cuadreItemConfig = { tabla: 'cuadre_items', endpoints: { list: '/api/cuadre-items', byId: id => `/api/cuadre-items/${id}` } }
+import { TABLES } from '~~/shared/tables'
+
+const productoConfig = TABLES.productos
+const cuadreConfig = TABLES.cuadres
+const cuadreItemConfig = TABLES.cuadre_items
 
 /**
  * calcularGrafica(key, opts) — Cálculo local de todas las gráficas del negocio.
@@ -17,9 +19,9 @@ export async function calcularGrafica(key, opts) {
   const itemsRepo = useLocalRepo(cuadreItemConfig)
 
   switch (key) {
-    case 'productos-mas-vendidos': return _productosMasVendidos(productoRepo, cuadreRepo, itemsRepo)
-    case 'productos-mayor-ganancia': return _productosMayorGanancia(productoRepo, cuadreRepo, itemsRepo)
-    case 'productos-menor-rotacion': return _productosMenorRotacion(productoRepo, cuadreRepo, itemsRepo)
+    case 'productos-mas-vendidos': return _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo)
+    case 'productos-mayor-ganancia': return _productosMayorGanancia(opts, productoRepo, cuadreRepo, itemsRepo)
+    case 'productos-menor-rotacion': return _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'ganancia-por-periodo': return _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'ingresos-por-periodo': return _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'regalos-descuentos-por-periodo': return _regalosDescuentosPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -77,8 +79,8 @@ function getWeek(d) {
   return Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7)
 }
 
-async function _productosMasVendidos(productoRepo, cuadreRepo, itemsRepo) {
-  const { items, prodMap } = await cargarDatos({}, productoRepo, cuadreRepo, itemsRepo)
+async function _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo) {
+  const { items, prodMap } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
   const ventas = {}
   for (const i of items) {
     ventas[i.productoId] = (ventas[i.productoId] || 0) + (Number(i.cantidad) || 0)
@@ -92,8 +94,8 @@ async function _productosMasVendidos(productoRepo, cuadreRepo, itemsRepo) {
     .slice(0, 10)
 }
 
-async function _productosMayorGanancia(productoRepo, cuadreRepo, itemsRepo) {
-  const { items, prodMap } = await cargarDatos({}, productoRepo, cuadreRepo, itemsRepo)
+async function _productosMayorGanancia(opts, productoRepo, cuadreRepo, itemsRepo) {
+  const { items, prodMap } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
   const ganancias = {}
   for (const i of items) {
     const p = prodMap[i.productoId]
@@ -109,8 +111,8 @@ async function _productosMayorGanancia(productoRepo, cuadreRepo, itemsRepo) {
     .slice(0, 10)
 }
 
-async function _productosMenorRotacion(productoRepo, cuadreRepo, itemsRepo) {
-  const { items, prodMap } = await cargarDatos({}, productoRepo, cuadreRepo, itemsRepo)
+async function _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo) {
+  const { items, prodMap } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
   const ventas = {}
   for (const i of items) {
     ventas[i.productoId] = (ventas[i.productoId] || 0) + (Number(i.cantidad) || 0)
@@ -175,8 +177,12 @@ async function _regalosDescuentosPeriodo(opts, productoRepo, cuadreRepo, itemsRe
   )
   return periodos.map(g => ({
     periodo: g.periodo ?? g,
-    valorRegalado: g.items ? g.items.filter(x => x.esRegalo).reduce((s, x) => s + x.valor, 0) : 0,
-    valorDescontado: g.items ? g.items.filter(x => !x.esRegalo).reduce((s, x) => s + x.valor, 0) : 0
+    valorRegalado: g.items
+      ? g.items.filter(x => x.esRegalo).reduce((s, x) => s + x.valor, 0)
+      : (g.esRegalo ? g.valor : 0),
+    valorDescontado: g.items
+      ? g.items.filter(x => !x.esRegalo).reduce((s, x) => s + x.valor, 0)
+      : (!g.esRegalo ? g.valor : 0)
   }))
 }
 

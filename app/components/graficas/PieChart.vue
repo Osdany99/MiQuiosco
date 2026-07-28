@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
+import { useCanvas } from '~/composables/useCanvas'
 
 const props = defineProps({
   data: {
@@ -14,32 +15,22 @@ const props = defineProps({
 
 const nameKey = computed(() => props.config.nameKey)
 const valueKey = computed(() => props.config.valueKey)
-// const labels = computed(() => props.config.labels || {})
 const colors = computed(() => props.config.colors || ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'])
 
 const chartCanvas = ref(null)
 
+const { initCanvas } = useCanvas(chartCanvas, props, drawChart)
+
 function drawChart() {
-  if (!chartCanvas.value || !props.data.length) return
-
-  const ctx = chartCanvas.value.getContext('2d')
-  if (!ctx) return
-
-  const canvas = chartCanvas.value
-  const dpr = window.devicePixelRatio || 1
-  const rect = canvas.getBoundingClientRect()
-  canvas.width = rect.width * dpr
-  canvas.height = rect.height * dpr
-  ctx.scale(dpr, dpr)
-
-  ctx.clearRect(0, 0, rect.width, rect.height)
+  const setup = initCanvas()
+  if (!setup) return
+  const { ctx, rect } = setup
 
   const centerX = rect.width / 2
   const centerY = rect.height / 2
   const radius = Math.min(centerX, centerY) - 40
   const innerRadius = radius * 0.5
 
-  // Calculate total
   const total = props.data.reduce((sum, row) => sum + (Number(row[valueKey.value]) || 0), 0)
   if (total === 0) return
 
@@ -50,7 +41,6 @@ function drawChart() {
     const sliceAngle = (value / total) * Math.PI * 2
     const color = colors.value[i % colors.value.length]
 
-    // Draw slice
     ctx.beginPath()
     ctx.moveTo(centerX, centerY)
     ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle)
@@ -58,7 +48,6 @@ function drawChart() {
     ctx.fillStyle = color
     ctx.fill()
 
-    // Draw inner circle for donut
     ctx.beginPath()
     ctx.moveTo(centerX, centerY)
     ctx.arc(centerX, centerY, innerRadius, currentAngle + sliceAngle, currentAngle, true)
@@ -66,7 +55,6 @@ function drawChart() {
     ctx.fillStyle = '#ffffff'
     ctx.fill()
 
-    // Draw label
     const labelAngle = currentAngle + sliceAngle / 2
     const labelX = centerX + Math.cos(labelAngle) * (radius + 20)
     const labelY = centerY + Math.sin(labelAngle) * (radius + 20)
@@ -81,7 +69,6 @@ function drawChart() {
     currentAngle += sliceAngle
   })
 
-  // Draw center total
   ctx.fillStyle = '#1f2937'
   ctx.font = 'bold 16px system-ui'
   ctx.textAlign = 'center'
@@ -90,19 +77,6 @@ function drawChart() {
   ctx.fillStyle = '#6b7280'
   ctx.fillText('Total', centerX, centerY + 14)
 }
-
-function fmtNumero(v) {
-  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M'
-  if (v >= 1000) return (v / 1000).toFixed(1) + 'K'
-  return v.toFixed(0)
-}
-
-onMounted(() => {
-  drawChart()
-})
-
-watch(() => props.data, drawChart, { deep: true })
-watch(() => props.config, drawChart, { deep: true })
 </script>
 
 <template>

@@ -19,7 +19,9 @@ import { sembrarJefeLocal } from './seed'
 const DB_NAME = 'miquiosco'
 
 let dbConnection = null
+let dbConnectionPromise = null
 let inMemoryDb = null
+let inMemoryDbPromise = null
 
 class InMemoryDb {
   tables = new Map()
@@ -59,6 +61,18 @@ class InMemoryDb {
     if (idx !== -1) rows.splice(idx, 1)
   }
 
+  snapshot() {
+    const snap = new Map()
+    for (const [k, v] of this.tables) {
+      snap.set(k, v.map(r => ({ ...r })))
+    }
+    return snap
+  }
+
+  restore(snap) {
+    this.tables = snap
+  }
+
   async run() {
     return Promise.resolve()
   }
@@ -67,23 +81,45 @@ class InMemoryDb {
 async function getConnection() {
   if (Capacitor.isNativePlatform()) {
     if (!dbConnection) {
-      const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
-      const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
-      dbConnection = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-      await dbConnection.open()
-      await initializeSchema(dbConnection)
-      await sembrarJefeLocal(dbConnection)
+      if (!dbConnectionPromise) {
+        dbConnectionPromise = (async () => {
+          const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
+          const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
+          dbConnection = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+          await dbConnection.open()
+          await initializeSchema(dbConnection)
+          await sembrarJefeLocal(dbConnection)
+        })()
+      }
+      await dbConnectionPromise
     }
     return dbConnection
   }
 
   if (!inMemoryDb) {
-    inMemoryDb = new InMemoryDb()
-    initializeSchemaMemory(inMemoryDb)
-    await sembrarJefeLocal(inMemoryDb)
+    if (!inMemoryDbPromise) {
+      inMemoryDbPromise = (async () => {
+        inMemoryDb = new InMemoryDb()
+        initializeSchemaMemory(inMemoryDb)
+        await sembrarJefeLocal(inMemoryDb)
+      })()
+    }
+    await inMemoryDbPromise
   }
   return inMemoryDb
 }
+
+const MIGRATIONS = [
+  { type: 'column', table: 'usuarios', name: 'telefono', sql: 'ALTER TABLE usuarios ADD COLUMN telefono text' },
+  { type: 'column', table: 'usuarios', name: 'notas', sql: 'ALTER TABLE usuarios ADD COLUMN notas text' },
+  { type: 'data', sql: "UPDATE cuadres SET monto_cobrado_fiado = 0 WHERE monto_cobrado_fiado IS NULL" },
+  { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS usuarios_activo_idx ON usuarios (activo)' },
+  { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS productos_activo_idx ON productos (activo)' },
+  { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS historial_precios_vigente_idx ON historial_precios (producto_id, vigente_hasta)' },
+  { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS cuadres_jefe_idx ON cuadres (jefe_id)' },
+  { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS cuentas_fiado_cuadre_origen_idx ON cuentas_fiado (cuadre_origen_id)' },
+  { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS cuentas_fiado_items_producto_idx ON cuentas_fiado_items (producto_id)' }
+]
 
 async function initializeSchema(conn) {
   const result = await conn.query('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'usuarios\'', [])
@@ -96,13 +132,20 @@ async function initializeSchema(conn) {
     return
   }
 
-  const cols = await conn.query('PRAGMA table_info(usuarios)', [])
-  const existingCols = new Set((cols.values ?? []).map(c => c.name))
-  if (!existingCols.has('telefono')) {
-    await conn.run('ALTER TABLE usuarios ADD COLUMN telefono text', [])
-  }
-  if (!existingCols.has('notas')) {
-    await conn.run('ALTER TABLE usuarios ADD COLUMN notas text', [])
+  const colCache = new Map()
+
+  for (const m of MIGRATIONS) {
+    if (m.type === 'column') {
+      if (!colCache.has(m.table)) {
+        const cols = await conn.query(`PRAGMA table_info(${m.table})`, [])
+        colCache.set(m.table, new Set((cols.values ?? []).map(c => c.name)))
+      }
+      if (!colCache.get(m.table).has(m.name)) {
+        await conn.run(m.sql, []).catch(() => {})
+      }
+    } else {
+      await conn.run(m.sql, []).catch(() => {})
+    }
   }
 }
 
@@ -237,15 +280,6 @@ export function useDb() {
       : null
   }
 
-  async function queryWhere(tabla, whereSql, values) {
-    const conn = await getConnection()
-    if (conn instanceof InMemoryDb) {
-      return conn.all(tabla).map(r => snakeToCamelRow(r))
-    }
-    const result = await conn.query(`SELECT * FROM ${tabla} WHERE ${whereSql}`, values ?? [])
-    return (result.values ?? []).map(r => snakeToCamelRow(r))
-  }
-
   async function resetLocalDatabase() {
     const conn = await getConnection()
     const tableNames = deriveTableNames(schemaSqlite)
@@ -257,7 +291,31 @@ export function useDb() {
       }
     }
     inMemoryDb = null
+    inMemoryDbPromise = null
     dbConnection = null
+    dbConnectionPromise = null
+  }
+
+  async function transaction(fn) {
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      const snap = conn.snapshot()
+      try {
+        return await fn({ insert, update, remove })
+      } catch (err) {
+        conn.restore(snap)
+        throw err
+      }
+    }
+    await conn.beginTransaction()
+    try {
+      const result = await fn({ insert, update, remove })
+      await conn.commit()
+      return result
+    } catch (err) {
+      await conn.rollback()
+      throw err
+    }
   }
 
   return {
@@ -270,8 +328,8 @@ export function useDb() {
     remove,
     queryAll,
     getById,
-    queryWhere,
-    resetLocalDatabase
+    resetLocalDatabase,
+    transaction
   }
 }
 

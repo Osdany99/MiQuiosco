@@ -1,5 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+
   modules: [
     '@nuxt/eslint',
     '@nuxt/ui',
@@ -8,7 +9,7 @@ export default defineNuxtConfig({
   ssr: false,
 
   devtools: {
-    enabled: true
+    enabled: import.meta.dev
   },
 
   css: ['~/assets/css/main.css'],
@@ -26,6 +27,7 @@ export default defineNuxtConfig({
       cors: true
     }
   },
+  sourcemap: false,
 
   future: {
     compatibilityVersion: 4 // esto activa la estructura app/
@@ -37,6 +39,7 @@ export default defineNuxtConfig({
   typescript: {
     strict: true
   },
+  telemetry: false,
 
   eslint: {
     config: {

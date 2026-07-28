@@ -3,9 +3,9 @@ import { Network } from '@capacitor/network'
 import { $api } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
 import { push as pushOffline, pull as pullOffline } from '../server-offline/api/sync'
-import { TABLES } from '~/config/tables'
+import { removePendingDeletesAccepted } from '../server-offline/api/_factory'
+import { SYNC_TABLES } from '~~/shared/tables'
 
-const SYNC_TABLES = Object.values(TABLES)
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
@@ -114,8 +114,19 @@ export function useSync() {
 
       await marcarAceptados(pushResult.aceptados, pendientes)
       await absorberConflictos(pushResult.conflictos)
+      if (pushResult.deletesAceptados?.length) {
+        await removePendingDeletesAccepted(pushResult.deletesAceptados)
+      }
 
-      const pullResult = await _ejecutarPull()
+      let pullResult
+      for (let intento = 0; intento < 2; intento++) {
+        try {
+          pullResult = await _ejecutarPull()
+          break
+        } catch (pullErr) {
+          if (intento === 1) throw pullErr
+        }
+      }
 
       const totalRecibidos = TABLAS_SYNC.reduce(
         (s, t) => s + (pullResult[t]?.length ?? 0),
@@ -123,7 +134,7 @@ export function useSync() {
       )
       toast.add({
         title: 'Sincronización completada',
-        description: `Subidos: ${pushResult.aceptados?.length ?? 0}, Recibidos: ${totalRecibidos}`,
+        description: `Subidos: ${pushResult.aceptados?.length ?? 0}, Recibidos: ${totalRecibidos}, Eliminados: ${pushResult.deletesAceptados?.length ?? 0}`,
         color: 'success'
       })
       return true
@@ -221,18 +232,47 @@ export function useSync() {
 
   async function absorberConflictos(conflictos) {
     if (!conflictos) return
-    for (const [tabla, registros] of Object.entries(conflictos)) {
-      if (!registros?.length) continue
+    for (const [tabla, conflictosTabla] of Object.entries(conflictos)) {
+      if (!conflictosTabla?.length) continue
       const repo = repoDe(tabla)
       if (!repo) continue
-      for (const reg of registros) {
+      for (const conflicto of conflictosTabla) {
         try {
-          await repo.update(reg.id, { ...reg, sincronizado: 1 })
+          const server = conflicto.server ?? conflicto
+          const client = conflicto.client ?? conflicto
+          const merged = mergeFields(server, client)
+          await repo.update(merged.id, { ...merged, sincronizado: 1 })
         } catch {
           // eliminar error eslint
         }
       }
     }
+  }
+
+  function mergeFields(server, client) {
+    const serverTs = server.actualizadoEn ? new Date(server.actualizadoEn).getTime() : 0
+    const clientTs = client.actualizadoEn ? new Date(client.actualizadoEn).getTime() : 0
+    const allKeys = new Set([...Object.keys(server), ...Object.keys(client)])
+    const result = {}
+
+    for (const key of allKeys) {
+      if (key === 'id' || key === 'sincronizado') {
+        result[key] = key === 'id' ? server.id : 1
+        continue
+      }
+      const sv = server[key]
+      const cv = client[key]
+      if (sv === cv) {
+        result[key] = sv
+      } else if (sv == null && cv != null) {
+        result[key] = cv
+      } else if (cv == null && sv != null) {
+        result[key] = sv
+      } else {
+        result[key] = serverTs >= clientTs ? sv : cv
+      }
+    }
+    return result
   }
 
   async function actualizarPendientesCount(pendientesYaCalculados = null) {

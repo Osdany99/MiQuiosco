@@ -30,7 +30,7 @@ interface JwtPayload {
   expiraEn: number
 }
 
-const JWT_EXPIRATION_SYNC_SEC = 60 * 60 * 24 * 30
+const JWT_EXPIRATION_SYNC_SEC = 60 * 60 * 24
 
 const tokenBlacklist = new Set<string>()
 
@@ -52,7 +52,7 @@ export function signToken(
   const token = jwt.sign(
     { ...payload, scope: ['sync'], expiraEn },
     secret,
-    { expiresIn: '30d' }
+    { expiresIn: '24h' }
   )
   return { token, expiraEn }
 }

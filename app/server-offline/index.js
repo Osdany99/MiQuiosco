@@ -5,9 +5,10 @@
  * Cada módulo expone: { list, get, create, update, patch, remove, ...actions }.
  */
 import { createOfflineModule } from './api/_factory.js'
-import { createProductoMut, updateProductoMut } from '~~/shared/mutations/producto.js'
+import { createProductoMut, updateProductoMut } from '~~/shared/mutations/producto'
 import { useDb } from './db/client.js'
 import { hashPin } from './utils/auth.js'
+import { TABLES } from '~~/shared/tables.js'
 
 function serializarUsuario(u) {
   if (!u) return u
@@ -27,7 +28,7 @@ function serializarUsuario(u) {
 
 const OFFLINE_CONFIGS = [
   {
-    config: { tabla: 'productos', defaults: { precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true }, puestoScoped: true, customMutations: { create: createProductoMut, update: updateProductoMut } },
+    config: { tabla: 'productos', defaults: { precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true }, puestoScoped: TABLES.productos.puestoScoped, customMutations: { create: createProductoMut, update: updateProductoMut } },
     overrides: {
       actions: {
         getHistorial: async (productoId) => {
@@ -41,7 +42,7 @@ const OFFLINE_CONFIGS = [
     }
   },
   {
-    config: { tabla: 'usuarios', defaults: { rol: 'trabajador', salario: 600, activo: true }, puestoScoped: true },
+    config: { tabla: 'usuarios', defaults: { rol: 'trabajador', salario: 600, activo: true }, puestoScoped: TABLES.usuarios.puestoScoped },
     overrides: {
       requireRole: 'jefe',
       beforeCreate: async (datos) => {
@@ -60,12 +61,22 @@ const OFFLINE_CONFIGS = [
     }
   },
   {
-    config: { tabla: 'cuadres', defaults: { totalEsperado: 0, montoTransferencia: 0, montoFiado: 0, montoCobradoFiado: 0, estado: 'abierto', reabiertoVeces: 0 }, puestoScoped: true },
+    config: { tabla: 'cuadres', defaults: { totalEsperado: 0, montoTransferencia: 0, montoFiado: 0, montoCobradoFiado: 0, estado: 'abierto', reabiertoVeces: 0 }, puestoScoped: TABLES.cuadres.puestoScoped },
     overrides: {
-      beforeCreate: (datos, auth) => ({
-        ...datos,
-        jefeId: datos.jefeId ?? auth?.usuarioActual?.value?.id ?? null
-      }),
+      beforeCreate: async (datos, auth) => {
+        const db = useDb()
+        const all = await db.queryAll('cuadres')
+        const duplicado = all.find(c =>
+          c.puestoId === datos.puestoId && c.fecha === datos.fecha
+        )
+        if (duplicado) {
+          throw new Error('Ya existe un cuadre para este puesto en la fecha de hoy.')
+        }
+        return {
+          ...datos,
+          jefeId: datos.jefeId ?? auth?.usuarioActual?.value?.id ?? null
+        }
+      },
       listFilter: (opts, row) => !opts.fecha || row.fecha === opts.fecha
     }
   },
@@ -74,7 +85,7 @@ const OFFLINE_CONFIGS = [
     overrides: {}
   },
   {
-    config: { tabla: 'cuentas_fiado', defaults: { montoTotal: 0, montoPagado: 0, estado: 'pendiente' }, puestoScoped: true },
+    config: { tabla: 'cuentas_fiado', defaults: { montoTotal: 0, montoPagado: 0, estado: 'pendiente' }, puestoScoped: TABLES.cuentas_fiado.puestoScoped },
     overrides: {}
   },
   {

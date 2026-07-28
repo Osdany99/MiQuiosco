@@ -133,6 +133,9 @@ export const historialPrecios = pgTable(
     cambiadoPor: uuid('cambiado_por').references(() => usuarios.id),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
       .defaultNow()
   },
   table => ({
@@ -163,7 +166,7 @@ export const cuadres = pgTable(
       () => usuarios.id
     ),
     pagoTrabajador: doublePrecision('pago_trabajador'),
-    totalEsperado: doublePrecision('total_esperado').notNull(),
+    totalEsperado: doublePrecision('total_esperado').notNull().default(0),
     totalRealCaja: doublePrecision('total_real_caja'),
     montoTransferencia: doublePrecision('monto_transferencia')
       .notNull()
@@ -216,7 +219,7 @@ export const cuadreItems = pgTable(
     cantidad: doublePrecision('cantidad')
       .notNull()
       .default(0),
-    subtotal: doublePrecision('subtotal').notNull(),
+    subtotal: doublePrecision('subtotal').notNull().default(0),
     tipoLinea: tipoLineaEnum('tipo_linea').notNull().default('normal'),
     nota: text('nota'),
     esExtra: boolean('es_extra').notNull().default(false),
@@ -319,6 +322,26 @@ export const pagosFiado = pgTable(
   table => ({
     cuentaIdx: index('pagos_fiado_cuenta_idx').on(table.cuentaFiadoId),
     cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId)
+  })
+)
+
+/**
+ * Registro de eliminaciones para sincronización.
+ * Trackea qué registros fueron eliminados y cuándo, para que otros dispositivos los apliquen en pull.
+ */
+export const deletedRecords = pgTable(
+  'deleted_records',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tabla: text('tabla').notNull(),
+    registroId: text('registro_id').notNull(),
+    eliminadoEn: timestamp('eliminado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    tablaIdx: index('deleted_records_tabla_idx').on(table.tabla),
+    eliminadoEnIdx: index('deleted_records_eliminado_en_idx').on(table.eliminadoEn)
   })
 )
 

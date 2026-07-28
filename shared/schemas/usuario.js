@@ -5,7 +5,7 @@ export const usuarioSchema = z.object({
   rol: z.enum(['jefe', 'trabajador', 'cliente'], { message: 'Rol inválido' }).default('trabajador'),
   telefono: z.string().nullable().optional(),
   notas: z.string().nullable().optional(),
-  salario: z.coerce.number().min(0, 'El salario no puede ser negativo').nullable().optional(),
+  salario: z.number().min(0, 'El salario no puede ser negativo').nullable().optional(),
   pin: z.string().min(4, 'El PIN debe tener al menos 4 caracteres').max(6, 'El PIN debe tener máximo 6 caracteres').optional(),
   pinHash: z.string().optional(),
   activo: z.boolean().default(true),

@@ -1,6 +1,6 @@
 <script setup>
 import { usuarioSchema } from '~~/shared/schemas/usuario'
-import { usuarios as tableUsuarios } from '~/config/tables'
+import { usuarios as tableUsuarios } from '~~/shared/tables'
 
 definePageMeta({
   middleware: ['jefe']

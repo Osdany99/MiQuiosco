@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
+import { useCanvas } from '~/composables/useCanvas'
 
 const props = defineProps({
   data: {
@@ -19,20 +20,12 @@ const colors = computed(() => props.config.colors || ['#3b82f6', '#10b981', '#f5
 
 const chartCanvas = ref(null)
 
+const { initCanvas } = useCanvas(chartCanvas, props, drawChart)
+
 function drawChart() {
-  if (!chartCanvas.value || !props.data.length) return
-
-  const ctx = chartCanvas.value.getContext('2d')
-  if (!ctx) return
-
-  const canvas = chartCanvas.value
-  const dpr = window.devicePixelRatio || 1
-  const rect = canvas.getBoundingClientRect()
-  canvas.width = rect.width * dpr
-  canvas.height = rect.height * dpr
-  ctx.scale(dpr, dpr)
-
-  ctx.clearRect(0, 0, rect.width, rect.height)
+  const setup = initCanvas()
+  if (!setup) return
+  const { ctx, rect } = setup
 
   const padding = { top: 30, right: 20, bottom: 50, left: 60 }
   const chartWidth = rect.width - padding.left - padding.right
@@ -42,7 +35,6 @@ function drawChart() {
   const yKeysVal = yKeys.value
   const colorsVal = colors.value
 
-  // Find min/max for Y axis
   let minVal = Infinity
   let maxVal = -Infinity
   props.data.forEach((row) => {
@@ -58,7 +50,6 @@ function drawChart() {
 
   const xStep = chartWidth / Math.max(1, props.data.length - 1)
 
-  // Draw axes
   ctx.strokeStyle = '#e5e7eb'
   ctx.lineWidth = 1
   ctx.beginPath()
@@ -67,7 +58,6 @@ function drawChart() {
   ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight)
   ctx.stroke()
 
-  // Draw grid lines and Y labels
   for (let k = 0; k <= 5; k++) {
     const val = minVal + (maxVal - minVal) * (5 - k) / 5
     const y = padding.top + (chartHeight / 5) * k
@@ -83,7 +73,6 @@ function drawChart() {
     ctx.stroke()
   }
 
-  // Draw lines for each yKey
   yKeysVal.forEach((key, j) => {
     const color = colorsVal[j % colorsVal.length]
     ctx.strokeStyle = color
@@ -103,7 +92,6 @@ function drawChart() {
     })
     ctx.stroke()
 
-    // Draw points
     ctx.fillStyle = color
     props.data.forEach((row, i) => {
       const val = Number(row[key]) || 0
@@ -115,7 +103,6 @@ function drawChart() {
     })
   })
 
-  // Draw X axis labels
   ctx.fillStyle = '#6b7280'
   ctx.font = '11px system-ui'
   ctx.textAlign = 'center'
@@ -124,7 +111,6 @@ function drawChart() {
     ctx.fillText(String(row[xKeyVal] || ''), x, padding.top + chartHeight + 20)
   })
 
-  // Legend
   if (yKeysVal.length > 1) {
     yKeysVal.forEach((key, j) => {
       const label = labels.value[key] || key
@@ -139,19 +125,6 @@ function drawChart() {
     })
   }
 }
-
-function fmtNumero(v) {
-  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M'
-  if (v >= 1000) return (v / 1000).toFixed(1) + 'K'
-  return v.toFixed(0)
-}
-
-onMounted(() => {
-  drawChart()
-})
-
-watch(() => props.data, drawChart, { deep: true })
-watch(() => props.config, drawChart, { deep: true })
 </script>
 
 <template>

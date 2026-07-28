@@ -1,18 +1,13 @@
 import { z } from 'zod'
-
-const SYNC_TABLES = [
-  { tabla: 'productos' },
-  { tabla: 'usuarios' },
-  { tabla: 'cuadres' },
-  { tabla: 'cuadre_items' },
-  { tabla: 'cuentas_fiado' },
-  { tabla: 'cuentas_fiado_items' },
-  { tabla: 'pagos_fiado' },
-  { tabla: 'historial_precios' }
-]
+import { SYNC_TABLES } from '../tables.js'
 
 const pushSyncShape = {}
 for (const t of SYNC_TABLES) {
   pushSyncShape[t.tabla] = z.array(z.record(z.string(), z.any())).default([])
 }
+pushSyncShape.deletes = z.array(z.object({
+  tabla: z.string().min(1),
+  id: z.string().min(1)
+})).default([])
+
 export const pushSyncSchema = z.object(pushSyncShape)

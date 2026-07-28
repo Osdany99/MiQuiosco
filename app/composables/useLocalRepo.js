@@ -5,66 +5,18 @@
  */
 import { getModulo } from '../server-offline/index.js'
 import { useDb } from '../server-offline/db/client.js'
-
-function readAllFromDb(targetTable, opts, auth, config) {
-  const db = useDb()
-  return db.queryAll(targetTable).then((all) => {
-    let rows = (config?.puestoScoped && targetTable === config.tabla)
-      ? all.filter(r => r.puestoId === auth?.usuarioActual?.value?.puestoId)
-      : all
-    const conditions = opts?.filter || opts?.query
-    if (conditions) {
-      for (const [key, value] of Object.entries(conditions)) {
-        if (value == null || value === '' || key === 'orderBy' || key === 'orderDir') continue
-        rows = rows.filter((r) => {
-          const cell = r[key]
-          if (typeof cell === 'string' && typeof value === 'string') {
-            return cell.toLowerCase().includes(value.toLowerCase())
-          }
-          return String(cell ?? '') === String(value)
-        })
-      }
-    }
-    const orderBy = opts?.orderBy ?? opts?.query?.orderBy
-    if (orderBy) {
-      const dir = (opts?.orderDir ?? opts?.query?.orderDir) === 'desc' ? -1 : 1
-      rows = [...rows].sort((a, b) => {
-        const va = a[orderBy] ?? ''
-        const vb = b[orderBy] ?? ''
-        return typeof va === 'string' ? va.localeCompare(vb) * dir : (va - vb) * dir
-      })
-    }
-    return rows
-  })
-}
+import { makeCtx, queryFromDb, enrichForInsert, enrichForUpdate } from '../server-offline/api/_factory.js'
 
 function crearRepoGenerico(config) {
   const tabla = config.tabla
   const auth = useAuth()
-  const ahora = () => Date.now()
-
-  function ctx() {
-    const db = useDb()
-    return {
-      insert: (t, data) => db.insert(t, data),
-      update: (t, id, cambios) => db.update(t, id, cambios),
-      get: (t, id) => db.getById(t, id),
-      queryAll: t => db.queryAll(t)
-    }
-  }
 
   async function create(datos) {
     if (config.customMutations?.create) {
-      return config.customMutations.create(ctx(), datos, auth)
+      return config.customMutations.create(makeCtx(), datos, auth)
     }
     const db = useDb()
-    const registro = {
-      id: crypto.randomUUID(),
-      ...datos,
-      creadoEn: datos.creadoEn ?? ahora(),
-      actualizadoEn: datos.actualizadoEn ?? ahora(),
-      sincronizado: datos.sincronizado ?? 0
-    }
+    const registro = enrichForInsert(tabla, datos)
     await db.insert(tabla, registro)
     return registro
   }
@@ -74,18 +26,14 @@ function crearRepoGenerico(config) {
   }
 
   async function readAll(opts) {
-    return readAllFromDb(opts?.tabla || tabla, opts, auth, config)
+    return queryFromDb(opts?.tabla || tabla, opts, auth, config)
   }
 
   async function update(id, cambios) {
     if (config.customMutations?.update) {
-      return config.customMutations.update(ctx(), id, cambios, auth)
+      return config.customMutations.update(makeCtx(), id, cambios, auth)
     }
-    return useDb().update(tabla, id, {
-      ...cambios,
-      sincronizado: 0,
-      actualizadoEn: ahora()
-    })
+    return useDb().update(tabla, id, enrichForUpdate(tabla, cambios))
   }
 
   async function remove(id) {
@@ -112,7 +60,7 @@ function crearRepoDesdeModulo(config, modulo) {
     read: id => call(modulo.get, [id]),
     readAll: (opts) => {
       if (opts?.tabla && opts.tabla !== config.tabla) {
-        return readAllFromDb(opts.tabla, opts, auth, config)
+        return queryFromDb(opts.tabla, opts, auth, config)
       }
       return call(modulo.list, [opts ?? {}])
     },

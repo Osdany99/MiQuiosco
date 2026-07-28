@@ -1,7 +1,8 @@
 <script setup>
-import { calcularGrafica } from '~~/app/utils/graficas'
+import { calcularGrafica } from '~/utils/graficas'
+import { TABLES } from '~~/shared/tables'
 
-const productoConfig = { tabla: 'productos', endpoints: { list: '/api/productos', byId: id => `/api/productos/${id}` }, puestoScoped: true }
+const productoConfig = TABLES.productos
 
 definePageMeta({
   middleware: ['jefe']
@@ -200,7 +201,7 @@ function getChartConfig(key) {
       </template>
 
       <div v-if="cargando" class="flex items-center justify-center h-96">
-        <USpinner size="lg" />
+        <UIcon name="i-lucide-loader" class="w-8 h-8 animate-spin" />
       </div>
 
       <div
