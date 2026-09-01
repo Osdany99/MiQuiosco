@@ -5,7 +5,6 @@ export default withNuxt({
   ignores: [
     'android/**',
     '**/native-bridge.js',
-    'app/server-offline/**',
     'drizzle/**'
   ],
   rules: {

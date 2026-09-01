@@ -54,30 +54,26 @@ export function useTableCrud(props, emit, form, refresh) {
 
   const confirmDelete = async () => {
     if (itemToDelete.value) {
-      await remove(itemToDelete.value.id)
+      const { error } = await remove(itemToDelete.value.id)
+      if (error) return
       isDeleteOpen.value = false
       refresh()
       emit('success', 'Eliminado correctamente')
     }
   }
 
-  // --- API Create / Update (toast silenciado, el componente padre emite su propio success) ---
+  // --- API Create / Update (toast de error lo emite useRepo; el success lo emite el padre) ---
   const successMessage = ref('Operación exitosa')
 
   const updateOrAdd = async (body) => {
-    if (isEditing.value) {
-      const { error } = await update(form.value.id, body)
-      handleCloseModal()
-      refresh()
-      emit('success', successMessage.value)
-      return error
-    } else {
-      const { error } = await create(body)
-      handleCloseModal()
-      refresh()
-      emit('success', successMessage.value)
-      return error
-    }
+    const { error } = isEditing.value
+      ? await update(form.value.id, body)
+      : await create(body)
+    if (error) return error
+    handleCloseModal()
+    refresh()
+    emit('success', successMessage.value)
+    return null
   }
   // --- Submit ---
   const handleSubmit = async () => {

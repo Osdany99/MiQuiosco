@@ -1,6 +1,6 @@
 <script setup>
-import { productoSchema } from '~~/shared/schemas/producto'
-import { productos as config } from '~~/shared/tables'
+import { productoSchema } from '../../shared/schemas/producto'
+import { productos as config } from '../../shared/tables'
 
 definePageMeta({
   middleware: ['jefe']

@@ -33,7 +33,7 @@
 </template>
 
 <script setup>
-import { historial_precios as config } from '~~/shared/tables'
+import { historial_precios as config } from '../../../shared/tables'
 
 const props = defineProps({
   producto: { type: Object, default: null }

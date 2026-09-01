@@ -1,5 +1,5 @@
 <script setup>
-import { pinResetSchema } from '~~/shared/schemas/usuario'
+import { pinResetSchema } from '../../../shared/schemas/usuario'
 
 const form = defineModel({
   type: Object,

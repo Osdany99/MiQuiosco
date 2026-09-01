@@ -112,9 +112,9 @@ async function guardar() {
         <div class="flex items-center gap-2 text-sm">
           <span
             class="size-2 rounded-full"
-            :class="serverAlcanzable.value ? 'bg-green-500' : 'bg-red-500'"
+            :class="serverAlcanzable ? 'bg-green-500' : 'bg-red-500'"
           />
-          <span>{{ serverAlcanzable.value ? 'Servidor accesible' : 'Servidor no responde' }}</span>
+          <span>{{ serverAlcanzable ? 'Servidor accesible' : 'Servidor no responde' }}</span>
         </div>
         <div class="flex items-center gap-2 text-sm">
           <UIcon

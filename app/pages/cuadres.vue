@@ -1,5 +1,5 @@
 <script setup>
-import { cuadres as config } from '~~/shared/tables'
+import { cuadres as config } from '../../shared/tables'
 
 definePageMeta({
   middleware: ['jefe']
