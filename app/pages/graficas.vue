@@ -1,6 +1,6 @@
 <script setup>
 import { calcularGrafica } from '~/utils/graficas'
-import { TABLES } from '~~/shared/tables'
+import { TABLES } from '../../shared/tables'
 
 const productoConfig = TABLES.productos
 
