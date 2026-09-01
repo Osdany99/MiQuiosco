@@ -81,7 +81,7 @@ export interface CuadreItem {
   precioVentaUsado: number
   cantidad: number
   subtotal: number
-  tipoLinea: 'normal' | 'descuento'
+  tipoLinea: 'normal' | 'descuento' | 'regalo' | 'deuda' | 'descuento_familiar'
   nota: string | null
   esExtra: boolean
   creadoEn: number | string

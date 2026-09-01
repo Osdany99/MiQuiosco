@@ -8,7 +8,8 @@ import {
   timestamp,
   date,
   pgEnum,
-  index
+  index,
+  uniqueIndex
 } from 'drizzle-orm/pg-core'
 
 /**
@@ -18,7 +19,10 @@ export const rolEnum = pgEnum('rol', ['jefe', 'trabajador', 'cliente'])
 export const estadoCuadreEnum = pgEnum('estado_cuadre', ['abierto', 'cerrado'])
 export const tipoLineaEnum = pgEnum('tipo_linea', [
   'normal',
-  'descuento'
+  'descuento',
+  'regalo',
+  'deuda',
+  'descuento_familiar'
 ])
 export const estadoCuentaFiadoEnum = pgEnum('estado_cuenta_fiado', [
   'pendiente',
@@ -70,7 +74,9 @@ export const usuarios = pgTable(
   },
   table => ({
     rolIdx: index('usuarios_rol_idx').on(table.rol),
-    activoIdx: index('usuarios_activo_idx').on(table.activo)
+    activoIdx: index('usuarios_activo_idx').on(table.activo),
+    puestoNombreUk: uniqueIndex('usuarios_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('usuarios_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
 
@@ -106,7 +112,8 @@ export const productos = pgTable(
   },
   table => ({
     ordenIdx: index('productos_orden_idx').on(table.orden),
-    activoIdx: index('productos_activo_idx').on(table.activo)
+    activoIdx: index('productos_activo_idx').on(table.activo),
+    actualizadoEnIdx: index('productos_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
 
@@ -143,7 +150,8 @@ export const historialPrecios = pgTable(
     vigenteIdx: index('historial_precios_vigente_idx').on(
       table.productoId,
       table.vigenteHasta
-    )
+    ),
+    creadoEnIdx: index('historial_precios_creado_en_idx').on(table.creadoEn)
   })
 )
 
@@ -195,7 +203,9 @@ export const cuadres = pgTable(
   table => ({
     fechaIdx: index('cuadres_fecha_idx').on(table.fecha),
     estadoIdx: index('cuadres_estado_idx').on(table.estado),
-    jefeIdx: index('cuadres_jefe_idx').on(table.jefeId)
+    jefeIdx: index('cuadres_jefe_idx').on(table.jefeId),
+    puestoFechaUk: uniqueIndex('cuadres_puesto_fecha_uk').on(table.puestoId, table.fecha),
+    actualizadoEnIdx: index('cuadres_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
 
@@ -269,7 +279,8 @@ export const cuentasFiado = pgTable(
   table => ({
     clienteIdx: index('cuentas_fiado_cliente_idx').on(table.clienteId),
     estadoIdx: index('cuentas_fiado_estado_idx').on(table.estado),
-    cuadreOrigenIdx: index('cuentas_fiado_cuadre_origen_idx').on(table.cuadreOrigenId)
+    cuadreOrigenIdx: index('cuentas_fiado_cuadre_origen_idx').on(table.cuadreOrigenId),
+    actualizadoEnIdx: index('cuentas_fiado_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
 
@@ -295,7 +306,8 @@ export const cuentasFiadoItems = pgTable(
   },
   table => ({
     cuentaIdx: index('cuentas_fiado_items_cuenta_idx').on(table.cuentaFiadoId),
-    productoIdx: index('cuentas_fiado_items_producto_idx').on(table.productoId)
+    productoIdx: index('cuentas_fiado_items_producto_idx').on(table.productoId),
+    creadoEnIdx: index('cuentas_fiado_items_creado_en_idx').on(table.creadoEn)
   })
 )
 
@@ -321,7 +333,8 @@ export const pagosFiado = pgTable(
   },
   table => ({
     cuentaIdx: index('pagos_fiado_cuenta_idx').on(table.cuentaFiadoId),
-    cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId)
+    cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId),
+    creadoEnIdx: index('pagos_fiado_creado_en_idx').on(table.creadoEn)
   })
 )
 
@@ -369,6 +382,6 @@ export type NuevoPagoFiado = typeof pagosFiado.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'
-export type TipoLinea = 'normal' | 'descuento'
+export type TipoLinea = 'normal' | 'descuento' | 'regalo' | 'deuda' | 'descuento_familiar'
 export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
 export type FormaPagoFiado = 'efectivo' | 'transferencia'

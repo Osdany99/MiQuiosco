@@ -4,6 +4,7 @@ import {
   integer,
   real,
   index,
+  uniqueIndex,
   check
 } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
@@ -14,7 +15,7 @@ import { sql } from 'drizzle-orm'
  */
 export const ROLES = ['jefe', 'trabajador', 'cliente'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
-export const TIPOS_LINEA = ['normal', 'descuento'] as const
+export const TIPOS_LINEA = ['normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar'] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
@@ -61,6 +62,8 @@ export const usuarios = sqliteTable(
   table => ({
     rolIdx: index('usuarios_rol_idx').on(table.rol),
     activoIdx: index('usuarios_activo_idx').on(table.activo),
+    puestoNombreUk: uniqueIndex('usuarios_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('usuarios_actualizado_en_idx').on(table.actualizadoEn),
     rolCheck: check('usuarios_rol_check', sql`${table.rol} IN ('jefe', 'trabajador', 'cliente')`)
   })
 )
@@ -91,7 +94,8 @@ export const productos = sqliteTable(
   },
   table => ({
     ordenIdx: index('productos_orden_idx').on(table.orden),
-    activoIdx: index('productos_activo_idx').on(table.activo)
+    activoIdx: index('productos_activo_idx').on(table.activo),
+    actualizadoEnIdx: index('productos_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
 
@@ -120,7 +124,8 @@ export const historialPrecios = sqliteTable(
   },
   table => ({
     productoIdx: index('historial_precios_producto_idx').on(table.productoId),
-    vigenteIdx: index('historial_precios_vigente_idx').on(table.productoId, table.vigenteHasta)
+    vigenteIdx: index('historial_precios_vigente_idx').on(table.productoId, table.vigenteHasta),
+    creadoEnIdx: index('historial_precios_creado_en_idx').on(table.creadoEn)
   })
 )
 
@@ -162,6 +167,8 @@ export const cuadres = sqliteTable(
     estadoIdx: index('cuadres_estado_idx').on(table.estado),
     sincIdx: index('cuadres_sincronizado_idx').on(table.sincronizado),
     jefeIdx: index('cuadres_jefe_idx').on(table.jefeId),
+    puestoFechaUk: uniqueIndex('cuadres_puesto_fecha_uk').on(table.puestoId, table.fecha),
+    actualizadoEnIdx: index('cuadres_actualizado_en_idx').on(table.actualizadoEn),
     estadoCheck: check('cuadres_estado_check', sql`${table.estado} IN ('abierto', 'cerrado')`)
   })
 )
@@ -196,7 +203,7 @@ export const cuadreItems = sqliteTable(
   table => ({
     cuadreIdx: index('cuadre_items_cuadre_idx').on(table.cuadreId),
     productoIdx: index('cuadre_items_producto_idx').on(table.productoId),
-    tipoLineaCheck: check('cuadre_items_tipo_linea_check', sql`${table.tipoLinea} IN ('normal', 'descuento')`)
+    tipoLineaCheck: check('cuadre_items_tipo_linea_check', sql`${table.tipoLinea} IN ('normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar')`)
   })
 )
 
@@ -244,6 +251,7 @@ export const cuentasFiado = sqliteTable(
     clienteIdx: index('cuentas_fiado_cliente_idx').on(table.clienteId),
     estadoIdx: index('cuentas_fiado_estado_idx').on(table.estado),
     cuadreOrigenIdx: index('cuentas_fiado_cuadre_origen_idx').on(table.cuadreOrigenId),
+    actualizadoEnIdx: index('cuentas_fiado_actualizado_en_idx').on(table.actualizadoEn),
     estadoCheck: check('cuentas_fiado_estado_check', sql`${table.estado} IN ('pendiente', 'parcial', 'pagada')`)
   })
 )
@@ -269,7 +277,8 @@ export const cuentasFiadoItems = sqliteTable(
   },
   table => ({
     cuentaIdx: index('cuentas_fiado_items_cuenta_idx').on(table.cuentaFiadoId),
-    productoIdx: index('cuentas_fiado_items_producto_idx').on(table.productoId)
+    productoIdx: index('cuentas_fiado_items_producto_idx').on(table.productoId),
+    creadoEnIdx: index('cuentas_fiado_items_creado_en_idx').on(table.creadoEn)
   })
 )
 
@@ -293,7 +302,8 @@ export const pagosFiado = sqliteTable(
   },
   table => ({
     cuentaIdx: index('pagos_fiado_cuenta_idx').on(table.cuentaFiadoId),
-    cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId)
+    cuadreIdx: index('pagos_fiado_cuadre_idx').on(table.cuadreId),
+    creadoEnIdx: index('pagos_fiado_creado_en_idx').on(table.creadoEn)
   })
 )
 
