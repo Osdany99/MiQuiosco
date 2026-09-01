@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { usuarioSchema } from '~~/shared/schemas/usuario'
+import { usuarioSchema } from '../../../shared/schemas/usuario'
 
 const props = defineProps({
   productosActivos: { type: Array, default: () => [] },

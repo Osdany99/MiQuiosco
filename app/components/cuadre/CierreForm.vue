@@ -79,7 +79,7 @@
 </template>
 
 <script setup>
-import { TABLES } from '~~/shared/tables'
+import { TABLES } from '../../../shared/tables'
 
 const usuarioConfig = TABLES.usuarios
 

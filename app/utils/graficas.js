@@ -1,4 +1,4 @@
-import { TABLES } from '~~/shared/tables'
+import { TABLES } from '../../shared/tables'
 
 const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres

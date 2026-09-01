@@ -205,12 +205,31 @@ export async function crudCreate(config: CrudCreateConfig, opts: CrudCreateOpts)
 
   if (config.customMutations?.create) {
     const ctx = makePgCtx(db, schemaByTabla)
-    const row = await config.customMutations.create(ctx, data, { usuarioActual: { value: auth?.usuario } })
-    return serialize ? serialize(row) : row
+    try {
+      const row = await config.customMutations.create(ctx, data, { usuarioActual: { value: auth?.usuario } })
+      return serialize ? serialize(row) : row
+    } catch (e: any) {
+      if (e?.code === '23505' || e?.cause?.code === '23505') {
+        throw createError({ statusCode: 409, statusMessage: 'Ya existe un registro con esos datos únicos.' })
+      }
+      throw e
+    }
   }
 
-  const [row] = await db.insert(table).values(values).returning()
-  return serialize ? serialize(row) : row
+  try {
+    const [row] = await db.insert(table).values(values).returning()
+    return serialize ? serialize(row) : row
+  } catch (e: any) {
+    if (e?.code === '23505' || e?.cause?.code === '23505') {
+      const msg = config.tabla === 'cuadres'
+        ? 'Ya existe un cuadre para este puesto en esa fecha.'
+        : config.tabla === 'usuarios'
+          ? 'Ya existe un usuario con ese nombre en este puesto.'
+          : 'Ya existe un registro con esos datos únicos.'
+      throw createError({ statusCode: 409, statusMessage: msg })
+    }
+    throw e
+  }
 }
 
 export async function crudPatch(config: CrudPatchConfig, opts: CrudPatchOpts) {

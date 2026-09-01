@@ -1,5 +1,5 @@
 import { useDb } from '../server-offline/db/client'
-import { TABLES } from '~~/shared/tables'
+import { TABLES } from '../../shared/tables'
 import { generateId } from '~/utils/id'
 
 const cuadreConfig = TABLES.cuadres
@@ -106,7 +106,7 @@ export function useCuadre() {
 
   const tipoDiferencia = computed(() => {
     if (diferencia.value === null) return null
-    if (diferencia.value === 0) return 'exacto'
+    if (Math.abs(diferencia.value) < 0.005) return 'exacto'
     return diferencia.value > 0 ? 'sobrante' : 'faltante'
   })
 
@@ -221,15 +221,21 @@ export function useCuadre() {
   }
 
   async function cargarLineasDeCuadre(cuadreId, repo, autoPopulate = true) {
-    const { data: items } = await repo.readAll()
-    if (!Array.isArray(items)) {
-      lineas.value = []
-      return
+    let itemsFiltrados
+    if (conexion.modo.value !== 'online') {
+      const itemsLocal = await db.getItemsDeCuadre(cuadreId)
+      itemsFiltrados = itemsLocal.map(normalizarLinea)
+    } else {
+      const { data: items } = await repo.readAll({ query: { cuadreId } })
+      if (!Array.isArray(items)) {
+        lineas.value = []
+        return
+      }
+      itemsFiltrados = items.filter((i) => {
+        const n = normalizarLinea(i)
+        return n.cuadreId === cuadreId
+      })
     }
-    const itemsFiltrados = items.filter((i) => {
-      const n = normalizarLinea(i)
-      return n.cuadreId === cuadreId
-    })
     if (itemsFiltrados.length > 0) {
       lineas.value = itemsFiltrados.map(normalizarLinea)
     } else if (autoPopulate) {
@@ -287,7 +293,7 @@ export function useCuadre() {
   }
 
   function recalcularSubtotal(linea) {
-    linea.subtotal = linea.precioVentaUsado * linea.cantidad
+    linea.subtotal = Math.round(linea.precioVentaUsado * linea.cantidad * 100) / 100
   }
 
   async function agregarLineaExtra(tipoLinea) {
@@ -367,55 +373,67 @@ export function useCuadre() {
         cerradoEn: new Date()
       }
 
-      await cuadreRepo.update(cuadre.value.id, cambios)
-      cuadre.value = { ...cuadre.value, ...cambios }
+      // En modo local se envuelve en transacción para no dejar el cuadre
+      // en estado inconsistente si falla algún item a mitad del guardado.
+      const persistir = async () => {
+        await cuadreRepo.update(cuadre.value.id, cambios)
+        cuadre.value = { ...cuadre.value, ...cambios }
 
-      const { data: existentes } = await itemsRepo.readAll({ query: { cuadreId: cuadre.value.id } })
-      const itemsExistentes = (existentes ?? []).filter(i => {
-        const n = normalizarLinea(i)
-        return n.cuadreId === cuadre.value.id
-      })
+        const { data: existentes } = await itemsRepo.readAll({ query: { cuadreId: cuadre.value.id } })
+        const itemsExistentes = (existentes ?? []).filter((i) => {
+          const n = normalizarLinea(i)
+          return n.cuadreId === cuadre.value.id
+        })
 
-      const existentesMap = new Map(itemsExistentes.map(i => [i.productoId, i]))
-      const lineasGuardadas = new Set()
+        const existentesMap = new Map(itemsExistentes.map(i => [i.productoId, i]))
+        const lineasGuardadas = new Set()
 
-      for (const linea of lineas.value) {
-        const existente = existentesMap.get(linea.productoId)
-        if (existente) {
-          const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
-            || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
-            || existente.tipoLinea !== linea.tipoLinea
-            || existente.nota !== linea.nota
-            || existente.esExtra !== linea.esExtra
-          if (cambia) {
-            await itemsRepo.update(existente.id, {
-              cantidad: linea.cantidad,
+        for (const linea of lineas.value) {
+          const existente = existentesMap.get(linea.productoId)
+          if (existente) {
+            const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
+              || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
+              || existente.tipoLinea !== linea.tipoLinea
+              || existente.nota !== linea.nota
+              || existente.esExtra !== linea.esExtra
+            if (cambia) {
+              await itemsRepo.update(existente.id, {
+                cantidad: linea.cantidad,
+                precioVentaUsado: linea.precioVentaUsado,
+                subtotal: linea.subtotal,
+                tipoLinea: linea.tipoLinea,
+                nota: linea.nota,
+                esExtra: linea.esExtra
+              })
+            }
+            lineasGuardadas.add(linea.productoId)
+          } else {
+            await itemsRepo.create({
+              cuadreId: linea.cuadreId,
+              productoId: linea.productoId,
               precioVentaUsado: linea.precioVentaUsado,
+              cantidad: linea.cantidad,
               subtotal: linea.subtotal,
               tipoLinea: linea.tipoLinea,
               nota: linea.nota,
               esExtra: linea.esExtra
             })
           }
-          lineasGuardadas.add(linea.productoId)
-        } else {
-          await itemsRepo.create({
-            cuadreId: linea.cuadreId,
-            productoId: linea.productoId,
-            precioVentaUsado: linea.precioVentaUsado,
-            cantidad: linea.cantidad,
-            subtotal: linea.subtotal,
-            tipoLinea: linea.tipoLinea,
-            nota: linea.nota,
-            esExtra: linea.esExtra
-          })
+        }
+
+        for (const existente of itemsExistentes) {
+          if (!lineasGuardadas.has(existente.productoId)) {
+            await itemsRepo.remove(existente.id)
+          }
         }
       }
 
-      for (const existente of itemsExistentes) {
-        if (!lineasGuardadas.has(existente.productoId)) {
-          await itemsRepo.remove(existente.id)
-        }
+      if (conexion.modo.value !== 'online') {
+        await db.transaction(async () => {
+          await persistir()
+        })
+      } else {
+        await persistir()
       }
 
       let mensaje = 'Cuadre cerrado: '
@@ -442,16 +460,17 @@ export function useCuadre() {
     if (!cuadre.value || cuadre.value.estado !== 'cerrado') return
 
     const reabiertoVeces = (cuadre.value.reabiertoVeces ?? 0) + 1
+    const ultimaReaperturaEn = Date.now()
     await cuadreRepo.update(cuadre.value.id, {
       estado: 'abierto',
       reabiertoVeces,
-      ultimaReaperturaEn: Date.now()
+      ultimaReaperturaEn: new Date(ultimaReaperturaEn).toISOString()
     })
     cuadre.value = {
       ...cuadre.value,
       estado: 'abierto',
       reabiertoVeces,
-      ultimaReaperturaEn: Date.now()
+      ultimaReaperturaEn
     }
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
   }

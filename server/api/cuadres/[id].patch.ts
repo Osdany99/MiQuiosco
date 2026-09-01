@@ -1,4 +1,4 @@
-import { cuadreSchema } from '~~/shared/schemas/cuadre'
+import { cuadreSchema } from '../../../shared/schemas/cuadre'
 import { crudPatch } from '../../utils/crud'
 
 export default defineEventHandler(async (event) => {
