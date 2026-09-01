@@ -5,10 +5,10 @@
  * Cada módulo expone: { list, get, create, update, patch, remove, ...actions }.
  */
 import { createOfflineModule } from './api/_factory.js'
-import { createProductoMut, updateProductoMut } from '~~/shared/mutations/producto'
+import { createProductoMut, updateProductoMut } from '../../shared/mutations/producto'
 import { useDb } from './db/client.js'
 import { hashPin } from './utils/auth.js'
-import { TABLES } from '~~/shared/tables.js'
+import { TABLES } from '../../shared/tables.js'
 
 function serializarUsuario(u) {
   if (!u) return u
@@ -49,10 +49,39 @@ const OFFLINE_CONFIGS = [
         const { pin, ...resto } = datos
         return { ...resto, pinHash: await hashPin(pin) }
       },
-      beforeUpdate: async (cambios) => {
+      beforeUpdate: async (cambios, auth) => {
+        // Guard: último jefe no puede quitarse el rol/desactivarse
+        const esAutocambio = auth?.usuarioActual?.value?.id && cambios && (cambios.rol != null || cambios.activo === false)
+        if (esAutocambio) {
+          const authId = auth?.usuarioActual?.value?.id
+          const intentaQuitarJefe = cambios.rol != null && cambios.rol !== 'jefe'
+          const intentaDesactivar = cambios.activo === false
+          if (intentaQuitarJefe || intentaDesactivar) {
+            const db = useDb()
+            const target = await db.getById('usuarios', authId)
+            if (target?.rol === 'jefe') {
+              const todos = await db.queryAll('usuarios')
+              const otrosJefes = todos.filter(u => u.rol === 'jefe' && u.activo && u.id !== authId)
+              if (otrosJefes.length === 0) {
+                throw new Error('No puedes quitarte el rol de jefe o desactivarte si eres el último jefe activo.')
+              }
+            }
+          }
+        }
         if (!cambios.pin) return cambios
         const { pin, ...resto } = cambios
         return { ...resto, pinHash: await hashPin(pin) }
+      },
+      beforeRemove: async (id) => {
+        const db = useDb()
+        const target = await db.getById('usuarios', id)
+        if (target?.rol === 'jefe') {
+          const todos = await db.queryAll('usuarios')
+          const otrosJefes = todos.filter(u => u.rol === 'jefe' && u.activo && u.id !== id)
+          if (otrosJefes.length === 0) {
+            throw new Error('No puedes eliminar al último jefe activo.')
+          }
+        }
       },
       serialize: serializarUsuario,
       actions: {

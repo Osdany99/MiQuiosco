@@ -1,4 +1,4 @@
-import { usuarioSchema, usuarioDbSchema } from '~~/shared/schemas/usuario'
+import { usuarioSchema, usuarioDbSchema } from '../../../shared/schemas/usuario'
 import { crudCreate } from '../../utils/crud'
 import { hashPin } from '../../utils/auth'
 

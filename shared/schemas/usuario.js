@@ -7,7 +7,6 @@ export const usuarioSchema = z.object({
   notas: z.string().nullable().optional(),
   salario: z.number().min(0, 'El salario no puede ser negativo').nullable().optional(),
   pin: z.string().min(4, 'El PIN debe tener al menos 4 caracteres').max(6, 'El PIN debe tener máximo 6 caracteres').optional(),
-  pinHash: z.string().optional(),
   activo: z.boolean().default(true),
   puestoId: z.string().optional()
 })

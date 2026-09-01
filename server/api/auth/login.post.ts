@@ -9,8 +9,7 @@ import type { LoginResponse, Rol } from '#shared/types'
  * POST /api/auth/login
  *
  * Estrategia:
- * - jefe: recibe JWT con scope 'sync'
- * - jefe: recibe JWT con scope 'sync' (acceso SOLO a /api/sync/*)
+ * - jefe: recibe JWT con scope 'sync' (acceso a /api/sync/* y demás API)
  * - trabajador: NO recibe token (la app usa la sesión local y el hash del PIN)
  */
 export default defineEventHandler(async (event): Promise<LoginResponse> => {
@@ -77,7 +76,8 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
 
   // Trabajador: NO se emite JWT, devuelve también el hash para cache offline
   if (usuario.rol === 'trabajador') {
-    const horasExp = Number(process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || 24)
+    const config = useRuntimeConfig(event)
+    const horasExp = Number(config.public.sessionExpirationTrabajadorHoras) || 24
     const msExp = horasExp * 60 * 60 * 1000
     return {
       ...baseResponse,
