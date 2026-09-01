@@ -90,7 +90,8 @@ export function makeCtx() {
     },
     update: (t, id, cambios) => db.update(t, id, enrichForUpdate(t, cambios)),
     get: (t, id) => db.getById(t, id),
-    queryAll: t => db.queryAll(t)
+    queryAll: t => db.queryAll(t),
+    findHistorialVigente: productoId => db.findHistorialVigente(productoId)
   }
 }
 
@@ -136,6 +137,7 @@ export function createOfflineModule(config, overrides = {}) {
     requireRole,
     beforeCreate = identidad,
     beforeUpdate = identidad,
+    beforeRemove = null,
     serialize = identidad,
     listFilter,
     actions = {}
@@ -196,6 +198,7 @@ export function createOfflineModule(config, overrides = {}) {
 
   async function remove(id, auth) {
     guard(auth)
+    if (beforeRemove) await beforeRemove(id, auth)
     await useDb().remove(tabla, id)
     await addPendingDelete(tabla, id)
   }

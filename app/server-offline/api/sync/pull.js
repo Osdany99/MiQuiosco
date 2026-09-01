@@ -4,7 +4,7 @@
  * Aplica un resultado de pull (proveniente del server) a la DB local.
  * Incluye aplicación de deletes recibidos del servidor.
  */
-import { TABLES } from '~~/shared/tables'
+import { TABLES } from '../../../../shared/tables'
 import { removePendingDeletesAccepted } from '../_factory'
 
 const SYNC_TABLAS = Object.values(TABLES)

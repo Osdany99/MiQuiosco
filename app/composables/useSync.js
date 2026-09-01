@@ -4,7 +4,8 @@ import { $api } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
 import { push as pushOffline, pull as pullOffline } from '../server-offline/api/sync'
 import { removePendingDeletesAccepted } from '../server-offline/api/_factory'
-import { SYNC_TABLES } from '~~/shared/tables'
+import { mergeFields } from '../utils/syncMerge.js'
+import { SYNC_TABLES } from '../../shared/tables'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
 
@@ -40,6 +41,8 @@ export function useSync() {
     return useLocalRepo(entity)
   }
 
+  let _networkListenerHandle = null
+
   async function cargarEstado() {
     const stored = await Preferences.get({ key: PREF_ULTIMA_SYNC })
     if (stored.value) ultimaSync.value = Number(stored.value)
@@ -53,12 +56,14 @@ export function useSync() {
       hayRed.value = true
     }
 
+    if (_networkListenerHandle) return
     try {
-      Network.addListener('networkStatusChange', (s) => {
+      const handle = await Network.addListener('networkStatusChange', (s) => {
         hayRed.value = s.connected
       })
+      _networkListenerHandle = handle
     } catch {
-      // eliminar error eslint
+      // Network no disponible (navegador / SSR)
     }
   }
 
@@ -240,39 +245,19 @@ export function useSync() {
         try {
           const server = conflicto.server ?? conflicto
           const client = conflicto.client ?? conflicto
-          const merged = mergeFields(server, client)
-          await repo.update(merged.id, { ...merged, sincronizado: 1 })
+          const { merged, difiereDelServidor } = mergeFields(server, client)
+          // Si el merge aporta datos que el servidor no tenía (null→valor
+          // del cliente), se marca no-sincronizado y se refresca el
+          // timestamp para que el próximo push lo suba.
+          const patch = difiereDelServidor
+            ? { ...merged, actualizadoEn: Date.now(), sincronizado: 0 }
+            : { ...merged, sincronizado: 1 }
+          await repo.update(merged.id, patch)
         } catch {
-          // eliminar error eslint
+          // absorber conflicto best-effort
         }
       }
     }
-  }
-
-  function mergeFields(server, client) {
-    const serverTs = server.actualizadoEn ? new Date(server.actualizadoEn).getTime() : 0
-    const clientTs = client.actualizadoEn ? new Date(client.actualizadoEn).getTime() : 0
-    const allKeys = new Set([...Object.keys(server), ...Object.keys(client)])
-    const result = {}
-
-    for (const key of allKeys) {
-      if (key === 'id' || key === 'sincronizado') {
-        result[key] = key === 'id' ? server.id : 1
-        continue
-      }
-      const sv = server[key]
-      const cv = client[key]
-      if (sv === cv) {
-        result[key] = sv
-      } else if (sv == null && cv != null) {
-        result[key] = cv
-      } else if (cv == null && sv != null) {
-        result[key] = sv
-      } else {
-        result[key] = serverTs >= clientTs ? sv : cv
-      }
-    }
-    return result
   }
 
   async function actualizarPendientesCount(pendientesYaCalculados = null) {
@@ -326,3 +311,6 @@ export function useSync() {
     aplicarPull: pullOffline
   }
 }
+
+// mergeFields re-export removed to avoid Nuxt auto-import duplicate warning;
+// import directly from '~/utils/syncMerge' where needed.

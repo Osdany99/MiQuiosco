@@ -1,4 +1,4 @@
-import { eq, getTableName, getTableColumns } from 'drizzle-orm'
+import { eq, and, isNull, getTableName, getTableColumns } from 'drizzle-orm'
 
 /**
  * makePgCtx(db, schema) → { insert, update, get, queryAll }
@@ -82,6 +82,13 @@ export function makePgCtx(db, schema) {
 
     async queryAll(t) {
       return await db.select().from(tbl(t))
+    },
+
+    async findHistorialVigente(productoId) {
+      const table = tbl('historial_precios')
+      const cols = getTableColumns(table)
+      const [row] = await db.select().from(table).where(and(eq(cols.productoId, productoId), isNull(cols.vigenteHasta))).limit(1)
+      return row ?? null
     }
   }
 }

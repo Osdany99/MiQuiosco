@@ -3,6 +3,11 @@
  *
  * Llamado automáticamente la primera vez que se abre la DB local,
  * tanto en Android nativo como en el fallback en memoria del navegador.
+ *
+ * Importante: el jefe sembrado se marca sincronizado=1 para NO empujarlo
+ * al servidor en el primer sync (el servidor se siembra aparte con
+ * `pnpm db:seed`, usando los mismos IDs fijos; si el admin cambió el PIN
+ * en el servidor, un push desde aquí lo resetearía a "1234").
  */
 import bcrypt from 'bcryptjs'
 import { JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO } from '../../../shared/constants'
@@ -38,7 +43,7 @@ export async function sembrarJefeLocal(conn) {
       salario: 600,
       creado_en: ahora,
       actualizado_en: ahora,
-      sincronizado: 0
+      sincronizado: 1
     })
     return
   }
@@ -59,7 +64,7 @@ export async function sembrarJefeLocal(conn) {
   const pinHash = bcrypt.hashSync('1234', 10)
   await conn.run(
     `INSERT INTO usuarios (id, puesto_id, nombre, rol, pin_hash, activo, salario, creado_en, actualizado_en, sincronizado)
-     VALUES (?, ?, ?, ?, ?, 1, 600, ?, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, 1, 600, ?, ?, 1)`,
     [JEFE_ID_FIJO, PUESTO_PRINCIPAL_ID_FIJO, 'jefe', 'jefe', pinHash, ahora, ahora]
   )
 }

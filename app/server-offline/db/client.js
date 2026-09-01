@@ -12,8 +12,6 @@ import { deriveColumnTypes, coerceRow, deriveTableNames } from '../utils/schemaT
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
 import * as schemaSqlite from './schema'
-import ddlGenerado from '../../../drizzle/sqlite/0000_exotic_mentallo.sql?raw'
-import ddlMigracion from '../../../drizzle/sqlite/0001_good_sunset_bain.sql?raw'
 import { sembrarJefeLocal } from './seed'
 
 const DB_NAME = 'miquiosco'
@@ -109,10 +107,24 @@ async function getConnection() {
   return inMemoryDb
 }
 
-const MIGRATIONS = [
+/**
+ * Migraciones del journal de Drizzle (drizzle/sqlite/*.sql), cargadas en orden.
+ * Añadir una migración nueva (pnpm db:generate:sqlite) no requiere tocar este
+ * archivo: se detecta y aplica automáticamente a las instalaciones existentes.
+ */
+const journalSqls = Object.entries(
+  import.meta.glob('../../../drizzle/sqlite/*.sql', { query: '?raw', import: 'default', eager: true })
+).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+
+/**
+ * Migraciones legacy best-effort para instalaciones creadas antes del sistema
+ * de journal. Columnas añadidas ad-hoc + índices/datos idempotentes.
+ * Se aplican SOLO a instalaciones existentes, antes del journal.
+ */
+const MIGRACIONES_LEGACY = [
   { type: 'column', table: 'usuarios', name: 'telefono', sql: 'ALTER TABLE usuarios ADD COLUMN telefono text' },
   { type: 'column', table: 'usuarios', name: 'notas', sql: 'ALTER TABLE usuarios ADD COLUMN notas text' },
-  { type: 'data', sql: "UPDATE cuadres SET monto_cobrado_fiado = 0 WHERE monto_cobrado_fiado IS NULL" },
+  { type: 'data', sql: 'UPDATE cuadres SET monto_cobrado_fiado = 0 WHERE monto_cobrado_fiado IS NULL' },
   { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS usuarios_activo_idx ON usuarios (activo)' },
   { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS productos_activo_idx ON productos (activo)' },
   { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS historial_precios_vigente_idx ON historial_precios (producto_id, vigente_hasta)' },
@@ -121,31 +133,73 @@ const MIGRATIONS = [
   { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS cuentas_fiado_items_producto_idx ON cuentas_fiado_items (producto_id)' }
 ]
 
-async function initializeSchema(conn) {
-  const result = await conn.query('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=\'usuarios\'', [])
+/** Migraciones del journal que el código anterior (pre-_migrations) ya aplicaba. */
+const MIGRACIONES_PRE_JOURNAL = new Set([
+  '0000_exotic_mentallo.sql',
+  '0001_good_sunset_bain.sql'
+])
 
-  if (result.values?.length === 0) {
-    const ddl = ddlGenerado.replace(/--> statement-breakpoint/g, '')
-    await conn.execute(ddl)
-    const ddl2 = ddlMigracion.replace(/--> statement-breakpoint/g, '')
-    await conn.execute(ddl2)
+async function tablaExiste(conn, tabla) {
+  const result = await conn.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='${tabla}'`, [])
+  return (result.values?.length ?? 0) > 0
+}
+
+async function marcarMigracion(conn, name) {
+  await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [name, Date.now()])
+}
+
+async function nombresMigracionesAplicadas(conn) {
+  const res = await conn.query('SELECT name FROM _migrations', [])
+  return (res.values ?? []).map(r => r.name)
+}
+
+async function aplicarMigracionesLegacy(conn) {
+  const colCache = new Map()
+  for (const m of MIGRACIONES_LEGACY) {
+    try {
+      if (m.type === 'column') {
+        if (!colCache.has(m.table)) {
+          const cols = await conn.query(`PRAGMA table_info(${m.table})`, [])
+          colCache.set(m.table, new Set((cols.values ?? []).map(c => c.name)))
+        }
+        if (!colCache.get(m.table).has(m.name)) {
+          await conn.run(m.sql, [])
+        }
+      } else {
+        await conn.run(m.sql, [])
+      }
+    } catch {
+      // mejor esfuerzo: instalaciones muy antiguas pueden no tener la tabla/columna
+    }
+  }
+}
+
+async function initializeSchema(conn) {
+  await conn.run('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, aplicada_en INTEGER NOT NULL)', [])
+
+  const esInstalacionExistente = await tablaExiste(conn, 'usuarios')
+
+  if (!esInstalacionExistente) {
+    // Instalación nueva: aplicar todas las migraciones del journal en orden.
+    for (const [name, sql] of journalSqls) {
+      await conn.execute(sql.replace(/--> statement-breakpoint/g, ''))
+      await marcarMigracion(conn, name)
+    }
     return
   }
 
-  const colCache = new Map()
+  // Instalación existente: compatibilidad legacy y marcar lo ya aplicado
+  // por el código anterior, luego aplicar las migraciones restantes.
+  await aplicarMigracionesLegacy(conn)
+  for (const name of MIGRACIONES_PRE_JOURNAL) {
+    await marcarMigracion(conn, name)
+  }
 
-  for (const m of MIGRATIONS) {
-    if (m.type === 'column') {
-      if (!colCache.has(m.table)) {
-        const cols = await conn.query(`PRAGMA table_info(${m.table})`, [])
-        colCache.set(m.table, new Set((cols.values ?? []).map(c => c.name)))
-      }
-      if (!colCache.get(m.table).has(m.name)) {
-        await conn.run(m.sql, []).catch(() => {})
-      }
-    } else {
-      await conn.run(m.sql, []).catch(() => {})
-    }
+  const aplicadas = new Set(await nombresMigracionesAplicadas(conn))
+  for (const [name, sql] of journalSqls) {
+    if (aplicadas.has(name)) continue
+    await conn.execute(sql.replace(/--> statement-breakpoint/g, ''))
+    await marcarMigracion(conn, name)
   }
 }
 
@@ -259,6 +313,16 @@ export function useDb() {
     await conn.run(`DELETE FROM ${tabla} WHERE id = ?`, [id])
   }
 
+  async function findHistorialVigente(productoId) {
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      const rows = conn.where('historial_precios', r => (r.producto_id ?? r.productoId) === productoId && (r.vigente_hasta ?? r.vigenteHasta) == null)
+      return rows.length ? coerceRow(snakeToCamelRow(rows[0]), COLUMN_TYPES.historial_precios) : null
+    }
+    const result = await conn.query('SELECT * FROM historial_precios WHERE producto_id = ? AND vigente_hasta IS NULL LIMIT 1', [productoId])
+    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), COLUMN_TYPES.historial_precios) : null
+  }
+
   async function queryAll(tabla) {
     const conn = await getConnection()
     if (conn instanceof InMemoryDb) {
@@ -282,7 +346,7 @@ export function useDb() {
 
   async function resetLocalDatabase() {
     const conn = await getConnection()
-    const tableNames = deriveTableNames(schemaSqlite)
+    const tableNames = [...deriveTableNames(schemaSqlite), '_migrations']
     for (const t of tableNames) {
       try {
         await conn.run(`DROP TABLE IF EXISTS ${t}`, [])
@@ -323,6 +387,7 @@ export function useDb() {
     getProductosActivos,
     getCuadrePorFecha,
     getItemsDeCuadre,
+    findHistorialVigente,
     insert,
     update,
     remove,

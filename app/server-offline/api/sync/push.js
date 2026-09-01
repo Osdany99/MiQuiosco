@@ -5,7 +5,7 @@
  * de cada tabla sincronizable, listos para enviar al servidor.
  * Incluye deletes pendientes.
  */
-import { TABLES } from '~~/shared/tables'
+import { TABLES } from '../../../../shared/tables'
 import { getPendingDeletes } from '../_factory'
 
 const SYNC_TABLAS = Object.values(TABLES)

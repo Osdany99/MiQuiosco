@@ -24,8 +24,9 @@ export async function updateProductoMut(ctx: any, id: string, cambios: any, auth
 
   if (cambioCompra || cambioVenta) {
     const ahora = Date.now()
-    const historiales = await ctx.queryAll('historial_precios')
-    const vigente = historiales.find((h: any) => h.productoId === id && !h.vigenteHasta)
+    const vigente = ctx.findHistorialVigente
+      ? await ctx.findHistorialVigente(id)
+      : (await ctx.queryAll('historial_precios')).find((h: any) => h.productoId === id && !h.vigenteHasta)
 
     let vigenteDesde = ahora
     if (vigente) {
