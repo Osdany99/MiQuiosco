@@ -1,5 +1,5 @@
-import { productoSchema } from '../../../shared/schemas/producto'
-import { createProductoMut } from '../../../shared/mutations/producto'
+import { productoSchema } from '#shared/schemas/producto'
+import { createProductoMut } from '#shared/mutations/producto'
 import { crudCreate } from '../../utils/crud'
 
 export default defineEventHandler(async (event) => {

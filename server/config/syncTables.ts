@@ -2,7 +2,7 @@
  * server/config/syncTables.ts — Re-exporta desde shared/tables.js.
  * La fuente única de verdad es shared/tables.js.
  */
-import { SYNC_TABLES as _SYNC_TABLES } from '../../shared/tables.js'
+import { SYNC_TABLES as _SYNC_TABLES } from '#shared/tables'
 
 export interface SyncTable {
   tabla: string

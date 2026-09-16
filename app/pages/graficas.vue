@@ -1,6 +1,7 @@
 <script setup>
 import { calcularGrafica } from '~/utils/graficas'
 import { TABLES } from '../../shared/tables'
+import { CalendarDate } from '@internationalized/date'
 
 const productoConfig = TABLES.productos
 
@@ -29,18 +30,22 @@ const graficas = [
 const graficaActiva = ref(null)
 const datosGrafica = ref([])
 const cargando = ref(false)
-const fechaDesde = ref('')
-const fechaHasta = ref('')
+const fechaDesde = ref(null)
+const fechaHasta = ref(null)
 const agrupacion = ref('dia')
 const productoSeleccionado = ref('')
 
 const productosParaSelector = ref([])
 
+function isoAHoy(d) {
+  return new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate())
+}
+
 onMounted(async () => {
-  const hoy = new Date().toISOString().split('T')[0]
-  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  fechaDesde.value = hace30
-  fechaHasta.value = hoy
+  const hoy = new Date()
+  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  fechaDesde.value = isoAHoy(hace30)
+  fechaHasta.value = isoAHoy(hoy)
 
   const prods = await productoRepo.readAll({ orderBy: 'nombre' })
   productosParaSelector.value = prods.map(p => ({ label: p.nombre, value: p.id }))
@@ -57,8 +62,8 @@ async function cargarGrafica(g) {
   cargando.value = true
   try {
     datosGrafica.value = await calcularGrafica(g.key, {
-      desde: fechaDesde.value,
-      hasta: fechaHasta.value,
+      desde: fechaDesde.value ? fechaDesde.value.toString() : '',
+      hasta: fechaHasta.value ? fechaHasta.value.toString() : '',
       agrupacion: agrupacion.value,
       productoId: productoSeleccionado.value
     })

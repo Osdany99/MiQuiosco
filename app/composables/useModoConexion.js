@@ -1,4 +1,5 @@
 import { Preferences } from '@capacitor/preferences'
+import { Capacitor } from '@capacitor/core'
 import { serverAlcanzable } from '../utils/api'
 
 const PREF_MODO = 'modo_conexion'
@@ -7,6 +8,47 @@ const modo = ref('local')
 const transicionando = ref(false)
 
 let _watcherInstalled = false
+
+function isNative() {
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
+}
+
+function readPref(key) {
+  try {
+    if (isNative()) return null
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+async function readPrefAsync(key) {
+  if (isNative()) {
+    try {
+      const v = await Preferences.get({ key })
+      return v.value ?? null
+    } catch {
+      return null
+    }
+  }
+  return readPref(key)
+}
+
+function writePref(key, value) {
+  try {
+    if (isNative()) {
+      Preferences.set({ key, value }).catch(() => {})
+    } else {
+      localStorage.setItem(key, value)
+    }
+  } catch {
+    /* noop */
+  }
+}
 
 export function useModoConexion() {
   const auth = useAuth()
@@ -28,15 +70,15 @@ export function useModoConexion() {
       if (fallosConsecutivos >= 2 && modo.value === 'online') {
         fallosConsecutivos = 0
         modo.value = 'local'
-        Preferences.set({ key: PREF_MODO, value: 'local' })
+        writePref(PREF_MODO, 'local')
       }
     })
   }
 
   async function cargar() {
-    const stored = await Preferences.get({ key: PREF_MODO })
-    if (stored.value === 'online' || stored.value === 'local') {
-      modo.value = stored.value
+    const value = await readPrefAsync(PREF_MODO)
+    if (value === 'online' || value === 'local') {
+      modo.value = value
     }
   }
 
@@ -51,7 +93,7 @@ export function useModoConexion() {
         return false
       }
       modo.value = 'online'
-      await Preferences.set({ key: PREF_MODO, value: 'online' })
+      writePref(PREF_MODO, 'online')
       toast.add({ title: 'Modo online activado', description: 'Los cambios se guardan directamente en el servidor.', color: 'success' })
       return true
     } finally {
@@ -68,7 +110,7 @@ export function useModoConexion() {
       const pullResult = await sync.fetchPull(desde)
       await sync.aplicarPull(pullResult)
       modo.value = 'local'
-      await Preferences.set({ key: PREF_MODO, value: 'local' })
+      writePref(PREF_MODO, 'local')
       toast.add({ title: 'Modo local activado', description: 'Los cambios se guardan localmente hasta sincronizar.', color: 'success' })
       return true
     } catch (err) {

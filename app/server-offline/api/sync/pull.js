@@ -5,9 +5,20 @@
  * Incluye aplicación de deletes recibidos del servidor.
  */
 import { TABLES } from '../../../../shared/tables'
-import { removePendingDeletesAccepted } from '../_factory'
+import { removePendingDeletesAccepted, enrichForInsert, enrichForUpdate } from '../_factory'
+import { useDb } from '../../db/client.js'
 
 const SYNC_TABLAS = Object.values(TABLES)
+
+async function upsertRegistro(cfg, reg) {
+  const db = useDb()
+  const existing = await db.getById(cfg.tabla, reg.id)
+  if (existing) {
+    await db.update(cfg.tabla, reg.id, enrichForUpdate(cfg.tabla, { ...reg, sincronizado: 1 }))
+  } else {
+    await db.insert(cfg.tabla, enrichForInsert(cfg.tabla, { ...reg, sincronizado: 1 }))
+  }
+}
 
 export async function pull(pullResult, _opts, _auth) {
   void _opts
@@ -18,14 +29,8 @@ export async function pull(pullResult, _opts, _auth) {
   for (const cfg of SYNC_TABLAS) {
     const registros = pullResult[cfg.tabla]
     if (!registros?.length) continue
-    const repo = useLocalRepo(cfg)
     for (const reg of registros) {
-      const existing = await repo.read(reg.id)
-      if (existing) {
-        await repo.update(reg.id, { ...reg, sincronizado: 1 })
-      } else {
-        await repo.create({ ...reg, sincronizado: 1 })
-      }
+      await upsertRegistro(cfg, reg)
       aplicados++
     }
   }

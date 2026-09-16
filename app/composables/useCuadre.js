@@ -176,20 +176,25 @@ export function useCuadre() {
       cuadre.value = c
       await cargarLineasDeCuadre(c.id, itemsRepo, !esHistorico)
 
-      if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
-      if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
+      // Los montos de cierre solo se restauran en cuadres cerrados (histórico).
+      // En un cuadre abierto (p.ej. reabierto) son remanentes del cierre anterior:
+      // reintroducirlos al recargar re-usa dinero en caja viejo sin que el jefe lo confirme.
+      if (c.estado === 'cerrado') {
+        if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
+        if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
+        if (c.pagoTrabajador != null) {
+          pagoTrabajador.value = Number(c.pagoTrabajador)
+        } else if (trabajadorTurnoId.value) {
+          pagoTrabajador.value = salarioCalculado.value
+        }
+        if (c.notas != null) notasCuadre.value = c.notas ?? ''
+      }
       if (c.montoFiado != null) montoFiado.value = Number(c.montoFiado)
       if (c.montoCobradoFiado != null) montoCobradoFiado.value = Number(c.montoCobradoFiado)
       if (c.trabajadorTurnoId != null) {
         trabajadorTurnoId.value = c.trabajadorTurnoId
         await cargarSalarioTrabajador(c.trabajadorTurnoId)
       }
-      if (c.pagoTrabajador != null) {
-        pagoTrabajador.value = Number(c.pagoTrabajador)
-      } else if (trabajadorTurnoId.value) {
-        pagoTrabajador.value = salarioCalculado.value
-      }
-      if (c.notas != null) notasCuadre.value = c.notas ?? ''
     } catch (err) {
       toast.add({ title: 'Error', description: err.message || 'No se pudo cargar el cuadre.', color: 'error' })
     } finally {
@@ -213,11 +218,16 @@ export function useCuadre() {
   async function buscarCuadreActual(puestoId, repo) {
     const { data: todos } = await repo.readAll({ query: { fecha: hoy } })
     if (!Array.isArray(todos)) return null
-    const encontrado = todos.find((c) => {
-      const n = normalizarCuadre(c)
-      return n.puestoId === puestoId && n.fecha === hoy
-    })
-    return encontrado ? normalizarCuadre(encontrado) : null
+    const delDia = todos
+      .map(normalizarCuadre)
+      .filter(n => n.puestoId === puestoId && n.fecha === hoy)
+    if (delDia.length === 0) return null
+    // Con varios cuadres del día (posibles duplicados), preferir el que siga
+    // abierto y, entre varios, el creado más recientemente.
+    const abiertos = delDia.filter(n => n.estado === 'abierto')
+    const candidatos = abiertos.length ? abiertos : delDia
+    candidatos.sort((a, b) => (Number(b.creadoEn) || 0) - (Number(a.creadoEn) || 0))
+    return candidatos[0]
   }
 
   async function cargarLineasDeCuadre(cuadreId, repo, autoPopulate = true) {
@@ -237,7 +247,22 @@ export function useCuadre() {
       })
     }
     if (itemsFiltrados.length > 0) {
-      lineas.value = itemsFiltrados.map(normalizarLinea)
+      // Coalescer duplicados de productId (las líneas deben ser únicas por
+      // producto; duplicados históricos corrompen el guardado al cerrar).
+      const mapa = new Map()
+      for (const l of itemsFiltrados.map(normalizarLinea)) {
+        const prev = mapa.get(l.productoId)
+        if (!prev) {
+          mapa.set(l.productoId, { ...l })
+          continue
+        }
+        prev.cantidad = (Number(prev.cantidad) || 0) + (Number(l.cantidad) || 0)
+        prev.subtotal = Math.round(((Number(prev.subtotal) || 0) + (Number(l.subtotal) || 0)) * 100) / 100
+        prev.esExtra = prev.esExtra || l.esExtra
+        if (l.tipoLinea !== 'normal' && prev.tipoLinea === 'normal') prev.tipoLinea = l.tipoLinea
+        if (!prev.nota) prev.nota = l.nota
+      }
+      lineas.value = [...mapa.values()]
     } else if (autoPopulate) {
       lineas.value = productosActivos.value.map(prod => ({
         id: generateId(),
@@ -311,6 +336,15 @@ export function useCuadre() {
 
       if (!cuadre.value) {
         toast.add({ title: 'Cuadre no cargado', description: 'Espera a que termine la carga.', color: 'warning' })
+        return
+      }
+
+      if (lineas.value.some(l => l.productoId === prod.id)) {
+        toast.add({
+          title: 'Producto ya en el cuadre',
+          description: `${prod.nombre} ya tiene una línea. Ajusta la cantidad directamente.`,
+          color: 'warning'
+        })
         return
       }
 
@@ -472,6 +506,12 @@ export function useCuadre() {
       reabiertoVeces,
       ultimaReaperturaEn
     }
+    // Limpiar montos de cierre del cierre anterior: al volver a cerrar hay que
+    // re-ingresarlos, evitando re-usar silenciosamente el dinero en caja viejo.
+    totalRealCaja.value = null
+    montoTransferencia.value = 0
+    if (trabajadorTurnoId.value) await cargarSalarioTrabajador(trabajadorTurnoId.value)
+    pagoTrabajador.value = trabajadorTurnoId.value ? salarioCalculado.value : null
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
   }
 

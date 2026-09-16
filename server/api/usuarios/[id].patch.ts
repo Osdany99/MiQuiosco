@@ -1,5 +1,5 @@
 import { eq, and, ne } from 'drizzle-orm'
-import { usuarioSchema, usuarioDbSchema } from '../../../shared/schemas/usuario'
+import { usuarioSchema, usuarioDbSchema } from '#shared/schemas/usuario'
 import { crudPatch } from '../../utils/crud'
 import { hashPin } from '../../utils/auth'
 import { db } from '../../database/client'

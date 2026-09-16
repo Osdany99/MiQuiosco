@@ -1,5 +1,5 @@
-import { productoSchema } from '../../../shared/schemas/producto'
-import { updateProductoMut } from '../../../shared/mutations/producto'
+import { productoSchema } from '#shared/schemas/producto'
+import { updateProductoMut } from '#shared/mutations/producto'
 import { crudPatch } from '../../utils/crud'
 
 export default defineEventHandler(async (event) => {

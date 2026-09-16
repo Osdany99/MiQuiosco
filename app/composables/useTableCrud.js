@@ -20,7 +20,7 @@ export function useTableCrud(props, emit, form, refresh) {
   }
 
   const handleEdit = (row) => {
-    form.value = structuredClone(row)
+    form.value = structuredClone(toRaw(row))
     isEditing.value = true
     isOpen.value = true
     emit('edit', row)

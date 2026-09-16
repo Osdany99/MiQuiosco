@@ -1,4 +1,4 @@
-import { cuentaFiadoItemSchema } from '../../../shared/schemas/cuentaFiadoItem'
+import { cuentaFiadoItemSchema } from '#shared/schemas/cuentaFiadoItem'
 import { crudCreate } from '../../utils/crud'
 
 export default defineEventHandler(async (event) => {

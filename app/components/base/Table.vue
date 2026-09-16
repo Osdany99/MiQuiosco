@@ -200,7 +200,7 @@ const resolvedEmptyState = computed(() => {
 
 onMounted(() => {
   if (form.value != null) {
-    initialForm.value = structuredClone(form.value)
+    initialForm.value = structuredClone(toRaw(form.value))
   }
 })
 
@@ -230,8 +230,8 @@ const pageCount = computed({
 })
 
 const filteredAll = computed(() => {
-  if (isExternalData.value) return props.data || []
-  return repoTable?.filtered.value ?? []
+  if (isExternalData.value) return (props.data || []).map(toRaw)
+  return (repoTable?.filtered.value ?? []).map(toRaw)
 })
 
 const data = computed(() => {
@@ -313,7 +313,7 @@ const tableColumns = computed(() => {
 defineExpose({
   openAdd: () => {
     if (initialForm.value) {
-      form.value = structuredClone(initialForm.value)
+      form.value = structuredClone(toRaw(initialForm.value))
     }
     isEditing.value = false
     isOpen.value = true

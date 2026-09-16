@@ -11,6 +11,12 @@ export function useCuentasFiado() {
   const toast = useToast()
   const conexion = useModoConexion()
   const esOnline = computed(() => conexion.modo.value === 'online')
+  const auth = useAuth()
+
+  function apiHeaders() {
+    const token = auth.jwtSync.value
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
 
   // Repos mode-aware (online → API remota, local → SQLite)
   const usuariosRepo = computed(() => esOnline.value ? useRemoteRepo(usuarioConfig) : useLocalRepo(usuarioConfig))
@@ -80,7 +86,8 @@ export function useCuentasFiado() {
         // Endpoint transaccional del servidor (cuenta + items + pago inicial + cuadre)
         await $api('/api/cuentas-fiado', {
           method: 'POST',
-          body: { clienteId, cuadreOrigenId: cuadreId, items, montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' }
+          body: { clienteId, cuadreOrigenId: cuadreId, items, montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
+          headers: apiHeaders()
         })
       } else {
         const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
@@ -126,7 +133,8 @@ export function useCuentasFiado() {
       if (esOnline.value) {
         await $api('/api/pagos-fiado', {
           method: 'POST',
-          body: { cuentaFiadoId, cuadreId, monto, formaPago }
+          body: { cuentaFiadoId, cuadreId, monto, formaPago },
+          headers: apiHeaders()
         })
       } else {
         const todas = await r(cuentasRepo).readAll()

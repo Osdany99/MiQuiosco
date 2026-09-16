@@ -3,7 +3,12 @@
     <span class="text-sm text-gray-500 dark:text-gray-400">
       {{ total }} resultado{{ total !== 1 ? 's' : '' }}
     </span>
-    <UPagination v-model="page" :page-count="pageCount" :total="total" />
+    <UPagination
+      :page="page"
+      :items-per-page="pageCount"
+      :total="total"
+      @update:page="page = $event"
+    />
   </div>
 </template>
 

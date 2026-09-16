@@ -2,6 +2,9 @@
 const colorMode = useColorMode()
 const color = computed(() => colorMode.value === 'dark' ? '#1b1718' : 'white')
 
+const conexion = useModoConexion()
+conexion.cargar()
+
 useHead({
   meta: [
     { charset: 'utf-8' },

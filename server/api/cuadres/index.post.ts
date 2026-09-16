@@ -1,5 +1,5 @@
 import { eq, and } from 'drizzle-orm'
-import { cuadreSchema } from '../../../shared/schemas/cuadre'
+import { cuadreSchema } from '#shared/schemas/cuadre'
 import { crudCreate } from '../../utils/crud'
 import { requireRole } from '../../utils/auth'
 import { db, schema } from '../../database/client'
