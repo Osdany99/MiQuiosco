@@ -23,7 +23,9 @@ function getPool(): Pool {
     }
     pool = new Pool({
       connectionString,
-      max: 10,
+      // En serverless (Vercel) cada instancia abre su propio pool:
+      // usar PG_POOL_MAX=5 en producción. En local/VPS, 10 está bien.
+      max: Number(process.env.PG_POOL_MAX ?? 10),
       idleTimeoutMillis: 30_000
     })
     pool.on('error', (err) => {

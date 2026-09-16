@@ -25,6 +25,9 @@ logs
 .fleet
 .idea
 
+# APKs de distribución (se suben al desplegar, no al repo)
+public/apk/*.apk
+
 # Local env files
 .env
 .env.*

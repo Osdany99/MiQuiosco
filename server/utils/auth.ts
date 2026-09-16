@@ -101,6 +101,8 @@ export async function requireAuth(
     })
   }
 
+  verificarVersionMinima(event)
+
   const result = await db
     .select({
       id: usuarios.id,
@@ -144,6 +146,29 @@ export async function requireRole(
     })
   }
   return auth
+}
+
+/**
+ * Gate de versión mínima de la APK.
+ *
+ * El cliente nativo envía su versionCode en el header `x-app-version-code`
+ * (ver `app/utils/api.js`). Si es menor que APP_MIN_VERSION_CODE, se
+ * rechaza con 426 para que una APK obsoleta no pueda subir datos con un
+ * esquema incompatible. Los clientes sin header (web, APKs anteriores al
+ * sistema de actualización) no se bloquean aquí.
+ */
+function verificarVersionMinima(event: H3Event): void {
+  const min = Number(process.env.APP_MIN_VERSION_CODE ?? 0)
+  if (!Number.isFinite(min) || min <= 0) return
+  const header = getHeader(event, 'x-app-version-code')
+  if (header == null || header === '') return
+  const code = Number(header)
+  if (Number.isFinite(code) && code < min) {
+    throw createError({
+      statusCode: 426,
+      statusMessage: 'Actualización requerida. Instala la última versión de MiQuiosco para continuar.'
+    })
+  }
 }
 
 function getJwtSecret(): string {

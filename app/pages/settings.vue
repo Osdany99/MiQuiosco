@@ -3,17 +3,34 @@ import { $api, getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/a
 
 const toast = useToast()
 const conexion = useModoConexion()
+const update = useAppUpdate()
 
 const serverUrl = ref('')
 const cargando = ref(true)
 const probando = ref(false)
 const estadoPrueba = ref(null) // null | 'ok' | 'error'
 const mensajePrueba = ref('')
+const comprobandoUpdates = ref(false)
+
+const metodoItems = [
+  { label: 'Automática (recomendada)', value: 'automatico' },
+  { label: 'Solo navegador', value: 'navegador' },
+  { label: 'En la app (próximamente)', value: 'interno' }
+]
+
+const versionTexto = computed(() => {
+  if (update.versionInstalada.value == null) return 'No disponible en web'
+  const nombre = update.versionInstaladaNombre.value ? `v${update.versionInstaladaNombre.value} ` : ''
+  return `${nombre}(código ${update.versionInstalada.value})`
+})
 
 onMounted(async () => {
   const url = await getApiBaseUrl()
   serverUrl.value = url || ''
   cargando.value = false
+  if (update.estado.value === 'idle') {
+    update.comprobar().catch(() => {})
+  }
 })
 
 async function probarConexion() {
@@ -49,6 +66,23 @@ async function guardar() {
     description: url ? `Apuntando a ${url}` : 'Usando modo relativo (solo navegador)',
     color: 'success'
   })
+}
+
+async function comprobarUpdates() {
+  comprobandoUpdates.value = true
+  try {
+    const resultado = await update.comprobar()
+    if (resultado === 'actualizada') {
+      toast.add({
+        title: 'Estás al día',
+        description: 'No hay actualizaciones disponibles.',
+        color: 'success'
+      })
+    }
+    // 'opcional' y 'obligatoria' muestran su propia UI automáticamente.
+  } finally {
+    comprobandoUpdates.value = false
+  }
 }
 </script>
 
@@ -105,11 +139,40 @@ async function guardar() {
     </UCard>
 
     <UCard>
+      <div class="space-y-4">
+        <div>
+          <h2 class="text-sm font-medium">
+            Aplicación
+          </h2>
+          <p class="text-sm text-muted">
+            Versión instalada: {{ versionTexto }}
+          </p>
+        </div>
+
+        <UFormField label="Descarga de actualizaciones" help="Automática intenta en la app y si falla usa el navegador.">
+          <USelect
+            v-model="update.metodo"
+            :items="metodoItems"
+            @update:model-value="update.guardarMetodo"
+          />
+        </UFormField>
+
+        <UButton
+          :loading="comprobandoUpdates"
+          color="neutral"
+          variant="outline"
+          @click="comprobarUpdates"
+        >
+          Comprobar actualizaciones
+        </UButton>
+      </div>
+    </UCard>
+
+    <UCard>
       <div class="space-y-3">
         <h2 class="text-sm font-medium">
           Estado de conexión
-        </h2>
-        <div class="flex items-center gap-2 text-sm">
+        </h2>        <div class="flex items-center gap-2 text-sm">
           <span
             class="size-2 rounded-full"
             :class="serverAlcanzable ? 'bg-green-500' : 'bg-red-500'"
