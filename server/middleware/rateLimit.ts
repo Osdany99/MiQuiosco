@@ -4,12 +4,14 @@ const MAX_ATTEMPTS = 5
 const WINDOW_MS = 60 * 1000 // 1 minuto
 const CLEANUP_INTERVAL = 5 * 60 * 1000
 
-setInterval(() => {
+const cleanupTimer = setInterval(() => {
   const now = Date.now()
   for (const [key, entry] of attempts) {
     if (now > entry.resetAt) attempts.delete(key)
   }
 }, CLEANUP_INTERVAL)
+// No mantener vivo el proceso (build/prerender deben poder terminar)
+if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref()
 
 export default defineEventHandler((event) => {
   if (event.path !== '/api/auth/login' || event.method !== 'POST') return
