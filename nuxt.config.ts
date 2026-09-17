@@ -27,6 +27,11 @@ export default defineNuxtConfig({
       cors: true
     }
   },
+  nitro: {
+    prerender: {
+      routes: ['/']
+    }
+  },
   sourcemap: false,
 
   future: {

@@ -27,6 +27,7 @@ logs
 
 # APKs de distribución (se suben al desplegar, no al repo)
 public/apk/*.apk
+!public/apk/miquiosco-v1.0.apk
 
 # Local env files
 .env
