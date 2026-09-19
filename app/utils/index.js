@@ -7,7 +7,17 @@ export function fmtPrecio(v) {
 }
 
 export function fmtDate(d) {
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    return new Date(d + 'T12:00:00').toLocaleDateString('es-ES')
+  }
   return new Date(d).toLocaleDateString('es-ES')
+}
+
+export function hoyLocal() {
+  const d = new Date()
+  const mes = String(d.getMonth() + 1).padStart(2, '0')
+  const dia = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mes}-${dia}`
 }
 
 export function calcularSalario(baseSalario, totalVendido) {

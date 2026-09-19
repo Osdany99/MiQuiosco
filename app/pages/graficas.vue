@@ -2,13 +2,17 @@
 import { calcularGrafica } from '~/utils/graficas'
 import { TABLES } from '../../shared/tables'
 import { CalendarDate } from '@internationalized/date'
+import { markRaw } from 'vue'
+import BarChart from '~/components/graficas/BarChart.vue'
+import LineChart from '~/components/graficas/LineChart.vue'
+import PieChart from '~/components/graficas/PieChart.vue'
 
 const productoConfig = TABLES.productos
 
 definePageMeta({
   middleware: ['jefe']
 })
-const productoRepo = useLocalRepo(productoConfig)
+const productoRepo = useRepo(productoConfig, { toast: false })
 
 const graficas = [
   { key: 'productos-mas-vendidos', titulo: 'Productos más vendidos', descripcion: 'Top 10 por cantidad total vendida', icon: 'i-lucide-trending-up' },
@@ -35,7 +39,14 @@ const fechaHasta = ref(null)
 const agrupacion = ref('dia')
 const productoSeleccionado = ref('')
 
+const conexion = useModoConexion()
+
 const productosParaSelector = ref([])
+
+const requiereProducto = computed(
+  () => graficaActiva.value?.key === 'evolucion-producto'
+    || graficaActiva.value?.key === 'precio-usado-vs-oficial'
+)
 
 function isoAHoy(d) {
   return new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate())
@@ -47,18 +58,20 @@ onMounted(async () => {
   fechaDesde.value = isoAHoy(hace30)
   fechaHasta.value = isoAHoy(hoy)
 
-  const prods = await productoRepo.readAll({ orderBy: 'nombre' })
-  productosParaSelector.value = prods.map(p => ({ label: p.nombre, value: p.id }))
+  await conexion.cargar().catch(() => {})
+
+  const prods = await productoRepo.readAll({ query: { orderBy: 'nombre' } })
+  const lista = Array.isArray(prods) ? prods : (prods?.data ?? [])
+  productosParaSelector.value = lista.map(p => ({ label: p.nombre, value: p.id }))
 })
 
 async function cargarGrafica(g) {
-  if (g.key === 'evolucion-producto' || g.key === 'precio-usado-vs-oficial') {
-    if (!productoSeleccionado.value) {
-      return
-    }
+  graficaActiva.value = g
+  if (requiereProducto.value && !productoSeleccionado.value) {
+    datosGrafica.value = []
+    return
   }
 
-  graficaActiva.value = g
   cargando.value = true
   try {
     datosGrafica.value = await calcularGrafica(g.key, {
@@ -75,9 +88,19 @@ async function cargarGrafica(g) {
 }
 
 function getChartComponent(key) {
-  if (key === 'evolucion-producto' || key === 'precio-usado-vs-oficial') return 'LineChart'
-  if (key === 'proporcion-formas-pago') return 'PieChart'
-  return 'BarChart'
+  if (key === 'evolucion-producto' || key === 'precio-usado-vs-oficial') return markRaw(LineChart)
+  if (key === 'proporcion-formas-pago') return markRaw(PieChart)
+  return markRaw(BarChart)
+}
+
+const graficaSelect = computed({
+  get: () => graficaActiva.value?.key ?? null,
+  set: key => cargarDesdeSelect(key)
+})
+
+function cargarDesdeSelect(key) {
+  const g = graficas.find(item => item.key === key)
+  if (g) cargarGrafica(g)
 }
 
 function getChartConfig(key) {
@@ -131,6 +154,8 @@ function getChartConfig(key) {
               { label: 'Semana', value: 'semana' },
               { label: 'Mes', value: 'mes' }
             ]"
+            value-key="value"
+            label-key="label"
             :search-input="false"
             @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
           />
@@ -147,6 +172,8 @@ function getChartConfig(key) {
           <USelectMenu
             v-model="productoSeleccionado"
             :items="productosParaSelector"
+            value-key="value"
+            label-key="label"
             placeholder="Seleccionar..."
             @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
           />
@@ -162,9 +189,20 @@ function getChartConfig(key) {
       </div>
     </UCard>
 
-    <!-- Grid de tarjetas de gráficas -->
+    <!-- Selector compacto (móvil) -->
+    <USelectMenu
+      v-model="graficaSelect"
+      :items="graficas.map(g => ({ label: g.titulo, value: g.key }))"
+      value-key="value"
+      label-key="label"
+      :search-input="false"
+      placeholder="Seleccionar gráfica..."
+      class="lg:hidden w-full"
+    />
+
+    <!-- Grid de tarjetas de gráficas (desktop) -->
     <div
-      class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
+      class="hidden lg:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
     >
       <UCard
         v-for="g in graficas"
@@ -208,6 +246,14 @@ function getChartConfig(key) {
 
       <div v-if="cargando" class="flex items-center justify-center h-96">
         <UIcon name="i-lucide-loader" class="w-8 h-8 animate-spin" />
+      </div>
+
+      <div
+        v-else-if="requiereProducto && !productoSeleccionado"
+        class="flex flex-col items-center justify-center gap-2 h-96 text-muted"
+      >
+        <UIcon name="i-lucide-box-select" class="w-8 h-8" />
+        <p>Selecciona un producto para ver esta gráfica</p>
       </div>
 
       <div

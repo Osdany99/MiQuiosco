@@ -1,5 +1,3 @@
-import { toastMsg } from '~/utils/toast'
-
 /**
  * useTableCrud - Composable para gestión de modales CRUD.
  *
@@ -58,12 +56,10 @@ export function useTableCrud(props, emit, form, refresh) {
       if (error) return
       isDeleteOpen.value = false
       refresh()
-      emit('success', 'Eliminado correctamente')
     }
   }
 
-  // --- API Create / Update (toast de error lo emite useRepo; el success lo emite el padre) ---
-  const successMessage = ref('Operación exitosa')
+  // --- API Create / Update (toast de error lo emite useRepo; no hay toast de éxito) ---
 
   const updateOrAdd = async (body) => {
     const { error } = isEditing.value
@@ -72,7 +68,6 @@ export function useTableCrud(props, emit, form, refresh) {
     if (error) return error
     handleCloseModal()
     refresh()
-    emit('success', successMessage.value)
     return null
   }
   // --- Submit ---
@@ -88,10 +83,6 @@ export function useTableCrud(props, emit, form, refresh) {
         return
       }
     }
-
-    successMessage.value = isEditing.value
-      ? (label ? toastMsg('updated', label) : 'Actualizado correctamente')
-      : (label ? toastMsg('created', label) : 'Creado correctamente')
 
     const body = Object.fromEntries(
       Object.entries(form.value).filter(([k]) => k !== 'id')

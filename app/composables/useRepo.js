@@ -1,14 +1,12 @@
-import { toastMsg } from '~/utils/toast'
-
 /**
- * useRepo(config) — Repositorio agnóstico del backend con loading/error/toast.
+ * useRepo(config) — Repositorio agnóstico del backend con loading/error/toast de error.
  *
  * Acepta un objeto de config con { tabla, endpoints?, puestoScoped?, customMutations? }
  * y resuelve online/offline según el modo de conexión actual.
  *
  * @param {Object} config — { tabla, endpoints?, puestoScoped?, customMutations? }
  * @param {Object} [opts]
- * @param {boolean} [opts.toast=true] — mostrar toast de éxito/error
+ * @param {boolean} [opts.toast=true] — mostrar toast de error
  * @returns {Object}
  */
 export function useRepo(config, { toast = true } = {}) {
@@ -27,16 +25,12 @@ export function useRepo(config, { toast = true } = {}) {
   const error = ref(null)
   const callbacksExito = new Set()
   const toastNotification = useToast()
-  const label = config?.label
 
-  async function ejecutar(fn, args, { title, toast: showToast } = {}) {
+  async function ejecutar(fn, args) {
     loading.value = true
     error.value = null
     try {
       const result = await fn(...args)
-      if ((showToast ?? toast) && title) {
-        toastNotification.add({ title, color: 'primary' })
-      }
       for (const cb of callbacksExito) cb(result, 'success')
       return { data: result, error: null }
     } catch (err) {
@@ -58,11 +52,11 @@ export function useRepo(config, { toast = true } = {}) {
       callbacksExito.add(cb)
       return () => callbacksExito.delete(cb)
     },
-    create: (datos, opts) => ejecutar(repo.value.create, [datos], { title: opts?.toastTitle ?? (label ? toastMsg('created', label) : 'Creado correctamente') }),
-    read: (id, opts) => ejecutar(repo.value.read, [id], { title: opts?.toastTitle ?? (label ? toastMsg('read', label) : 'Registro obtenido correctamente') }),
-    readAll: (opts, callOpts) => ejecutar(repo.value.readAll, [opts ?? {}], { title: callOpts?.toastTitle ?? (label ? toastMsg('readAll', label) : 'Datos cargados correctamente'), toast: callOpts?.toast }),
-    update: (id, cambios, opts) => ejecutar(repo.value.update, [id, cambios], { title: opts?.toastTitle ?? (label ? toastMsg('updated', label) : 'Actualizado correctamente') }),
-    patch: (id, cambios, opts) => ejecutar(repo.value.patch, [id, cambios], { title: opts?.toastTitle ?? (label ? toastMsg('updated', label) : 'Actualizado correctamente') }),
-    remove: (id, opts) => ejecutar(repo.value.remove, [id], { title: opts?.toastTitle ?? (label ? toastMsg('deleted', label) : 'Eliminado correctamente') })
+    create: datos => ejecutar(repo.value.create, [datos]),
+    read: id => ejecutar(repo.value.read, [id]),
+    readAll: opts => ejecutar(repo.value.readAll, [opts ?? {}]),
+    update: (id, cambios) => ejecutar(repo.value.update, [id, cambios]),
+    patch: (id, cambios) => ejecutar(repo.value.patch, [id, cambios]),
+    remove: id => ejecutar(repo.value.remove, [id])
   }
 }

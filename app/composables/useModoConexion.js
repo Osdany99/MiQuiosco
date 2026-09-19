@@ -79,7 +79,13 @@ export function useModoConexion() {
     const value = await readPrefAsync(PREF_MODO)
     if (value === 'online' || value === 'local') {
       modo.value = value
+      return
     }
+    // Sin preferencia guardada: en web (no Capacitor) siempre hay red y el
+    // sqlite local es in-memory (se pierde al recargar), así que usamos
+    // online por defecto. En Android se conserva el default local
+    // (offline-first, sqlite persistente).
+    modo.value = isNative() ? 'local' : 'online'
   }
 
   async function cambiarAOnline() {

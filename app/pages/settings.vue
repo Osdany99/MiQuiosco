@@ -74,7 +74,7 @@ async function comprobarUpdates() {
       toast.add({
         title: 'Estás al día',
         description: 'No hay actualizaciones disponibles.',
-        color: 'success'
+        color: 'info'
       })
     }
   } finally {

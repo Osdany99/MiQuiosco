@@ -57,7 +57,7 @@ async function guardarPin() {
   } catch {
     return
   }
-  const { error } = await patch(pinUsuario.value.id, { pin: pinForm.value.pin }, { toastTitle: 'PIN actualizado correctamente' })
+  const { error } = await patch(pinUsuario.value.id, { pin: pinForm.value.pin })
   if (!error) {
     showPinModal.value = false
     await tableRef.value?.refresh()

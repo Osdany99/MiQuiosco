@@ -135,5 +135,3 @@ export async function validarTopeCuadre(cuadreId: string, items: TopeItem[], opc
 export async function validarTopeFiado(cuadreOrigenId: string, items: TopeItem[], excluirCuentaIds: string[] = []) {
   return validarTopeCuadre(cuadreOrigenId, items, { excluirCuentaIds, concepto: 'fiado' })
 }
-
-export { cuadres }

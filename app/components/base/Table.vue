@@ -164,7 +164,7 @@ const props = defineProps({
   disableFilters: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['edit', 'delete', 'success', 'reload', 'details'])
+const emit = defineEmits(['edit', 'delete', 'reload', 'details'])
 const form = defineModel({ type: Object })
 
 const slots = useSlots()

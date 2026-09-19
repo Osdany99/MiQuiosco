@@ -1,6 +1,7 @@
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
 import { generateId } from '~/utils/id'
+import { calcularSubtotalLinea } from '../utils'
 
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
@@ -83,7 +84,7 @@ export function useCuadre() {
 
   const expandida = reactive(new Set())
 
-  const hoy = new Date().toISOString().split('T')[0]
+  const hoy = hoyLocal()
 
   const esTrabajador = computed(() => auth.esTrabajador.value)
 

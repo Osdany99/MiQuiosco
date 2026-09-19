@@ -5,18 +5,19 @@ const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
 
 /**
- * calcularGrafica(key, opts) — Cálculo local de todas las gráficas del negocio.
+ * calcularGrafica(key, opts) — Cálculo de todas las gráficas del negocio.
  *
- * Reemplaza las llamadas a /api/graficas/* leyendo desde useLocalRepo.
+ * Lee los datos a través de useRepo (respeta el modo de conexión: online →
+ * Postgres vía API, local → sqlite). Reemplaza las llamadas a /api/graficas/*.
  *
  * @param {string} key — identificador de la gráfica
  * @param {Object} opts — { desde, hasta, agrupacion, productoId }
  * @returns {Promise<Array>}
  */
 export async function calcularGrafica(key, opts) {
-  const productoRepo = useLocalRepo(productoConfig)
-  const cuadreRepo = useLocalRepo(cuadreConfig)
-  const itemsRepo = useLocalRepo(cuadreItemConfig)
+  const productoRepo = useRepo(productoConfig, { toast: false })
+  const cuadreRepo = useRepo(cuadreConfig, { toast: false })
+  const itemsRepo = useRepo(cuadreItemConfig, { toast: false })
 
   switch (key) {
     case 'productos-mas-vendidos': return _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -42,7 +43,7 @@ async function cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo) {
     cuadreRepo.readAll(),
     itemsRepo.readAll(),
     productoRepo.readAll()
-  ])
+  ]).then(results => results.map(r => (Array.isArray(r) ? r : (r?.data ?? []))))
 
   const prodMap = {}
   for (const p of todosProductos) prodMap[p.id] = p
