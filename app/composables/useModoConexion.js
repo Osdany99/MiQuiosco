@@ -94,7 +94,6 @@ export function useModoConexion() {
       }
       modo.value = 'online'
       writePref(PREF_MODO, 'online')
-      toast.add({ title: 'Modo online activado', description: 'Los cambios se guardan directamente en el servidor.', color: 'success' })
       return true
     } finally {
       transicionando.value = false
@@ -111,7 +110,6 @@ export function useModoConexion() {
       await sync.aplicarPull(pullResult)
       modo.value = 'local'
       writePref(PREF_MODO, 'local')
-      toast.add({ title: 'Modo local activado', description: 'Los cambios se guardan localmente hasta sincronizar.', color: 'success' })
       return true
     } catch (err) {
       toast.add({ title: 'Error al volver a local', description: err.message || 'No se pudo descargar datos del servidor.', color: 'error' })

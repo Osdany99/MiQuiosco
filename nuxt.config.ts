@@ -27,11 +27,6 @@ export default defineNuxtConfig({
       cors: true
     }
   },
-  nitro: {
-    prerender: {
-      routes: ['/']
-    }
-  },
   sourcemap: false,
 
   future: {
@@ -40,6 +35,11 @@ export default defineNuxtConfig({
 
   // Compatibilidad con Vue y TypeScript
   compatibilityDate: '2025-06-09',
+  nitro: {
+    prerender: {
+      routes: ['/']
+    }
+  },
 
   typescript: {
     strict: true

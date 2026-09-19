@@ -32,6 +32,7 @@
               :value-key="field.valueKey || field.props?.valueKey || 'value'"
               :label-key="field.labelKey || field.props?.labelKey || 'label'"
               :class="field.class || 'w-full'"
+              :search-input="false"
             />
           </template>
 

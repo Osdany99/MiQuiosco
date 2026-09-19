@@ -24,6 +24,7 @@ logs
 .DS_Store
 .fleet
 .idea
+.eslintcache
 
 # APKs de distribución (se suben al desplegar, no al repo)
 public/apk/*.apk

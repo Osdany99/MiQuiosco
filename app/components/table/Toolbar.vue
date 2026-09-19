@@ -5,6 +5,7 @@
       :options="columnHeaders"
       :items="columnHeaders"
       multiple
+      :search-input="false"
       placeholder="Columnas visibles"
       class="w-48"
     >

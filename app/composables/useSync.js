@@ -123,25 +123,15 @@ export function useSync() {
         await removePendingDeletesAccepted(pushResult.deletesAceptados)
       }
 
-      let pullResult
       for (let intento = 0; intento < 2; intento++) {
         try {
-          pullResult = await _ejecutarPull()
+          await _ejecutarPull()
           break
         } catch (pullErr) {
           if (intento === 1) throw pullErr
         }
       }
 
-      const totalRecibidos = TABLAS_SYNC.reduce(
-        (s, t) => s + (pullResult[t]?.length ?? 0),
-        0
-      )
-      toast.add({
-        title: 'Sincronización completada',
-        description: `Subidos: ${pushResult.aceptados?.length ?? 0}, Recibidos: ${totalRecibidos}, Eliminados: ${pushResult.deletesAceptados?.length ?? 0}`,
-        color: 'success'
-      })
       return true
     } catch (err) {
       toast.add({
@@ -182,19 +172,7 @@ export function useSync() {
 
     sincronizando.value = true
     try {
-      const pullResult = await _ejecutarPull()
-
-      if (!silent) {
-        const totalRecibidos = TABLAS_SYNC.reduce(
-          (s, t) => s + (pullResult[t]?.length ?? 0),
-          0
-        )
-        toast.add({
-          title: 'Sincronización completada',
-          description: `${totalRecibidos} registros recibidos.`,
-          color: 'success'
-        })
-      }
+      await _ejecutarPull()
       return true
     } catch (err) {
       if (!silent) {
@@ -283,12 +261,6 @@ export function useSync() {
           await repo.create({ ...prod, sincronizado: 1 })
         }
       }
-
-      toast.add({
-        title: 'Catálogo actualizado',
-        description: `${data.length} productos descargados.`,
-        color: 'success'
-      })
     } catch (err) {
       toast.add({
         title: 'Error',

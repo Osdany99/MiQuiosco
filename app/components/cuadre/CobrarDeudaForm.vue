@@ -8,6 +8,7 @@
         label-key="label"
         placeholder="Seleccionar cuenta..."
         class="w-full"
+        :search-input="false"
       />
     </UFormField>
     <div class="grid grid-cols-2 gap-4">
@@ -24,6 +25,7 @@
           value-attribute="value"
           text-attribute="label"
           class="w-full"
+          :search-input="false"
         />
       </UFormField>
     </div>

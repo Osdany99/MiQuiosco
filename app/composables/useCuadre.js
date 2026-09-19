@@ -77,9 +77,6 @@ export function useCuadre() {
   const notasCuadre = useState('cuadre-notas', () => '')
   const salarioBaseTrabajador = useState('cuadre-salario-base', () => 600)
 
-  const showAgregarProducto = ref(false)
-  const productoSeleccionado = ref('')
-  const tipoLineaExtra = ref('normal')
   const expandida = reactive(new Set())
 
   const hoy = new Date().toISOString().split('T')[0]
@@ -118,8 +115,9 @@ export function useCuadre() {
 
   watch(trabajadorTurnoId, async (nuevoId) => {
     await cargarSalarioTrabajador(nuevoId)
+    // Solo auto-rellena si está vacío: respeta el pago manual restaurado.
     if (nuevoId) {
-      pagoTrabajador.value = salarioCalculado.value
+      if (pagoTrabajador.value == null) pagoTrabajador.value = salarioCalculado.value
     } else {
       pagoTrabajador.value = null
     }
@@ -127,6 +125,7 @@ export function useCuadre() {
 
   async function cargarDatos(puestoId, cuadreId) {
     cargando.value = true
+    suprimirAutosave = true
     try {
       if (!puestoId) {
         toast.add({ title: 'Configuración incompleta', description: 'No tienes un puesto asignado. Contacta al administrador.', color: 'warning' })
@@ -177,18 +176,21 @@ export function useCuadre() {
       await cargarLineasDeCuadre(c.id, itemsRepo, !esHistorico)
 
       // Los montos de cierre solo se restauran en cuadres cerrados (histórico).
-      // En un cuadre abierto (p.ej. reabierto) son remanentes del cierre anterior:
-      // reintroducirlos al recargar re-usa dinero en caja viejo sin que el jefe lo confirme.
-      if (c.estado === 'cerrado') {
-        if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
-        if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
-        if (c.pagoTrabajador != null) {
-          pagoTrabajador.value = Number(c.pagoTrabajador)
-        } else if (trabajadorTurnoId.value) {
-          pagoTrabajador.value = salarioCalculado.value
-        }
-        if (c.notas != null) notasCuadre.value = c.notas ?? ''
+      // Los montos de cierre se restauran siempre del registro: con el
+      // autoguardado son el borrador actual (reabrir limpia el registro,
+      // así que no resucita dinero viejo).
+      if (c.totalRealCaja != null) totalRealCaja.value = Number(c.totalRealCaja)
+      else totalRealCaja.value = null
+      if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
+      else montoTransferencia.value = 0
+      if (c.pagoTrabajador != null) {
+        pagoTrabajador.value = Number(c.pagoTrabajador)
+      } else if (trabajadorTurnoId.value) {
+        pagoTrabajador.value = salarioCalculado.value
+      } else {
+        pagoTrabajador.value = null
       }
+      if (c.notas != null) notasCuadre.value = c.notas ?? ''
       if (c.montoFiado != null) montoFiado.value = Number(c.montoFiado)
       if (c.montoCobradoFiado != null) montoCobradoFiado.value = Number(c.montoCobradoFiado)
       if (c.trabajadorTurnoId != null) {
@@ -199,6 +201,11 @@ export function useCuadre() {
       toast.add({ title: 'Error', description: err.message || 'No se pudo cargar el cuadre.', color: 'error' })
     } finally {
       cargando.value = false
+      // Reanudar autosave en el próximo tick: evita que la restauración
+      // dispare un guardado inmediato de los mismos valores.
+      setTimeout(() => {
+        suprimirAutosave = false
+      }, 0)
     }
   }
 
@@ -247,8 +254,8 @@ export function useCuadre() {
       })
     }
     if (itemsFiltrados.length > 0) {
-      // Coalescer duplicados de productId (las líneas deben ser únicas por
-      // producto; duplicados históricos corrompen el guardado al cerrar).
+    // Coalescer duplicados de productId (las líneas deben ser únicas por
+    // producto; duplicados históricos corrompen el guardado al cerrar).
       const mapa = new Map()
       for (const l of itemsFiltrados.map(normalizarLinea)) {
         const prev = mapa.get(l.productoId)
@@ -262,7 +269,28 @@ export function useCuadre() {
         if (l.tipoLinea !== 'normal' && prev.tipoLinea === 'normal') prev.tipoLinea = l.tipoLinea
         if (!prev.nota) prev.nota = l.nota
       }
+      // Fusionar productos activados después (solo agregan, nunca borran).
+      if (autoPopulate) {
+        for (const prod of productosActivos.value) {
+          if (!mapa.has(prod.id)) {
+            mapa.set(prod.id, {
+              id: generateId(),
+              cuadreId,
+              productoId: prod.id,
+              precioVentaUsado: prod.precioVentaActual,
+              cantidad: 0,
+              subtotal: 0,
+              tipoLinea: 'normal',
+              nota: null,
+              esExtra: false
+            })
+          }
+        }
+      }
       lineas.value = [...mapa.values()]
+      // Orden de catálogo (los fusionados no quedan al final sueltos).
+      const ordenDe = new Map(productosActivos.value.map(p => [p.id, Number(p.orden ?? 9999)]))
+      lineas.value.sort((a, b) => (ordenDe.get(a.productoId) ?? 9999) - (ordenDe.get(b.productoId) ?? 9999))
     } else if (autoPopulate) {
       lineas.value = productosActivos.value.map(prod => ({
         id: generateId(),
@@ -318,55 +346,105 @@ export function useCuadre() {
   }
 
   function recalcularSubtotal(linea) {
-    linea.subtotal = Math.round(linea.precioVentaUsado * linea.cantidad * 100) / 100
+    linea.subtotal = calcularSubtotalLinea(linea.precioVentaUsado, linea.cantidad)
   }
 
-  async function agregarLineaExtra(tipoLinea) {
-    try {
-      if (!productoSeleccionado.value) {
-        toast.add({ title: 'Selecciona un producto', color: 'warning' })
-        return
-      }
-      const prod = productosActivos.value.find(p => p.id === productoSeleccionado.value)
-      if (!prod) {
-        console.warn('agregarLineaExtra: producto no encontrado para ID', productoSeleccionado.value)
-        toast.add({ title: 'Producto no encontrado', description: 'Selecciona otro producto.', color: 'error' })
-        return
-      }
+  // Sincroniza las líneas en memoria con la BD (crear/actualizar/eliminar).
+  // Lo usan tanto el cierre como el autoguardado del borrador.
+  async function persistirLineas() {
+    const { data: existentes } = await itemsRepo.readAll({ query: { cuadreId: cuadre.value.id } })
+    const itemsExistentes = (existentes ?? []).filter((i) => {
+      const n = normalizarLinea(i)
+      return n.cuadreId === cuadre.value.id
+    })
 
-      if (!cuadre.value) {
-        toast.add({ title: 'Cuadre no cargado', description: 'Espera a que termine la carga.', color: 'warning' })
-        return
-      }
+    const existentesMap = new Map(itemsExistentes.map(i => [i.productoId, i]))
+    const lineasGuardadas = new Set()
 
-      if (lineas.value.some(l => l.productoId === prod.id)) {
-        toast.add({
-          title: 'Producto ya en el cuadre',
-          description: `${prod.nombre} ya tiene una línea. Ajusta la cantidad directamente.`,
-          color: 'warning'
+    for (const linea of lineas.value) {
+      const existente = existentesMap.get(linea.productoId)
+      if (existente) {
+        const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
+          || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
+          || existente.tipoLinea !== linea.tipoLinea
+          || existente.nota !== linea.nota
+          || existente.esExtra !== linea.esExtra
+        if (cambia) {
+          await itemsRepo.update(existente.id, {
+            cantidad: linea.cantidad,
+            precioVentaUsado: linea.precioVentaUsado,
+            subtotal: linea.subtotal,
+            tipoLinea: linea.tipoLinea,
+            nota: linea.nota,
+            esExtra: linea.esExtra
+          })
+        }
+        lineasGuardadas.add(linea.productoId)
+      } else {
+        await itemsRepo.create({
+          cuadreId: linea.cuadreId,
+          productoId: linea.productoId,
+          precioVentaUsado: linea.precioVentaUsado,
+          cantidad: linea.cantidad,
+          subtotal: linea.subtotal,
+          tipoLinea: linea.tipoLinea,
+          nota: linea.nota,
+          esExtra: linea.esExtra
         })
-        return
       }
+    }
 
-      lineas.value.push({
-        id: generateId(),
-        cuadreId: cuadre.value.id,
-        productoId: prod.id,
-        precioVentaUsado: prod.precioVentaActual,
-        cantidad: 1,
-        subtotal: prod.precioVentaActual,
-        tipoLinea: tipoLinea ?? 'normal',
-        nota: null,
-        esExtra: true
-      })
-      productoSeleccionado.value = ''
-      tipoLineaExtra.value = 'normal'
-      showAgregarProducto.value = false
-    } catch (err) {
-      console.error('Error al agregar línea extra:', err)
-      toast.add({ title: 'Error', description: err.message, color: 'error' })
+    for (const existente of itemsExistentes) {
+      if (!lineasGuardadas.has(existente.productoId)) {
+        await itemsRepo.remove(existente.id)
+      }
     }
   }
+
+  // Autoguardado del borrador: líneas + campos de cierre a la BD con debounce.
+  // Así recargar la web o matar la APK ya no pierde el avance.
+  const AUTOSAVE_MS = 1500
+  let autosaveTimer = null
+  let guardandoBorrador = false
+  let suprimirAutosave = false
+
+  function programarAutosave() {
+    if (suprimirAutosave) return
+    if (!cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
+    clearTimeout(autosaveTimer)
+    autosaveTimer = setTimeout(() => {
+      guardarBorrador().catch(err => console.error('autosave cuadre:', err))
+    }, AUTOSAVE_MS)
+  }
+
+  async function guardarBorrador() {
+    if (guardandoBorrador || !cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
+    guardandoBorrador = true
+    try {
+      const guardar = async () => {
+        await persistirLineas()
+        await cuadreRepo.update(cuadre.value.id, {
+          totalRealCaja: totalRealCaja.value,
+          montoTransferencia: montoTransferencia.value,
+          trabajadorTurnoId: trabajadorTurnoId.value,
+          pagoTrabajador: pagoTrabajador.value,
+          notas: notasCuadre.value
+        })
+      }
+      // Igual que el cierre: transacción en local, directo en online.
+      if (conexion.modo.value !== 'online') {
+        await db.transaction(guardar)
+      } else {
+        await guardar()
+      }
+    } finally {
+      guardandoBorrador = false
+    }
+  }
+
+  // Cualquier edición del borrador (líneas o cierre) programa autoguardado.
+  watch([lineas, totalRealCaja, montoTransferencia, pagoTrabajador, notasCuadre, trabajadorTurnoId],
+    () => programarAutosave(), { deep: true })
 
   function toggleExpandir(lineaId) {
     if (expandida.has(lineaId)) {
@@ -412,54 +490,7 @@ export function useCuadre() {
       const persistir = async () => {
         await cuadreRepo.update(cuadre.value.id, cambios)
         cuadre.value = { ...cuadre.value, ...cambios }
-
-        const { data: existentes } = await itemsRepo.readAll({ query: { cuadreId: cuadre.value.id } })
-        const itemsExistentes = (existentes ?? []).filter((i) => {
-          const n = normalizarLinea(i)
-          return n.cuadreId === cuadre.value.id
-        })
-
-        const existentesMap = new Map(itemsExistentes.map(i => [i.productoId, i]))
-        const lineasGuardadas = new Set()
-
-        for (const linea of lineas.value) {
-          const existente = existentesMap.get(linea.productoId)
-          if (existente) {
-            const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
-              || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
-              || existente.tipoLinea !== linea.tipoLinea
-              || existente.nota !== linea.nota
-              || existente.esExtra !== linea.esExtra
-            if (cambia) {
-              await itemsRepo.update(existente.id, {
-                cantidad: linea.cantidad,
-                precioVentaUsado: linea.precioVentaUsado,
-                subtotal: linea.subtotal,
-                tipoLinea: linea.tipoLinea,
-                nota: linea.nota,
-                esExtra: linea.esExtra
-              })
-            }
-            lineasGuardadas.add(linea.productoId)
-          } else {
-            await itemsRepo.create({
-              cuadreId: linea.cuadreId,
-              productoId: linea.productoId,
-              precioVentaUsado: linea.precioVentaUsado,
-              cantidad: linea.cantidad,
-              subtotal: linea.subtotal,
-              tipoLinea: linea.tipoLinea,
-              nota: linea.nota,
-              esExtra: linea.esExtra
-            })
-          }
-        }
-
-        for (const existente of itemsExistentes) {
-          if (!lineasGuardadas.has(existente.productoId)) {
-            await itemsRepo.remove(existente.id)
-          }
-        }
+        await persistirLineas()
       }
 
       if (conexion.modo.value !== 'online') {
@@ -475,11 +506,14 @@ export function useCuadre() {
       else if (tipo === 'sobrante') mensaje += `sobrante de ${fmtPrecio(diff)}.`
       else mensaje += `faltante de ${fmtPrecio(-diff)}.`
 
-      toast.add({
-        title: 'Cuadre cerrado',
-        description: mensaje,
-        color: tipo === 'exacto' ? 'success' : tipo === 'sobrante' ? 'info' : 'error'
-      })
+      // Solo se avisa si hay sobrante o faltante; el cierre exacto no necesita toast.
+      if (tipo !== 'exacto') {
+        toast.add({
+          title: 'Cuadre cerrado',
+          description: mensaje,
+          color: tipo === 'sobrante' ? 'info' : 'error'
+        })
+      }
     } catch (err) {
       toast.add({ title: 'Error', description: err.message, color: 'error' })
     }
@@ -495,10 +529,17 @@ export function useCuadre() {
 
     const reabiertoVeces = (cuadre.value.reabiertoVeces ?? 0) + 1
     const ultimaReaperturaEn = Date.now()
+    const pagoReabierto = trabajadorTurnoId.value ? salarioCalculado.value : null
     await cuadreRepo.update(cuadre.value.id, {
       estado: 'abierto',
       reabiertoVeces,
-      ultimaReaperturaEn: new Date(ultimaReaperturaEn).toISOString()
+      ultimaReaperturaEn: new Date(ultimaReaperturaEn).toISOString(),
+      // Limpiar también en el registro: con autoguardado, lo que quede aquí
+      // resucitaría como borrador al recargar (los acumulados de fiado, que
+      // son actividad real, se conservan).
+      totalRealCaja: null,
+      montoTransferencia: 0,
+      pagoTrabajador: pagoReabierto
     })
     cuadre.value = {
       ...cuadre.value,
@@ -511,7 +552,7 @@ export function useCuadre() {
     totalRealCaja.value = null
     montoTransferencia.value = 0
     if (trabajadorTurnoId.value) await cargarSalarioTrabajador(trabajadorTurnoId.value)
-    pagoTrabajador.value = trabajadorTurnoId.value ? salarioCalculado.value : null
+    pagoTrabajador.value = pagoReabierto
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
   }
 
@@ -525,15 +566,11 @@ export function useCuadre() {
       }
 
       let actualizadas = 0
-      let noEncontradas = 0
 
       for (const item of datos) {
         if (!item.productoId) continue
         const index = lineas.value.findIndex(l => l.productoId === item.productoId)
-        if (index === -1) {
-          noEncontradas++
-          continue
-        }
+        if (index === -1) continue
         const linea = lineas.value[index]
         if (item.cantidad != null) linea.cantidad = Number(item.cantidad)
         if (item.precioVentaUsado != null) linea.precioVentaUsado = Number(item.precioVentaUsado)
@@ -541,13 +578,7 @@ export function useCuadre() {
         actualizadas++
       }
 
-      if (actualizadas > 0) {
-        toast.add({
-          title: 'Importación completada',
-          description: `${actualizadas} línea(s) actualizada(s)${noEncontradas > 0 ? `. ${noEncontradas} no encontrada(s).` : '.'}`,
-          color: 'success'
-        })
-      } else {
+      if (actualizadas === 0) {
         toast.add({ title: 'Sin cambios', description: 'Ninguna línea coincidió con los productos del cuadre.', color: 'warning' })
       }
     } catch (err) {
@@ -562,12 +593,12 @@ export function useCuadre() {
 
   return {
     cuadre, lineas, productosActivos, cargando,
-    showAgregarProducto, productoSeleccionado, tipoLineaExtra, expandida,
+    expandida,
     totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
     trabajadorTurnoId, pagoTrabajador, notasCuadre,
     totalEsperado, faltanteReal, salarioCalculado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
     cargarDatos, recalcularSubtotal,
-    agregarLineaExtra, toggleExpandir, cerrarCuadre, reabrirCuadre,
+    toggleExpandir, cerrarCuadre, reabrirCuadre,
     procesarImportacionJSON, getProductoNombre,
     hoy
   }

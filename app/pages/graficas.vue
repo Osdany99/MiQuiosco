@@ -131,6 +131,7 @@ function getChartConfig(key) {
               { label: 'Semana', value: 'semana' },
               { label: 'Mes', value: 'mes' }
             ]"
+            :search-input="false"
             @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
           />
         </UFormField>

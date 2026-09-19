@@ -9,9 +9,11 @@
           label-key="nombre"
           placeholder="Seleccionar cliente..."
           class="w-full"
+          :disabled="editar"
         />
       </UFormField>
       <UButton
+        v-if="!editar"
         icon="i-lucide-plus"
         size="sm"
         variant="outline"
@@ -50,7 +52,7 @@
         <BaseInputNumber v-model="item.cantidad" placeholder="0" @update:model-value="onCantidadChange(item)" />
       </UFormField>
       <UFormField label="Precio" class="w-28">
-        <BaseInputNumber v-model="item.precioVentaUsado" placeholder="0" />
+        <BaseInputNumber v-model="item.precioVentaUsado" placeholder="0" :disabled="editar" />
       </UFormField>
       <UButton
         icon="i-lucide-x"
@@ -70,22 +72,35 @@
       @click="agregarItem"
     />
 
-    <div class="grid grid-cols-2 gap-4 pt-2">
-      <UFormField label="Pago inicial (opcional)">
-        <BaseInputNumber v-model="model.montoPagadoInicial" placeholder="0" />
-      </UFormField>
-      <UFormField label="Forma de pago">
-        <USelectMenu
-          v-model="model.formaPagoInicial"
-          :items="[
-            { label: 'Efectivo', value: 'efectivo' },
-            { label: 'Transferencia', value: 'transferencia' }
-          ]"
-          value-key="value"
-          label-key="label"
-          class="w-full"
+    <div v-if="!editar" class="grid grid-cols-2 gap-4 pt-2">
+      <UCollapsible v-model:open="pagoInicialOpen" class="col-span-2">
+        <UButton
+          variant="ghost"
+          size="sm"
+          :icon="pagoInicialOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+          label="Pago inicial (opcional)"
         />
-      </UFormField>
+        <template #content>
+          <div class="grid grid-cols-2 gap-4 pt-2">
+            <UFormField label="Monto">
+              <BaseInputNumber v-model="model.montoPagadoInicial" placeholder="0" />
+            </UFormField>
+            <UFormField label="Forma de pago">
+              <USelectMenu
+                v-model="model.formaPagoInicial"
+                :items="[
+                  { label: 'Efectivo', value: 'efectivo' },
+                  { label: 'Transferencia', value: 'transferencia' }
+                ]"
+                value-key="value"
+                label-key="label"
+                class="w-full"
+                :search-input="false"
+              />
+            </UFormField>
+          </div>
+        </template>
+      </UCollapsible>
     </div>
   </div>
 </template>
@@ -95,21 +110,22 @@ import { usuarioSchema } from '../../../shared/schemas/usuario'
 
 const props = defineProps({
   productosActivos: { type: Array, default: () => [] },
-  clientes: { type: Array, default: () => [] }
+  clientes: { type: Array, default: () => [] },
+  editar: { type: Boolean, default: false }
 })
 
 const model = defineModel({ type: Object, required: true })
 const emit = defineEmits(['crear-cliente'])
 
 const showCrearCliente = ref(false)
-const nuevoCliente = ref({ nombre: '', telefono: '', notas: '', pin: '' })
+const pagoInicialOpen = ref(false)
+const nuevoCliente = ref({ nombre: '' })
 const formRef = ref(null)
 
+// Crear cliente pide solo el nombre: el schema solo exige nombre y
+// crearCliente genera el PIN solo si no viene (resto de campos opcionales).
 const clienteFields = [
-  { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre completo', props: { class: 'w-full', maxlength: 100 } },
-  { name: 'telefono', label: 'Teléfono', type: 'text', required: false, placeholder: 'Teléfono', props: { class: 'w-full' } },
-  { name: 'notas', label: 'Notas', type: 'textarea', required: false, placeholder: 'Notas adicionales', props: { class: 'w-full', rows: 3 } },
-  { name: 'pin', label: 'PIN', type: 'password', required: false, maxlength: 6, props: { class: 'w-full', mask: true } }
+  { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre completo', props: { class: 'w-full', maxlength: 100 } }
 ]
 
 function onProductoChange(item) {
@@ -131,8 +147,8 @@ async function confirmarCrearCliente() {
   } catch {
     return
   }
-  emit('crear-cliente', { ...nuevoCliente.value })
+  emit('crear-cliente', { nombre: (nuevoCliente.value.nombre || '').trim() })
   showCrearCliente.value = false
-  nuevoCliente.value = { nombre: '', telefono: '', notas: '', pin: '' }
+  nuevoCliente.value = { nombre: '' }
 }
 </script>

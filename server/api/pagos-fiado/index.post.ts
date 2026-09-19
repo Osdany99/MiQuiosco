@@ -51,6 +51,14 @@ export default defineEventHandler(async (event) => {
       .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${monto}` })
       .where(eq(cuadres.id, cuadreId))
 
+    // La deuda pendiente baja en el cuadre de ORIGEN (no necesariamente el
+    // mismo donde se cobra: puede ser una deuda vieja). Piso 0 por cuadres
+    // creados antes de este ajuste, cuyo montoFiado quedó en 0.
+    await tx
+      .update(cuadres)
+      .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${monto}, 0)` })
+      .where(eq(cuadres.id, cuenta.cuadreOrigenId))
+
     return p
   })
 

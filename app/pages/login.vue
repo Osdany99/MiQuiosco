@@ -4,7 +4,6 @@ definePageMeta({
 })
 
 const auth = useAuth()
-const toast = useToast()
 const route = useRoute()
 
 const nombreUsuario = ref('')
@@ -28,12 +27,6 @@ async function onSubmit() {
     const response = await auth.login(nombreUsuario.value, pin.value)
 
     if (response.usuario) {
-      toast.add({
-        title: 'Bienvenido',
-        description: `Hola, ${response.usuario.nombre}.`,
-        color: 'success'
-      })
-
       const destino = route.query.redirect
 
       if (destino) {

@@ -26,20 +26,6 @@
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <UFormField label="Monto fiado / por cobrar (generado hoy)">
-          <p class="font-mono text-lg">
-            {{ fmtPrecio(montoFiado) }}
-          </p>
-        </UFormField>
-
-        <UFormField label="Cobrado hoy de deudas anteriores">
-          <p class="font-mono text-lg">
-            {{ fmtPrecio(montoCobradoFiado) }}
-          </p>
-        </UFormField>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Pago al trabajador">
           <BaseInputNumber
             v-model="pagoTrabajador"
@@ -62,6 +48,7 @@
             placeholder="Seleccionar..."
             class="w-full"
             :disabled="readonly"
+            :search-input="false"
           />
         </UFormField>
 
@@ -84,7 +71,7 @@ import { TABLES } from '../../../shared/tables'
 const usuarioConfig = TABLES.usuarios
 
 const {
-  totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
+  totalRealCaja, montoTransferencia,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
   salarioCalculado
 } = useCuadre()

@@ -61,17 +61,15 @@ async function probarConexion() {
 async function guardar() {
   const url = serverUrl.value.trim()
   await setApiBaseUrl(url || '')
-  toast.add({
-    title: 'URL del servidor actualizada',
-    description: url ? `Apuntando a ${url}` : 'Usando modo relativo (solo navegador)',
-    color: 'success'
-  })
 }
 
 async function comprobarUpdates() {
   comprobandoUpdates.value = true
   try {
     const resultado = await update.comprobar()
+    // 'opcional' y 'obligatoria' muestran su propia UI automáticamente.
+    // 'actualizada' sí necesita aviso: sin red el chequeo también devuelve
+    // 'actualizada', así que el silencio sería indistinguible del éxito.
     if (resultado === 'actualizada') {
       toast.add({
         title: 'Estás al día',
@@ -79,7 +77,6 @@ async function comprobarUpdates() {
         color: 'success'
       })
     }
-    // 'opcional' y 'obligatoria' muestran su propia UI automáticamente.
   } finally {
     comprobandoUpdates.value = false
   }

@@ -30,6 +30,7 @@
               text-attribute="label"
               class="w-40"
               clearable
+              :search-input="false"
             />
             <UInput
               v-else

@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, cuentasFiadoItems, pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { validarTopeFiado } from '../../utils/fiadoTope'
 import { createCuentaFiadoSchema } from '#shared/schemas/createCuentaFiado'
 
 export default defineEventHandler(async (event) => {
@@ -18,6 +19,8 @@ export default defineEventHandler(async (event) => {
   if (montoPagadoInicial > montoTotal) {
     throw createError({ statusCode: 400, statusMessage: 'El pago inicial no puede superar el monto total.' })
   }
+
+  await validarTopeFiado(cuadreOrigenId, items)
 
   const result = await db.transaction(async (tx) => {
     const [cuenta] = await tx
@@ -53,6 +56,16 @@ export default defineEventHandler(async (event) => {
       await tx
         .update(cuadres)
         .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${montoPagadoInicial}` })
+        .where(eq(cuadres.id, cuadreOrigenId))
+    }
+
+    // Fiado neto generado hoy (total menos pago inicial): mantiene al día el
+    // campo del cuadre para el desglose de cierre y el cálculo de faltante.
+    const netoGenerado = montoTotal - montoPagadoInicial
+    if (netoGenerado !== 0) {
+      await tx
+        .update(cuadres)
+        .set({ montoFiado: sql`${cuadres.montoFiado} + ${netoGenerado}` })
         .where(eq(cuadres.id, cuadreOrigenId))
     }
 

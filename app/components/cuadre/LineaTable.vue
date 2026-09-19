@@ -1,129 +1,85 @@
 <template>
-  <BaseTable
-    :data="lineas"
-    :columns="columnDefs"
-    :show-edit="false"
-    :show-delete="false"
-    :loading-prop="cargando"
-    :pagination="false"
-    :disable-filters="true"
-    @reload="reload"
-  >
-    <template #toolbar-leading>
-      <UFileUpload
-        v-model="importJsonFile"
-        variant="button"
-        accept=".json"
-        size="sm"
-      />
-    </template>
+  <div @scroll.capture="soltarFoco">
+    <BaseTable
+      :data="lineas"
+      :columns="columnDefs"
+      :show-edit="false"
+      :show-delete="false"
+      :loading-prop="cargando"
+      :pagination="false"
+      :disable-filters="true"
+      @reload="reload"
+    >
+      <template #toolbar-leading>
+        <UFileUpload
+          v-model="importJsonFile"
+          variant="button"
+          accept=".json"
+          size="sm"
+        />
+      </template>
 
-    <template #producto-cell="{ row }">
-      <div>
-        <div class="flex items-center gap-2">
-          <span class="font-medium">{{ getProductoNombre(row.original.productoId) }}</span>
-          <UBadge
-            v-if="row.original.esExtra"
-            label="Extra"
-            color="amber"
-            size="xs"
-          />
-          <UButton
-            :icon="expandida.has(row.original.id) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-            variant="ghost"
-            size="xs"
-            @click="toggleExpandir(row.original.id)"
-          />
+      <template #producto-cell="{ row }">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-medium">{{ getProductoNombre(row.original.productoId) }}</span>
+            <UButton
+              :icon="expandida.has(row.original.id) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+              variant="ghost"
+              size="xs"
+              @click="toggleExpandir(row.original.id)"
+            />
+          </div>
+          <div v-if="expandida.has(row.original.id)" class="mt-1">
+            <UInput
+              v-model="row.original.nota"
+              placeholder="Nota libre (opcional)"
+              size="sm"
+              class="w-64"
+              :disabled="readonly"
+            />
+          </div>
         </div>
-        <div v-if="expandida.has(row.original.id)" class="mt-1">
-          <UInput
-            v-model="row.original.nota"
-            placeholder="Nota libre (opcional)"
-            size="sm"
-            class="w-64"
-            :disabled="readonly"
-          />
-        </div>
-      </div>
-    </template>
+      </template>
 
-    <template #precioVentaUsado-cell="{ row }">
-      <BaseInputNumber
-        v-model="row.original.precioVentaUsado"
-        class="w-28"
-        :disabled="readonly"
-        @update:model-value="recalcularSubtotal(row.original)"
-      />
-    </template>
-
-    <template #cantidad-cell="{ row }">
-      <BaseInputNumber
-        v-model="row.original.cantidad"
-        :step="1"
-        class="w-20"
-        :disabled="readonly"
-        @update:model-value="recalcularSubtotal(row.original)"
-      />
-    </template>
-
-    <template #tipoLinea-cell="{ row }">
-      <USelectMenu
-        v-model="row.original.tipoLinea"
-        :items="tipoVenta"
-        size="sm"
-        class="w-36"
-        :disabled="readonly"
-      />
-    </template>
-
-    <template #extra>
-      <div v-if="showAgregarProducto" class="flex items-center gap-2 p-2 border-t border-gray-200 dark:border-gray-800">
-        <USelectMenu
-          v-model="productoSeleccionado"
-          :items="productosActivos.map(p => ({ label: p.nombre, value: p.id }))"
-          value-key="value"
-          placeholder="Seleccionar producto..."
-          class="w-48"
-        />
-        <USelectMenu
-          v-model="tipoLineaExtra"
-          :items="tipoVenta"
-          value-key="value"
-          size="sm"
-          class="w-36"
-        />
-        <BaseButtonActions
-          confirm-text="Agregar"
-          confirm-icon="i-lucide-plus"
-          size="sm"
-          cancel-variant="ghost"
-          :disabled-guardar="readonly"
-          @confirm="agregarLineaExtra(tipoLineaExtra)"
-          @cancel="showAgregarProducto = false"
-        />
-      </div>
-      <div v-else class="p-2 text-right">
-        <UButton
-          variant="ghost"
-          size="sm"
-          icon="i-lucide-plus"
+      <template #precioVentaUsado-cell="{ row }">
+        <BaseInputNumber
+          v-model="row.original.precioVentaUsado"
+          class="w-28"
           :disabled="readonly"
-          @click="showAgregarProducto = true"
-        >
-          Agregar producto extra
-        </UButton>
-      </div>
-    </template>
-  </BaseTable>
+          :readonly="bloqueado(row.original.id)"
+          :increment="false"
+          :decrement="false"
+          @focus="(e) => activarEdicion(row.original, e)"
+          @blur="terminarEdicion"
+          @update:model-value="recalcularSubtotal(row.original)"
+        />
+      </template>
+
+      <template #cantidad-cell="{ row }">
+        <BaseInputNumber
+          v-model="row.original.cantidad"
+          :step="1"
+          class="w-20"
+          :disabled="readonly"
+          :readonly="bloqueado(row.original.id)"
+          :increment="false"
+          :decrement="false"
+          @focus="(e) => activarEdicion(row.original, e)"
+          @blur="terminarEdicion"
+          @update:model-value="recalcularSubtotal(row.original)"
+        />
+      </template>
+    </BaseTable>
+  </div>
 </template>
 
 <script setup>
 const emit = defineEmits(['reload'])
 
 const {
-  lineas, productosActivos, expandida, cargando,
-  showAgregarProducto, productoSeleccionado, tipoLineaExtra,
-  recalcularSubtotal, agregarLineaExtra, toggleExpandir,
+  lineas, expandida, cargando,
+  recalcularSubtotal, toggleExpandir,
   getProductoNombre, procesarImportacionJSON
 } = useCuadre()
 
@@ -138,18 +94,44 @@ defineProps({
   readonly: { type: Boolean, default: false }
 })
 
-const tipoVenta = [
-  { label: 'Normal', value: 'normal' },
-  { label: 'Regalo', value: 'regalo' },
-  { label: 'Deuda', value: 'deuda' },
-  { label: 'Desc. familiar', value: 'descuento_familiar' }
-]
+// Edición por toque: en móvil los campos viven bloqueados para que el
+// scroll nunca los altere; solo se desbloquea la fila tocada explícitamente.
+// Al perder foco (o al desplazar) vuelve a bloquearse.
+const editandoId = ref(null)
+let reEnfocando = false
+
+function bloqueado(id) {
+  return editandoId.value !== id
+}
+
+function activarEdicion(linea, e) {
+  if (editandoId.value === linea.id) return
+  editandoId.value = linea.id
+  // Reenfocar para que el teclado aparezca (el foco inicial cayó en readonly)
+  const el = e?.target?.tagName === 'INPUT' ? e.target : null
+  if (el) {
+    reEnfocando = true
+    el.blur()
+    nextTick(() => {
+      el.focus()
+      reEnfocando = false
+    })
+  }
+}
+
+function terminarEdicion() {
+  if (reEnfocando) return
+  editandoId.value = null
+}
+
+function soltarFoco() {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+}
 
 const columnDefs = [
   { id: 'producto', header: 'Producto' },
-  { accessorKey: 'precioVentaUsado', header: 'Precio venta' },
+  { accessorKey: 'precioVentaUsado', header: 'Precio venta', visible: false },
   { accessorKey: 'cantidad', header: 'Cant.' },
-  { accessorKey: 'tipoLinea', header: 'Tipo' },
   { accessorKey: 'subtotal', header: 'Subtotal', cell: 'currency' }
 ]
 

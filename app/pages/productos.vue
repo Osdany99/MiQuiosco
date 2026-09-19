@@ -1,4 +1,5 @@
 <script setup>
+import Sortable from 'sortablejs'
 import { productoSchema } from '../../shared/schemas/producto'
 import { productos as config } from '../../shared/tables'
 
@@ -11,13 +12,12 @@ const fields = [
   { name: 'descripcion', label: 'Descripción', type: 'text', required: false, placeholder: 'Descripción opcional', colSpan: 'sm:col-span-2', props: { class: 'w-full' } },
   { name: 'precioCompraActual', label: 'Precio compra', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
   { name: 'precioVentaActual', label: 'Precio venta', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
-  { name: 'orden', label: 'Orden', type: 'number', required: false, colSpan: 'sm:col-span-2', props: { class: 'w-full', min: 1, step: 1 } },
   { name: 'activo', label: 'Activo', type: 'switch', required: true, colSpan: 'sm:col-span-2', props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } }
 ]
 
 const columns = [
+  { id: 'drag', header: '' },
   { accessorKey: 'id', header: 'ID', visible: false },
-  { accessorKey: 'orden', header: 'Orden' },
   { accessorKey: 'nombre', header: 'Producto' },
   { accessorKey: 'descripcion', header: 'Descripción' },
   { accessorKey: 'precioCompraActual', header: 'Precio Compra', cell: 'currency' },
@@ -33,54 +33,78 @@ const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0,
 const showHistorial = ref(false)
 const historialProducto = ref(null)
 
-const { patch, loading: reorderLoading } = useRepo(config)
+const { patch } = useRepo(config)
+const reordenando = ref(false)
+let sortable = null
 
-function esPrimero(p) {
-  const rows = toValue(tableRef.value?.data) ?? []
-  return rows.findIndex(x => x.id === p.id) === 0
+function filas() {
+  return toValue(tableRef.value?.data) ?? []
 }
 
-function esUltimo(p) {
-  const rows = toValue(tableRef.value?.data) ?? []
-  const idx = rows.findIndex(x => x.id === p.id)
-  return idx === -1 || idx === rows.length - 1
+function maxOrden() {
+  return filas().reduce((m, r) => Math.max(m, Number(r.orden ?? 0)), 0)
 }
 
-async function moverArriba(p) {
-  const rows = toValue(tableRef.value?.data) ?? []
-  const idx = rows.findIndex(x => x.id === p.id)
-  if (idx <= 0) return
+// Al crear, el producto va al final (el orden visible ya no se edita a mano)
+function nuevoProducto() {
+  tableRef.value?.openAdd()
+  form.value.orden = maxOrden() + 1
+}
 
-  const actual = rows[idx]
-  const anterior = rows[idx - 1]
+function initSortable() {
+  destruirSortable()
+  const tbody = tableRef.value?.$el?.querySelector('tbody')
+  if (!tbody) return
+  sortable = new Sortable(tbody, {
+    handle: '.drag-handle',
+    animation: 150,
+    // En táctil exige pulsación larga: el scroll vertical sigue funcionando
+    delay: 200,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 5,
+    scrollSensitivity: 60,
+    onEnd: reordenar
+  })
+}
 
-  const [{ error: error1 }, { error: error2 }] = await Promise.all([
-    patch(actual.id, { orden: anterior.orden }),
-    patch(anterior.id, { orden: actual.orden })
-  ])
+function destruirSortable() {
+  sortable?.destroy()
+  sortable = null
+}
 
-  if (!error1 && !error2) {
+async function reordenar() {
+  const tbody = tableRef.value?.$el?.querySelector('tbody')
+  if (!tbody || reordenando.value) return
+  const ids = [...tbody.querySelectorAll('tr .drag-handle')]
+    .map(el => el.dataset.id)
+    .filter(Boolean)
+  if (!ids.length) return
+  const porId = new Map(filas().map(r => [String(r.id), r]))
+  reordenando.value = true
+  try {
+    const cambios = []
+    ids.forEach((id, i) => {
+      const row = porId.get(id)
+      const nuevo = i + 1
+      if (row && Number(row.orden) !== nuevo) cambios.push(patch(row.id, { orden: nuevo }))
+    })
+    await Promise.all(cambios)
+  } finally {
+    reordenando.value = false
     await tableRef.value?.refresh()
+    initSortable()
   }
 }
 
-async function moverAbajo(p) {
-  const rows = toValue(tableRef.value?.data) ?? []
-  const idx = rows.findIndex(x => x.id === p.id)
-  if (idx === -1 || idx >= rows.length - 1) return
+onMounted(() => {
+  nextTick(() => initSortable())
+  // Reintento por si la tabla aún no pintó el tbody
+  setTimeout(() => {
+    if (!sortable) initSortable()
+  }, 1500)
+})
 
-  const actual = rows[idx]
-  const siguiente = rows[idx + 1]
-
-  const [{ error: error1 }, { error: error2 }] = await Promise.all([
-    patch(actual.id, { orden: siguiente.orden }),
-    patch(siguiente.id, { orden: actual.orden })
-  ])
-
-  if (!error1 && !error2) {
-    await tableRef.value?.refresh()
-  }
-}
+onBeforeUnmount(() => destruirSortable())
 </script>
 
 <template>
@@ -88,7 +112,7 @@ async function moverAbajo(p) {
     :title="config.label.plural"
     description="Catálogo de productos del puesto"
     :title-button="'Nuevo ' + config.label.singular"
-    @new="tableRef.openAdd()"
+    @new="nuevoProducto"
   >
     <BaseTable
       ref="tableRef"
@@ -107,24 +131,14 @@ async function moverAbajo(p) {
         />
       </template>
 
-      <template #orden-cell="{ row }">
-        <div class="flex items-center gap-2">
-          <UButton
-            icon="i-lucide-chevron-up"
-            variant="ghost"
-            size="xs"
-            :disabled="reorderLoading || esPrimero(row.original)"
-            @click="moverArriba(row.original)"
-          />
-          <span class="font-mono">{{ row.original.orden }}</span>
-          <UButton
-            icon="i-lucide-chevron-down"
-            variant="ghost"
-            size="xs"
-            :disabled="reorderLoading || esUltimo(row.original)"
-            @click="moverAbajo(row.original)"
-          />
-        </div>
+      <template #drag-cell="{ row }">
+        <span
+          class="drag-handle inline-flex cursor-grab active:cursor-grabbing text-gray-400 touch-none select-none px-1"
+          :data-id="row.original.id"
+          title="Arrastrar para reordenar"
+        >
+          <UIcon name="i-lucide-grip-vertical" class="w-5 h-5" />
+        </span>
       </template>
 
       <template #row-actions-extra="{ rowData }">
