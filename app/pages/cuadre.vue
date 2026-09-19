@@ -53,7 +53,7 @@ onMounted(() => {
         <UCard class="bg-primary/5 border-primary">
           <div class="space-y-2">
             <div class="flex justify-between items-center">
-              <span class="font-semibold">Total esperado (ventas del día)</span>
+              <span class="font-semibold">Total esperado (descontado)</span>
               <span class="text-xl font-mono font-bold text-primary">{{ fmtPrecio(totalEsperado) }}</span>
             </div>
             <hr v-if="faltanteReal != null" class="border-t border-gray-200 dark:border-gray-800">
@@ -86,6 +86,21 @@ onMounted(() => {
           v-if="!esTrabajador"
           :cuadre-id="cuadre?.id ?? ''"
           :productos-activos="productosActivos"
+          :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
+          :readonly="cuadre?.estado !== 'abierto'"
+          @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)"
+        />
+        <CuadreTransferenciaCard
+          v-if="!esTrabajador"
+          :cuadre-id="cuadre?.id ?? ''"
+          :productos-activos="productosActivos"
+          :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
+          :readonly="cuadre?.estado !== 'abierto'"
+          @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)"
+        />
+        <CuadreAjustesCard
+          v-if="!esTrabajador"
+          :cuadre-id="cuadre?.id ?? ''"
           :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
           :readonly="cuadre?.estado !== 'abierto'"
           @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)"

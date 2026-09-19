@@ -26,6 +26,8 @@ function normalizarCuadre(c) {
     montoTransferencia: Number(c.montoTransferencia ?? 0),
     montoFiado: Number(c.montoFiado ?? 0),
     montoCobradoFiado: Number(c.montoCobradoFiado ?? 0),
+    montoRegalo: Number(c.montoRegalo ?? 0),
+    montoDescuento: Number(c.montoDescuento ?? 0),
     diferencia: c.diferencia ?? null,
     trabajadorTurnoId: c.trabajadorTurnoId ?? null,
     pagoTrabajador: c.pagoTrabajador ?? null,
@@ -72,6 +74,8 @@ export function useCuadre() {
   const montoTransferencia = useState('cuadre-monto-transferencia', () => 0)
   const montoFiado = useState('cuadre-monto-fiado', () => 0)
   const montoCobradoFiado = useState('cuadre-monto-cobrado-fiado', () => 0)
+  const montoRegalo = useState('cuadre-monto-regalo', () => 0)
+  const montoDescuento = useState('cuadre-monto-descuento', () => 0)
   const trabajadorTurnoId = useState('cuadre-trabajador-turno-id', () => null)
   const pagoTrabajador = useState('cuadre-pago-trabajador', () => null)
   const notasCuadre = useState('cuadre-notas', () => '')
@@ -85,6 +89,7 @@ export function useCuadre() {
 
   const totalEsperado = computed(() =>
     lineas.value.reduce((sum, l) => sum + l.subtotal, 0)
+    - montoRegalo.value - montoDescuento.value
   )
 
   const salarioCalculado = computed(() =>
@@ -193,6 +198,10 @@ export function useCuadre() {
       if (c.notas != null) notasCuadre.value = c.notas ?? ''
       if (c.montoFiado != null) montoFiado.value = Number(c.montoFiado)
       if (c.montoCobradoFiado != null) montoCobradoFiado.value = Number(c.montoCobradoFiado)
+      if (c.montoRegalo != null) montoRegalo.value = Number(c.montoRegalo)
+      else montoRegalo.value = 0
+      if (c.montoDescuento != null) montoDescuento.value = Number(c.montoDescuento)
+      else montoDescuento.value = 0
       if (c.trabajadorTurnoId != null) {
         trabajadorTurnoId.value = c.trabajadorTurnoId
         await cargarSalarioTrabajador(c.trabajadorTurnoId)
@@ -426,6 +435,8 @@ export function useCuadre() {
         await cuadreRepo.update(cuadre.value.id, {
           totalRealCaja: totalRealCaja.value,
           montoTransferencia: montoTransferencia.value,
+          montoRegalo: montoRegalo.value,
+          montoDescuento: montoDescuento.value,
           trabajadorTurnoId: trabajadorTurnoId.value,
           pagoTrabajador: pagoTrabajador.value,
           notas: notasCuadre.value
@@ -478,6 +489,8 @@ export function useCuadre() {
         montoTransferencia: montoTransferencia.value,
         montoFiado: montoFiado.value,
         montoCobradoFiado: montoCobradoFiado.value,
+        montoRegalo: montoRegalo.value,
+        montoDescuento: montoDescuento.value,
         diferencia: diff,
         trabajadorTurnoId: trabajadorTurnoId.value,
         pagoTrabajador: pagoTrabajador.value,
@@ -536,9 +549,9 @@ export function useCuadre() {
       ultimaReaperturaEn: new Date(ultimaReaperturaEn).toISOString(),
       // Limpiar también en el registro: con autoguardado, lo que quede aquí
       // resucitaría como borrador al recargar (los acumulados de fiado, que
-      // son actividad real, se conservan).
+      // son actividad real, se conservan). Las transferencias y ajustes
+      // registrados también son actividad real y se conservan en el cuadre.
       totalRealCaja: null,
-      montoTransferencia: 0,
       pagoTrabajador: pagoReabierto
     })
     cuadre.value = {
@@ -549,8 +562,9 @@ export function useCuadre() {
     }
     // Limpiar montos de cierre del cierre anterior: al volver a cerrar hay que
     // re-ingresarlos, evitando re-usar silenciosamente el dinero en caja viejo.
+    // Los montos de transferencia, fiado, regalo y descuento se conservan porque
+    // son actividad real (y con autoguardado siguen en el borrador).
     totalRealCaja.value = null
-    montoTransferencia.value = 0
     if (trabajadorTurnoId.value) await cargarSalarioTrabajador(trabajadorTurnoId.value)
     pagoTrabajador.value = pagoReabierto
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
@@ -595,6 +609,7 @@ export function useCuadre() {
     cuadre, lineas, productosActivos, cargando,
     expandida,
     totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
+    montoRegalo, montoDescuento,
     trabajadorTurnoId, pagoTrabajador, notasCuadre,
     totalEsperado, faltanteReal, salarioCalculado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
     cargarDatos, recalcularSubtotal,

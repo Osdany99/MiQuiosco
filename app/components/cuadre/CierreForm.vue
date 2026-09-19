@@ -20,10 +20,13 @@
           <BaseInputNumber
             v-model="montoTransferencia"
             placeholder="0"
-            :disabled="readonly"
+            :disabled="true"
           />
         </UFormField>
       </div>
+      <p class="text-xs text-gray-500 -mt-3">
+        Transferencias y ajustes (regalos/descuentos) se registran en sus apartados y se suman automáticamente al cierre.
+      </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Pago al trabajador">

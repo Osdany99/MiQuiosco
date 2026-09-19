@@ -1,6 +1,7 @@
 import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
 import { calcularExcesoTope, sumarPorProducto } from '../../shared/fiadoTope'
+import { consumoPorProductoEnCuadreLocal } from '../utils/topeGeneral'
 
 const usuarioConfig = TABLES.usuarios
 const cuentaFiadoConfig = TABLES.cuentas_fiado
@@ -8,6 +9,9 @@ const cuentaFiadoItemConfig = TABLES.cuentas_fiado_items
 const pagoFiadoConfig = TABLES.pagos_fiado
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
+const transferenciaConfig = TABLES.transferencias
+const transferenciaItemConfig = TABLES.transferencia_items
+const ajusteConfig = TABLES.ajustes
 
 export function useCuentasFiado() {
   const toast = useToast()
@@ -27,6 +31,9 @@ export function useCuentasFiado() {
   const pagosRepo = computed(() => esOnline.value ? useRemoteRepo(pagoFiadoConfig) : useLocalRepo(pagoFiadoConfig))
   const cuadresRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreConfig) : useLocalRepo(cuadreConfig))
   const cuadreItemsRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreItemConfig) : useLocalRepo(cuadreItemConfig))
+  const transferenciasRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaConfig) : useLocalRepo(transferenciaConfig))
+  const transferenciaItemsRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaItemConfig) : useLocalRepo(transferenciaItemConfig))
+  const ajustesRepo = computed(() => esOnline.value ? useRemoteRepo(ajusteConfig) : useLocalRepo(ajusteConfig))
 
   function r(repo) {
     return repo.value
@@ -78,32 +85,38 @@ export function useCuentasFiado() {
   }
 
   /**
-   * Cantidades ya fiadas por producto en el cuadre (todas las cuentas de
-   * origen, salvo las excluidas).
+   * Cantidades ya consumidas por producto en el cuadre (fiado + transferencias
+   * + ajustes), salvo las cuentas excluidas.
    */
   async function fiadosPorProducto(cuadreId, excluirCuentaIds = []) {
-    const todasCuentas = await r(cuentasRepo).readAll()
-    const delCuadre = todasCuentas.filter(c => c.cuadreOrigenId === cuadreId && !excluirCuentaIds.includes(c.id))
-    const ids = delCuadre.map(c => c.id)
-    if (ids.length === 0) return new Map()
-    const todosItems = await r(itemsRepo).readAll()
-    return sumarPorProducto(todosItems.filter(i => ids.includes(i.cuentaFiadoId)))
+    return consumoPorProductoEnCuadreLocal({
+      cuadreId,
+      repos: {
+        cuentasRepo: r(cuentasRepo),
+        cuentasItemsRepo: r(itemsRepo),
+        transferenciasRepo: r(transferenciasRepo),
+        transferenciaItemsRepo: r(transferenciaItemsRepo),
+        ajustesRepo: r(ajustesRepo)
+      },
+      excluir: { cuentaIds: excluirCuentaIds }
+    })
   }
 
   /**
-   * Valida el tope de fiado (solo modo local; en online lo hace el servidor).
+   * Valida el tope (solo modo local; en online lo hace el servidor):
+   * vendido del cuadre vs consumido (fiado + transferencia + ajustes).
    * Devuelve mensaje de error o null si cabe.
    */
   async function validarTopeLocal(cuadreId, items, excluirCuentaIds = []) {
     if (esOnline.value) return null
-    const [vendidos, fiados] = await Promise.all([
+    const [vendidos, consumidos] = await Promise.all([
       vendidosPorProducto(cuadreId),
       fiadosPorProducto(cuadreId, excluirCuentaIds)
     ])
-    const exceso = calcularExcesoTope(vendidos, fiados, items)
+    const exceso = calcularExcesoTope(vendidos, consumidos, items)
     if (!exceso) return null
-    const yaFiado = Number(fiados.get(exceso.productoId) ?? 0)
-    return `Tope de fiado excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}).`
+    const yaFiado = Number(consumidos.get(exceso.productoId) ?? 0)
+    return `Tope excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}, incluye fiado/transferencia/ajustes).`
   }
 
   async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoPagadoInicial, formaPagoInicial, puestoId }) {

@@ -33,6 +33,7 @@ export const formaPagoFiadoEnum = pgEnum('forma_pago_fiado', [
   'efectivo',
   'transferencia'
 ])
+export const tipoAjusteEnum = pgEnum('tipo_ajuste', ['regalo', 'descuento'])
 
 /**
  * Puestos: soporte multi-puesto desde el día 1.
@@ -183,6 +184,12 @@ export const cuadres = pgTable(
       .notNull()
       .default(0),
     montoCobradoFiado: doublePrecision('monto_cobrado_fiado')
+      .notNull()
+      .default(0),
+    montoRegalo: doublePrecision('monto_regalo')
+      .notNull()
+      .default(0),
+    montoDescuento: doublePrecision('monto_descuento')
       .notNull()
       .default(0),
     diferencia: doublePrecision('diferencia'),
@@ -339,6 +346,106 @@ export const pagosFiado = pgTable(
 )
 
 /**
+ * Transferencia: cobro recibido por transferencia bancaria/móvil dentro de un
+ * cuadre. A diferencia del fiado, aquí el cliente paga al momento (dinero que
+ * se suma a montoTransferencia del cuadre); el registro guarda cliente y
+ * productos para control y trazabilidad.
+ */
+export const transferencias = pgTable(
+  'transferencias',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    clienteId: uuid('cliente_id')
+      .notNull()
+      .references(() => usuarios.id),
+    cuadreId: uuid('cuadre_id')
+      .notNull()
+      .references(() => cuadres.id),
+    montoTotal: doublePrecision('monto_total').notNull(),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    clienteIdx: index('transferencias_cliente_idx').on(table.clienteId),
+    cuadreIdx: index('transferencias_cuadre_idx').on(table.cuadreId),
+    actualizadoEnIdx: index('transferencias_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Items de una transferencia: productos, cantidades y precios al momento cobrado.
+ */
+export const transferenciaItems = pgTable(
+  'transferencia_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    transferenciaId: uuid('transferencia_id')
+      .notNull()
+      .references(() => transferencias.id, { onDelete: 'cascade' }),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+    cantidad: doublePrecision('cantidad').notNull(),
+    precioVentaUsado: doublePrecision('precio_venta_usado').notNull(),
+    subtotal: doublePrecision('subtotal').notNull(),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    transferenciaIdx: index('transferencia_items_transferencia_idx').on(table.transferenciaId),
+    productoIdx: index('transferencia_items_producto_idx').on(table.productoId),
+    creadoEnIdx: index('transferencia_items_creado_en_idx').on(table.creadoEn)
+  })
+)
+
+/**
+ * Ajustes del cuadre: productos regalados o vendidos con descuento.
+ * monto = el importe que se resta del total esperado (regalo: costo del
+ * producto regalado; descuento: el monto descontado). Consumen también del
+ * tope por producto compartido con fiado y transferencia.
+ */
+export const ajustes = pgTable(
+  'ajustes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    cuadreId: uuid('cuadre_id')
+      .notNull()
+      .references(() => cuadres.id),
+    clienteId: uuid('cliente_id').references(() => usuarios.id),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+    tipo: tipoAjusteEnum('tipo').notNull(),
+    cantidad: doublePrecision('cantidad').notNull(),
+    monto: doublePrecision('monto').notNull(),
+    nota: text('nota'),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    cuadreIdx: index('ajustes_cuadre_idx').on(table.cuadreId),
+    clienteIdx: index('ajustes_cliente_idx').on(table.clienteId),
+    productoIdx: index('ajustes_producto_idx').on(table.productoId),
+    actualizadoEnIdx: index('ajustes_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
  * Registro de eliminaciones para sincronización.
  * Trackea qué registros fueron eliminados y cuándo, para que otros dispositivos los apliquen en pull.
  */
@@ -379,9 +486,16 @@ export type CuentaFiadoItem = typeof cuentasFiadoItems.$inferSelect
 export type NuevaCuentaFiadoItem = typeof cuentasFiadoItems.$inferInsert
 export type PagoFiado = typeof pagosFiado.$inferSelect
 export type NuevoPagoFiado = typeof pagosFiado.$inferInsert
+export type Transferencia = typeof transferencias.$inferSelect
+export type NuevaTransferencia = typeof transferencias.$inferInsert
+export type TransferenciaItem = typeof transferenciaItems.$inferSelect
+export type NuevaTransferenciaItem = typeof transferenciaItems.$inferInsert
+export type Ajuste = typeof ajustes.$inferSelect
+export type NuevoAjuste = typeof ajustes.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'
 export type TipoLinea = 'normal' | 'descuento' | 'regalo' | 'deuda' | 'descuento_familiar'
 export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
 export type FormaPagoFiado = 'efectivo' | 'transferencia'
+export type TipoAjuste = 'regalo' | 'descuento'

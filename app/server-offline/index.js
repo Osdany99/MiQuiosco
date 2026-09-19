@@ -126,6 +126,18 @@ const OFFLINE_CONFIGS = [
     overrides: {}
   },
   {
+    config: { tabla: 'transferencias', defaults: { montoTotal: 0 }, puestoScoped: TABLES.transferencias.puestoScoped },
+    overrides: {}
+  },
+  {
+    config: { tabla: 'transferencia_items', defaults: {} },
+    overrides: {}
+  },
+  {
+    config: { tabla: 'ajustes', defaults: { cantidad: 0, monto: 0 }, puestoScoped: TABLES.ajustes.puestoScoped },
+    overrides: {}
+  },
+  {
     config: { tabla: 'historial_precios', defaults: {} },
     overrides: {}
   }

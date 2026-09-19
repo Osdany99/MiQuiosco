@@ -2,9 +2,13 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { usuarioSchema } from '../shared/schemas/usuario.js'
 import { cuadreItemSchema } from '../shared/schemas/cuadreItem.js'
+import { createTransferenciaSchema } from '../shared/schemas/createTransferencia.js'
+import { createAjusteSchema } from '../shared/schemas/createAjuste.js'
+import { updateAjusteSchema } from '../shared/schemas/updateAjuste.js'
 import { mergeFields } from '../app/utils/syncMerge.js'
 import { fmtPrecio, calcularSalario, normalizarNumero, calcularSubtotalLinea } from '../app/utils/index.js'
 import { sumarPorProducto, calcularExcesoTope } from '../shared/fiadoTope.js'
+import { consumoPorProductoEnCuadreLocal, validarTopeGeneralLocal } from '../app/utils/topeGeneral.js'
 
 // --- usuarioSchema ---
 describe('usuarioSchema', () => {
@@ -176,5 +180,151 @@ describe('calcularExcesoTope', () => {
     const fiados = new Map([['p1', 4]])
     const exceso = calcularExcesoTope(vendidos, fiados, [{ productoId: 'p1', cantidad: 0 }])
     assert.equal(exceso, null)
+  })
+})
+
+// --- consumo conjunto por producto (fiado + transferencia + ajustes) ---
+function nuevoRepo(filas) {
+  return { readAll: async () => [...filas] }
+}
+
+describe('consumoPorProductoEnCuadreLocal', () => {
+  const cuadreId = 'c1'
+  const repos = {
+    cuentasRepo: nuevoRepo([
+      { id: 'f1', cuadreOrigenId: cuadreId },
+      { id: 'f2', cuadreOrigenId: 'otro-cuadre' }
+    ]),
+    cuentasItemsRepo: nuevoRepo([
+      { cuentaFiadoId: 'f1', productoId: 'p1', cantidad: 2 }
+    ]),
+    transferenciasRepo: nuevoRepo([
+      { id: 't1', cuadreId },
+      { id: 't2', cuadreId: 'otro-cuadre' }
+    ]),
+    transferenciaItemsRepo: nuevoRepo([
+      { transferenciaId: 't1', productoId: 'p1', cantidad: 3 },
+      { transferenciaId: 't2', productoId: 'p2', cantidad: 9 }
+    ]),
+    ajustesRepo: nuevoRepo([
+      { id: 'a1', cuadreId, productoId: 'p1', cantidad: 1 }
+    ])
+  }
+
+  it('suma fiado + transferencia + ajustes del cuadre', async () => {
+    const consumo = await consumoPorProductoEnCuadreLocal({ cuadreId, repos })
+    assert.equal(consumo.get('p1'), 6) // 2 fiado + 3 transferencia + 1 ajuste
+    assert.equal(consumo.get('p2'), undefined) // transferencia de otro cuadre
+  })
+
+  it('excluye cuentas, transferencias y ajustes indicados', async () => {
+    const consumo = await consumoPorProductoEnCuadreLocal({
+      cuadreId,
+      repos,
+      excluir: { cuentaIds: ['f1'], transferenciaIds: ['t1'], ajusteIds: ['a1'] }
+    })
+    assert.equal(consumo.get('p1'), undefined)
+  })
+})
+
+describe('validarTopeGeneralLocal', () => {
+  const cuadreId = 'c1'
+  const repos = {
+    cuadreItemsRepo: nuevoRepo([{ productoId: 'p1', cantidad: 10 }]),
+    cuentasRepo: nuevoRepo([{ id: 'f1', cuadreOrigenId: cuadreId }]),
+    cuentasItemsRepo: nuevoRepo([{ cuentaFiadoId: 'f1', productoId: 'p1', cantidad: 4 }]),
+    transferenciasRepo: nuevoRepo([]),
+    transferenciaItemsRepo: nuevoRepo([]),
+    ajustesRepo: nuevoRepo([])
+  }
+
+  it('admite cuando queda tope disponible', async () => {
+    const msg = await validarTopeGeneralLocal({
+      cuadreId, repos,
+      items: [{ productoId: 'p1', cantidad: 5 }],
+      concepto: 'transferencia'
+    })
+    assert.equal(msg, null)
+  })
+
+  it('rechaza cuando se supera el tope conjunto', async () => {
+    const msg = await validarTopeGeneralLocal({
+      cuadreId, repos,
+      items: [{ productoId: 'p1', cantidad: 7 }],
+      concepto: 'transferencia'
+    })
+    assert.match(msg, /Tope excedido/)
+    assert.match(msg, /quedan 6 unidades/)
+  })
+})
+
+// --- schemas de transferencias y ajustes ---
+describe('createTransferenciaSchema', () => {
+  const uuid = '550e8400-e29b-41d4-a716-446655440001'
+  it('acepta transferencia válida', () => {
+    const r = createTransferenciaSchema.safeParse({
+      clienteId: uuid,
+      cuadreId: uuid,
+      items: [{ productoId: uuid, cantidad: 2, precioVentaUsado: 50 }]
+    })
+    assert.equal(r.success, true)
+  })
+  it('rechaza sin items', () => {
+    const r = createTransferenciaSchema.safeParse({ clienteId: uuid, cuadreId: uuid, items: [] })
+    assert.equal(r.success, false)
+  })
+  it('rechaza cantidad negativa', () => {
+    const r = createTransferenciaSchema.safeParse({
+      clienteId: uuid,
+      cuadreId: uuid,
+      items: [{ productoId: uuid, cantidad: -1, precioVentaUsado: 50 }]
+    })
+    assert.equal(r.success, false)
+  })
+})
+
+describe('createAjusteSchema', () => {
+  const uuid = '550e8400-e29b-41d4-a716-446655440001'
+  it('acepta ajuste de regalo sin cliente', () => {
+    const r = createAjusteSchema.safeParse({
+      cuadreId: uuid,
+      productoId: uuid,
+      tipo: 'regalo',
+      cantidad: 1,
+      monto: 50
+    })
+    assert.equal(r.success, true)
+  })
+  it('acepta ajuste de descuento con cliente', () => {
+    const r = createAjusteSchema.safeParse({
+      cuadreId: uuid,
+      clienteId: uuid,
+      productoId: uuid,
+      tipo: 'descuento',
+      cantidad: 1,
+      monto: 20
+    })
+    assert.equal(r.success, true)
+  })
+  it('rechaza tipo inválido', () => {
+    const r = createAjusteSchema.safeParse({
+      cuadreId: uuid,
+      productoId: uuid,
+      tipo: 'regalado',
+      cantidad: 1,
+      monto: 50
+    })
+    assert.equal(r.success, false)
+  })
+})
+
+describe('updateAjusteSchema', () => {
+  it('permite editar solo el tipo', () => {
+    const r = updateAjusteSchema.safeParse({ tipo: 'descuento' })
+    assert.equal(r.success, true)
+  })
+  it('rechaza cambio de producto con uuid inválido', () => {
+    const r = updateAjusteSchema.safeParse({ productoId: 'no-uuid' })
+    assert.equal(r.success, false)
   })
 })

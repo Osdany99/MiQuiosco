@@ -33,7 +33,7 @@ export const cuadres = {
   endpoints: endpoint('cuadres'),
   puestoScoped: true,
   label: { singular: 'Cuadre', plural: 'Cuadres', gender: 'm' },
-  syncNumeric: ['pagoTrabajador', 'totalEsperado', 'totalRealCaja', 'montoTransferencia', 'montoFiado', 'montoCobradoFiado', 'diferencia'],
+  syncNumeric: ['pagoTrabajador', 'totalEsperado', 'totalRealCaja', 'montoTransferencia', 'montoFiado', 'montoCobradoFiado', 'montoRegalo', 'montoDescuento', 'diferencia'],
   insertOnly: false
 }
 
@@ -70,6 +70,32 @@ export const pagos_fiado = {
   insertOnly: true
 }
 
+export const transferencias = {
+  tabla: 'transferencias',
+  endpoints: endpoint('transferencias'),
+  puestoScoped: true,
+  label: { singular: 'Transferencia', plural: 'Transferencias', gender: 'f' },
+  syncNumeric: ['montoTotal'],
+  insertOnly: false
+}
+
+export const transferencia_items = {
+  tabla: 'transferencia_items',
+  endpoints: endpoint('transferencia_items'),
+  label: { singular: 'Línea', plural: 'Líneas', gender: 'f' },
+  syncNumeric: ['cantidad', 'precioVentaUsado', 'subtotal'],
+  insertOnly: true
+}
+
+export const ajustes = {
+  tabla: 'ajustes',
+  endpoints: endpoint('ajustes'),
+  puestoScoped: true,
+  label: { singular: 'Ajuste', plural: 'Ajustes', gender: 'm' },
+  syncNumeric: ['cantidad', 'monto'],
+  insertOnly: false
+}
+
 export const historial_precios = {
   tabla: 'historial_precios',
   endpoints: endpoint('historial_precios'),
@@ -80,10 +106,12 @@ export const historial_precios = {
 
 export const TABLES = {
   productos, usuarios, cuadres, cuadre_items,
-  cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios
+  cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
+  transferencias, transferencia_items, ajustes
 }
 
 export const SYNC_TABLES = [
   productos, usuarios, cuadres, cuadre_items,
-  cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios
+  cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
+  transferencias, transferencia_items, ajustes
 ]

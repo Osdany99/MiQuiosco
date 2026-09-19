@@ -16,10 +16,12 @@ import { sql } from 'drizzle-orm'
 export const ROLES = ['jefe', 'trabajador', 'cliente'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
 export const TIPOS_LINEA = ['normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar'] as const
+export const TIPOS_AJUSTE = ['regalo', 'descuento'] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
 export type TipoLinea = (typeof TIPOS_LINEA)[number]
+export type TipoAjuste = (typeof TIPOS_AJUSTE)[number]
 
 /**
  * Puestos: espejo de la tabla del servidor para uso offline.
@@ -146,6 +148,8 @@ export const cuadres = sqliteTable(
     montoTransferencia: real('monto_transferencia').notNull().default(0),
     montoFiado: real('monto_fiado').notNull().default(0),
     montoCobradoFiado: real('monto_cobrado_fiado').notNull().default(0),
+    montoRegalo: real('monto_regalo').notNull().default(0),
+    montoDescuento: real('monto_descuento').notNull().default(0),
     diferencia: real('diferencia'),
     estado: text('estado', { enum: ESTADOS_CUADRE }).notNull().default('abierto'),
     notas: text('notas'),
@@ -308,6 +312,96 @@ export const pagosFiado = sqliteTable(
 )
 
 /**
+ * Transferencia: cobro por transferencia dentro de un cuadre (cliente + productos).
+ */
+export const transferencias = sqliteTable(
+  'transferencias',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    clienteId: text('cliente_id').notNull(),
+    cuadreId: text('cuadre_id').notNull(),
+    montoTotal: real('monto_total').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    clienteIdx: index('transferencias_cliente_idx').on(table.clienteId),
+    cuadreIdx: index('transferencias_cuadre_idx').on(table.cuadreId),
+    actualizadoEnIdx: index('transferencias_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('transferencias_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Items de transferencia.
+ */
+export const transferenciaItems = sqliteTable(
+  'transferencia_items',
+  {
+    id: text('id').primaryKey(),
+    transferenciaId: text('transferencia_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    cantidad: real('cantidad').notNull(),
+    precioVentaUsado: real('precio_venta_usado').notNull(),
+    subtotal: real('subtotal').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    transferenciaIdx: index('transferencia_items_transferencia_idx').on(table.transferenciaId),
+    productoIdx: index('transferencia_items_producto_idx').on(table.productoId),
+    creadoEnIdx: index('transferencia_items_creado_en_idx').on(table.creadoEn)
+  })
+)
+
+/**
+ * Ajustes del cuadre: regalos y descuentos.
+ */
+export const ajustes = sqliteTable(
+  'ajustes',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    cuadreId: text('cuadre_id').notNull(),
+    clienteId: text('cliente_id'),
+    productoId: text('producto_id').notNull(),
+    tipo: text('tipo', { enum: TIPOS_AJUSTE }).notNull(),
+    cantidad: real('cantidad').notNull(),
+    monto: real('monto').notNull(),
+    nota: text('nota'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    cuadreIdx: index('ajustes_cuadre_idx').on(table.cuadreId),
+    clienteIdx: index('ajustes_cliente_idx').on(table.clienteId),
+    productoIdx: index('ajustes_producto_idx').on(table.productoId),
+    actualizadoEnIdx: index('ajustes_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('ajustes_sincronizado_idx').on(table.sincronizado),
+    tipoCheck: check('ajustes_tipo_check', sql`${table.tipo} IN ('regalo', 'descuento')`)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect
@@ -319,3 +413,6 @@ export type ProductoCache = typeof productosCache.$inferSelect
 export type CuentaFiadoSQLite = typeof cuentasFiado.$inferSelect
 export type CuentaFiadoItemSQLite = typeof cuentasFiadoItems.$inferSelect
 export type PagoFiadoSQLite = typeof pagosFiado.$inferSelect
+export type TransferenciaSQLite = typeof transferencias.$inferSelect
+export type TransferenciaItemSQLite = typeof transferenciaItems.$inferSelect
+export type AjusteSQLite = typeof ajustes.$inferSelect

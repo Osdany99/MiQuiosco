@@ -11,6 +11,8 @@ export const cuadreSchema = z.object({
   montoTransferencia: z.number().min(0, 'El monto no puede ser negativo').default(0),
   montoFiado: z.number().min(0, 'El monto no puede ser negativo').default(0),
   montoCobradoFiado: z.number().min(0, 'El monto no puede ser negativo').default(0),
+  montoRegalo: z.number().min(0, 'El monto no puede ser negativo').default(0),
+  montoDescuento: z.number().min(0, 'El monto no puede ser negativo').default(0),
   diferencia: z.number().nullable().optional(),
   estado: z.enum(['abierto', 'cerrado'], { message: 'Estado inválido' }).default('abierto'),
   notas: z.string().nullable().optional(),

@@ -140,6 +140,43 @@ export interface PagoFiado {
   sincronizado?: boolean
 }
 
+export interface Transferencia {
+  id: string
+  puestoId: string
+  clienteId: string
+  cuadreId: string
+  montoTotal: number
+  creadoEn: number | string
+  actualizadoEn: number | string
+  sincronizado?: boolean
+}
+
+export interface TransferenciaItem {
+  id: string
+  transferenciaId: string
+  productoId: string
+  cantidad: number
+  precioVentaUsado: number
+  subtotal: number
+  creadoEn: number | string
+  sincronizado?: boolean
+}
+
+export interface Ajuste {
+  id: string
+  puestoId: string
+  cuadreId: string
+  clienteId: string | null
+  productoId: string
+  tipo: 'regalo' | 'descuento'
+  cantidad: number
+  monto: number
+  nota: string | null
+  creadoEn: number | string
+  actualizadoEn: number | string
+  sincronizado?: boolean
+}
+
 export interface PushResponse {
   aceptados: string[]
   conflictos: {
@@ -151,6 +188,9 @@ export interface PushResponse {
     cuentas_fiado: CuentaFiado[]
     cuentas_fiado_items: CuentaFiadoItem[]
     pagos_fiado: PagoFiado[]
+    transferencias: Transferencia[]
+    transferencia_items: TransferenciaItem[]
+    ajustes: Ajuste[]
   }
 }
 
@@ -163,5 +203,8 @@ export interface PullResponse {
   cuentas_fiado: CuentaFiado[]
   cuentas_fiado_items: CuentaFiadoItem[]
   pagos_fiado: PagoFiado[]
+  transferencias: Transferencia[]
+  transferencia_items: TransferenciaItem[]
+  ajustes: Ajuste[]
   timestamp_servidor: number
 }

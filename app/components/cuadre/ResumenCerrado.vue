@@ -27,6 +27,14 @@
         <span>Cobrado fiado:</span>
         <span class="font-mono">{{ fmtPrecio(cuadre.montoCobradoFiado ?? 0) }}</span>
       </div>
+      <div class="flex justify-between">
+        <span>Regalos:</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.montoRegalo ?? 0) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span>Descuentos:</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.montoDescuento ?? 0) }}</span>
+      </div>
       <div class="flex justify-between font-bold">
         <span>Diferencia:</span>
         <span class="font-mono">{{ fmtPrecio(cuadre.diferencia ?? 0) }}</span>
