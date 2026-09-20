@@ -188,6 +188,9 @@ export function useAuth() {
   async function loginOffline(nombreUsuario, pin) {
     const resultado = await loginOfflineApi(nombreUsuario, pin)
     if (!resultado.ok) {
+      if (resultado.motivo === 'error_interno') {
+        throw new Error('Error interno en la base de datos local. Intenta reiniciar la app o reinstalarla.')
+      }
       if (resultado.motivo === 'usuario_inactivo') {
         throw new Error('Usuario no activo. Contacta al jefe.')
       }

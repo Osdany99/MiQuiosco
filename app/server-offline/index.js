@@ -6,7 +6,7 @@
  */
 import { createOfflineModule } from './api/_factory.js'
 import { createProductoMut, updateProductoMut } from '../../shared/mutations/producto'
-import { useDb } from './db/client.js'
+import { useDb } from './db/client'
 import { hashPin } from './utils/auth.js'
 import { TABLES } from '../../shared/tables.js'
 

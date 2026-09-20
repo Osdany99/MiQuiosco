@@ -1,11 +1,11 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "45e6bd88-719c-4397-9d25-e56e03cb542d",
+  "id": "1ed76f4c-73d1-4306-8d9f-3db0ef1c2955",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "clientes": {
-      "name": "clientes",
+    "ajustes": {
+      "name": "ajustes",
       "columns": {
         "id": {
           "name": "id",
@@ -21,34 +21,54 @@
           "notNull": true,
           "autoincrement": false
         },
-        "nombre": {
-          "name": "nombre",
+        "cuadre_id": {
+          "name": "cuadre_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "telefono": {
-          "name": "telefono",
+        "cliente_id": {
+          "name": "cliente_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "notas": {
-          "name": "notas",
+        "producto_id": {
+          "name": "producto_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "activo": {
-          "name": "activo",
-          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": true
+          "autoincrement": false
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cantidad": {
+          "name": "cantidad",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "monto": {
+          "name": "monto",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "nota": {
+          "name": "nota",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "creado_en": {
           "name": "creado_en",
@@ -74,10 +94,38 @@
         }
       },
       "indexes": {
-        "clientes_puesto_idx": {
-          "name": "clientes_puesto_idx",
+        "ajustes_cuadre_idx": {
+          "name": "ajustes_cuadre_idx",
           "columns": [
-            "puesto_id"
+            "cuadre_id"
+          ],
+          "isUnique": false
+        },
+        "ajustes_cliente_idx": {
+          "name": "ajustes_cliente_idx",
+          "columns": [
+            "cliente_id"
+          ],
+          "isUnique": false
+        },
+        "ajustes_producto_idx": {
+          "name": "ajustes_producto_idx",
+          "columns": [
+            "producto_id"
+          ],
+          "isUnique": false
+        },
+        "ajustes_actualizado_en_idx": {
+          "name": "ajustes_actualizado_en_idx",
+          "columns": [
+            "actualizado_en"
+          ],
+          "isUnique": false
+        },
+        "ajustes_sincronizado_idx": {
+          "name": "ajustes_sincronizado_idx",
+          "columns": [
+            "sincronizado"
           ],
           "isUnique": false
         }
@@ -85,7 +133,12 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "ajustes_tipo_check": {
+          "name": "ajustes_tipo_check",
+          "value": "\"ajustes\".\"tipo\" IN ('regalo', 'descuento')"
+        }
+      }
     },
     "cuadre_items": {
       "name": "cuadre_items",
@@ -199,7 +252,12 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "cuadre_items_tipo_linea_check": {
+          "name": "cuadre_items_tipo_linea_check",
+          "value": "\"cuadre_items\".\"tipo_linea\" IN ('normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar')"
+        }
+      }
     },
     "cuadres": {
       "name": "cuadres",
@@ -281,8 +339,25 @@
           "name": "monto_cobrado_fiado",
           "type": "real",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "monto_regalo": {
+          "name": "monto_regalo",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "monto_descuento": {
+          "name": "monto_descuento",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "diferencia": {
           "name": "diferencia",
@@ -372,12 +447,39 @@
             "sincronizado"
           ],
           "isUnique": false
+        },
+        "cuadres_jefe_idx": {
+          "name": "cuadres_jefe_idx",
+          "columns": [
+            "jefe_id"
+          ],
+          "isUnique": false
+        },
+        "cuadres_puesto_fecha_uk": {
+          "name": "cuadres_puesto_fecha_uk",
+          "columns": [
+            "puesto_id",
+            "fecha"
+          ],
+          "isUnique": true
+        },
+        "cuadres_actualizado_en_idx": {
+          "name": "cuadres_actualizado_en_idx",
+          "columns": [
+            "actualizado_en"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "cuadres_estado_check": {
+          "name": "cuadres_estado_check",
+          "value": "\"cuadres\".\"estado\" IN ('abierto', 'cerrado')"
+        }
+      }
     },
     "cuentas_fiado": {
       "name": "cuentas_fiado",
@@ -470,12 +572,31 @@
             "estado"
           ],
           "isUnique": false
+        },
+        "cuentas_fiado_cuadre_origen_idx": {
+          "name": "cuentas_fiado_cuadre_origen_idx",
+          "columns": [
+            "cuadre_origen_id"
+          ],
+          "isUnique": false
+        },
+        "cuentas_fiado_actualizado_en_idx": {
+          "name": "cuentas_fiado_actualizado_en_idx",
+          "columns": [
+            "actualizado_en"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "cuentas_fiado_estado_check": {
+          "name": "cuentas_fiado_estado_check",
+          "value": "\"cuentas_fiado\".\"estado\" IN ('pendiente', 'parcial', 'pagada')"
+        }
+      }
     },
     "cuentas_fiado_items": {
       "name": "cuentas_fiado_items",
@@ -543,6 +664,20 @@
           "name": "cuentas_fiado_items_cuenta_idx",
           "columns": [
             "cuenta_fiado_id"
+          ],
+          "isUnique": false
+        },
+        "cuentas_fiado_items_producto_idx": {
+          "name": "cuentas_fiado_items_producto_idx",
+          "columns": [
+            "producto_id"
+          ],
+          "isUnique": false
+        },
+        "cuentas_fiado_items_creado_en_idx": {
+          "name": "cuentas_fiado_items_creado_en_idx",
+          "columns": [
+            "creado_en"
           ],
           "isUnique": false
         }
@@ -634,6 +769,21 @@
             "producto_id"
           ],
           "isUnique": false
+        },
+        "historial_precios_vigente_idx": {
+          "name": "historial_precios_vigente_idx",
+          "columns": [
+            "producto_id",
+            "vigente_hasta"
+          ],
+          "isUnique": false
+        },
+        "historial_precios_creado_en_idx": {
+          "name": "historial_precios_creado_en_idx",
+          "columns": [
+            "creado_en"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -707,6 +857,13 @@
           "name": "pagos_fiado_cuadre_idx",
           "columns": [
             "cuadre_id"
+          ],
+          "isUnique": false
+        },
+        "pagos_fiado_creado_en_idx": {
+          "name": "pagos_fiado_creado_en_idx",
+          "columns": [
+            "creado_en"
           ],
           "isUnique": false
         }
@@ -809,6 +966,20 @@
             "orden"
           ],
           "isUnique": false
+        },
+        "productos_activo_idx": {
+          "name": "productos_activo_idx",
+          "columns": [
+            "activo"
+          ],
+          "isUnique": false
+        },
+        "productos_actualizado_en_idx": {
+          "name": "productos_actualizado_en_idx",
+          "columns": [
+            "actualizado_en"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -901,6 +1072,191 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "transferencia_items": {
+      "name": "transferencia_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "transferencia_id": {
+          "name": "transferencia_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "producto_id": {
+          "name": "producto_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cantidad": {
+          "name": "cantidad",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "precio_venta_usado": {
+          "name": "precio_venta_usado",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subtotal": {
+          "name": "subtotal",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sincronizado": {
+          "name": "sincronizado",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        }
+      },
+      "indexes": {
+        "transferencia_items_transferencia_idx": {
+          "name": "transferencia_items_transferencia_idx",
+          "columns": [
+            "transferencia_id"
+          ],
+          "isUnique": false
+        },
+        "transferencia_items_producto_idx": {
+          "name": "transferencia_items_producto_idx",
+          "columns": [
+            "producto_id"
+          ],
+          "isUnique": false
+        },
+        "transferencia_items_creado_en_idx": {
+          "name": "transferencia_items_creado_en_idx",
+          "columns": [
+            "creado_en"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "transferencias": {
+      "name": "transferencias",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "puesto_id": {
+          "name": "puesto_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cliente_id": {
+          "name": "cliente_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cuadre_id": {
+          "name": "cuadre_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "monto_total": {
+          "name": "monto_total",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actualizado_en": {
+          "name": "actualizado_en",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sincronizado": {
+          "name": "sincronizado",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        }
+      },
+      "indexes": {
+        "transferencias_cliente_idx": {
+          "name": "transferencias_cliente_idx",
+          "columns": [
+            "cliente_id"
+          ],
+          "isUnique": false
+        },
+        "transferencias_cuadre_idx": {
+          "name": "transferencias_cuadre_idx",
+          "columns": [
+            "cuadre_id"
+          ],
+          "isUnique": false
+        },
+        "transferencias_actualizado_en_idx": {
+          "name": "transferencias_actualizado_en_idx",
+          "columns": [
+            "actualizado_en"
+          ],
+          "isUnique": false
+        },
+        "transferencias_sincronizado_idx": {
+          "name": "transferencias_sincronizado_idx",
+          "columns": [
+            "sincronizado"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "usuarios": {
       "name": "usuarios",
       "columns": {
@@ -923,6 +1279,20 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "telefono": {
+          "name": "telefono",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "notas": {
+          "name": "notas",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "rol": {
@@ -951,9 +1321,8 @@
           "name": "salario",
           "type": "real",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 600
+          "notNull": false,
+          "autoincrement": false
         },
         "creado_en": {
           "name": "creado_en",
@@ -985,12 +1354,39 @@
             "rol"
           ],
           "isUnique": false
+        },
+        "usuarios_activo_idx": {
+          "name": "usuarios_activo_idx",
+          "columns": [
+            "activo"
+          ],
+          "isUnique": false
+        },
+        "usuarios_puesto_nombre_uk": {
+          "name": "usuarios_puesto_nombre_uk",
+          "columns": [
+            "puesto_id",
+            "nombre"
+          ],
+          "isUnique": true
+        },
+        "usuarios_actualizado_en_idx": {
+          "name": "usuarios_actualizado_en_idx",
+          "columns": [
+            "actualizado_en"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "usuarios_rol_check": {
+          "name": "usuarios_rol_check",
+          "value": "\"usuarios\".\"rol\" IN ('jefe', 'trabajador', 'cliente')"
+        }
+      }
     }
   },
   "views": {},

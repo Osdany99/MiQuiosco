@@ -8,9 +8,10 @@
  * Las funciones de server-offline/* consumen esta capa.
  */
 import { Capacitor } from '@capacitor/core'
-import { deriveColumnTypes, coerceRow, deriveTableNames } from '../utils/schemaTypes'
+import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
+import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, crearColaTransacciones, txRun } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
 
@@ -20,6 +21,23 @@ let dbConnection = null
 let dbConnectionPromise = null
 let inMemoryDb = null
 let inMemoryDbPromise = null
+
+// La cola es compartida a nivel módulo: como useDb() se instancia en cada
+// componente, una cola local por instancia no alcanzaría para serializar
+// transacciones entre consumidores distintos.
+const colaTransacciones = crearColaTransacciones()
+
+// Indica si el hilo actual de ejecución está dentro de nuestra transacción
+// manual. Las escrituras internas deben viajar con transaction:false para que
+// el plugin no las auto-confirme por separado (ver txRun en ./esquema).
+// La cola garantiza que nunca haya dos transacciones solapadas, así que un
+// boolean a nivel módulo es suficiente.
+let transaccionActiva = false
+
+async function runEscritura(conn, sql, params) {
+  if (transaccionActiva) return txRun(conn, sql, params)
+  return conn.run(sql, params)
+}
 
 class InMemoryDb {
   tables = new Map()
@@ -109,12 +127,15 @@ async function getConnection() {
 
 /**
  * Migraciones del journal de Drizzle (drizzle/sqlite/*.sql), cargadas en orden.
- * Añadir una migración nueva (pnpm db:generate:sqlite) no requiere tocar este
- * archivo: se detecta y aplica automáticamente a las instalaciones existentes.
+ * Hoy el journal es un único baseline inicial (0000_*.sql) generado desde
+ * app/server-offline/db/schema.ts. Las instalaciones existentes NO se actualizan
+ * re-ejecutando el baseline: se reconcilian contra el schema (ver reconcileSchema).
  */
 const journalSqls = Object.entries(
   import.meta.glob('../../../drizzle/sqlite/*.sql', { query: '?raw', import: 'default', eager: true })
 ).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+
+const BASELINE_SQL = journalSqls.map(([, sql]) => sql).join('\n')
 
 /**
  * Migraciones legacy best-effort para instalaciones creadas antes del sistema
@@ -133,24 +154,11 @@ const MIGRACIONES_LEGACY = [
   { type: 'index', sql: 'CREATE INDEX IF NOT EXISTS cuentas_fiado_items_producto_idx ON cuentas_fiado_items (producto_id)' }
 ]
 
-/** Migraciones del journal que el código anterior (pre-_migrations) ya aplicaba. */
-const MIGRACIONES_PRE_JOURNAL = new Set([
-  '0000_exotic_mentallo.sql',
-  '0001_good_sunset_bain.sql'
-])
-
-async function tablaExiste(conn, tabla) {
-  const result = await conn.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='${tabla}'`, [])
-  return (result.values?.length ?? 0) > 0
-}
+/** Nombre del baseline actual del journal, generado desde schema.ts. */
+const NOMBRE_BASELINE = journalSqls.length > 0 ? journalSqls[0][0] : '0000_inicial.sql'
 
 async function marcarMigracion(conn, name) {
   await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [name, Date.now()])
-}
-
-async function nombresMigracionesAplicadas(conn) {
-  const res = await conn.query('SELECT name FROM _migrations', [])
-  return (res.values ?? []).map(r => r.name)
 }
 
 async function aplicarMigracionesLegacy(conn) {
@@ -174,33 +182,32 @@ async function aplicarMigracionesLegacy(conn) {
   }
 }
 
+/**
+ * Reconciliación idempotente de una instalación existente contra el schema actual:
+ * - Crea tablas que faltan (CREATE TABLE IF NOT EXISTS).
+ * - Añade columnas que faltan en tablas existentes (ALTER TABLE ADD COLUMN).
+ * - Crea índices que faltan (CREATE [UNIQUE] INDEX IF NOT EXISTS).
+ * Nunca borra ni modifica filas: los datos de la instalación se preservan.
+ * La lógica pura vive en ./esquema para poder testearla en node.
+ */
 async function initializeSchema(conn) {
   await conn.run('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, aplicada_en INTEGER NOT NULL)', [])
 
   const esInstalacionExistente = await tablaExiste(conn, 'usuarios')
 
   if (!esInstalacionExistente) {
-    // Instalación nueva: aplicar todas las migraciones del journal en orden.
-    for (const [name, sql] of journalSqls) {
-      await conn.execute(sql.replace(/--> statement-breakpoint/g, ''))
-      await marcarMigracion(conn, name)
-    }
+    // Instalación nueva: crear todo el esquema desde el baseline.
+    await conn.execute(BASELINE_SQL.replace(/--> statement-breakpoint/g, ''))
+    await marcarMigracion(conn, NOMBRE_BASELINE)
     return
   }
 
-  // Instalación existente: compatibilidad legacy y marcar lo ya aplicado
-  // por el código anterior, luego aplicar las migraciones restantes.
+  // Instalación existente: reconciliación idempotente contra schema.ts.
   await aplicarMigracionesLegacy(conn)
-  for (const name of MIGRACIONES_PRE_JOURNAL) {
-    await marcarMigracion(conn, name)
-  }
-
-  const aplicadas = new Set(await nombresMigracionesAplicadas(conn))
-  for (const [name, sql] of journalSqls) {
-    if (aplicadas.has(name)) continue
-    await conn.execute(sql.replace(/--> statement-breakpoint/g, ''))
-    await marcarMigracion(conn, name)
-  }
+  await marcarMigracion(conn, NOMBRE_BASELINE)
+  await crearTablasFaltantes(conn, BASELINE_SQL)
+  await añadirColumnasFaltantes(conn, COLUMN_DEFS)
+  await crearIndicesFaltantes(conn, BASELINE_SQL)
 }
 
 function initializeSchemaMemory(mem) {
@@ -219,6 +226,7 @@ function initializeSchemaMemory(mem) {
 
 const COLUMN_TYPES = deriveColumnTypes(schemaSqlite)
 const COLUMN_MAP = deriveColumnMap(schemaSqlite)
+const COLUMN_DEFS = deriveColumnDefs(schemaSqlite)
 
 export { COLUMN_TYPES, COLUMN_MAP }
 
@@ -287,7 +295,7 @@ export function useDb() {
     const keys = Object.keys(row)
     const placeholders = keys.map(() => '?').join(', ')
     const cols = keys.join(', ')
-    await conn.run(`INSERT INTO ${tabla} (${cols}) VALUES (${placeholders})`, keys.map(k => row[k]))
+    await runEscritura(conn, `INSERT INTO ${tabla} (${cols}) VALUES (${placeholders})`, keys.map(k => row[k]))
     return datos
   }
 
@@ -302,7 +310,7 @@ export function useDb() {
     }
     const keys = Object.keys(cambiosSnake)
     const setClause = keys.map(k => `${k} = ?`).join(', ')
-    await conn.run(`UPDATE ${tabla} SET ${setClause} WHERE id = ?`, [...keys.map(k => cambiosSnake[k]), id])
+    await runEscritura(conn, `UPDATE ${tabla} SET ${setClause} WHERE id = ?`, [...keys.map(k => cambiosSnake[k]), id])
   }
 
   async function remove(tabla, id) {
@@ -311,7 +319,7 @@ export function useDb() {
       conn.remove(tabla, id)
       return
     }
-    await conn.run(`DELETE FROM ${tabla} WHERE id = ?`, [id])
+    await runEscritura(conn, `DELETE FROM ${tabla} WHERE id = ?`, [id])
   }
 
   async function findHistorialVigente(productoId) {
@@ -361,6 +369,9 @@ export function useDb() {
     dbConnectionPromise = null
   }
 
+  // La cola colaTransacciones es compartida a nivel módulo: como useDb() se
+  // instancia en cada componente, una cola local por instancia no alcanzaría
+  // para serializar transacciones entre consumidores distintos.
   async function transaction(fn) {
     const conn = await getConnection()
     if (conn instanceof InMemoryDb) {
@@ -372,15 +383,14 @@ export function useDb() {
         throw err
       }
     }
-    await conn.beginTransaction()
-    try {
-      const result = await fn({ insert, update, remove })
-      await conn.commit()
-      return result
-    } catch (err) {
-      await conn.rollback()
-      throw err
-    }
+    return colaTransacciones.ejecutar(conn, async (ops) => {
+      transaccionActiva = true
+      try {
+        return await fn(ops)
+      } finally {
+        transaccionActiva = false
+      }
+    }, { insert, update, remove })
   }
 
   return {

@@ -57,6 +57,75 @@ function normalizarLinea(i) {
   }
 }
 
+// Autoguardado del borrador: líneas + campos de cierre a la BD con debounce.
+// Así recargar la web o matar la APK ya no pierde el avance.
+// NOTA: es singleton a nivel módulo. useCuadre() se instancia en varios
+// componentes a la vez (cuadre.vue, LineaTable.vue, CierreForm.vue) y si cada
+// uno llevara su propio timer/watch habría guardados concurrentes que llaman
+// beginTransaction sobre la misma conexión SQLite (error "Already in
+// transaction"). Se registra un solo ctx y un solo watch independientemente
+// del número de instancias.
+const AUTOSAVE_MS = 1500
+let autosaveTimer = null
+let guardandoBorrador = false
+let suprimirAutosave = false
+let ctxAutosave = null
+let autosaveRegistrado = false
+
+function programarAutosave() {
+  if (!ctxAutosave || suprimirAutosave) return
+  const { cuadre, esTrabajador } = ctxAutosave
+  if (!cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
+  clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(() => {
+    guardarCuadreBorrador().catch(err => console.error('autosave cuadre:', err))
+  }, AUTOSAVE_MS)
+}
+
+async function guardarCuadreBorrador() {
+  if (!ctxAutosave || guardandoBorrador) return
+  const {
+    cuadre, esTrabajador, db, conexion, persistirLineas, cuadreRepo,
+    totalRealCaja, montoTransferencia, montoRegalo, montoDescuento,
+    trabajadorTurnoId, pagoTrabajador, notasCuadre
+  } = ctxAutosave
+  if (!cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
+  guardandoBorrador = true
+  try {
+    const guardar = async () => {
+      await persistirLineas()
+      await cuadreRepo.update(cuadre.value.id, {
+        totalRealCaja: totalRealCaja.value,
+        montoTransferencia: montoTransferencia.value,
+        montoRegalo: montoRegalo.value,
+        montoDescuento: montoDescuento.value,
+        trabajadorTurnoId: trabajadorTurnoId.value,
+        pagoTrabajador: pagoTrabajador.value,
+        notas: notasCuadre.value
+      })
+    }
+    // Igual que el cierre: transacción en local, directo en online.
+    if (conexion.modo.value !== 'online') {
+      await db.transaction(guardar)
+    } else {
+      await guardar()
+    }
+  } finally {
+    guardandoBorrador = false
+  }
+}
+
+function registrarAutosave(ctx) {
+  ctxAutosave = ctx
+  if (autosaveRegistrado) return
+  autosaveRegistrado = true
+  watch(
+    [ctx.lineas, ctx.totalRealCaja, ctx.montoTransferencia, ctx.pagoTrabajador, ctx.notasCuadre, ctx.trabajadorTurnoId],
+    () => programarAutosave(),
+    { deep: true }
+  )
+}
+
 export function useCuadre() {
   const auth = useAuth()
   const db = useDb()
@@ -411,52 +480,13 @@ export function useCuadre() {
     }
   }
 
-  // Autoguardado del borrador: líneas + campos de cierre a la BD con debounce.
-  // Así recargar la web o matar la APK ya no pierde el avance.
-  const AUTOSAVE_MS = 1500
-  let autosaveTimer = null
-  let guardandoBorrador = false
-  let suprimirAutosave = false
-
-  function programarAutosave() {
-    if (suprimirAutosave) return
-    if (!cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
-    clearTimeout(autosaveTimer)
-    autosaveTimer = setTimeout(() => {
-      guardarBorrador().catch(err => console.error('autosave cuadre:', err))
-    }, AUTOSAVE_MS)
-  }
-
-  async function guardarBorrador() {
-    if (guardandoBorrador || !cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
-    guardandoBorrador = true
-    try {
-      const guardar = async () => {
-        await persistirLineas()
-        await cuadreRepo.update(cuadre.value.id, {
-          totalRealCaja: totalRealCaja.value,
-          montoTransferencia: montoTransferencia.value,
-          montoRegalo: montoRegalo.value,
-          montoDescuento: montoDescuento.value,
-          trabajadorTurnoId: trabajadorTurnoId.value,
-          pagoTrabajador: pagoTrabajador.value,
-          notas: notasCuadre.value
-        })
-      }
-      // Igual que el cierre: transacción en local, directo en online.
-      if (conexion.modo.value !== 'online') {
-        await db.transaction(guardar)
-      } else {
-        await guardar()
-      }
-    } finally {
-      guardandoBorrador = false
-    }
-  }
-
-  // Cualquier edición del borrador (líneas o cierre) programa autoguardado.
-  watch([lineas, totalRealCaja, montoTransferencia, pagoTrabajador, notasCuadre, trabajadorTurnoId],
-    () => programarAutosave(), { deep: true })
+  // Autoguardado del borrador: el estado y el watch viven a nivel módulo
+  // (singleton) aunque useCuadre() se instancie en varios componentes.
+  registrarAutosave({
+    cuadre, esTrabajador, db, conexion, persistirLineas, cuadreRepo,
+    totalRealCaja, montoTransferencia, montoRegalo, montoDescuento,
+    trabajadorTurnoId, pagoTrabajador, notasCuadre
+  })
 
   function toggleExpandir(lineaId) {
     if (expandida.has(lineaId)) {

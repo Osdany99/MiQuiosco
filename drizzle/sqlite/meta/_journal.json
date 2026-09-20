@@ -5,36 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1783575790931,
-      "tag": "0000_exotic_mentallo",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1784253990029,
-      "tag": "0001_good_sunset_bain",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1788235302422,
-      "tag": "0002_confused_vulcan",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1788238843824,
-      "tag": "0003_cheerful_venus",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1789846249592,
-      "tag": "0004_peaceful_may_parker",
+      "when": 1789858481600,
+      "tag": "0000_harsh_sebastian_shaw",
       "breakpoints": true
     }
   ]

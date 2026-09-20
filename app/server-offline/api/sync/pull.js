@@ -6,7 +6,7 @@
  */
 import { TABLES } from '../../../../shared/tables'
 import { removePendingDeletesAccepted, enrichForInsert, enrichForUpdate } from '../_factory'
-import { useDb } from '../../db/client.js'
+import { useDb } from '../../db/client'
 
 const SYNC_TABLAS = Object.values(TABLES)
 

@@ -43,6 +43,33 @@ export function deriveTableNames(schema) {
 }
 
 /**
+ * Deriva las definiciones DDL de las columnas desde el schema Drizzle.
+ * Retorna { nombre_tabla: [{ name, sqlType, notNull, default }] }.
+ * Sirve para reconciliar una instalación existente contra el schema actual.
+ */
+export function deriveColumnDefs(schema) {
+  const map = {}
+  for (const table of Object.values(schema)) {
+    if (!table || typeof table !== 'object') continue
+    const tableName = table[TABLE_NAME]
+    if (!tableName) continue
+    const columns = table[TABLE_COLUMNS]
+    if (!columns) continue
+    const defs = []
+    for (const col of Object.values(columns)) {
+      defs.push({
+        name: col.name,
+        sqlType: typeof col.getSQLType === 'function' ? col.getSQLType() : 'text',
+        notNull: Boolean(col.notNull),
+        default: col.default
+      })
+    }
+    map[tableName] = defs
+  }
+  return map
+}
+
+/**
  * Convierte los valores de una fila a sus tipos JS correctos
  * según el mapa de tipos derivado del schema.
  */

@@ -4,7 +4,7 @@
  * @param {Object} config — { tabla, puestoScoped?, customMutations? }
  */
 import { getModulo } from '../server-offline/index.js'
-import { useDb } from '../server-offline/db/client.js'
+import { useDb } from '../server-offline/db/client'
 import { makeCtx, queryFromDb, enrichForInsert, enrichForUpdate } from '../server-offline/api/_factory.js'
 
 function crearRepoGenerico(config) {

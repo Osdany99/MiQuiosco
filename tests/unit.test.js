@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { usuarioSchema } from '../shared/schemas/usuario.js'
 import { cuadreItemSchema } from '../shared/schemas/cuadreItem.js'
 import { createTransferenciaSchema } from '../shared/schemas/createTransferencia.js'
@@ -9,6 +12,15 @@ import { mergeFields } from '../app/utils/syncMerge.js'
 import { fmtPrecio, calcularSalario, normalizarNumero, calcularSubtotalLinea } from '../app/utils/index.js'
 import { sumarPorProducto, calcularExcesoTope } from '../shared/fiadoTope.js'
 import { consumoPorProductoEnCuadreLocal, validarTopeGeneralLocal } from '../app/utils/topeGeneral.js'
+import {
+  separarSentencias,
+  tablaExiste,
+  crearTablasFaltantes,
+  añadirColumnasFaltantes,
+  crearIndicesFaltantes,
+  ejecutarTransaccionSql,
+  crearColaTransacciones
+} from '../app/server-offline/db/esquema.js'
 
 // --- usuarioSchema ---
 describe('usuarioSchema', () => {
@@ -326,5 +338,228 @@ describe('updateAjusteSchema', () => {
   it('rechaza cambio de producto con uuid inválido', () => {
     const r = updateAjusteSchema.safeParse({ productoId: 'no-uuid' })
     assert.equal(r.success, false)
+  })
+})
+
+// --- Journal SQLite + reconciliación de esquema (Bug A) ---
+// Replica la secuencia de initializeSchema (solo instalación fresca y
+// reconciliación de instalaciones existentes) contra un SQLite en memoria,
+// con un adaptador del contrato de @capacitor-community/sqlite (run/query).
+
+function memoDb() {
+  const raw = new DatabaseSync(':memory:')
+  return {
+    async run(sql, params = []) {
+      raw.prepare(sql).run(...params)
+    },
+    async query(sql, params = []) {
+      return { values: raw.prepare(sql).all(...params) }
+    },
+    async execute(sql) {
+      raw.exec(sql)
+    },
+    all(sql, params = []) {
+      return raw.prepare(sql).all(...params)
+    }
+  }
+}
+
+function leerBaselineSqlite() {
+  const dir = join(import.meta.dirname, '..', 'drizzle', 'sqlite')
+  const archivos = readdirSync(dir).filter(f => f.endsWith('.sql')).sort()
+  assert.ok(archivos.length > 0, 'debe existir el journal sqlite')
+  return archivos.map(f => ({
+    nombre: f,
+    sql: readFileSync(join(dir, f), 'utf8')
+  }))
+}
+
+describe('journal sqlite (instalación fresca)', () => {
+  const journal = leerBaselineSqlite()
+  const baseline = journal.map(j => j.sql).join('\n')
+
+  it('aplica el baseline completo de corrido contra BD vacía', async () => {
+    const conn = memoDb()
+    await conn.run('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, aplicada_en INTEGER NOT NULL)', [])
+    await conn.execute(baseline.replace(/--> statement-breakpoint/g, ''))
+    await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [journal[0].nombre, Date.now()])
+
+    assert.equal(await tablaExiste(conn, 'usuarios'), true)
+    assert.equal(await tablaExiste(conn, 'productos'), true)
+    assert.equal(await tablaExiste(conn, 'cuadres'), true)
+    assert.equal(await tablaExiste(conn, 'cuentas_fiado'), true)
+
+    const colsUsuarios = await conn.query('PRAGMA table_info(usuarios)', [])
+    const nombresUsuario = colsUsuarios.values.map(c => c.name)
+    for (const esperada of ['id', 'puesto_id', 'nombre', 'pin_hash', 'rol', 'activo', 'telefono', 'notas']) {
+      assert.ok(nombresUsuario.includes(esperada), `usuarios debe tener columna ${esperada}`)
+    }
+    const colsCuadres = await conn.query('PRAGMA table_info(cuadres)', [])
+    const nombresCuadres = colsCuadres.values.map(c => c.name)
+    for (const esperada of ['monto_regalo', 'monto_descuento']) {
+      assert.ok(nombresCuadres.includes(esperada), `cuadres debe tener columna ${esperada}`)
+    }
+  })
+
+  it('las sentencias separadas por statement-breakpoint ejecutan individualmente', async () => {
+    const conn = memoDb()
+    const sentencias = separarSentencias(baseline)
+    assert.ok(sentencias.length >= 13, `se esperan al menos 13 sentencias, hay ${sentencias.length}`)
+    for (const s of sentencias) {
+      if (!/^CREATE\s+TABLE\s+/.test(s) && !/^CREATE\s+(UNIQUE\s+)?INDEX\s+/.test(s)) continue
+      await conn.run(s, [])
+    }
+    assert.equal(await tablaExiste(conn, 'usuarios'), true)
+    assert.equal(await tablaExiste(conn, 'transferencias'), true)
+    assert.equal(await tablaExiste(conn, 'ajustes'), true)
+  })
+})
+
+describe('reconciliación de instalación existente (Bug A auto-reparación)', () => {
+  const journal = leerBaselineSqlite()
+  const baseline = journal.map(j => j.sql).join('\n')
+  const columnDefs = { usuarios: [{ name: 'telefono', sqlType: 'text', notNull: false, default: undefined }] }
+
+  it('repara instalación parcial (usuarios viejo sin telefono) sin perder datos', async () => {
+    const conn = memoDb()
+    // Simula la instalación rota del Bug A: _migrations y usuarios viejos
+    // (sin telefono/notas, sin puesto_id) creados, ninguna tabla nueva.
+    await conn.run('CREATE TABLE usuarios (id text PRIMARY KEY, nombre text, pin_hash text, rol text, activo integer)', [])
+    await conn.run('INSERT INTO usuarios (id, nombre, pin_hash, rol, activo) VALUES (\'u1\', \'jefe\', \'hash\', \'jefe\', 1)', [])
+    await conn.run('CREATE TABLE _migrations (name TEXT PRIMARY KEY, aplicada_en INTEGER NOT NULL)', [])
+    await conn.run('INSERT INTO _migrations (name, aplicada_en) VALUES (?, ?)', ['0000_exotic_mentallo.sql', 1])
+
+    await crearTablasFaltantes(conn, baseline)
+    await añadirColumnasFaltantes(conn, columnDefs)
+
+    const cols = await conn.query('PRAGMA table_info(usuarios)', [])
+    assert.ok(cols.values.map(c => c.name).includes('telefono'), 'telefono añadida')
+    const fila = conn.all('SELECT nombre, rol, activo FROM usuarios LIMIT 1')
+    assert.equal(fila[0].nombre, 'jefe')
+    assert.equal(fila[0].rol, 'jefe')
+    assert.equal(await tablaExiste(conn, 'cuadres'), true, 'tablas faltantes creadas')
+  })
+
+  it('reconciliación es idempotente (no rompe instalación sana)', async () => {
+    const conn = memoDb()
+    await conn.execute(baseline.replace(/--> statement-breakpoint/g, ''))
+    await conn.run('INSERT INTO usuarios (id, puesto_id, nombre, pin_hash, rol, activo, creado_en, actualizado_en) VALUES (\'u1\', \'p1\', \'jefe\', \'hash\', \'jefe\', 1, 1, 1)', [])
+
+    await crearTablasFaltantes(conn, baseline)
+    await añadirColumnasFaltantes(conn, columnDefs)
+    await crearIndicesFaltantes(conn, baseline)
+
+    const fila = conn.all('SELECT nombre FROM usuarios LIMIT 1')
+    assert.equal(fila[0].nombre, 'jefe')
+    assert.equal(await tablaExiste(conn, 'productos'), true)
+  })
+})
+
+// --- Transacciones SQLite con SQL crudo + serialización ---
+// Las transacciones usan BEGIN IMMEDIATE/COMMIT/ROLLBACK como sentencias SQL
+// (independientes de la versión del plugin). Con conexiones falsas se verifica
+// el orden, el rollback ante fallos, la serialización y la auto-reparación
+// cuando la conexión trae una transacción abierta huérfana.
+
+function connFalsaSql(eventos, { fallaBeginVeces = 0 } = {}) {
+  let intentosBegin = 0
+  return {
+    async run(sql, ...rest) {
+      const transaction = rest[1] ?? true
+      eventos.push({ sql, transaction })
+      if (sql === 'BEGIN IMMEDIATE') {
+        intentosBegin += 1
+        if (intentosBegin <= fallaBeginVeces) {
+          throw new Error('Run: Failed in beginTransaction Already in transaction')
+        }
+      }
+    }
+  }
+}
+
+function soloSql(eventos) {
+  return eventos.map(e => (typeof e === 'string' ? e : e.sql))
+}
+
+describe('ejecutarTransaccionSql', () => {
+  it('BEGIN IMMEDIATE → fn → COMMIT en orden y devuelve el resultado', async () => {
+    const eventos = []
+    const r = await ejecutarTransaccionSql(connFalsaSql(eventos), async () => {
+      eventos.push('fn')
+      return 42
+    }, {})
+    assert.equal(r, 42)
+    assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE', 'fn', 'COMMIT'])
+  })
+
+  it('el control viaja con transaction:false (sin implícitas del plugin)', async () => {
+    const eventos = []
+    await ejecutarTransaccionSql(connFalsaSql(eventos), async () => {}, {})
+    for (const e of eventos) {
+      assert.equal(e.transaction, false, `${e.sql} debe usar transaction:false`)
+    }
+  })
+
+  it('ante fallo de fn hace ROLLBACK y propaga el error', async () => {
+    const eventos = []
+    await assert.rejects(
+      ejecutarTransaccionSql(connFalsaSql(eventos), async () => {
+        eventos.push('fn')
+        throw new Error('falla fn')
+      }, {}),
+      /falla fn/
+    )
+    assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE', 'fn', 'ROLLBACK'])
+  })
+
+  it('auto-repara transacción huérfana: ROLLBACK + reintento del BEGIN', async () => {
+    const eventos = []
+    const r = await ejecutarTransaccionSql(connFalsaSql(eventos, { fallaBeginVeces: 1 }), async () => {
+      eventos.push('fn')
+      return 'ok'
+    }, {})
+    assert.equal(r, 'ok')
+    assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE', 'ROLLBACK', 'BEGIN IMMEDIATE', 'fn', 'COMMIT'])
+  })
+
+  it('si el BEGIN falla por otro motivo, propaga sin reintentar', async () => {
+    const eventos = []
+    const conn = {
+      async run(sql) {
+        eventos.push({ sql })
+        if (sql === 'BEGIN IMMEDIATE') throw new Error('database is locked')
+      }
+    }
+    await assert.rejects(ejecutarTransaccionSql(conn, async () => {}, {}), /database is locked/)
+    assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE'])
+  })
+})
+
+describe('crearColaTransacciones (serialización)', () => {
+  it('dos transacciones concurrentes no se solapan', async () => {
+    const eventos = []
+    const cola = crearColaTransacciones()
+    const lenta = cola.ejecutar(connFalsaSql(eventos), async () => {
+      eventos.push('fn1-ini')
+      await new Promise(r => setTimeout(r, 20))
+      eventos.push('fn1-fin')
+    }, {})
+    const rapida = cola.ejecutar(connFalsaSql(eventos), async () => {
+      eventos.push('fn2')
+    }, {})
+    await Promise.all([lenta, rapida])
+    // La segunda no empieza (ni BEGIN ni fn) hasta el COMMIT de la primera.
+    assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE', 'fn1-ini', 'fn1-fin', 'COMMIT', 'BEGIN IMMEDIATE', 'fn2', 'COMMIT'])
+  })
+
+  it('una transacción fallida no bloquea la siguiente', async () => {
+    const eventos = []
+    const cola = crearColaTransacciones()
+    await assert.rejects(cola.ejecutar(connFalsaSql(eventos), async () => {
+      throw new Error('x')
+    }, {}), /x/)
+    const r = await cola.ejecutar(connFalsaSql(eventos), async () => 'ok', {})
+    assert.equal(r, 'ok')
+    assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE', 'ROLLBACK', 'BEGIN IMMEDIATE', 'COMMIT'])
   })
 })
