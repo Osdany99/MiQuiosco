@@ -105,9 +105,9 @@ function cargarDesdeSelect(key) {
 
 function getChartConfig(key) {
   const configs = {
-    'productos-mas-vendidos': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
-    'productos-mayor-ganancia': { xKey: 'nombre', yKeys: ['gananciaTotal'], labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' } },
-    'productos-menor-rotacion': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' } },
+    'productos-mas-vendidos': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' }, horizontal: true },
+    'productos-mayor-ganancia': { xKey: 'nombre', yKeys: ['gananciaTotal'], labels: { nombre: 'Producto', gananciaTotal: 'Ganancia' }, horizontal: true },
+    'productos-menor-rotacion': { xKey: 'nombre', yKeys: ['totalVendido'], labels: { nombre: 'Producto', totalVendido: 'Cantidad vendida' }, horizontal: true },
     'evolucion-producto': { xKey: 'fecha', yKeys: ['cantidadVendida'], labels: { fecha: 'Fecha', cantidadVendida: 'Cantidad' } },
     'precio-usado-vs-oficial': { xKey: 'fecha', yKeys: ['precioVentaUsado', 'precioOficialActual'], labels: { fecha: 'Fecha', precioVentaUsado: 'Precio usado', precioOficialActual: 'Precio oficial' } },
     'ganancia-por-periodo': { xKey: 'periodo', yKeys: ['ganancia'], labels: { periodo: 'Período', ganancia: 'Ganancia' } },
