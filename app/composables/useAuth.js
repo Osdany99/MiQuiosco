@@ -238,7 +238,9 @@ export function useAuth() {
       return true
     }
 
-    const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos)
+    // Defecto seguro: sin valor configurado la sesión del jefe moriría al
+    // instante (Number('') = 0). 60 s conserva el comportamiento actual.
+    const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos) || 60
     const limiteMs = inactTimeout * 1000
     if (ahora - sesion.ultima_actividad_en > limiteMs) return false
     return true

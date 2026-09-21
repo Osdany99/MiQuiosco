@@ -7,7 +7,7 @@ const { hayRed, cargarEstado } = useSync()
 const conexion = useModoConexion()
 const config = useRuntimeConfig()
 
-const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos)
+const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos) || 60
 const ACTIVITY_THROTTLE_MS = Math.max(5000, (inactTimeout * 1000) / 2)
 let ultimoRegistroActividad = 0
 function onUserActivity() {

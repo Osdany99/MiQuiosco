@@ -17,8 +17,10 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       syncServerUrl: process.env.SYNC_SERVER_URL || '',
-      sessionExpirationTrabajadorHoras: process.env.NUXT_PUBLIC_SESSION_EXPIRATION_TRABAJADOR_HORAS || '24',
-      sessionInactivityTimeoutJefeSegundos: process.env.NUXT_PUBLIC_SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || '60'
+      // Sin prefijo NUXT_PUBLIC_ a propósito: Vercel bloquea ese prefijo en
+      // su UI (ver docs/PUBLICAR_VERSION.md). Los nombres coinciden con .env.
+      sessionExpirationTrabajadorHoras: process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || '24',
+      sessionInactivityTimeoutJefeSegundos: process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || '60'
     }
   },
 
