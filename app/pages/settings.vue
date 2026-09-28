@@ -1,9 +1,20 @@
 <script setup>
-import { $api, getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
+import { Capacitor } from '@capacitor/core'
+import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 
 const toast = useToast()
 const conexion = useModoConexion()
 const update = useAppUpdate()
+
+// La URL del servidor y las actualizaciones in-app solo aplican en Android:
+// en web el navegador ya habla con su mismo origen.
+const esNativo = computed(() => {
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
+})
 
 const serverUrl = ref('')
 const cargando = ref(true)
@@ -28,7 +39,7 @@ onMounted(async () => {
   const url = await getApiBaseUrl()
   serverUrl.value = url || ''
   cargando.value = false
-  if (update.estado.value === 'idle') {
+  if (esNativo.value && update.estado.value === 'idle') {
     update.comprobar().catch(() => {})
   }
 })
@@ -47,7 +58,8 @@ async function probarConexion() {
   }
 
   try {
-    await $api('/api/health')
+    // Se prueba la URL escrita, no la base actual.
+    await $fetch(`${base}/api/health`)
     estadoPrueba.value = 'ok'
     mensajePrueba.value = 'Servidor alcanzado correctamente.'
   } catch {
@@ -94,7 +106,7 @@ async function comprobarUpdates() {
       </p>
     </div>
 
-    <UCard v-if="!cargando">
+    <UCard v-if="!cargando && esNativo">
       <div class="space-y-4">
         <UFormField label="URL del servidor" help="Ej: http://192.168.1.100:3000">
           <UInput
@@ -135,7 +147,7 @@ async function comprobarUpdates() {
       </div>
     </UCard>
 
-    <UCard>
+    <UCard v-if="esNativo">
       <div class="space-y-4">
         <div>
           <h2 class="text-sm font-medium">
@@ -165,7 +177,29 @@ async function comprobarUpdates() {
       </div>
     </UCard>
 
-    <UCard>
+    <UCard v-if="!esNativo">
+      <div class="space-y-4">
+        <div>
+          <h2 class="text-sm font-medium">
+            App Android
+          </h2>
+          <p class="text-sm text-muted">
+            Usa la aplicación en tu teléfono para trabajar sin conexión.
+          </p>
+        </div>
+
+        <UButton
+          to="/descargar"
+          icon="i-lucide-download"
+          color="neutral"
+          variant="outline"
+        >
+          Descargar APK
+        </UButton>
+      </div>
+    </UCard>
+
+    <UCard v-if="esNativo">
       <div class="space-y-3">
         <h2 class="text-sm font-medium">
           Estado de conexión

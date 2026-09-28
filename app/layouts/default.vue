@@ -1,4 +1,6 @@
 <script setup>
+import { Capacitor } from '@capacitor/core'
+
 const auth = useAuth()
 const isCollapsed = ref(true)
 const mobileOpen = ref(false)
@@ -6,6 +8,16 @@ const mobileOpen = ref(false)
 const { hayRed, cargarEstado } = useSync()
 const conexion = useModoConexion()
 const config = useRuntimeConfig()
+
+// El cambio Online/Local solo existe en Android nativo: en web el modo es
+// forzosamente online y el sqlite es in-memory (se pierde al recargar).
+const esNativo = computed(() => {
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
+})
 
 const inactTimeout = Number(config.public.sessionInactivityTimeoutJefeSegundos) || 60
 const ACTIVITY_THROTTLE_MS = Math.max(5000, (inactTimeout * 1000) / 2)
@@ -97,7 +109,7 @@ const userMenuItems = computed(() => {
     ]
   ]
 
-  if (auth.esJefe.value) {
+  if (auth.esJefe.value && esNativo.value) {
     const modoItems = [
       {
         label: conexion.modo.value === 'online' ? 'Modo: Online' : 'Modo: Local',

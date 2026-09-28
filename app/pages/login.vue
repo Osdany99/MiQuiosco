@@ -101,5 +101,12 @@ async function onSubmit() {
         </UButton>
       </UForm>
     </UCard>
+
+    <p class="mt-4 text-center text-sm text-muted">
+      ¿Usas Android?
+      <NuxtLink to="/descargar" class="text-primary hover:underline">
+        Descarga la app
+      </NuxtLink>
+    </p>
   </div>
 </template>
