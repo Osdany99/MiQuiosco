@@ -64,6 +64,12 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # El default del action ('tools platform-tools') incluye el paquete
+          # obsoleto 'tools', que ya no existe y rompe sdkmanager (exit 1).
+          # Se listan solo paquetes vigentes para compileSdk 36.
+          packages: platform-tools "platforms;android-36" "build-tools;36.0.0"
+          log-accepted-android-sdk-licenses: 'false'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
