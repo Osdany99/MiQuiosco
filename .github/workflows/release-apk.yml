@@ -73,8 +73,8 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11
+        # Sin input 'version': usa packageManager de package.json (pnpm@11.5.2).
+        # Ponerlo choca con ese campo ("Multiple versions of pnpm specified").
 
       - name: Install node
         uses: actions/setup-node@v6
