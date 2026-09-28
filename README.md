@@ -1,73 +1,80 @@
-# Nuxt Dashboard Template
+# MiQuiosco
 
-[![Nuxt UI](https://img.shields.io/badge/Made%20with-Nuxt%20UI-00DC82?logo=nuxt&labelColor=020420)](https://ui.nuxt.com)
+App de gestión de quiosco: productos, cuadres de caja, ventas a fiado,
+usuarios, transferencias y gráficas. **Offline-first**: funciona sin
+conexión con SQLite en el dispositivo (Capacitor) y sincroniza contra
+PostgreSQL cuando hay red (push/pull).
 
-Get started with the Nuxt dashboard template with multiple pages, collapsible sidebar, keyboard shortcuts, light & dark mode, command palette and more, powered by [Nuxt UI](https://ui.nuxt.com).
+## Stack
 
-- [Live demo](https://dashboard-template.nuxt.dev/)
-- [Documentation](https://ui.nuxt.com/docs/getting-started/installation/nuxt)
+- **Nuxt 4** (Vue 3, `<script setup>`) + Nuxt UI + Tailwind CSS + pnpm
+- **Capacitor 8** (Android) + `@capacitor-community/sqlite` (offline local)
+- **Drizzle ORM** + PostgreSQL · **Zod** (validación compartida)
+- Releases automáticos con GitHub Actions (build + firma + GitHub Release + sync Vercel)
 
-<a href="https://dashboard-template.nuxt.dev/" target="_blank">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://ui.nuxt.com/assets/templates/nuxt/dashboard-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://ui.nuxt.com/assets/templates/nuxt/dashboard-light.png">
-    <img alt="Nuxt Dashboard Template" src="https://ui.nuxt.com/assets/templates/nuxt/dashboard-light.png">
-  </picture>
-</a>
-
-> The dashboard template for Vue is on https://github.com/nuxt-ui-templates/dashboard-vue.
-
-## Quick Start
-
-```bash [Terminal]
-npm create nuxt@latest -- -t ui/dashboard
-```
-
-## Deploy your own
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-name=dashboard&repository-url=https%3A%2F%2Fgithub.com%2Fnuxt-ui-templates%2Fdashboard&demo-image=https%3A%2F%2Fui.nuxt.com%2Fassets%2Ftemplates%2Fnuxt%2Fdashboard-dark.png&demo-url=https%3A%2F%2Fdashboard-template.nuxt.dev%2F&demo-title=Nuxt%20Dashboard%20Template&demo-description=A%20dashboard%20template%20with%20multi-column%20layout%20for%20building%20sophisticated%20admin%20interfaces.)
-
-## Setup
-
-Make sure to install the dependencies:
+## Comandos (desde la raíz)
 
 ```bash
-pnpm install
+pnpm dev          # desarrollo
+pnpm build        # build de producción
+pnpm preview      # previsualizar build
+pnpm lint         # ESLint
+pnpm typecheck    # vue-tsc
+pnpm test         # tests unitarios
+
+pnpm db:generate  # generar migración Postgres (Drizzle)
+pnpm db:migrate   # aplicar migraciones
+pnpm db:push      # sincronizar schema (solo BD sin datos valiosos)
+pnpm db:studio    # Drizzle Studio
+pnpm db:generate:sqlite  # migración para el SQLite local
+pnpm db:seed      # datos iniciales (bun)
+
+pnpm cap:sync     # copiar web + plugins a android/
+pnpm cap:open     # abrir en Android Studio
 ```
 
-## Development Server
+## Estructura
 
-Start the development server on `http://localhost:3000`:
+- `app/` — frontend: `pages/`, `composables/` (dominio + datos:
+  `useRepo`, `useSync`, `useCuadre`, `useTableCrud`…),
+  `components/base/` (reutilizables: `Table`, `Form`, `Dialog`…),
+  `server-offline/` (SQLite + módulos CRUD offline).
+- `server/api/` — rutas Nitro por recurso (`productos/`, `cuadres/`,
+  `sync/`…). Convención: `index.get.ts`, `index.post.ts`, `[id].patch.ts`.
+- `shared/` — `tables.js` (config de tablas, fuente única de verdad),
+  `schemas/` (Zod), `mutations/`, `types.ts`, `constants.ts`.
+- `android/` — proyecto nativo Capacitor (compilado 36).
+- `docs/` — guías del proyecto (ver abajo).
+
+## Documentación
+
+- `docs/PUBLICAR_VERSION.md` — runbook de producción: Caso A (release
+  web+APK, lo habitual), Caso B (solo web), Caso C (cambio de esquema).
+- `docs/CREAR_NUEVA_ENTIDAD.md` — cómo añadir una tabla/entidad nueva.
+- `docs/ANDROID_BUILD_GUIDE.md` — build, emulador y debug Android.
+
+## Producción (resumen)
+
+Cada release es un tag `vX.Y+Z` (ej. `v1.2+3`):
 
 ```bash
-pnpm dev
+git tag -a v1.3+4 -m "release: v1.3 (versionCode 4)" -m "Notas de la versión"
+git push origin v1.3+4
 ```
 
-## Production
+El workflow `release-apk` compila la web, genera la APK firmada, la publica
+como asset del GitHub Release, actualiza las variables en Vercel, redeplega
+y verifica `/api/app-version`. Detalle completo en el Caso A de
+`docs/PUBLICAR_VERSION.md`. Los binarios **nunca** se commitean al repo.
 
-Build the application for production:
+## Desarrollo local
 
 ```bash
-pnpm build
+1. pnpm install
+2. Copiar .env.example → .env y completar (DATABASE_URL, JWT_SECRET…)
+3. pnpm db:generate && pnpm db:migrate && pnpm db:seed
+4. pnpm dev   # servidor en 0.0.0.0:3000
 ```
 
-Locally preview production build:
-
-```bash
-pnpm preview
-```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
-
-## Renovate integration
-
-Install [Renovate GitHub app](https://github.com/apps/renovate/installations/select_target) on your repository and you are good to go.
-
-
-### Para empezar:
-
-1. `pnpm install`
-2. Configurar PostgreSQL + `.env` (DATABASE_URL, JWT_SECRET, etc.)
-3. `pnpm run db:generate && pnpm run db:migrate && pnpm run db:seed`
-4. `pnpm run dev` (servidor en 0.0.0.0:3000)
-5. Seguir `ANDROID_BUILD_GUIDE.md` para build Android
+Para probar en Android físico, seguir `docs/ANDROID_BUILD_GUIDE.md`
+(la URL del servidor se configura en Ajustes dentro de la propia app).

@@ -18,12 +18,9 @@ cambio de esquema de BD).
   **opcional** (descartable, con "Más tarde" que no vuelve a insistir para
   esa misma versión).
 - La web se actualiza sola al recargar (assets con hash, sin caché vieja).
-- La APK se distribuye como asset del **GitHub Release** (ya no se commitea a
+- La APK se distribuye como asset del **GitHub Release** (no se commitea a
   `public/apk/`). `APP_APK_URL` en Vercel apunta a la URL de ese asset
   (el cliente acepta URLs absolutas `https://...` sin cambios de código).
-- Transición: `public/apk/miquiosco-v1.1.apk` sigue commiteado hasta que el
-  primer Release de GitHub esté verificado y `APP_APK_URL` apunte allí.
-  Después se borra y se quita su excepción del `.gitignore`.
 
 ## Requisito previo (una sola vez): secretos en GitHub
 
@@ -36,6 +33,8 @@ cambio de esquema de BD).
 | `KEYSTORE_KEY_ALIAS` | alias (`miquiosco`) |
 | `KEYSTORE_KEY_PASSWORD` | password de la key |
 | `SYNC_SERVER_URL` | `https://mi-quiosco.vercel.app` |
+| `VERCEL_TOKEN` | token de tu cuenta Vercel con acceso al proyecto (lo usa el job `sync-vercel` para actualizar variables y redeplegar; nunca al chat ni al repo) |
+| `DATABASE_URL_PROD` | URL **directa** de Neon (la que dice "Direct connection", sin `-pooler`); la usa el job `migrate-db` con `drizzle-kit migrate` |
 
 Generar el base64 en tu PC (no pegues el `.jks` ni passwords en el chat):
 
@@ -57,7 +56,11 @@ archivos no se pueden firmar futuras actualizaciones compatibles.
 pnpm lint && pnpm test && pnpm typecheck
 ```
 
-1. Si el release cambia el esquema: ir al **Caso C** primero y volver aquí.
+1. Si el release cambia el esquema de forma **destructiva** (renombrar o
+   borrar columnas/tablas): ir al **Caso C** primero y volver aquí.
+   Si el cambio es **aditivo** (añadir tablas/columnas nullable o con
+   default, índices): solo genera y commitea la migración
+   (`pnpm db:generate`) — el workflow la aplica solo en `migrate-db`.
 2. Commit + push de tus cambios a la rama principal:
    ```powershell
    git add -A; git commit -m "feat: ..."; git push
@@ -68,7 +71,11 @@ pnpm lint && pnpm test && pnpm typecheck
    git tag -a v1.3+4 -m "release: v1.3 (versionCode 4)" -m "Notas breves de la versión"
    git push origin v1.3+4
    ```
-   Esto dispara el workflow `release-apk`, que hace **todo solo**:
+    Esto dispara el workflow `release-apk`, que hace **todo solo**:
+    - Job `migrate-db`: verifica que `drizzle/` esté generado al día con el
+      schema y aplica las migraciones pendientes en Neon con
+      `drizzle-kit migrate` (idempotente: si la BD ya está al día, no hace
+      nada). Si falla, el release se aborta aquí y no se publica nada.
    - Job `build-release`: build web con URL de producción, `cap sync`,
      verificación de URL, `assembleRelease`, verificación de firma con
      `apksigner` y publicación del **GitHub Release** con la APK adjunta
@@ -78,20 +85,20 @@ pnpm lint && pnpm test && pnpm typecheck
      actualización **obligatoria**), `APP_APK_URL` (URL del asset recién
      creado) y `APP_CHANGELOG`; luego redeploy a producción y verifica
      `/api/app-version`.
-4. Vigilar el run en `Actions → release-apk` hasta que los 2 jobs estén en
-   verde (tarda ~8–10 min en total).
+4. Vigilar el run en `Actions → release-apk` hasta que los 3 jobs estén en
+   verde (tarda ~10–12 min en total).
 5. Probar en dispositivo físico los 3 caminos:
    - [ ] APK al día → sin avisos.
    - [ ] APK una versión atrás (opcional) → diálogo descartable, "Más tarde"
          no vuelve a insistir, "Actualizar" abre el navegador con la APK.
    - [ ] APK bajo el mínimo (obligatoria) → overlay no descartable y el
          servidor responde `426` al intentar sincronizar.
-6. Tras el primer Release verificado: borrar `public/apk/miquiosco-v1.1.apk`
-   del repo y quitar su excepción (`!public/apk/...`) del `.gitignore`.
 
 Si el workflow falla: revisa el log del paso en rojo. Los fallos
 intencionados (gates) son: tag con formato inválido, secretos ausentes
-(firma o `VERCEL_TOKEN`), assets con `localhost` (secret `SYNC_SERVER_URL`
+(firma, `VERCEL_TOKEN` o `DATABASE_URL_PROD`), schema sin migración
+generada (`drizzle/` desactualizado), error al migrar Neon (el release se
+aborta antes de compilar), assets con `localhost` (secret `SYNC_SERVER_URL`
 mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
 
 > Para que una versión sea **opcional** en vez de obligatoria, baja
@@ -101,13 +108,20 @@ mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
 ## Caso B — Solo web/servidor (sin APK nueva)
 
 1. `pnpm lint && pnpm test && pnpm typecheck`.
-2. Si hay cambio de esquema → **Caso C** primero.
+2. Si hay cambio **destructivo** de esquema → **Caso C** primero.
+   Si es aditivo, genera y commitea la migración (`pnpm db:generate`).
 3. Commit + push. Vercel redespliega solo.
 4. Si el cambio rompe APKs ya instaladas → subir `APP_MIN_VERSION_CODE` en
    Vercel y redeploy (sin necesidad de APK nueva).
 5. La web se actualiza sola al recargar.
 
-## Caso C — Cambio de esquema de BD
+## Caso C — Cambio destructivo de esquema de BD (manual)
+
+El caso normal (**aditivo**: añadir tablas, columnas nullable o con
+default, índices) **ya es automático**: generas la migración
+(`pnpm db:generate`), la commiteas, y el job `migrate-db` la aplica en Neon
+al crear el tag. Este Caso C es solo para cambios **destructivos**
+(renombrar/borrar columnas o tablas) o BD vacía:
 
 1. Editar `server/database/schema.ts` (nunca el SQL de `drizzle/` a mano).
 2. Generar migración: `pnpm db:generate` (Postgres). Si toca al cliente
@@ -115,16 +129,28 @@ mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
 3. Aplicar contra Neon **desde tu PC** (la URL directa va en un archivo
    temporal, nunca en el chat):
    ```powershell
-   Set-Content C:\Users\Osdany\AppData\Local\Temp\opencode\neon.url -Value "URL_DIRECTA_NEON_POOLING_OFF" -NoNewline
+   Set-Content C:\Users\Osdany\AppData\Local\Temp\opencode\neon.url -Value "URL_DIRECTA_NEON" -NoNewline
    $env:DATABASE_URL = (Get-Content C:\Users\Osdany\AppData\Local\Temp\opencode\neon.url -Raw).Trim()
    pnpm db:migrate
+   Remove-Item C:\Users\Osdany\AppData\Local\Temp\opencode\neon.url -Force
    ```
    Si `migrate` falla por historial divergente en BD vacía, alternativa:
    `pnpm db:push --force` (aplica el estado final del schema; solo en BD
    sin datos valiosos o tras vaciar `public`).
-4. Si el cambio rompe compatibilidad con APKs viejas → la release debe ser
-   **obligatoria** (`APP_MIN_VERSION_CODE = APP_LATEST_VERSION_CODE`).
+4. Regla **expand-only** para no romper la ventana entre migración y deploy:
+   primero se publica lo aditivo (automático) y lo destructivo va después,
+   en su propio release y siempre **obligatorio**
+   (`APP_MIN_VERSION_CODE = APP_LATEST_VERSION_CODE`).
 5. Volver al caso A (paso 2) o B (paso 3).
+
+Notas:
+- Drizzle-kit no genera migraciones reversas ("down"): si una migración
+  aplicada rompe algo, se arregla **hacia adelante** con una nueva
+  migración, nunca editando SQL ya aplicado en producción.
+- Si `migrate-db` falla en rojo en el CI, el release queda abortado a
+  propósito: corrige (nueva migración + nuevo tag con versionCode mayor)
+  y vuelve a publicar. La BD nunca queda a medias: cada archivo SQL del
+  journal se aplica o no se aplica entero.
 
 ## Notas permanentes (no olvidar)
 
@@ -171,7 +197,6 @@ locales:
 
 ```powershell
 $env:SYNC_SERVER_URL = "https://mi-quiosco.vercel.app"
-$env:NUXT_PUBLIC_SYNC_SERVER_URL = "https://mi-quiosco.vercel.app"
 pnpm build
 pnpm cap:sync
 # Abrir android/app/src/main/assets/public/index.html y confirmar que

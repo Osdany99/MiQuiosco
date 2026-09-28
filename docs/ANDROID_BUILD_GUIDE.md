@@ -16,8 +16,8 @@ Android Studio incluye su propio JDK (ubicado en `C:\Program Files\Android\Andro
 Descargar e instalar desde: https://developer.android.com/studio
 
 Durante la instalación asegúrate de incluir:
-- **Android SDK Platform 34**
-- **Android SDK Build-Tools 34.0.0**
+- **Android SDK Platform 36**
+- **Android SDK Build-Tools 36.0.0**
 - **Android Emulator** (opcional, para probar sin dispositivo físico)
 
 Android Studio instalará el SDK en:
@@ -28,8 +28,8 @@ Android Studio instalará el SDK en:
 1. Abrir Android Studio
 2. Ir a **File → Settings** (Windows/Linux) o **Android Studio → Preferences** (macOS)
 3. Navegar a **Appearance & Behavior → System Settings → Android SDK**
-4. Verificar que **Android 14.0 (API 34)** esté instalado en la pestaña **SDK Platforms**
-5. En la pestaña **SDK Tools**, verificar **Android SDK Build-Tools 34** y **Android Emulator**
+4. Verificar que **Android 16.0 (API 36)** esté instalado en la pestaña **SDK Platforms**
+5. En la pestaña **SDK Tools**, verificar **Android SDK Build-Tools 36** y **Android Emulator**
 6. Anotar la ruta del SDK (se necesita para `local.properties`)
 
 ---
@@ -52,7 +52,7 @@ pnpm run cap:sync
 
 ### Abrir proyecto en Android Studio
 1. **File → Open...** → seleccionar la carpeta `android/` dentro del proyecto
-2. Android Studio detecta `build.gradle.kts` y empieza a sincronizar Gradle automáticamente
+2. Android Studio detecta `build.gradle` y empieza a sincronizar Gradle automáticamente
 3. Esperar que la barra de progreso "Sync" termine (primera vez descarga dependencias)
 
 ### Configurar SDK en el proyecto (solo primera vez)
@@ -82,7 +82,13 @@ android/app/build/outputs/apk/debug/app-debug.apk
 
 ## Build Release APK (firmado para producción)
 
-En Android Studio:
+> **Vía oficial: automática.** La release de producción se genera con el
+> workflow `release-apk` de GitHub Actions (ver **Caso A** en
+> `docs/PUBLICAR_VERSION.md`): creas el tag `vX.Y+Z`, el CI compila, firma
+> con `apksigner`, publica el GitHub Release y actualiza Vercel solo.
+> Lo de abajo es solo fallback manual.
+
+En Android Studio (manual, solo si el workflow no está disponible):
 1. **Compilar → Generar paquete / APK firmado...**
 2. Seleccionar **APK** → **Siguiente**
 3. Si no tienes keystore: hacer clic en **Crear nuevo...** (Key store path, Password, Key alias, etc.)
@@ -101,7 +107,7 @@ android/app/build/outputs/apk/release/app-release.apk
 
 1. En Android Studio: **Tools → Device Manager**
 2. **Create device** → seleccionar modelo (Pixel 6, etc.) → **Next**
-3. Seleccionar **API 34** (Android 14) → descargar si no está instalada
+3. Seleccionar **API 36** (Android 16) → descargar si no está instalada
 4. **Finish**
 5. En el dropdown de Run, seleccionar el emulador creado y hacer clic en **Run ▶**
 
@@ -112,14 +118,14 @@ android/app/build/outputs/apk/release/app-release.apk
 Cada vez que cambies código frontend:
 ```bash
 # Terminal — rebuild assets web
-pnpm run build && pnpm run cap:sync
+pnpm build && pnpm cap:sync
 ```
 Luego en Android Studio:
 - Si ya está corriendo: el botón **Apply Changes** (⚡) actualiza solo los assets sin reinstalar
 - O hacer clic en **Run ▶** (▶) para reinstalar completo
 
 ### Solo cambios en el frontend (sin cambios en plugins nativos)
-`pnpm run cap:sync` copia `capacitor.config.json` y los assets de `.output/public` a `android/`.
+`pnpm cap:sync` copia `capacitor.config.json` y los assets de `.output/public` a `android/`.
 Después de sync, **Run ▶** o **Apply Changes** en Android Studio.
 
 ---
@@ -151,13 +157,14 @@ android/
 │   ├── src/main/
 │   │   ├── AndroidManifest.xml
 │   │   ├── java/com/miquiosco/app/
-│   │   │   └── MainActivity.kt
+│   │   │   └── MainActivity.java
 │   │   └── assets/
 │   │       └── cap_config.json       # Config generada por Capacitor
-│   └── build.gradle.kts
-├── build.gradle.kts
-├── settings.gradle.kts
+│   └── build.gradle
+├── build.gradle
+├── settings.gradle
 ├── gradle.properties
+├── variables.gradle                  # Versiones SDK (compile/target 36)
 ├── local.properties                  # Ruta del SDK (auto-generado)
 └── gradlew / gradlew.bat
 ```
@@ -193,8 +200,11 @@ pnpm run dev
 ```
 
 ### En el Android
-- La app intenta conectar a `http://<IP_LAPTOP>:3000` para login inicial y sincronización
-- **Requisito**: móvil y laptop en la misma WiFi
+- La URL del servidor se configura **en la propia app** (Ajustes → URL del
+  servidor), ej. `http://<IP_LAPTOP>:3000` para desarrollo local.
+- **Requisito para desarrollo**: móvil y laptop en la misma WiFi.
+- En producción la app usa la URL del GitHub Release / Vercel; no hay que
+  configurar nada.
 
 ---
 
@@ -228,26 +238,17 @@ Después de cambiar, ejecutar `pnpm run cap:sync` y **Run ▶** de nuevo.
 ### SQLite no funciona en Android
 ```bash
 # Verificar que @capacitor-community/sqlite esté en package.json
-pnpm run cap:sync   # regenera la configuración de plugins
+pnpm cap:sync   # regenera la configuración de plugins
 ```
-Si el problema persiste, verificar que `MainActivity.kt` incluya el plugin:
-```kotlin
-import com.getcapacitor.BridgeActivity
-import com.capacitorjs.plugins.sqlite.SQLitePlugin
-
-class MainActivity : BridgeActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        registerPlugin(SQLitePlugin::class.java)
-    }
-}
-```
+No hace falta registrar el plugin a mano: `MainActivity.java` extiende
+`BridgeActivity` y Capacitor registra los plugins automáticamente con cada
+`cap sync`.
 
 ### Copiar base de datos SQLite del dispositivo (para debug)
 ```bash
-# Desde terminal
-adb shell run-as com.miquiosco.app cp /data/data/com.miquiosco.app/databases/miquioco.db /sdcard/miquioco.db
-adb pull /sdcard/miquioco.db .
+# La BD local se llama miquioscoSQLite.db (ver DB_NAME en app/server-offline/db/client.js)
+adb shell run-as com.miquiosco.app cp /data/data/com.miquiosco.app/databases/miquioscoSQLite.db /sdcard/miquioscoSQLite.db
+adb pull /sdcard/miquioscoSQLite.db .
 
 # O desde Android Studio: Device Explorer (View → Tool Windows → Device Explorer)
 ```
@@ -258,7 +259,7 @@ adb pull /sdcard/miquioco.db .
 
 ```bash
 # Build + sync rápido (para luego abrir Android Studio)
-pnpm run build && pnpm run cap:sync
+pnpm build && pnpm cap:sync
 
 # Ver dispositivos conectados
 adb devices
@@ -271,13 +272,9 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 
 ## Checklist previo a entrega a la jefa/trabajadores
 
-- [ ] Build release firmado (Android Studio: Build → Generate Signed Bundle / APK)
-- [ ] Probar en dispositivo físico (no solo emulador)
+- [ ] Release generada por el flujo automático (`docs/PUBLICAR_VERSION.md` Caso A: tag → GitHub Actions → Release + Vercel)
+- [ ] Probar en dispositivo físico (no solo emulador) los 3 caminos de actualización (al día / opcional / obligatoria)
 - [ ] Verificar login offline (sin WiFi)
 - [ ] Verificar cuadre completo offline
-- [ ] Verificar exportación JSON trabajador
-- [ ] Verificar importación JSON en app de la jefa
-- [ ] Verificar sincronización con servidor en WiFi
+- [ ] Verificar sincronización con servidor
 - [ ] Verificar gráficas cargan offline (contra SQLite local)
-- [ ] Documentar IP del servidor para la jefa
-- [ ] Entregar APK + instrucciones de instalación

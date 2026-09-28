@@ -2,18 +2,76 @@ name: release-apk
 
 # Genera la APK firmada de producción desde un tag: v{versionName}+{versionCode}
 # Ejemplo: v1.2+3 → versionName "1.2", versionCode 3.
-# El APK se publica como asset del GitHub Release (ya no se commitea a public/apk)
-# y el job sync-vercel actualiza Vercel solo (variables + redeploy + verificación).
+# Cadena de jobs: migrate-db (migra Neon) → build-release (APK + GitHub
+# Release) → sync-vercel (variables + redeploy + verificación).
+# El APK se publica como asset del GitHub Release (ya no se commitea a public/apk).
 on:
   push:
     tags:
       - 'v*'
 
+# Dos tags seguidos no migran la BD a la vez: el segundo espera.
+concurrency:
+  group: production-db
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
+  # Migra la BD de producción (Neon) con drizzle-kit migrate: versionado,
+  # journaled e idempotente (si ya está al día, no hace nada). Si falla, el
+  # release se aborta aquí: no se compila ni se publica nada.
+  # Regla: solo migraciones aditivas (expand-only). Lo destructivo es manual
+  # (ver Caso C en docs/PUBLICAR_VERSION.md).
+  migrate-db:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verificar secret de BD
+        shell: bash
+        env:
+          HAS_DB_URL: ${{ secrets.DATABASE_URL_PROD != '' }}
+        run: |
+          if [[ "${HAS_DB_URL}" != "true" ]]; then
+            echo "::error::Falta el secret DATABASE_URL_PROD (URL directa de Neon, no pooled). Ver docs/PUBLICAR_VERSION.md"
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        # Sin input 'version': usa packageManager de package.json (pnpm@11.5.2).
+
+      - name: Install node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verificar schema al día (drizzle/ generado)
+        shell: bash
+        run: |
+          pnpm db:generate
+          if [[ -n "$(git status --porcelain -- drizzle/)" ]]; then
+            echo "::error::server/database/schema.ts cambió sin regenerar drizzle/. Corre 'pnpm db:generate' en tu PC y commitea la migración."
+            git status --porcelain -- drizzle/
+            exit 1
+          fi
+          echo "drizzle/ al día con el schema OK."
+
+      - name: Migrar producción
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: pnpm db:migrate
+
   build-release:
+    needs: [migrate-db]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
