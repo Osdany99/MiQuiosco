@@ -38,8 +38,29 @@ function getPool(): Pool {
 /**
  * Cliente Drizzle ORM tipado contra el esquema de Postgres.
  * Usar en todos los endpoints server-side para acceder a la base.
+ *
+ * Es perezoso a propósito: el pool (y el error si falta DATABASE_URL) solo
+ * se crea al primer uso, no al importar el módulo. Así el build/prerender
+ * en CI —donde no hay .env— no exige una BD viva.
  */
-export const db = drizzle(getPool(), { schema })
+function createDb() {
+  return drizzle(getPool(), { schema })
+}
+
+type DbClient = ReturnType<typeof createDb>
+
+let lazyDb: DbClient | null = null
+
+function getDb(): DbClient {
+  if (!lazyDb) lazyDb = createDb()
+  return lazyDb
+}
+
+export const db = new Proxy({} as DbClient, {
+  get(_target, prop) {
+    return Reflect.get(getDb(), prop)
+  }
+}) as DbClient
 
 /**
  * Helper para cerrar el pool en scripts de seed o tests.
