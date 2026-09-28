@@ -2,7 +2,8 @@ name: release-apk
 
 # Genera la APK firmada de producción desde un tag: v{versionName}+{versionCode}
 # Ejemplo: v1.2+3 → versionName "1.2", versionCode 3.
-# El APK se publica como asset del GitHub Release (ya no se commitea a public/apk).
+# El APK se publica como asset del GitHub Release (ya no se commitea a public/apk)
+# y el job sync-vercel actualiza Vercel solo (variables + redeploy + verificación).
 on:
   push:
     tags:
@@ -154,5 +155,122 @@ jobs:
           generate_release_notes: true
           body: |
             APK firmada de producción generada automáticamente desde el tag `${{ github.ref_name }}`.
+            El job `sync-vercel` actualiza Vercel solo (variables + redeploy). Ver `docs/PUBLICAR_VERSION.md`.
 
-            Tras publicar: actualizar en Vercel `APP_LATEST_VERSION_CODE`, `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE`, `APP_APK_URL` (URL de este asset) y `APP_CHANGELOG`. Ver `docs/PUBLICAR_VERSION.md`.
+  # Actualiza Vercel sin tocar el dashboard: variables de versión (upsert),
+  # redeploy a producción y verificación del manifiesto /api/app-version.
+  # Política: MIN_VERSION_CODE = LATEST (actualización obligatoria). Si una
+  # versión debe ser opcional, bajar APP_MIN_VERSION_CODE en el dashboard.
+  # El changelog sale del cuerpo del tag anotado (git tag -a -m titulo -m notas).
+  sync-vercel:
+    needs: [build-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Calcular versión, changelog y URL del asset
+        id: meta
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          CLEAN="${TAG#v}"
+          VERSION_NAME="${CLEAN%%+*}"
+          VERSION_CODE="${CLEAN##*+}"
+          APK_NAME="miquiosco-v${VERSION_NAME}+${VERSION_CODE}.apk"
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force --quiet
+          CHANGELOG="$(git tag -l --format='%(contents:body)' "${TAG}" | sed -e 's/^[[:space:]]*//')"
+          ENC_TAG="$(printf '%s' "${TAG}" | sed 's/+/%2B/g')"
+          ENC_APK="$(printf '%s' "${APK_NAME}" | sed 's/+/%2B/g')"
+          {
+            echo "version_name=${VERSION_NAME}"
+            echo "version_code=${VERSION_CODE}"
+            echo "apk_url=https://github.com/${{ github.repository }}/releases/download/${ENC_TAG}/${ENC_APK}"
+            echo "changelog<<EOF_CHANGELOG"
+            printf '%s\n' "${CHANGELOG}"
+            echo "EOF_CHANGELOG"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Actualizar variables en Vercel
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERSION_NAME: ${{ steps.meta.outputs.version_name }}
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          APK_URL: ${{ steps.meta.outputs.apk_url }}
+          CHANGELOG: ${{ steps.meta.outputs.changelog }}
+        run: |
+          PROJECT_ID="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            'https://api.vercel.com/v9/projects' | jq -r '.projects[] | select(.name=="mi-quiosco") | .id')"
+          if [[ -z "${PROJECT_ID}" ]]; then
+            echo "::error::No se encontró el proyecto mi-quiosco en Vercel."
+            exit 1
+          fi
+          echo "PROJECT_ID=${PROJECT_ID}" >> "${GITHUB_ENV}"
+          PAYLOAD="$(jq -n \
+            --arg code "${VERSION_CODE}" \
+            --arg name "${VERSION_NAME}" \
+            --arg url "${APK_URL}" \
+            --arg log "${CHANGELOG}" \
+            '[{"key":"APP_LATEST_VERSION_CODE","value":$code},
+              {"key":"APP_LATEST_VERSION_NAME","value":$name},
+              {"key":"APP_MIN_VERSION_CODE","value":$code},
+              {"key":"APP_APK_URL","value":$url},
+              {"key":"APP_CHANGELOG","value":$log}]
+              | map(. + {type:"plain", target:["production","preview"]})')"
+          RESP="$(curl -sS -X POST "https://api.vercel.com/v10/projects/${PROJECT_ID}/env?upsert=true" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" -d "${PAYLOAD}")"
+          FAILED="$(echo "${RESP}" | jq -r '.failed | length')"
+          if [[ "${FAILED}" != "0" ]]; then
+            echo "::error::Falló el upsert de variables en Vercel: ${RESP}"
+            exit 1
+          fi
+          echo "Variables actualizadas en Vercel."
+
+      - name: Redeploy en Vercel y esperar READY
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          LATEST_URL="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v6/deployments?projectId=${PROJECT_ID}&target=production&limit=1" \
+            | jq -r '.deployments[0].url')"
+          echo "Redeploy de: ${LATEST_URL}"
+          NEW_URL="$(npx -y vercel@latest redeploy "${LATEST_URL}" --token "${VERCEL_TOKEN}" --yes | grep -oE 'https://[^ ]*\.vercel\.app' | tail -n 1)"
+          echo "Nuevo deployment: ${NEW_URL}"
+          for i in $(seq 1 40); do
+            STATE="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v13/deployments/${NEW_URL}" | jq -r '.status // .readyState // "UNKNOWN"')"
+            echo "Intento ${i}: ${STATE}"
+            if [[ "${STATE}" == "READY" ]]; then break; fi
+            if [[ "${STATE}" == "ERROR" || "${STATE}" == "CANCELED" ]]; then
+              echo "::error::El redeploy terminó en estado ${STATE}."
+              exit 1
+            fi
+            sleep 15
+          done
+          if [[ "${STATE}" != "READY" ]]; then
+            echo "::error::Timeout esperando READY (último estado: ${STATE})."
+            exit 1
+          fi
+
+      - name: Verificar manifiesto en producción
+        shell: bash
+        env:
+          VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          BASE_URL: ${{ secrets.SYNC_SERVER_URL }}
+        run: |
+          sleep 10
+          CODE="$(curl -sS "${BASE_URL}/api/app-version" | jq -r '.latestVersionCode')"
+          echo "latestVersionCode en producción: ${CODE} (esperado: ${VERSION_CODE})"
+          if [[ "${CODE}" != "${VERSION_CODE}" ]]; then
+            echo "::error::El manifiesto no refleja la nueva versión."
+            exit 1
+          fi
+          echo "Manifiesto verificado."

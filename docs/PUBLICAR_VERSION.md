@@ -50,7 +50,7 @@ Copia de seguridad del keystore: `Documents\MiQuiosco-seguro\<fecha>\`
 (`miquiosco-prod.jks` + `keystore.properties` + `LEEME.txt`). Sin estos
 archivos no se pueden firmar futuras actualizaciones compatibles.
 
-## Caso A — Release completo (web + APK nueva). El habitual.
+## Caso A — Release completo (web + APK nueva). El habitual. Automático.
 
 ```powershell
 # 0. Verificaciones locales (desde la raíz del proyecto)
@@ -62,41 +62,41 @@ pnpm lint && pnpm test && pnpm typecheck
    ```powershell
    git add -A; git commit -m "feat: ..."; git push
    ```
-3. Crear y subir el tag (formato obligatorio `vX.Y+Z`):
+3. Crear y subir el tag (formato obligatorio `vX.Y+Z`). El cuerpo del tag
+   (`-m` adicionales) se usa como `APP_CHANGELOG`:
    ```powershell
-   git tag v1.2+3; git push origin v1.2+3
+   git tag -a v1.3+4 -m "release: v1.3 (versionCode 4)" -m "Notas breves de la versión"
+   git push origin v1.3+4
    ```
-   Esto dispara el workflow `release-apk`: build web con URL de producción,
-   `cap sync`, verificación de URL, `assembleRelease`, verificación de firma
-   con `apksigner` y publicación del **GitHub Release** con la APK adjunta
-   (`miquiosco-v1.2+3.apk`).
-4. Esperar a que el workflow termine en verde (`Actions → release-apk`) y
-   copiar la URL del asset `*.apk` del Release.
-5. Fijar versión en Vercel (**Settings → Environment Variables**,
-   scopes Production + Preview):
-   `APP_LATEST_VERSION_CODE=3`, `APP_LATEST_VERSION_NAME=1.2`,
-   `APP_MIN_VERSION_CODE` (igual al latest = obligatoria; menor = opcional),
-   `APP_APK_URL=<URL del asset del GitHub Release>`,
-   `APP_CHANGELOG` (notas breves). Redeploy si Vercel no lo hizo solo.
-6. Verificar el deploy:
-   ```powershell
-   # Manifiesto de versiones
-   Invoke-WebRequest https://mi-quiosco.vercel.app/api/app-version -UseBasicParsing
-   # La apkUrl del manifiesto debe ser la URL del GitHub Release
-   ```
-7. Probar en dispositivo físico los 3 caminos:
+   Esto dispara el workflow `release-apk`, que hace **todo solo**:
+   - Job `build-release`: build web con URL de producción, `cap sync`,
+     verificación de URL, `assembleRelease`, verificación de firma con
+     `apksigner` y publicación del **GitHub Release** con la APK adjunta
+     (`miquiosco-vX.Y+Z.apk`).
+   - Job `sync-vercel`: actualiza en Vercel `APP_LATEST_VERSION_CODE`,
+     `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE` (= latest, o sea
+     actualización **obligatoria**), `APP_APK_URL` (URL del asset recién
+     creado) y `APP_CHANGELOG`; luego redeploy a producción y verifica
+     `/api/app-version`.
+4. Vigilar el run en `Actions → release-apk` hasta que los 2 jobs estén en
+   verde (tarda ~8–10 min en total).
+5. Probar en dispositivo físico los 3 caminos:
    - [ ] APK al día → sin avisos.
    - [ ] APK una versión atrás (opcional) → diálogo descartable, "Más tarde"
          no vuelve a insistir, "Actualizar" abre el navegador con la APK.
    - [ ] APK bajo el mínimo (obligatoria) → overlay no descartable y el
          servidor responde `426` al intentar sincronizar.
-8. Tras el primer Release verificado: borrar `public/apk/miquiosco-v1.1.apk`
+6. Tras el primer Release verificado: borrar `public/apk/miquiosco-v1.1.apk`
    del repo y quitar su excepción (`!public/apk/...`) del `.gitignore`.
 
 Si el workflow falla: revisa el log del paso en rojo. Los fallos
-intencionados (gates) son: tag con formato inválido, secretos de firma
-ausentes, assets con `localhost` (secret `SYNC_SERVER_URL` mal puesto) o
-firma ausente en el APK.
+intencionados (gates) son: tag con formato inválido, secretos ausentes
+(firma o `VERCEL_TOKEN`), assets con `localhost` (secret `SYNC_SERVER_URL`
+mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
+
+> Para que una versión sea **opcional** en vez de obligatoria, baja
+> `APP_MIN_VERSION_CODE` en el dashboard de Vercel tras el release
+> (el workflow siempre publica como obligatoria, lo seguro).
 
 ## Caso B — Solo web/servidor (sin APK nueva)
 
