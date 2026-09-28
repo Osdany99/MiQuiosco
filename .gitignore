@@ -26,9 +26,8 @@ logs
 .idea
 .eslintcache
 
-# APKs de distribución (se suben al desplegar, no al repo)
+# APKs de distribución (van al GitHub Release, no al repo)
 public/apk/*.apk
-!public/apk/miquiosco-v1.1.apk
 
 # Local env files
 .env
