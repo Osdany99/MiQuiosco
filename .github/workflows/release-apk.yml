@@ -1,0 +1,152 @@
+name: release-apk
+
+# Genera la APK firmada de producción desde un tag: v{versionName}+{versionCode}
+# Ejemplo: v1.2+3 → versionName "1.2", versionCode 3.
+# El APK se publica como asset del GitHub Release (ya no se commitea a public/apk).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Parsear tag (vX.Y+Z)
+        id: version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "Tag: ${TAG}"
+          CLEAN="${TAG#v}"
+          if [[ "${CLEAN}" != *"+"* ]]; then
+            echo "::error::El tag debe tener formato v{versionName}+{versionCode} (ej. v1.2+3). Recibido: ${TAG}"
+            exit 1
+          fi
+          VERSION_NAME="${CLEAN%%+*}"
+          VERSION_CODE="${CLEAN##*+}"
+          if ! [[ "${VERSION_CODE}" =~ ^[0-9]+$ ]]; then
+            echo "::error::versionCode debe ser entero. Recibido: ${VERSION_CODE}"
+            exit 1
+          fi
+          if [[ -z "${VERSION_NAME}" ]]; then
+            echo "::error::versionName vacío en tag ${TAG}"
+            exit 1
+          fi
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
+          echo "apk_name=miquiosco-v${VERSION_NAME}+${VERSION_CODE}.apk" >> "${GITHUB_OUTPUT}"
+
+      - name: Verificar secretos de firma
+        shell: bash
+        env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+          HAS_STORE_PASS: ${{ secrets.KEYSTORE_STORE_PASSWORD != '' }}
+          HAS_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS != '' }}
+          HAS_KEY_PASS: ${{ secrets.KEYSTORE_KEY_PASSWORD != '' }}
+        run: |
+          if [[ "${HAS_KEYSTORE}" != "true" || "${HAS_STORE_PASS}" != "true" || "${HAS_ALIAS}" != "true" || "${HAS_KEY_PASS}" != "true" ]]; then
+            echo "::error::Faltan secretos de firma (ANDROID_KEYSTORE_BASE64, KEYSTORE_STORE_PASSWORD, KEYSTORE_KEY_ALIAS, KEYSTORE_KEY_PASSWORD). Ver docs/PUBLICAR_VERSION.md"
+            exit 1
+          fi
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fijar versionCode/versionName desde el tag
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          sed -i -E "s/versionCode [0-9]+/versionCode ${VERSION_CODE}/" android/app/build.gradle
+          sed -i -E "s/versionName \"[^\"]+\"/versionName \"${VERSION_NAME}\"/" android/app/build.gradle
+          grep -n -E "versionCode |versionName " android/app/build.gradle
+
+      - name: Build web de producción
+        env:
+          SYNC_SERVER_URL: ${{ secrets.SYNC_SERVER_URL }}
+          NUXT_PUBLIC_SYNC_SERVER_URL: ${{ secrets.SYNC_SERVER_URL }}
+        run: pnpm build
+
+      - name: Capacitor sync
+        run: pnpm cap:sync
+
+      - name: Verificar URL de producción en assets
+        shell: bash
+        run: |
+          HTML="android/app/src/main/assets/public/index.html"
+          if grep -q "127.0.0.1\|localhost" "${HTML}"; then
+            echo "::error::Los assets llevan URL local (localhost). Revisa el secret SYNC_SERVER_URL."
+            exit 1
+          fi
+          echo "Assets con URL de producción OK."
+
+      - name: Restaurar keystore de firma
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+        run: |
+          echo "${KEYSTORE_B64}" | base64 -d > android/miquiosco-prod.jks
+          printf 'storeFile=miquiosco-prod.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "${STORE_PASS}" "${KEY_ALIAS}" "${KEY_PASS}" > android/keystore.properties
+          ls -la android/miquiosco-prod.jks android/keystore.properties
+
+      - name: Compilar APK release
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          cd android && ./gradlew assembleRelease --console=plain
+
+      - name: Verificar firma (apksigner)
+        shell: bash
+        run: |
+          APKSIGNER="$(ls -d "${ANDROID_HOME}"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          "${APKSIGNER}" verify --print-certs android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Renombrar APK
+        shell: bash
+        env:
+          APK_NAME: ${{ steps.version.outputs.apk_name }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk "${APK_NAME}"
+          ls -la "${APK_NAME}"
+
+      - name: Publicar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.version.outputs.apk_name }}
+          generate_release_notes: true
+          body: |
+            APK firmada de producción generada automáticamente desde el tag `${{ github.ref_name }}`.
+
+            Tras publicar: actualizar en Vercel `APP_LATEST_VERSION_CODE`, `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE`, `APP_APK_URL` (URL de este asset) y `APP_CHANGELOG`. Ver `docs/PUBLICAR_VERSION.md`.

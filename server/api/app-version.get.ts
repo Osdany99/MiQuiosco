@@ -21,7 +21,7 @@ export default defineEventHandler(() => {
     latestVersionCode: num(process.env.APP_LATEST_VERSION_CODE, 1),
     latestVersionName: process.env.APP_LATEST_VERSION_NAME || '1.0',
     minVersionCode: num(process.env.APP_MIN_VERSION_CODE, 0),
-    apkUrl: process.env.APP_APK_URL || '/apk/miquiosco-v1.0.apk',
+    apkUrl: process.env.APP_APK_URL || '/apk/miquiosco-v1.1.apk',
     changelog: process.env.APP_CHANGELOG || '',
     metodoSugerido: process.env.APP_METODO_SUGERIDO || 'navegador'
   }
