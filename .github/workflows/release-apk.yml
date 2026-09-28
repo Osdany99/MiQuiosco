@@ -169,11 +169,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
       - name: Calcular versión, changelog y URL del asset
         id: meta
         shell: bash
@@ -234,19 +229,28 @@ jobs:
           echo "Variables actualizadas en Vercel."
 
       - name: Redeploy en Vercel y esperar READY
+        # Sin Vercel CLI (se cuelga en CI): la API pública no tiene "redeploy",
+        # pero crear un deployment de producción desde git equivale a lo mismo
+        # y toma las variables recién actualizadas.
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          LATEST_URL="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "https://api.vercel.com/v6/deployments?projectId=${PROJECT_ID}&target=production&limit=1" \
-            | jq -r '.deployments[0].url')"
-          echo "Redeploy de: ${LATEST_URL}"
-          NEW_URL="$(npx -y vercel@latest redeploy "${LATEST_URL}" --token "${VERCEL_TOKEN}" --yes | grep -oE 'https://[^ ]*\.vercel\.app' | tail -n 1)"
-          echo "Nuevo deployment: ${NEW_URL}"
+          DEPLOY_ID="$(curl -sS -X POST 'https://api.vercel.com/v13/deployments' \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg p "${PROJECT_ID}" --arg o "${{ github.repository_owner }}" \
+              --arg r "${REPO_NAME}" --arg b "${DEFAULT_BRANCH}" \
+              '{name:"mi-quiosco", project:$p, target:"production",
+                gitSource:{type:"github", org:$o, repo:$r, ref:$b}}')" \
+            | jq -r '.id')"
+          echo "Deployment: ${DEPLOY_ID}"
+          STATE=""
           for i in $(seq 1 40); do
             STATE="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "https://api.vercel.com/v13/deployments/${NEW_URL}" | jq -r '.status // .readyState // "UNKNOWN"')"
+              "https://api.vercel.com/v13/deployments/${DEPLOY_ID}" | jq -r '.status')"
             echo "Intento ${i}: ${STATE}"
             if [[ "${STATE}" == "READY" ]]; then break; fi
             if [[ "${STATE}" == "ERROR" || "${STATE}" == "CANCELED" ]]; then
