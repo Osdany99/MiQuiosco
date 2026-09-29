@@ -1,7 +1,9 @@
 name: release-apk
 
-# Genera la APK firmada de producción desde un tag: v{versionName}+{versionCode}
-# Ejemplo: v1.2+3 → versionName "1.2", versionCode 3.
+# Genera la APK firmada de producción desde un tag: v{versionName}.{versionCode}
+# Ejemplo: v1.2.3 → versionName "1.2", versionCode 3.
+# El "+" está prohibido en tags/assets: GitHub devuelve 404 en la descarga
+# directa (/releases/download/) aunque el asset exista.
 # Cadena de jobs: migrate-db (migra Neon) → build-release (APK + GitHub
 # Release) → sync-vercel (variables + redeploy + verificación).
 # El APK se publica como asset del GitHub Release (ya no se commitea a public/apk).
@@ -77,30 +79,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Parsear tag (vX.Y+Z)
+      - name: Parsear tag (vX.Y.N)
         id: version
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME}"
           echo "Tag: ${TAG}"
-          CLEAN="${TAG#v}"
-          if [[ "${CLEAN}" != *"+"* ]]; then
-            echo "::error::El tag debe tener formato v{versionName}+{versionCode} (ej. v1.2+3). Recibido: ${TAG}"
+          if [[ ! "${TAG}" =~ ^v([0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::El tag debe tener formato v{versionName}.{versionCode} (ej. v1.2.3 → versionName \"1.2\", versionCode 3). Recibido: ${TAG}"
             exit 1
           fi
-          VERSION_NAME="${CLEAN%%+*}"
-          VERSION_CODE="${CLEAN##*+}"
-          if ! [[ "${VERSION_CODE}" =~ ^[0-9]+$ ]]; then
-            echo "::error::versionCode debe ser entero. Recibido: ${VERSION_CODE}"
-            exit 1
-          fi
-          if [[ -z "${VERSION_NAME}" ]]; then
-            echo "::error::versionName vacío en tag ${TAG}"
-            exit 1
-          fi
+          VERSION_NAME="${BASH_REMATCH[1]}"
+          VERSION_CODE="${BASH_REMATCH[2]}"
           echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
           echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
-          echo "apk_name=miquiosco-v${VERSION_NAME}+${VERSION_CODE}.apk" >> "${GITHUB_OUTPUT}"
+          echo "apk_name=miquiosco-v${VERSION_NAME}.${VERSION_CODE}.apk" >> "${GITHUB_OUTPUT}"
 
       - name: Verificar secretos de firma
         shell: bash
@@ -232,18 +225,19 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME}"
-          CLEAN="${TAG#v}"
-          VERSION_NAME="${CLEAN%%+*}"
-          VERSION_CODE="${CLEAN##*+}"
-          APK_NAME="miquiosco-v${VERSION_NAME}+${VERSION_CODE}.apk"
+          if [[ ! "${TAG}" =~ ^v([0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Tag con formato inesperado: ${TAG} (se espera vX.Y.N)."
+            exit 1
+          fi
+          VERSION_NAME="${BASH_REMATCH[1]}"
+          VERSION_CODE="${BASH_REMATCH[2]}"
+          APK_NAME="miquiosco-v${VERSION_NAME}.${VERSION_CODE}.apk"
           git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force --quiet
           CHANGELOG="$(git tag -l --format='%(contents:body)' "${TAG}" | sed -e 's/^[[:space:]]*//')"
-          ENC_TAG="$(printf '%s' "${TAG}" | sed 's/+/%2B/g')"
-          ENC_APK="$(printf '%s' "${APK_NAME}" | sed 's/+/%2B/g')"
           {
             echo "version_name=${VERSION_NAME}"
             echo "version_code=${VERSION_CODE}"
-            echo "apk_url=https://github.com/${{ github.repository }}/releases/download/${ENC_TAG}/${ENC_APK}"
+            echo "apk_url=https://github.com/${{ github.repository }}/releases/download/${TAG}/${APK_NAME}"
             echo "changelog<<EOF_CHANGELOG"
             printf '%s\n' "${CHANGELOG}"
             echo "EOF_CHANGELOG"

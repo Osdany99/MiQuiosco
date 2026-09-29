@@ -14,10 +14,15 @@ async function upsertRegistro(cfg, reg) {
   const db = useDb()
   const existing = await db.getById(cfg.tabla, reg.id)
   if (existing) {
+    // No pisar ediciones locales aún no subidas (sincronizado = 0):
+    // se resuelven vía push / conflicto, donde el timestamp decide.
+    // Sin esto, un pull tras el login borra cambios locales pendientes.
+    if (!existing.sincronizado) return false
     await db.update(cfg.tabla, reg.id, enrichForUpdate(cfg.tabla, { ...reg, sincronizado: 1 }))
-  } else {
-    await db.insert(cfg.tabla, enrichForInsert(cfg.tabla, { ...reg, sincronizado: 1 }))
+    return true
   }
+  await db.insert(cfg.tabla, enrichForInsert(cfg.tabla, { ...reg, sincronizado: 1 }))
+  return true
 }
 
 export async function pull(pullResult, _opts, _auth) {
@@ -30,8 +35,7 @@ export async function pull(pullResult, _opts, _auth) {
     const registros = pullResult[cfg.tabla]
     if (!registros?.length) continue
     for (const reg of registros) {
-      await upsertRegistro(cfg, reg)
-      aplicados++
+      if (await upsertRegistro(cfg, reg)) aplicados++
     }
   }
 

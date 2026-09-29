@@ -192,7 +192,7 @@ async function _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo
 }
 
 async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
-  const { items, prodMap, fechaDeCuadre } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
+  const { items, prodMap, cuadres, fechaDeCuadre } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
   const filas = []
   for (const i of items) {
     const cant = Number(i.cantidad) || 0
@@ -204,6 +204,15 @@ async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
       periodo,
       ganancia: (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * cant
     })
+  }
+  // Ganancia neta: restar lo pagado al trabajador en cada cuadre cerrado.
+  // Cuadres sin trabajador (pago null/0) no aportan nada.
+  for (const c of cuadres) {
+    const pago = Number(c.pagoTrabajador) || 0
+    if (pago <= 0) continue
+    const periodo = c.fecha || ''
+    if (!periodo) continue
+    filas.push({ periodo, ganancia: -pago })
   }
   return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
     ganancia: Math.round(g.reduce((s, x) => s + x.ganancia, 0))

@@ -55,11 +55,11 @@ pnpm cap:open     # abrir en Android Studio
 
 ## Producción (resumen)
 
-Cada release es un tag `vX.Y+Z` (ej. `v1.2+3`):
+Cada release es un tag `vX.Y.N` (ej. `v1.2.3` → versionName `1.2`, versionCode `3`):
 
 ```bash
-git tag -a v1.3+4 -m "release: v1.3 (versionCode 4)" -m "Notas de la versión"
-git push origin v1.3+4
+git tag -a v1.3.5 -m "release: v1.3 (versionCode 5)" -m "Notas de la versión"
+git push origin v1.3.5
 ```
 
 El workflow `release-apk` compila la web, genera la APK firmada, la publica

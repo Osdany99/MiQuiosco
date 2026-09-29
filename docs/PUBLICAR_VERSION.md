@@ -9,8 +9,11 @@ cambio de esquema de BD).
 
 - `versionCode` (entero): lo que se compara. **Siempre incremental, nunca se
   reutiliza ni se baja.** Desde la automatización sale del tag:
-  `v{versionName}+{versionCode}` (ej. `v1.2+3` → `versionName "1.2"`,
+  `v{versionName}.{versionCode}` (ej. `v1.2.3` → `versionName "1.2"`,
   `versionCode 3`). El workflow lo inyecta en `android/app/build.gradle`.
+  El `+` está prohibido en tags y APKs: GitHub devuelve 404 en la descarga
+  directa aunque el asset exista (los releases `v1.2+3`/`v1.3+4` quedaron
+  como historia con links rotos).
 - `versionName` (ej. `"1.2"`): solo informativo para el usuario.
 - `APP_MIN_VERSION_CODE`: por debajo de este código la actualización es
   **obligatoria** (bloquea la app) y el servidor responde `426` a esa APK.
@@ -65,11 +68,11 @@ pnpm lint && pnpm test && pnpm typecheck
    ```powershell
    git add -A; git commit -m "feat: ..."; git push
    ```
-3. Crear y subir el tag (formato obligatorio `vX.Y+Z`). El cuerpo del tag
+3. Crear y subir el tag (formato obligatorio `vX.Y.N`, sin `+`). El cuerpo del tag
    (`-m` adicionales) se usa como `APP_CHANGELOG`:
    ```powershell
-   git tag -a v1.3+4 -m "release: v1.3 (versionCode 4)" -m "Notas breves de la versión"
-   git push origin v1.3+4
+   git tag -a v1.3.5 -m "release: v1.3 (versionCode 5)" -m "Notas breves de la versión"
+   git push origin v1.3.5
    ```
     Esto dispara el workflow `release-apk`, que hace **todo solo**:
     - Job `migrate-db`: verifica que `drizzle/` esté generado al día con el
@@ -79,7 +82,7 @@ pnpm lint && pnpm test && pnpm typecheck
    - Job `build-release`: build web con URL de producción, `cap sync`,
      verificación de URL, `assembleRelease`, verificación de firma con
      `apksigner` y publicación del **GitHub Release** con la APK adjunta
-     (`miquiosco-vX.Y+Z.apk`).
+     (`miquiosco-vX.Y.N.apk`).
    - Job `sync-vercel`: actualiza en Vercel `APP_LATEST_VERSION_CODE`,
      `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE` (= latest, o sea
      actualización **obligatoria**), `APP_APK_URL` (URL del asset recién
@@ -165,7 +168,7 @@ Notas:
 
 ## Problemas conocidos (y su solución)
 
-- **El workflow falla en "Parsear tag"**: el tag no sigue `vX.Y+Z`.
+- **El workflow falla en "Parsear tag"**: el tag no sigue `vX.Y.N`.
   Borra el tag (`git tag -d v...; git push origin :refs/tags/v...`) y créalo
   de nuevo con el formato correcto.
 - **El workflow falla en "Verificar secretos de firma"**: falta algún secret.

@@ -84,7 +84,7 @@ android/app/build/outputs/apk/debug/app-debug.apk
 
 > **Vía oficial: automática.** La release de producción se genera con el
 > workflow `release-apk` de GitHub Actions (ver **Caso A** en
-> `docs/PUBLICAR_VERSION.md`): creas el tag `vX.Y+Z`, el CI compila, firma
+> `docs/PUBLICAR_VERSION.md`): creas el tag `vX.Y.N`, el CI compila, firma
 > con `apksigner`, publica el GitHub Release y actualiza Vercel solo.
 > Lo de abajo es solo fallback manual.
 

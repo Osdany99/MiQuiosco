@@ -87,11 +87,14 @@ describe('fmtPrecio y calcularSalario', () => {
     const s = fmtPrecio(1234)
     assert.match(s, /1.*234/)
   })
-  it('calcularSalario: sin bono bajo 20000', () => {
-    assert.equal(calcularSalario(600, 15000), 600)
+  it('calcularSalario: base + 1% de lo vendido (15000 → 750)', () => {
+    assert.equal(calcularSalario(600, 15000), 750)
   })
-  it('calcularSalario: 25000 → 1 tramo extra (tramo=2 → bono 100)', () => {
-    assert.equal(calcularSalario(600, 25000), 700)
+  it('calcularSalario: 8000 → 680', () => {
+    assert.equal(calcularSalario(600, 8000), 680)
+  })
+  it('calcularSalario: 25000 → 850', () => {
+    assert.equal(calcularSalario(600, 25000), 850)
   })
 })
 

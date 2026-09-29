@@ -82,13 +82,22 @@ async function reordenar() {
   const porId = new Map(filas().map(r => [String(r.id), r]))
   reordenando.value = true
   try {
-    const cambios = []
-    ids.forEach((id, i) => {
+    // useRepo.patch devuelve { data, error }: hay que inspeccionar cada
+    // resultado porque Promise.all no rechaza (los errores van en error).
+    const resultados = await Promise.all(ids.map((id, i) => {
       const row = porId.get(id)
       const nuevo = i + 1
-      if (row && Number(row.orden) !== nuevo) cambios.push(patch(row.id, { orden: nuevo }))
-    })
-    await Promise.all(cambios)
+      if (!row || Number(row.orden) === nuevo) return null
+      return patch(row.id, { orden: nuevo })
+    }))
+    const fallos = resultados.filter(r => r && r.error).length
+    if (fallos > 0) {
+      useToast().add({
+        title: 'No se pudo guardar el orden',
+        description: `Fallaron ${fallos} producto(s). Reintenta el arrastre.`,
+        color: 'error'
+      })
+    }
   } finally {
     reordenando.value = false
     await tableRef.value?.refresh()
@@ -121,6 +130,7 @@ onBeforeUnmount(() => destruirSortable())
       :columns="columns"
       :form-ref="formRef"
       :pagination="false"
+      :query="{ orderBy: 'orden', orderDir: 'asc' }"
     >
       <template #form>
         <BaseForm
