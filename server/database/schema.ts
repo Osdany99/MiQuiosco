@@ -466,6 +466,57 @@ export const deletedRecords = pgTable(
 )
 
 /**
+ * Credenciales WebAuthn (huella en navegador) por usuario y dispositivo.
+ * Solo servidor: NO se sincronizan ni existen en SQLite offline.
+ * Varias filas por usuario = varios navegadores/dispositivos.
+ */
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    usuarioId: uuid('usuario_id')
+      .notNull()
+      .references(() => usuarios.id, { onDelete: 'cascade' }),
+    credentialId: text('credential_id').notNull().unique(),
+    publicKey: text('public_key').notNull(),
+    counter: integer('counter').notNull().default(0),
+    transports: text('transports').array(),
+    nombreDispositivo: text('nombre_dispositivo'),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    usuarioIdx: index('webauthn_credentials_usuario_idx').on(table.usuarioId)
+  })
+)
+
+/**
+ * Challenges pendientes de ceremonias WebAuthn (registro/login).
+ * Necesarios en tabla (no en memoria) porque Vercel es serverless:
+ * cada request puede caer en otra instancia. Expiran en minutos y se
+ * borran al verificar (más limpieza perezosa en cada emisión).
+ */
+export const webauthnChallenges = pgTable(
+  'webauthn_challenges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    usuarioId: uuid('usuario_id')
+      .notNull()
+      .references(() => usuarios.id, { onDelete: 'cascade' }),
+    challenge: text('challenge').notNull(),
+    tipo: text('tipo').notNull(),
+    expiraEn: timestamp('expira_en', { withTimezone: true }).notNull()
+  },
+  table => ({
+    usuarioIdx: index('webauthn_challenges_usuario_idx').on(table.usuarioId)
+  })
+)
+
+/**
  * Tipos inferidos de las tablas para uso en el código de la app.
  */
 export type Puesto = typeof puestos.$inferSelect
@@ -492,6 +543,8 @@ export type TransferenciaItem = typeof transferenciaItems.$inferSelect
 export type NuevaTransferenciaItem = typeof transferenciaItems.$inferInsert
 export type Ajuste = typeof ajustes.$inferSelect
 export type NuevoAjuste = typeof ajustes.$inferInsert
+export type WebauthnCredential = typeof webauthnCredentials.$inferSelect
+export type NuevoWebauthnCredential = typeof webauthnCredentials.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'

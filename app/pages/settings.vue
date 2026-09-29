@@ -5,6 +5,7 @@ import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 const toast = useToast()
 const conexion = useModoConexion()
 const update = useAppUpdate()
+const auth = useAuth()
 
 // La URL del servidor y las actualizaciones in-app solo aplican en Android:
 // en web el navegador ya habla con su mismo origen.
@@ -93,6 +94,86 @@ async function comprobarUpdates() {
     comprobandoUpdates.value = false
   }
 }
+
+// --- Huella en este navegador (WebAuthn, solo web) ---
+const webAuthnSoportada = ref(false)
+const whUsuario = ref('')
+const whPin = ref('')
+const whDispositivos = ref([])
+const whCargando = ref(false)
+const whActivando = ref(false)
+const whError = ref(null)
+
+onMounted(async () => {
+  if (!esNativo.value) {
+    try {
+      webAuthnSoportada.value = await auth.webAuthnDisponible()
+    } catch {
+      webAuthnSoportada.value = false
+    }
+  }
+})
+
+async function whCargarDispositivos() {
+  whError.value = null
+  if (!whUsuario.value.trim() || !whPin.value) {
+    whError.value = 'Ingresa tu usuario y PIN para ver tus dispositivos.'
+    return
+  }
+  whCargando.value = true
+  try {
+    whDispositivos.value = await auth.listarWebauthn(whUsuario.value.trim(), whPin.value)
+  } catch (err) {
+    whError.value = err?.data?.statusMessage || err?.message || 'No se pudieron cargar los dispositivos.'
+  } finally {
+    whCargando.value = false
+  }
+}
+
+async function whActivar() {
+  whError.value = null
+  if (!whUsuario.value.trim() || !whPin.value) {
+    whError.value = 'Ingresa tu usuario y PIN para activar la huella.'
+    return
+  }
+  whActivando.value = true
+  try {
+    const nombreDispositivo = `${navigator.platform || 'Navegador'} · ${new Date().toLocaleDateString()}`.slice(0, 100)
+    await auth.registrarWebauthn(whUsuario.value.trim(), whPin.value, nombreDispositivo)
+    toast.add({ title: 'Huella activada', description: 'Este navegador ya puede entrar con huella.', icon: 'i-lucide-fingerprint', color: 'success' })
+    await whCargarDispositivos()
+  } catch (err) {
+    whError.value = err?.data?.statusMessage || err?.message || 'No se pudo activar la huella.'
+  } finally {
+    whActivando.value = false
+  }
+}
+
+async function whBorrar(credentialId) {
+  whError.value = null
+  try {
+    await auth.borrarWebauthn(whUsuario.value.trim(), whPin.value, credentialId)
+    toast.add({ title: 'Dispositivo olvidado', color: 'success' })
+    await whCargarDispositivos()
+  } catch (err) {
+    whError.value = err?.data?.statusMessage || err?.message || 'No se pudo olvidar el dispositivo.'
+  }
+}
+
+async function whOlvidarEste() {
+  whError.value = null
+  if (!whUsuario.value.trim() || !whPin.value) {
+    whError.value = 'Ingresa tu usuario y PIN para continuar.'
+    return
+  }
+  try {
+    await auth.olvidarEsteNavegadorWebauthn(whUsuario.value.trim(), whPin.value)
+    toast.add({ title: 'Este navegador ya no usa huella', color: 'success' })
+    await whCargarDispositivos()
+  } catch (err) {
+    whError.value = err?.data?.statusMessage || err?.message || 'No se pudo completar.'
+  }
+}
 </script>
 
 <template>
@@ -174,6 +255,85 @@ async function comprobarUpdates() {
         >
           Comprobar actualizaciones
         </UButton>
+      </div>
+    </UCard>
+
+    <UCard v-if="!esNativo && webAuthnSoportada">
+      <div class="space-y-4">
+        <div>
+          <h2 class="text-sm font-medium">
+            Huella en este navegador
+          </h2>
+          <p class="text-sm text-muted">
+            Entra con tu huella sin escribir el PIN. Requiere conexión.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <UFormField label="Usuario">
+            <UInput v-model="whUsuario" placeholder="Ej. jefe" autocomplete="username" />
+          </UFormField>
+          <UFormField label="PIN">
+            <UInput
+              v-model="whPin"
+              type="password"
+              inputmode="numeric"
+              maxlength="6"
+              autocomplete="current-password"
+            />
+          </UFormField>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <UButton :loading="whActivando" icon="i-lucide-fingerprint" @click="whActivar">
+            Activar huella aquí
+          </UButton>
+          <UButton
+            :loading="whCargando"
+            color="neutral"
+            variant="outline"
+            @click="whCargarDispositivos"
+          >
+            Ver mis dispositivos
+          </UButton>
+        </div>
+
+        <UAlert
+          v-if="whError"
+          color="error"
+          icon="i-lucide-alert-circle"
+          :title="whError"
+        />
+
+        <ul v-if="whDispositivos.length" class="divide-y divide-default rounded-lg border border-default">
+          <li v-for="d in whDispositivos" :key="d.credentialId" class="flex items-center justify-between gap-3 px-3 py-2">
+            <div class="min-w-0">
+              <p class="text-sm font-medium truncate">
+                {{ d.nombreDispositivo || 'Navegador' }}
+              </p>
+              <p class="text-xs text-muted">
+                {{ d.creadoEn ? new Date(d.creadoEn).toLocaleString() : '' }}
+              </p>
+            </div>
+            <UButton
+              size="xs"
+              color="error"
+              variant="ghost"
+              icon="i-lucide-trash-2"
+              aria-label="Olvidar dispositivo"
+              @click="whBorrar(d.credentialId)"
+            />
+          </li>
+        </ul>
+
+        <button
+          v-if="whDispositivos.length"
+          type="button"
+          class="text-xs text-muted hover:underline"
+          @click="whOlvidarEste"
+        >
+          Olvidar este navegador
+        </button>
       </div>
     </UCard>
 

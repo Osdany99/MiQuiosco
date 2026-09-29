@@ -23,6 +23,8 @@
     "android:assemble-release": "cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
+    "@aparajita/capacitor-biometric-auth": "10.0.0",
+    "@aparajita/capacitor-secure-storage": "8.0.1",
     "@capacitor-community/sqlite": "^8.1.0",
     "@capacitor/android": "^8.4.1",
     "@capacitor/app": "^8.1.0",
@@ -35,6 +37,8 @@
     "@iconify-json/simple-icons": "^1.2.85",
     "@internationalized/date": "^3.12.2",
     "@nuxt/ui": "^4.8.2",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "@tanstack/table-core": "^8.21.3",
     "@vueuse/core": "^14.3.0",
     "@vueuse/nuxt": "^14.3.0",

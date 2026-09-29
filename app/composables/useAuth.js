@@ -1,4 +1,5 @@
 import { computed, readonly } from 'vue'
+import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { $api, esErrorDeRed } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
@@ -36,6 +37,19 @@ import { login as loginOfflineApi } from '../server-offline/api/auth/login'
  * @returns {Function} returns.registrarActividad - Actualiza timestamp de última actividad (jefe).
  * @returns {Function} returns.invalidarSesionLocal - Limpia sesión local y JWT de sync.
  * @returns {Function} returns.logout - Cierre completo (servidor + local + redirect a /login).
+ * @returns {Function} returns.biometricoDisponible - (solo nativo) true si hay biometría enrolada usable por la app.
+ * @returns {Function} returns.biometricoHabilitado - true si el usuario activó entrar con huella en este dispositivo.
+ * @returns {Function} returns.biometricoUsuario - nombre del usuario guardado para la huella (o null).
+ * @returns {Function} returns.habilitarBiometrico - Guarda usuario + PIN cifrado: (nombreUsuario, pin) => Promise<void>.
+ * @returns {Function} returns.deshabilitarBiometrico - Borra flag y credenciales de huella del dispositivo.
+ * @returns {Function} returns.loginConHuella - Prompt nativo + login(usuario, pin) guardado. Lanza Error si falla.
+ * @returns {Ref<number>} returns.intentosBiometricosFallidos - Fallos consecutivos de huella (límite 3).
+ * @returns {Function} returns.webAuthnDisponible - (solo web) true si el navegador tiene autenticador de plataforma.
+ * @returns {Function} returns.loginConWebauthn - Login web con huella: (nombreUsuario) => Promise<{ok, response}>.
+ * @returns {Function} returns.registrarWebauthn - Enrola este navegador: (nombreUsuario, pin, nombreDispositivo).
+ * @returns {Function} returns.listarWebauthn - Dispositivos con huella: (nombreUsuario, pin) => Promise<array>.
+ * @returns {Function} returns.borrarWebauthn - Revoca un dispositivo: (nombreUsuario, pin, credentialId).
+ * @returns {Function} returns.olvidarEsteNavegadorWebauthn - Revoca la huella de este navegador.
  *
  * @example
  * const { usuarioActual, esJefe, login, logout, cargarDesdePreferencias } = useAuth()
@@ -56,12 +70,27 @@ import { login as loginOfflineApi } from '../server-offline/api/auth/login'
 const PREF_SESION_LOCAL = 'sesion_local'
 const PREF_JWT_SYNC = 'jwt_sync'
 
+// --- Biometría (solo Android nativo) ---
+// El flag y el usuario viven en Preferences (no sensibles); el PIN vive
+// cifrado en el Keystore vía @aparajita/capacitor-secure-storage.
+// Nada de esto toca la BD ni el servidor: loginConHuella() re-ejecuta
+// login() con las credenciales guardadas.
+const PREF_BIOMETRICO_FLAG = 'biometrico_habilitado'
+const PREF_BIOMETRICO_USUARIO = 'biometrico_usuario'
+const SECURE_KEY_PIN = 'biometrico_pin'
+// WebAuthn (solo web): el credential_id de ESTE navegador, para poder
+// "olvidar este navegador" sin pedir el PIN de nuevo.
+const PREF_WEBAUTHN_CRED_ID = 'webauthn_credential_id'
+const MAX_INTENTOS_BIOMETRICOS = 3
+const MSG_CREDENCIALES_INVALIDAS = 'Credenciales inválidas.'
+
 export function useAuth() {
   const config = useRuntimeConfig()
   const sesionLocal = useState('auth.sesionLocal', () => null)
   const jwtSync = useState('auth.jwtSync', () => null)
   const usuarioActual = useState('auth.usuarioActual', () => null)
   const cargando = useState('auth.cargando', () => false)
+  const intentosBiometricosFallidos = useState('auth.intentosBiometricosFallidos', () => 0)
 
   const esJefe = computed(() => usuarioActual.value?.rol === 'jefe')
   const esTrabajador = computed(
@@ -103,11 +132,13 @@ export function useAuth() {
           body: { nombre_usuario: nombreUsuario, pin }
         })
         await procesarRespuestaLogin(response)
+        intentosBiometricosFallidos.value = 0
         return response
       } catch (err) {
         if (esErrorDeRed(err)) {
           const sesion = await loginOffline(nombreUsuario, pin)
           if (sesion) {
+            intentosBiometricosFallidos.value = 0
             return {
               usuario: {
                 id: sesion.usuario_id,
@@ -271,6 +302,225 @@ export function useAuth() {
     usuarioActual.value = null
   }
 
+  // --- Biometría (solo Android nativo) ---
+
+  function esNativo() {
+    return Capacitor.isNativePlatform()
+  }
+
+  async function biometricoDisponible() {
+    if (!esNativo()) return false
+    try {
+      const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth')
+      const info = await BiometricAuth.checkBiometry()
+      // En Android solo isAvailable/strongBiometryIsAvailable son fiables;
+      // biometryType puede reportar hardware no usable por apps.
+      return !!info?.isAvailable
+    } catch {
+      return false
+    }
+  }
+
+  async function biometricoHabilitado() {
+    if (!esNativo()) return false
+    try {
+      const { value } = await Preferences.get({ key: PREF_BIOMETRICO_FLAG })
+      return value === '1'
+    } catch {
+      return false
+    }
+  }
+
+  async function biometricoUsuario() {
+    if (!esNativo()) return null
+    try {
+      const { value } = await Preferences.get({ key: PREF_BIOMETRICO_USUARIO })
+      return value || null
+    } catch {
+      return null
+    }
+  }
+
+  async function habilitarBiometrico(nombreUsuario, pin) {
+    if (!esNativo()) return
+    const { SecureStorage } = await import('@aparajita/capacitor-secure-storage')
+    await SecureStorage.set(SECURE_KEY_PIN, String(pin))
+    await Preferences.set({ key: PREF_BIOMETRICO_USUARIO, value: nombreUsuario })
+    await Preferences.set({ key: PREF_BIOMETRICO_FLAG, value: '1' })
+  }
+
+  async function deshabilitarBiometrico() {
+    try {
+      if (esNativo()) {
+        const { SecureStorage } = await import('@aparajita/capacitor-secure-storage')
+        await SecureStorage.remove(SECURE_KEY_PIN).catch(() => {})
+      }
+    } finally {
+      await Preferences.remove({ key: PREF_BIOMETRICO_FLAG }).catch(() => {})
+      await Preferences.remove({ key: PREF_BIOMETRICO_USUARIO }).catch(() => {})
+      intentosBiometricosFallidos.value = 0
+    }
+  }
+
+  function esPinInvalido(err) {
+    const msg = err?.data?.statusMessage || err?.statusMessage || err?.message || ''
+    return msg === MSG_CREDENCIALES_INVALIDAS
+  }
+
+  /**
+   * Login con biometría: prompt nativo del sistema y luego login() normal
+   * con las credenciales guardadas (misma semántica online/offline).
+   * No borra nada salvo PIN probadamente incorrecto.
+   * Retorna { cancelado: true } si el usuario cierra el diálogo.
+   */
+  async function loginConHuella() {
+    if (!esNativo()) throw new Error('La huella solo está disponible en la app Android.')
+    if (!(await biometricoHabilitado())) throw new Error('La huella no está activada en este dispositivo.')
+    if (intentosBiometricosFallidos.value >= MAX_INTENTOS_BIOMETRICOS) {
+      throw new Error('Demasiados intentos. Usa tu usuario y PIN.')
+    }
+
+    const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth')
+    try {
+      // El sistema presenta la biometría primaria disponible (rostro o
+      // huella, según lo enrolado); allowDeviceCredential:false = solo biometría.
+      await BiometricAuth.authenticate({
+        reason: 'Desbloquear MiQuiosco',
+        androidTitle: 'Entrar con huella',
+        androidSubtitle: 'Usa tu biometría para iniciar sesión',
+        allowDeviceCredential: false
+      })
+    } catch (err) {
+      const code = err?.code || ''
+      // Cancelar no es un fallo: volver en silencio al formulario.
+      if (code === 'userCancel' || code === 'systemCancel' || code === 'userFallback' || code === 'appCancel') {
+        return { cancelado: true }
+      }
+      // El SO bloquea solo tras varios fallos: forzar formulario hasta reintentar.
+      if (code === 'biometryLockout') {
+        throw new Error('Biometría bloqueada por el sistema. Espera unos minutos o usa tu usuario y PIN.')
+      }
+      intentosBiometricosFallidos.value += 1
+      throw new Error('No se pudo verificar tu biometría. Intenta de nuevo o usa tu usuario y PIN.')
+    }
+
+    // Biometría OK: leer credenciales (el get puede fallar si el Keystore
+    // cambió → caer al formulario sin romper nada).
+    let nombreUsuario = null
+    let pin = null
+    try {
+      const { SecureStorage } = await import('@aparajita/capacitor-secure-storage')
+      const [usuarioPref, pinGuardado] = await Promise.all([
+        Preferences.get({ key: PREF_BIOMETRICO_USUARIO }),
+        SecureStorage.get(SECURE_KEY_PIN)
+      ])
+      nombreUsuario = usuarioPref?.value || null
+      pin = pinGuardado != null ? String(pinGuardado) : null
+    } catch {
+      throw new Error('No se pudieron leer las credenciales guardadas. Usa tu usuario y PIN.')
+    }
+    if (!nombreUsuario || !pin) {
+      await deshabilitarBiometrico()
+      throw new Error('No hay credenciales guardadas. Usa tu usuario y PIN.')
+    }
+
+    try {
+      const response = await login(nombreUsuario, pin)
+      // El PIN puede haber cambiado desde que se guardó: refrescarlo.
+      await habilitarBiometrico(nombreUsuario, pin)
+      return { ok: true, response }
+    } catch (err) {
+      // Solo borrar ante PIN probadamente incorrecto (cambió en el servidor
+      // o en otro dispositivo). Fallos de red u otros motivos conservan lo guardado.
+      if (esPinInvalido(err)) {
+        await deshabilitarBiometrico()
+        throw new Error('El PIN guardado ya no es válido. Usa tu usuario y PIN para actualizarlo.')
+      }
+      throw err
+    }
+  }
+
+  // --- WebAuthn: huella real en navegador (solo web, online) ---
+  // A diferencia del plugin nativo, aquí no se guarda ningún PIN: el
+  // navegador firma un challenge y el servidor verifica la clave pública.
+  // Requiere conexión (el PIN offline sigue disponible en el modo normal).
+
+  async function webAuthnDisponible() {
+    if (esNativo()) return false
+    if (typeof window === 'undefined' || typeof window.PublicKeyCredential === 'undefined') return false
+    try {
+      const { platformAuthenticatorIsAvailable } = await import('@simplewebauthn/browser')
+      return await platformAuthenticatorIsAvailable()
+    } catch {
+      return false
+    }
+  }
+
+  async function loginConWebauthn(nombreUsuario) {
+    if (esNativo()) throw new Error('En la app Android se usa la huella del sistema.')
+    cargando.value = true
+    try {
+      const options = await $api(API_ROUTES.webauthnLoginOptions, {
+        method: 'POST',
+        body: { nombre_usuario: nombreUsuario }
+      })
+      const { startAuthentication } = await import('@simplewebauthn/browser')
+      const attResp = await startAuthentication({ optionsJSON: options })
+      const response = await $api(API_ROUTES.webauthnLoginVerify, {
+        method: 'POST',
+        body: { nombre_usuario: nombreUsuario, respuesta: attResp }
+      })
+      await procesarRespuestaLogin(response)
+      intentosBiometricosFallidos.value = 0
+      return { ok: true, response }
+    } finally {
+      cargando.value = false
+    }
+  }
+
+  async function registrarWebauthn(nombreUsuario, pin, nombreDispositivo) {
+    if (esNativo()) throw new Error('En la app Android se usa la huella del sistema.')
+    const options = await $api(API_ROUTES.webauthnRegisterOptions, {
+      method: 'POST',
+      body: { nombre_usuario: nombreUsuario, pin, nombre_dispositivo: nombreDispositivo }
+    })
+    const { startRegistration } = await import('@simplewebauthn/browser')
+    const regResp = await startRegistration({ optionsJSON: options })
+    const resultado = await $api(API_ROUTES.webauthnRegisterVerify, {
+      method: 'POST',
+      body: { nombre_usuario: nombreUsuario, respuesta: regResp, nombre_dispositivo: nombreDispositivo }
+    })
+    if (resultado?.credentialId) {
+      await Preferences.set({ key: PREF_WEBAUTHN_CRED_ID, value: resultado.credentialId })
+    }
+    return resultado
+  }
+
+  async function listarWebauthn(nombreUsuario, pin) {
+    const resultado = await $api(API_ROUTES.webauthnCredentialsList, {
+      method: 'POST',
+      body: { nombre_usuario: nombreUsuario, pin }
+    })
+    return resultado?.credentials ?? []
+  }
+
+  async function borrarWebauthn(nombreUsuario, pin, credentialId) {
+    await $api(API_ROUTES.webauthnCredentialsDelete, {
+      method: 'POST',
+      body: { nombre_usuario: nombreUsuario, pin, credential_id: credentialId }
+    })
+    const { value } = await Preferences.get({ key: PREF_WEBAUTHN_CRED_ID })
+    if (value && value === credentialId) {
+      await Preferences.remove({ key: PREF_WEBAUTHN_CRED_ID })
+    }
+  }
+
+  async function olvidarEsteNavegadorWebauthn(nombreUsuario, pin) {
+    const { value } = await Preferences.get({ key: PREF_WEBAUTHN_CRED_ID })
+    if (!value) throw new Error('Este navegador no tiene huella registrada.')
+    await borrarWebauthn(nombreUsuario, pin, value)
+  }
+
   async function logout() {
     try {
       const token = jwtSync.value
@@ -297,6 +547,7 @@ export function useAuth() {
     jwtSync: readonly(jwtSync),
     usuarioActual: readonly(usuarioActual),
     cargando: readonly(cargando),
+    intentosBiometricosFallidos: readonly(intentosBiometricosFallidos),
     esJefe,
     esTrabajador,
     rol,
@@ -305,6 +556,18 @@ export function useAuth() {
     sesionLocalVigente,
     registrarActividad,
     invalidarSesionLocal,
-    logout
+    logout,
+    biometricoDisponible,
+    biometricoHabilitado,
+    biometricoUsuario,
+    habilitarBiometrico,
+    deshabilitarBiometrico,
+    loginConHuella,
+    webAuthnDisponible,
+    loginConWebauthn,
+    registrarWebauthn,
+    listarWebauthn,
+    borrarWebauthn,
+    olvidarEsteNavegadorWebauthn
   }
 }
