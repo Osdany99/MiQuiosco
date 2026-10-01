@@ -20,8 +20,15 @@ export function hoyLocal() {
   return `${d.getFullYear()}-${mes}-${dia}`
 }
 
+// El bono es del 1% solo de lo vendido POR ENCIMA de este umbral: los
+// primeros 10 000 del día no cuentan. Un día flojo deja el bono en cero y el
+// trabajador cobra su base, en vez de cobrar un extra por ventas que no hubo.
+export const UMBRAL_BONO_SALARIO = 10000
+
 export function calcularSalario(baseSalario, totalVendido) {
-  return Math.round(baseSalario + totalVendido * 0.01)
+  const base = normalizarNumero(baseSalario)
+  const excedente = Math.max(0, normalizarNumero(totalVendido) - UMBRAL_BONO_SALARIO)
+  return Math.round(base + excedente * 0.01)
 }
 
 // Normaliza entradas numéricas de formularios: '', null, undefined o NaN → 0.

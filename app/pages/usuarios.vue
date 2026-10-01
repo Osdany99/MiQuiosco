@@ -35,7 +35,12 @@ const tableRef = ref(null)
 const formRef = ref(null)
 const form = ref({ id: null, nombre: '', telefono: '', notas: '', rol: 'trabajador', salario: 600, pin: '', activo: true })
 
+// El salario por defecto solo aplica al crear. Al editar, handleEdit inyecta
+// la fila completa (handleEdit -> form.value = structuredClone(row)) y si el
+// rol cambia de jefe/cliente a trabajador este watcher pisaba el salario real
+// con 600 sin avisar. Con id presente (modo edición) se respeta el guardado.
 watch(() => form.value.rol, (rol) => {
+  if (form.value.id) return
   form.value.salario = rol === 'trabajador' ? 600 : null
 })
 

@@ -1,3 +1,4 @@
+import { getCurrentScope, onScopeDispose } from 'vue'
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
 import { generateId } from '~/utils/id'
@@ -65,31 +66,61 @@ function normalizarLinea(i) {
 // beginTransaction sobre la misma conexión SQLite (error "Already in
 // transaction"). Se registra un solo ctx y un solo watch independientemente
 // del número de instancias.
-const AUTOSAVE_MS = 1500
+// 800ms sigue agrupando mientras el jefe escribe seguido, pero a la vista se
+// siente inmediato. Además flushAutosave() vuelca lo pendiente al perder el
+// foco de un campo, para no esperar al debounce.
+const AUTOSAVE_MS = 800
 let autosaveTimer = null
 let guardandoBorrador = false
 let suprimirAutosave = false
 let ctxAutosave = null
-let autosaveRegistrado = false
+let detenerAutosave = null
+
+// Motivo por el que el autoguardado no debe actuar, o null si puede guardar.
+// Centralizado porque lo necesitan tanto programarAutosave como
+// guardarCuadreBorrador, y antes esas guardas estaban duplicadas en línea.
+function motivoBloqueo(ctx) {
+  if (!ctx) return 'sin contexto'
+  if (!ctx.cuadre?.value) return 'sin cuadre en memoria'
+  if (ctx.cuadre.value.estado !== 'abierto') return 'cuadre no abierto: ' + ctx.cuadre.value.estado
+  if (ctx.esTrabajador?.value) return 'es trabajador'
+  return null
+}
 
 function programarAutosave() {
-  if (!ctxAutosave || suprimirAutosave) return
-  const { cuadre, esTrabajador } = ctxAutosave
-  if (!cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
+  if (suprimirAutosave) return
+  if (motivoBloqueo(ctxAutosave)) return
+
   clearTimeout(autosaveTimer)
   autosaveTimer = setTimeout(() => {
-    guardarCuadreBorrador().catch(err => console.error('autosave cuadre:', err))
+    autosaveTimer = null
+    guardarCuadreBorrador().catch(reportarFalloAutosave)
   }, AUTOSAVE_MS)
 }
 
+// Los fallos del autoguardado antes morían en un console.error, invisible en
+// la APK: se perdían ventas sin que nadie se enterara. Ahora sale un toast con
+// el mensaje real del error, que es lo único que permite diagnosticar un fallo
+// de escritura en el dispositivo.
+function reportarFalloAutosave(err) {
+  console.error('autosave cuadre:', err)
+  const mensaje = err?.message ?? 'Inténtalo de nuevo.'
+  ctxAutosave?.toast?.add({
+    title: 'No se pudo guardar el cuadre',
+    description: mensaje,
+    color: 'error'
+  })
+}
+
 async function guardarCuadreBorrador() {
-  if (!ctxAutosave || guardandoBorrador) return
+  if (guardandoBorrador) return
+  if (motivoBloqueo(ctxAutosave)) return
+
   const {
-    cuadre, esTrabajador, db, conexion, persistirLineas, cuadreRepo,
+    cuadre, db, conexion, persistirLineas, cuadreRepo,
     totalRealCaja, montoTransferencia, montoRegalo, montoDescuento,
     trabajadorTurnoId, pagoTrabajador, notasCuadre
   } = ctxAutosave
-  if (!cuadre.value || cuadre.value.estado !== 'abierto' || esTrabajador.value) return
   guardandoBorrador = true
   try {
     const guardar = async () => {
@@ -116,14 +147,73 @@ async function guardarCuadreBorrador() {
 }
 
 function registrarAutosave(ctx) {
+  // Falla ruidosa en desarrollo: si una fuente observada llega como undefined,
+  // Vue no da ningún aviso y el autoguardado queda mudo en silencio, que es
+  // justo la clase de fallo que costó horas de depuración.
+  if (import.meta.dev) {
+    for (const clave of ['lineas', 'totalRealCaja', 'pagoTrabajador', 'notasCuadre', 'trabajadorTurnoId']) {
+      if (ctx[clave] === undefined) {
+        console.warn(`[autosave] ctx.${clave} es undefined: esa fuente no disparará el guardado`)
+      }
+    }
+  }
   ctxAutosave = ctx
-  if (autosaveRegistrado) return
-  autosaveRegistrado = true
-  watch(
-    [ctx.lineas, ctx.totalRealCaja, ctx.montoTransferencia, ctx.pagoTrabajador, ctx.notasCuadre, ctx.trabajadorTurnoId],
+  // Re-registrar en cada montaje, no solo la primera vez. Un watch creado
+  // dentro de un componente muere con él: al navegar a otra vista y volver,
+  // el watcher anterior ya fue destruido por Vue, pero la bandera decía
+  // "registrado" y no se re-creaba, dejando el autoguardado mudo (las
+  // cantidades escritas tras la segunda visita no se guardaban).
+  if (detenerAutosave) detenerAutosave()
+  const parar = watch(
+    [
+      ctx.lineas,
+      ctx.totalRealCaja,
+      ctx.montoTransferencia,
+      ctx.montoFiado,
+      ctx.montoCobradoFiado,
+      ctx.pagoTrabajador,
+      ctx.notasCuadre,
+      ctx.trabajadorTurnoId
+    ],
     () => programarAutosave(),
     { deep: true }
   )
+  detenerAutosave = parar
+  // Limpia al desmontar el componente que lo creó, para no dejar un watch
+  // colgando apuntando a un ctx de una vista que ya no existe.
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      parar()
+    })
+  }
+}
+
+// Vuelca de inmediato lo que hubiera pendiente en el debounce. Se usa al
+// perder el foco de un campo y al mandar la app a segundo plano, donde
+// esperar el temporizador implicaría perder el cambio.
+function flushAutosave() {
+  if (!autosaveTimer) return
+  clearTimeout(autosaveTimer)
+  autosaveTimer = null
+  guardarCuadreBorrador().catch(reportarFalloAutosave)
+}
+
+// Al mandar la app a segundo plano (o cerrar la pestaña) se guarda de
+// inmediato lo pendiente: sin esto, el debounce se pierde y las últimas
+// cantidades escritas se van con el proceso. Se registra una sola vez a
+// nivel módulo y consulta el ctx vivo, igual que el watcher.
+let segundoPlanoRegistrado = false
+
+function registrarGuardadoEnSegundoPlano() {
+  if (segundoPlanoRegistrado) return
+  segundoPlanoRegistrado = true
+  if (typeof document === 'undefined') return
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushAutosave()
+  })
+  window.addEventListener('pagehide', () => {
+    flushAutosave()
+  })
 }
 
 export function useCuadre() {
@@ -152,6 +242,11 @@ export function useCuadre() {
   const salarioBaseTrabajador = useState('cuadre-salario-base', () => 600)
 
   const expandida = reactive(new Set())
+
+  // El pago al trabajador sigue al cálculo (base + 1% de lo vendido) mientras
+  // el jefe no lo edite a mano. Solo memoria: se deduce del valor guardado
+  // (ver cargarDatos), así que no necesita persistirse ni migración.
+  const pagoManual = ref(false)
 
   const hoy = hoyLocal()
 
@@ -188,15 +283,36 @@ export function useCuadre() {
     return 'Cuadre del día ' + d.toLocaleDateString('es-ES', { weekday: 'long' })
   })
 
-  watch(trabajadorTurnoId, async (nuevoId) => {
+  // Elegir trabajador: cambia la base y reinicia el pago al cálculo. Si ya
+  // había una cifra manual, el nuevo trabajador parte del cálculo de su
+  // base (elegir a otra persona reinicia el monto, no arrastra el anterior).
+  watch(trabajadorTurnoId, async (nuevoId, anterior) => {
     await cargarSalarioTrabajador(nuevoId)
-    // Solo auto-rellena si está vacío: respeta el pago manual restaurado.
     if (nuevoId) {
-      if (pagoTrabajador.value == null) pagoTrabajador.value = salarioCalculado.value
+      if (anterior) pagoManual.value = false
+      if (pagoTrabajador.value == null || !pagoManual.value) {
+        pagoTrabajador.value = salarioCalculado.value
+      }
     } else {
       pagoTrabajador.value = null
+      pagoManual.value = false
     }
   })
+
+  // Mientras el pago sea automático, se recalcula con cada venta: el bono
+  // depende del total esperado, así que escribir 10 panes lo actualiza.
+  // No hay bucle: pagoTrabajador no entra en salarioCalculado.
+  watch(salarioCalculado, (nuevoSalario) => {
+    if (!trabajadorTurnoId.value) return
+    if (pagoManual.value) return
+    if (nuevoSalario == null) return
+    pagoTrabajador.value = nuevoSalario
+  })
+
+  // Marca el pago como manual en cuanto el jefe lo toca.
+  function marcarPagoManual() {
+    if (!pagoManual.value) pagoManual.value = true
+  }
 
   async function cargarDatos(puestoId, cuadreId) {
     cargando.value = true
@@ -250,6 +366,14 @@ export function useCuadre() {
       cuadre.value = c
       await cargarLineasDeCuadre(c.id, itemsRepo, !esHistorico)
 
+      // El trabajador y su base se restauran ANTES del pago: sin la base no
+      // se puede saber si el valor guardado era el automático o uno editado a
+      // mano, y la comparación decide si el campo sigue al cálculo.
+      if (c.trabajadorTurnoId != null) {
+        trabajadorTurnoId.value = c.trabajadorTurnoId
+        await cargarSalarioTrabajador(c.trabajadorTurnoId)
+      }
+
       // Los montos de cierre solo se restauran en cuadres cerrados (histórico).
       // Los montos de cierre se restauran siempre del registro: con el
       // autoguardado son el borrador actual (reabrir limpia el registro,
@@ -259,7 +383,11 @@ export function useCuadre() {
       if (c.montoTransferencia != null) montoTransferencia.value = Number(c.montoTransferencia)
       else montoTransferencia.value = 0
       if (c.pagoTrabajador != null) {
-        pagoTrabajador.value = Number(c.pagoTrabajador)
+        const guardado = Number(c.pagoTrabajador)
+        pagoTrabajador.value = guardado
+        // Coincide con el cálculo → fue automático y sigue trackeando.
+        // Difiere → el jefe lo editó, se respeta su cifra.
+        pagoManual.value = Math.abs(guardado - salarioCalculado.value) >= 0.005
       } else if (trabajadorTurnoId.value) {
         pagoTrabajador.value = salarioCalculado.value
       } else {
@@ -272,14 +400,12 @@ export function useCuadre() {
       else montoRegalo.value = 0
       if (c.montoDescuento != null) montoDescuento.value = Number(c.montoDescuento)
       else montoDescuento.value = 0
-      if (c.trabajadorTurnoId != null) {
-        trabajadorTurnoId.value = c.trabajadorTurnoId
-        await cargarSalarioTrabajador(c.trabajadorTurnoId)
-      }
     } catch (err) {
       toast.add({ title: 'Error', description: err.message || 'No se pudo cargar el cuadre.', color: 'error' })
     } finally {
       cargando.value = false
+      // Las líneas con nota se muestran expandidas al entrar al cuadre.
+      expandirConNotas()
       // Reanudar autosave en el próximo tick: evita que la restauración
       // dispare un guardado inmediato de los mismos valores.
       setTimeout(() => {
@@ -294,7 +420,10 @@ export function useCuadre() {
       return
     }
     try {
-      const user = await usuariosRepo.read(usuarioId)
+      // usuariosRepo es un useRepo: devuelve { data, error }, no el registro.
+      // Sin desestructurar, user.salario era siempre undefined y el ?? 600
+      // aplicaba la base por defecto a cualquier trabajador.
+      const { data: user } = await usuariosRepo.read(usuarioId)
       salarioBaseTrabajador.value = user?.salario ?? 600
     } catch {
       salarioBaseTrabajador.value = 600
@@ -333,43 +462,53 @@ export function useCuadre() {
       })
     }
     if (itemsFiltrados.length > 0) {
-    // Coalescer duplicados de productId (las líneas deben ser únicas por
-    // producto; duplicados históricos corrompen el guardado al cerrar).
-      const mapa = new Map()
+      // Coalescer por ID de línea, no por producto: un mismo producto puede
+      // tener varias líneas el mismo día (misma venta partida, p. ej. pan a 10
+      // por la mañana y a 12 por la tarde). Solo se suman las líneas que
+      // comparten id, que es la corrupción histórica que había que reparar.
+      const porId = new Map()
       for (const l of itemsFiltrados.map(normalizarLinea)) {
-        const prev = mapa.get(l.productoId)
+        const prev = porId.get(l.id)
         if (!prev) {
-          mapa.set(l.productoId, { ...l })
+          porId.set(l.id, { ...l })
           continue
         }
         prev.cantidad = (Number(prev.cantidad) || 0) + (Number(l.cantidad) || 0)
         prev.subtotal = Math.round(((Number(prev.subtotal) || 0) + (Number(l.subtotal) || 0)) * 100) / 100
-        prev.esExtra = prev.esExtra || l.esExtra
-        if (l.tipoLinea !== 'normal' && prev.tipoLinea === 'normal') prev.tipoLinea = l.tipoLinea
-        if (!prev.nota) prev.nota = l.nota
       }
-      // Fusionar productos activados después (solo agregan, nunca borran).
+      const lineasCargadas = [...porId.values()]
+
+      // Catálogo: un producto aparece si no tiene NINGUNA línea todavía. Se
+      // comprueba por producto (no por clave de mapa) para no añadir otra
+      // línea a un producto que ya tiene original y duplicadas.
       if (autoPopulate) {
+        const conLinea = new Set(lineasCargadas.map(l => l.productoId))
         for (const prod of productosActivos.value) {
-          if (!mapa.has(prod.id)) {
-            mapa.set(prod.id, {
-              id: generateId(),
-              cuadreId,
-              productoId: prod.id,
-              precioVentaUsado: prod.precioVentaActual,
-              cantidad: 0,
-              subtotal: 0,
-              tipoLinea: 'normal',
-              nota: null,
-              esExtra: false
-            })
-          }
+          if (conLinea.has(prod.id)) continue
+          lineasCargadas.push({
+            id: generateId(),
+            cuadreId,
+            productoId: prod.id,
+            precioVentaUsado: prod.precioVentaActual,
+            cantidad: 0,
+            subtotal: 0,
+            tipoLinea: 'normal',
+            nota: null,
+            esExtra: false
+          })
         }
       }
-      lineas.value = [...mapa.values()]
-      // Orden de catálogo (los fusionados no quedan al final sueltos).
+      lineas.value = lineasCargadas
+      // Orden de catálogo; las duplicadas (esExtra) quedan justo detrás de
+      // su original, de modo que se leen juntas.
       const ordenDe = new Map(productosActivos.value.map(p => [p.id, Number(p.orden ?? 9999)]))
-      lineas.value.sort((a, b) => (ordenDe.get(a.productoId) ?? 9999) - (ordenDe.get(b.productoId) ?? 9999))
+      lineas.value.sort((a, b) => {
+        const pa = ordenDe.get(a.productoId) ?? 9999
+        const pb = ordenDe.get(b.productoId) ?? 9999
+        if (pa !== pb) return pa - pb
+        if (a.esExtra !== b.esExtra) return a.esExtra ? 1 : -1
+        return 0
+      })
     } else if (autoPopulate) {
       lineas.value = productosActivos.value.map(prod => ({
         id: generateId(),
@@ -437,11 +576,15 @@ export function useCuadre() {
       return n.cuadreId === cuadre.value.id
     })
 
-    const existentesMap = new Map(itemsExistentes.map(i => [i.productoId, i]))
+    // Clave por ID de línea (no por producto): un producto puede tener varias
+    // líneas el mismo día con precios distintos, y cada una se crea/actualiza
+    // por separado. Clave por producto haría que la duplicada sobrescribiera a
+    // la original y que el borrado final se llevara por delante una de las dos.
+    const existentesMap = new Map(itemsExistentes.map(i => [i.id, i]))
     const lineasGuardadas = new Set()
 
     for (const linea of lineas.value) {
-      const existente = existentesMap.get(linea.productoId)
+      const existente = existentesMap.get(linea.id)
       if (existente) {
         const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
           || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
@@ -458,9 +601,13 @@ export function useCuadre() {
             esExtra: linea.esExtra
           })
         }
-        lineasGuardadas.add(linea.productoId)
+        lineasGuardadas.add(linea.id)
       } else {
+        // El id se envía explícito: la línea ya nació en memoria (id generado
+        // al duplicar o al auto-añadir el producto) y el autoguardado la
+        // reconoce en la siguiente pasada en vez de duplicarla.
         await itemsRepo.create({
+          id: linea.id,
           cuadreId: linea.cuadreId,
           productoId: linea.productoId,
           precioVentaUsado: linea.precioVentaUsado,
@@ -470,11 +617,12 @@ export function useCuadre() {
           nota: linea.nota,
           esExtra: linea.esExtra
         })
+        lineasGuardadas.add(linea.id)
       }
     }
 
     for (const existente of itemsExistentes) {
-      if (!lineasGuardadas.has(existente.productoId)) {
+      if (!lineasGuardadas.has(existente.id)) {
         await itemsRepo.remove(existente.id)
       }
     }
@@ -482,17 +630,68 @@ export function useCuadre() {
 
   // Autoguardado del borrador: el estado y el watch viven a nivel módulo
   // (singleton) aunque useCuadre() se instancie en varios componentes.
+  // `lineas` TIENE que estar aquí: es la fuente que dispara el guardado de
+  // cantidades y precios. Sin ella, ctx.lineas era undefined, Vue observaba
+  // una fuente inexistente sin avisar y teclear cantidades no programaba
+  // ningún guardado (el total se veía bien porque es un computed en memoria,
+  // pero al recargar todo volvía a 0). Los montos de fiado también se
+  // persisten en guardarCuadreBorrador, así que se observan igual.
   registrarAutosave({
-    cuadre, esTrabajador, db, conexion, persistirLineas, cuadreRepo,
+    cuadre, lineas, esTrabajador, db, conexion, persistirLineas, cuadreRepo,
     totalRealCaja, montoTransferencia, montoRegalo, montoDescuento,
-    trabajadorTurnoId, pagoTrabajador, notasCuadre
+    montoFiado, montoCobradoFiado,
+    trabajadorTurnoId, pagoTrabajador, notasCuadre, toast
   })
+  registrarGuardadoEnSegundoPlano()
 
   function toggleExpandir(lineaId) {
     if (expandida.has(lineaId)) {
       expandida.delete(lineaId)
     } else {
       expandida.add(lineaId)
+    }
+  }
+
+  // Añade una segunda línea del mismo producto para cuando el precio cambió a
+  // mitad del día. Nace con el precio ACTUAL del catálogo (no copia el de la
+  // línea original: justo lo que se necesita cambiar es ese) y cantidad 0.
+  // Va marcada esExtra, que es la bandera que el esquema ya tenía prevista.
+  function duplicarLinea(linea) {
+    const prod = productosActivos.value.find(p => p.id === linea.productoId)
+    const nueva = {
+      id: generateId(),
+      cuadreId: linea.cuadreId,
+      productoId: linea.productoId,
+      precioVentaUsado: prod ? Number(prod.precioVentaActual) : Number(linea.precioVentaUsado),
+      cantidad: 0,
+      subtotal: 0,
+      tipoLinea: 'normal',
+      nota: null,
+      esExtra: true
+    }
+    const idx = lineas.value.findIndex(l => l.id === linea.id)
+    lineas.value.splice(idx + 1, 0, nueva)
+    expandida.add(nueva.id)
+    return nueva
+  }
+
+  // Solo las duplicadas se pueden quitar: la línea del catálogo representa la
+  // venta original del día y no puede desaparecer.
+  function eliminarLinea(lineaId) {
+    const idx = lineas.value.findIndex(l => l.id === lineaId)
+    if (idx === -1) return
+    if (!lineas.value[idx].esExtra) return
+    lineas.value.splice(idx, 1)
+    expandida.delete(lineaId)
+  }
+
+  // Al cargar el cuadre, deja visibles las líneas con nota: si el jefe dejó
+  // una nota ayer y vuelve hoy, tiene que enterarse sin desplegar a ciegas.
+  function expandirConNotas() {
+    for (const l of lineas.value) {
+      if (l.nota != null && String(l.nota).trim() !== '') {
+        expandida.add(l.id)
+      }
     }
   }
 
@@ -645,7 +844,9 @@ export function useCuadre() {
     totalEsperado, faltanteReal, salarioCalculado, diferencia, tipoDiferencia, esTrabajador, tituloCuadre,
     cargarDatos, recalcularSubtotal,
     toggleExpandir, cerrarCuadre, reabrirCuadre,
+    duplicarLinea, eliminarLinea, expandirConNotas,
     procesarImportacionJSON, getProductoNombre,
+    marcarPagoManual, flushAutosave,
     hoy
   }
 }

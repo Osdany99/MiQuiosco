@@ -252,8 +252,12 @@ const fetchError = computed(() => {
   return repoTable?.fetchError.value ?? null
 })
 
+// Devuelve la promesa del refetch a propósito: quien la espere (p. ej. el
+// reordenamiento por arrastre) necesita saber cuándo llegaron los datos
+// frescos para tocar el DOM después, no antes.
 function refresh() {
-  if (repoTable) repoTable.refresh()
+  if (repoTable) return repoTable.refresh()
+  return Promise.resolve()
 }
 
 const {
@@ -269,7 +273,16 @@ const {
   handleSubmit
 } = useTableCrud(props, emit, form, refresh)
 
-const columnHeaders = computed(() => props.columns.map(c => c.header))
+// Una columna estructural puede declarar header: '' (p. ej. la de arrastre en
+// productos). Esa cadena vacía se colaba como item del USelectMenu y Reka la
+// rechaza: "<ComboboxItem /> must have a value prop that is not an empty
+// string". Se excluyen del selector, pero la columna se sigue renderizando
+// siempre (ver esColumnaEstructural más abajo).
+const esColumnaEstructural = c => !c.header
+
+const columnasSeleccionables = computed(() => props.columns.filter(c => !esColumnaEstructural(c)))
+
+const columnHeaders = computed(() => columnasSeleccionables.value.map(c => c.header))
 const visibleHeaders = ref(
   props.columns.filter(c => c.visible !== false).map(c => c.header)
 )
@@ -288,7 +301,7 @@ watch(columnHeaders, (newHeaders, oldHeaders) => {
 })
 
 const filteredColumns = computed(() =>
-  props.columns.filter(c => visibleHeaders.value.includes(c.header))
+  props.columns.filter(c => esColumnaEstructural(c) || visibleHeaders.value.includes(c.header))
 )
 
 const hasActionsColumn = computed(() =>

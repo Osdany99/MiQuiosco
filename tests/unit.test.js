@@ -87,14 +87,31 @@ describe('fmtPrecio y calcularSalario', () => {
     const s = fmtPrecio(1234)
     assert.match(s, /1.*234/)
   })
-  it('calcularSalario: base + 1% de lo vendido (15000 → 750)', () => {
-    assert.equal(calcularSalario(600, 15000), 750)
+  // El bono es 1% solo de lo vendido por encima de 10000: los primeros
+  // 10 000 del día no cuentan.
+  it('calcularSalario: 20000 → base + 100 (el ejemplo del jefe)', () => {
+    assert.equal(calcularSalario(600, 20000), 700)
   })
-  it('calcularSalario: 8000 → 680', () => {
-    assert.equal(calcularSalario(600, 8000), 680)
+  it('calcularSalario: justo en el umbral (10000) → solo la base', () => {
+    assert.equal(calcularSalario(600, 10000), 600)
   })
-  it('calcularSalario: 25000 → 850', () => {
-    assert.equal(calcularSalario(600, 25000), 850)
+  it('calcularSalario: por debajo del umbral (8000) → solo la base', () => {
+    assert.equal(calcularSalario(600, 8000), 600)
+  })
+  it('calcularSalario: 15000 → 50 de bono (750? no: 650)', () => {
+    assert.equal(calcularSalario(600, 15000), 650)
+  })
+  it('calcularSalario: 25000 → 150 de bono', () => {
+    assert.equal(calcularSalario(600, 25000), 750)
+  })
+  it('calcularSalario: un día en blanco no resta la base', () => {
+    assert.equal(calcularSalario(600, 0), 600)
+  })
+  it('calcularSalario: base distinta (800) + excedente de 20000 → 900', () => {
+    assert.equal(calcularSalario(800, 20000), 900)
+  })
+  it('calcularSalario: total indefinido no rompe el cálculo', () => {
+    assert.equal(calcularSalario(600, undefined), 600)
   })
 })
 
@@ -127,6 +144,70 @@ describe('calcularSubtotalLinea', () => {
   })
   it('redondea a centavos', () => {
     assert.equal(calcularSubtotalLinea(10.333, 3), 31)
+  })
+})
+
+// --- orden de productos por arrastre (productos.vue) ---
+describe('mover (reordenamiento de productos)', () => {
+  const mover = (ids, from, to) => {
+    const arr = [...ids]
+    const [m] = arr.splice(from, 1)
+    arr.splice(to, 0, m)
+    return arr.map((id, i) => ({ id, orden: i + 1 }))
+  }
+
+  it('soltar el 3ro de primero lo deja primero (el caso que fallaba)', () => {
+    const r = mover(['p1', 'p2', 'p3'], 2, 0)
+    assert.deepEqual(r, [
+      { id: 'p3', orden: 1 },
+      { id: 'p1', orden: 2 },
+      { id: 'p2', orden: 3 }
+    ])
+  })
+
+  it('soltar el 1ro al final lo deja último', () => {
+    const r = mover(['p1', 'p2', 'p3'], 0, 2)
+    assert.deepEqual(r, [
+      { id: 'p2', orden: 1 },
+      { id: 'p3', orden: 2 },
+      { id: 'p1', orden: 3 }
+    ])
+  })
+
+  it('mover una fila al medio con 4 elementos', () => {
+    const r = mover(['p1', 'p2', 'p3', 'p4'], 3, 1)
+    assert.deepEqual(r, [
+      { id: 'p1', orden: 1 },
+      { id: 'p4', orden: 2 },
+      { id: 'p2', orden: 3 },
+      { id: 'p3', orden: 4 }
+    ])
+  })
+
+  it('el orden es siempre 1..n sin huecos ni repetidos', () => {
+    const r = mover(['a', 'b', 'c', 'd', 'e'], 2, 4)
+    assert.deepEqual(r.map(x => x.orden), [1, 2, 3, 4, 5])
+    assert.equal(new Set(r.map(x => x.id)).size, 5)
+  })
+})
+
+// --- líneas duplicadas del cuadre (mismo producto, distinto precio) ---
+describe('líneas de cuadre con el mismo producto', () => {
+  it('el total esperado suma ambas líneas (pan a 10 y a 12)', () => {
+    const lineas = [
+      { productoId: 'pan', precioVentaUsado: 10, cantidad: 2, subtotal: 20, esExtra: false },
+      { productoId: 'pan', precioVentaUsado: 12, cantidad: 4, subtotal: 48, esExtra: true }
+    ]
+    const total = lineas.reduce((s, l) => s + l.subtotal, 0)
+    assert.equal(total, 68)
+  })
+
+  it('el tope de fiado consume las unidades de ambas líneas', () => {
+    const map = sumarPorProducto([
+      { productoId: 'pan', cantidad: 2 },
+      { productoId: 'pan', cantidad: 4 }
+    ])
+    assert.equal(map.get('pan'), 6)
   })
 })
 

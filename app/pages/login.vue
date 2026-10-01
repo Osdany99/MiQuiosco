@@ -255,17 +255,28 @@ async function onSubmit() {
           />
         </template>
         <template v-else-if="huellaEnrolled">
-          <UButton
-            icon="i-lucide-fingerprint"
-            size="xl"
-            color="primary"
-            variant="soft"
-            square
-            :loading="cargandoHuella"
-            class="rounded-full size-20 [&_span]:size-10"
+          <!-- Botón propio en vez de UButton: con square + size-20 + [&_span] se
+               peleaban tres reglas de tamaño y el icono quedaba descentrado
+               por el gap interno del slot de etiqueta. grid place-items-center
+               centra de verdad, sin depender de los slots de UButton. -->
+          <button
+            type="button"
+            class="size-20 rounded-full grid place-items-center bg-primary/10 text-primary active:scale-95 transition disabled:opacity-60"
+            :disabled="cargandoHuella"
             aria-label="Entrar con huella"
             @click="entrarConHuella"
-          />
+          >
+            <UIcon
+              v-if="!cargandoHuella"
+              name="i-lucide-fingerprint"
+              class="size-10"
+            />
+            <UIcon
+              v-else
+              name="i-lucide-loader-circle"
+              class="size-8 animate-spin"
+            />
+          </button>
           <div class="text-center">
             <p class="font-medium">
               {{ huellaUsuario || 'Mi cuenta' }}

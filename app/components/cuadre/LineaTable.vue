@@ -21,21 +21,61 @@
 
       <template #producto-cell="{ row }">
         <div>
-          <div class="flex items-center gap-2">
-            <span class="font-medium">{{ getProductoNombre(row.original.productoId) }}</span>
+          <!-- Columna estrecha a propósito: en el móvil tiene que caber
+               Producto + Cantidad sin scroll horizontal, porque la cantidad
+               es lo que se teclea docenas de veces al día. -->
+          <div class="flex items-center gap-1">
+            <!-- Tocar el nombre despliega la nota: un chevron más solo
+                 ensanchaba la columna. -->
+            <button
+              type="button"
+              class="font-medium truncate max-w-28 text-left cursor-pointer"
+              title="Tocar para ver la nota"
+              @click="toggleExpandir(row.original.id)"
+            >
+              {{ getProductoNombre(row.original.productoId) }}
+            </button>
             <UButton
-              :icon="expandida.has(row.original.id) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+              v-if="row.original.esExtra"
+              color="warning"
+              size="xs"
+              class="font-mono"
+              :label="`${fmtPrecio(row.original.precioVentaUsado)}`"
+            />
+            <!-- Solo las líneas de catálogo se duplican: duplicar una
+                 duplicada solo crearía cadenas de copias sin sentido. -->
+            <UButton
+              v-if="!readonly && !row.original.esExtra"
+              icon="i-lucide-copy"
               variant="ghost"
               size="xs"
-              @click="toggleExpandir(row.original.id)"
+              title="Duplicar línea (otro precio)"
+              @click.stop="duplicar(row.original)"
+            />
+            <UButton
+              v-if="!readonly && row.original.esExtra"
+              icon="i-lucide-trash-2"
+              variant="ghost"
+              color="error"
+              size="xs"
+              title="Quitar esta línea"
+              @click.stop="aEliminar = row.original; eliminarOpen = true"
             />
           </div>
+          <!-- La nota vive dentro del ancho de la columna, no la estira.
+               Textarea con autoresize: una nota corta ocupa 1 línea (igual que
+               un input) y una "un poco larga" crece y se lee completa con wrap,
+               en vez de desbordarse a la derecha donde no se puede leer. -->
           <div v-if="expandida.has(row.original.id)" class="mt-1">
-            <UInput
+            <UTextarea
               v-model="row.original.nota"
-              placeholder="Nota libre (opcional)"
+              placeholder="Nota (opcional)"
+              :rows="1"
+              autoresize
+              :maxrows="4"
+              :maxlength="200"
               size="sm"
-              class="w-64"
+              class="w-full max-w-44"
               :disabled="readonly"
             />
           </div>
@@ -46,7 +86,7 @@
         <BaseInputNumber
           v-model="row.original.precioVentaUsado"
           class="w-28"
-          :disabled="readonly"
+          :disabled="readonly || !row.original.esExtra"
           :readonly="bloqueado(row.original.id)"
           :increment="false"
           :decrement="false"
@@ -71,6 +111,20 @@
         />
       </template>
     </BaseTable>
+
+    <BaseDialog
+      v-model="eliminarOpen"
+      title="Quitar línea"
+      confirm-text="Quitar"
+      confirm-color="error"
+      @confirm="confirmarEliminar"
+      @cancel="eliminarOpen = false"
+    >
+      <p class="text-sm">
+        Se quitará la línea de <strong>{{ aEliminar ? getProductoNombre(aEliminar.productoId) : '' }}</strong>
+        a {{ aEliminar ? fmtPrecio(aEliminar.precioVentaUsado) : '' }}.
+      </p>
+    </BaseDialog>
   </div>
 </template>
 
@@ -80,8 +134,22 @@ const emit = defineEmits(['reload'])
 const {
   lineas, expandida, cargando,
   recalcularSubtotal, toggleExpandir,
-  getProductoNombre, procesarImportacionJSON
+  getProductoNombre, procesarImportacionJSON,
+  flushAutosave, duplicarLinea, eliminarLinea
 } = useCuadre()
+
+const eliminarOpen = ref(false)
+const aEliminar = ref(null)
+
+function duplicar(linea) {
+  duplicarLinea(linea)
+}
+
+function confirmarEliminar() {
+  if (aEliminar.value) eliminarLinea(aEliminar.value.id)
+  aEliminar.value = null
+  eliminarOpen.value = false
+}
 
 const importJsonFile = ref(null)
 watch(importJsonFile, (file) => {
@@ -122,6 +190,9 @@ function activarEdicion(linea, e) {
 function terminarEdicion() {
   if (reEnfocando) return
   editandoId.value = null
+  // Al salir del campo ya no hay nada que seguir editando: se guarda de
+  // inmediato en vez de esperar al debounce.
+  flushAutosave()
 }
 
 function soltarFoco() {

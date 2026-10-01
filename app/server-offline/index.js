@@ -49,19 +49,23 @@ const OFFLINE_CONFIGS = [
         const { pin, ...resto } = datos
         return { ...resto, pinHash: await hashPin(pin) }
       },
-      beforeUpdate: async (cambios, auth) => {
-        // Guard: último jefe no puede quitarse el rol/desactivarse
-        const esAutocambio = auth?.usuarioActual?.value?.id && cambios && (cambios.rol != null || cambios.activo === false)
-        if (esAutocambio) {
-          const authId = auth?.usuarioActual?.value?.id
+      beforeUpdate: async (cambios, auth, id) => {
+        // Guard: el último jefe no puede quitarse el rol ni desactivarse a sí
+        // mismo. Solo aplica si el usuario EDITADO es el autenticado: antes
+        // bastaba con que hubiera alguien logueado (el formulario siempre
+        // envía rol/activo), así que editar a un trabajador disparaba este
+        // error leyendo el registro del jefe en lugar del editado.
+        const authId = auth?.usuarioActual?.value?.id
+        const tocaRolOActivo = cambios && (cambios.rol != null || cambios.activo === false)
+        if (authId && id === authId && tocaRolOActivo) {
           const intentaQuitarJefe = cambios.rol != null && cambios.rol !== 'jefe'
           const intentaDesactivar = cambios.activo === false
           if (intentaQuitarJefe || intentaDesactivar) {
             const db = useDb()
-            const target = await db.getById('usuarios', authId)
+            const target = await db.getById('usuarios', id)
             if (target?.rol === 'jefe') {
               const todos = await db.queryAll('usuarios')
-              const otrosJefes = todos.filter(u => u.rol === 'jefe' && u.activo && u.id !== authId)
+              const otrosJefes = todos.filter(u => u.rol === 'jefe' && u.activo && u.id !== id)
               if (otrosJefes.length === 0) {
                 throw new Error('No puedes quitarte el rol de jefe o desactivarte si eres el último jefe activo.')
               }

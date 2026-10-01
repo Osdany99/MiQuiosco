@@ -19,7 +19,10 @@ const columns = [
   { id: 'drag', header: '' },
   { accessorKey: 'id', header: 'ID', visible: false },
   { accessorKey: 'nombre', header: 'Producto' },
-  { accessorKey: 'descripcion', header: 'Descripción' },
+  { accessorKey: 'descripcion', header: 'Descripción', visible: false },
+  // Solo lectura y oculta: sirve para verificar el orden real tras un
+  // arrastre. El orden no se edita a mano (el drag es la única vía).
+  { accessorKey: 'orden', header: 'Orden', visible: false },
   { accessorKey: 'precioCompraActual', header: 'Precio Compra', cell: 'currency' },
   { accessorKey: 'precioVentaActual', header: 'Precio Venta', cell: 'currency' },
   { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
@@ -51,9 +54,13 @@ function nuevoProducto() {
   form.value.orden = maxOrden() + 1
 }
 
+function tbodyEl() {
+  return tableRef.value?.$el?.querySelector('tbody') ?? null
+}
+
 function initSortable() {
   destruirSortable()
-  const tbody = tableRef.value?.$el?.querySelector('tbody')
+  const tbody = tbodyEl()
   if (!tbody) return
   sortable = new Sortable(tbody, {
     handle: '.drag-handle',
@@ -63,6 +70,9 @@ function initSortable() {
     delayOnTouchOnly: true,
     touchStartThreshold: 5,
     scrollSensitivity: 60,
+    // Solo vertical: en móvil el arrastre diagonal saltaba filas de más.
+    direction: 'vertical',
+    ghostClass: 'opacity-40',
     onEnd: reordenar
   })
 }
@@ -72,23 +82,56 @@ function destruirSortable() {
   sortable = null
 }
 
-async function reordenar() {
-  const tbody = tableRef.value?.$el?.querySelector('tbody')
-  if (!tbody || reordenando.value) return
-  const ids = [...tbody.querySelectorAll('tr .drag-handle')]
-    .map(el => el.dataset.id)
-    .filter(Boolean)
-  if (!ids.length) return
+// Mueve un elemento del arreglo y renumera 1..n. Se trabaja sobre los DATOS
+// (que ya vienen ordenados por 'orden') en vez de sobre el DOM: leer el DOM
+// después del arrastre era lo que fallaba en táctil, porque Sortable puede
+// dejar la fila una posición más abajo de donde el dedo apuntaba y eso se
+// guardaba tal cual.
+function mover(ids, from, to) {
+  const arr = [...ids]
+  const [movido] = arr.splice(from, 1)
+  arr.splice(to, 0, movido)
+  return arr.map((id, i) => ({ id, orden: i + 1 }))
+}
+
+// Sortable mueve la fila en el DOM por su cuenta (optimista) antes de que
+// sepamos si el guardado funcionó. Se devuelve la fila a su posición original
+// para que la pantalla nunca muestre un orden que no esté guardado.
+function revertirFila(tbody, item, oldIndex) {
+  if (!item || oldIndex == null) return
+  // La posición se mide sobre las filas SIN la arrastrada: si no, al devolver
+  // una fila que venía de abajo el índice contaría dos veces y aterrizaría una
+  // posición más arriba de la original.
+  const otras = [...tbody.children].filter(el => el !== item)
+  const referencia = otras[oldIndex] ?? null
+  tbody.insertBefore(item, referencia)
+}
+
+async function reordenar(evt) {
+  if (reordenando.value) return
+  const from = evt?.oldIndex
+  const to = evt?.newIndex
+  if (from == null || to == null || from === to) return
+  const tbody = tbodyEl()
+  if (!tbody) return
+
+  const actuales = filas().map(r => String(r.id))
+  if (from < 0 || from >= actuales.length || to < 0 || to >= actuales.length) return
+
+  // Primero se suelta Sortable: si sigue vivo, insertBefore se pelea con él.
+  destruirSortable()
+  revertirFila(tbody, evt?.item, from)
+
+  const objetivo = mover(actuales, from, to)
   const porId = new Map(filas().map(r => [String(r.id), r]))
   reordenando.value = true
   try {
     // useRepo.patch devuelve { data, error }: hay que inspeccionar cada
     // resultado porque Promise.all no rechaza (los errores van en error).
-    const resultados = await Promise.all(ids.map((id, i) => {
+    const resultados = await Promise.all(objetivo.map(({ id, orden }) => {
       const row = porId.get(id)
-      const nuevo = i + 1
-      if (!row || Number(row.orden) === nuevo) return null
-      return patch(row.id, { orden: nuevo })
+      if (!row || Number(row.orden) === orden) return null
+      return patch(row.id, { orden })
     }))
     const fallos = resultados.filter(r => r && r.error).length
     if (fallos > 0) {
@@ -100,7 +143,11 @@ async function reordenar() {
     }
   } finally {
     reordenando.value = false
+    // El refetch trae los productos ya ordenados por 'orden'. Await real
+    // (Table.refresh devuelve la promesa) + un tick para que Vue pinte, y solo
+    // después se engancha Sortable sobre el DOM definitivo.
     await tableRef.value?.refresh()
+    await nextTick()
     initSortable()
   }
 }

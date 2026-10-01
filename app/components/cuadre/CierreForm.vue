@@ -7,7 +7,7 @@
     </template>
 
     <div class="space-y-4">
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
         <UFormField label="Dinero real en caja" required>
           <BaseInputNumber
             v-model="totalRealCaja"
@@ -15,17 +15,9 @@
             :disabled="readonly"
           />
         </UFormField>
-
-        <UFormField label="Monto en transferencia">
-          <BaseInputNumber
-            v-model="montoTransferencia"
-            placeholder="0"
-            :disabled="true"
-          />
-        </UFormField>
       </div>
       <p class="text-xs text-gray-500 -mt-3">
-        Transferencias y ajustes (regalos/descuentos) se registran en sus apartados y se suman automáticamente al cierre.
+        El monto en transferencia se ve en su propio apartado y los ajustes (regalos/descuentos) se suman automáticamente al cierre.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -34,6 +26,7 @@
             v-model="pagoTrabajador"
             placeholder="0"
             :disabled="readonly"
+            @update:model-value="marcarPagoManual"
           />
         </UFormField>
       </div>
@@ -74,9 +67,9 @@ import { TABLES } from '../../../shared/tables'
 const usuarioConfig = TABLES.usuarios
 
 const {
-  totalRealCaja, montoTransferencia,
+  totalRealCaja,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
-  salarioCalculado
+  salarioCalculado, marcarPagoManual
 } = useCuadre()
 
 const repo = useRepo(usuarioConfig)

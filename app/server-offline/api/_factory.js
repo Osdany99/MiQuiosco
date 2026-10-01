@@ -179,7 +179,9 @@ export function createOfflineModule(config, overrides = {}) {
 
   async function update(id, cambios, auth) {
     guard(auth)
-    const payload = await beforeUpdate({ ...cambios }, auth)
+    // El id se pasa al hook para que los guards puedan distinguir a quién se
+    // está editando del usuario autenticado (ver guard del último jefe).
+    const payload = await beforeUpdate({ ...cambios }, auth, id)
 
     if (config.customMutations?.update) {
       const row = await config.customMutations.update(makeCtx(), id, payload, auth)
