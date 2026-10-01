@@ -32,7 +32,10 @@ const graficas = [
   { key: 'comparativa-por-trabajador', titulo: 'Comparativa por trabajador', descripcion: 'Ventas y diferencias comparadas entre trabajadores', icon: 'i-lucide-user-round-cog' }
 ]
 
-const graficaActiva = ref(null)
+// La ganancia por período es la gráfica que se mira casi siempre: es la que
+// dice si el día salió bien. Arranca seleccionada para no tener que buscarla.
+const GRAFICA_POR_DEFECTO = 'ganancia-por-periodo'
+const graficaActiva = ref(graficas.find(g => g.key === GRAFICA_POR_DEFECTO) ?? null)
 const datosGrafica = ref([])
 const cargando = ref(false)
 const fechaDesde = ref(null)
@@ -66,6 +69,10 @@ onMounted(async () => {
   const prods = await productoRepo.readAll({ query: { orderBy: 'nombre' } })
   const lista = Array.isArray(prods) ? prods : (prods?.data ?? [])
   productosParaSelector.value = lista.map(p => ({ label: p.nombre, value: p.id }))
+
+  // La gráfica por defecto ya viene seleccionada: hay que pedirle sus datos
+  // una vez montado el rango y el modo de conexión.
+  if (graficaActiva.value) await cargarGrafica(graficaActiva.value)
 })
 
 async function cargarGrafica(g) {
