@@ -53,9 +53,11 @@ function isoAHoy(d) {
 }
 
 onMounted(async () => {
+  // Rango por defecto: solo el día de hoy en los dos extremos. Es lo que se
+  // mira casi siempre (el cuadre del día); el mes se elige a mano cuando hace
+  // falta revisar una tendencia.
   const hoy = new Date()
-  const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-  fechaDesde.value = isoAHoy(hace30)
+  fechaDesde.value = isoAHoy(hoy)
   fechaHasta.value = isoAHoy(hoy)
 
   await conexion.cargar().catch(() => {})
