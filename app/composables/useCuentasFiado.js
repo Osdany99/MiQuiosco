@@ -2,6 +2,8 @@ import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
 import { calcularExcesoTope, sumarPorProducto } from '../../shared/fiadoTope'
 import { consumoPorProductoEnCuadreLocal } from '../utils/topeGeneral'
+import { construirVentaDirecta, lotesConSaldo } from '../../shared/inventario/operaciones'
+import { useDb } from '../server-offline/db/client'
 
 const usuarioConfig = TABLES.usuarios
 const cuentaFiadoConfig = TABLES.cuentas_fiado
@@ -12,6 +14,9 @@ const cuadreItemConfig = TABLES.cuadre_items
 const transferenciaConfig = TABLES.transferencias
 const transferenciaItemConfig = TABLES.transferencia_items
 const ajusteConfig = TABLES.ajustes
+const lotesConfig = TABLES.lotes
+const movimientosConfig = TABLES.movimientos_inventario
+const productosConfig = TABLES.productos
 
 export function useCuentasFiado() {
   const toast = useToast()
@@ -34,6 +39,10 @@ export function useCuentasFiado() {
   const transferenciasRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaConfig) : useLocalRepo(transferenciaConfig))
   const transferenciaItemsRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaItemConfig) : useLocalRepo(transferenciaItemConfig))
   const ajustesRepo = computed(() => esOnline.value ? useRemoteRepo(ajusteConfig) : useLocalRepo(ajusteConfig))
+  const lotesRepo = computed(() => esOnline.value ? useRemoteRepo(lotesConfig) : useLocalRepo(lotesConfig))
+  const movimientosRepo = computed(() => esOnline.value ? useRemoteRepo(movimientosConfig) : useLocalRepo(movimientosConfig))
+  const productosRepo = computed(() => esOnline.value ? useRemoteRepo(productosConfig) : useLocalRepo(productosConfig))
+  const db = useDb()
 
   function r(repo) {
     return repo.value
@@ -299,7 +308,15 @@ export function useCuentasFiado() {
     }
   }
 
-  async function cobrarDeuda({ cuentaFiadoId, cuadreId, monto, formaPago }) {
+  /**
+   * Cobra una deuda, total o parcialmente.
+   *
+   * cuadreId = null significa cobro directo: el jefe cobró por fuera y el
+   * efectivo no entró a la gaveta de ningún cuadre, así que ninguno suma
+   * montoCobradoFiado. El saldo de la cuenta baja igual, y el cuadre de origen
+   * (si lo hay) ve bajar su montoFiado.
+   */
+  async function cobrarDeuda({ cuentaFiadoId, cuadreId = null, monto, formaPago }) {
     cargando.value = true
     try {
       if (esOnline.value) {
@@ -312,6 +329,7 @@ export function useCuentasFiado() {
         const todas = await r(cuentasRepo).readAll()
         const cuenta = todas.find(c => c.id === cuentaFiadoId)
         if (!cuenta) throw new Error('Cuenta no encontrada')
+        if (cuenta.estado === 'pagada') throw new Error('Esta deuda ya está saldada.')
         const saldo = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
         if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
 
@@ -321,15 +339,136 @@ export function useCuentasFiado() {
           montoPagado: nuevoPagado,
           estado: nuevoPagado >= Number(cuenta.montoTotal) ? 'pagada' : 'parcial'
         })
-        await acumularCobroEnCuadre(cuadreId, monto)
+        if (cuadreId) await acumularCobroEnCuadre(cuadreId, monto)
         await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -monto)
       }
-      await cargarActividadDelCuadre(cuadreId)
+      if (cuadreId) await cargarActividadDelCuadre(cuadreId)
+      return { ok: true, directo: !cuadreId }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
+  }
+
+  /**
+   * Deuda directa: el jefe fía por fuera del cuadre (quiosco cerrado, o sin
+   * cuadre abierto). No pasa por el tope ni toca ningún cuadre, pero sí
+   * descuenta inventario y congela su costo FIFO en la propia cuenta.
+   */
+  async function registrarDeudaDirecta({ clienteId, lineas, ubicacion = 'almacen', montoPagadoInicial = 0, formaPagoInicial = 'efectivo' }) {
+    cargando.value = true
+    try {
+      if (esOnline.value) {
+        return await $api('/api/cuentas-fiado/directas', {
+          method: 'POST',
+          body: { clienteId, lineas, ubicacion, montoPagadoInicial, formaPagoInicial },
+          headers: apiHeaders()
+        })
+      }
+      const pid = auth.usuarioActual.value?.puestoId ?? null
+      if (!pid) throw new Error('Sin puesto asignado.')
+      const usuarioId = auth.usuarioActual.value?.id ?? null
+      const ahora = Date.now()
+
+      const [lotesFilas, movs, prods] = await Promise.all([
+        r(lotesRepo).readAll(),
+        r(movimientosRepo).readAll(),
+        r(productosRepo).readAll()
+      ])
+      const lotes = lotesFilas.filter(l => l.puestoId === pid && !l.anulado)
+      const movimientos = movs.filter(m => m.puestoId === pid && !m.anulado)
+      const productos = prods.filter(p => p.puestoId === pid)
+      const porId = new Map(productos.map(p => [p.id, p]))
+
+      const ids = [...new Set(lineas.map(l => l.productoId))]
+      for (const id of ids) {
+        if (!porId.has(id)) throw new Error('Hay productos que no pertenecen a este puesto.')
+      }
+      const lotesPorProducto = new Map(
+        ids.map(id => [id, lotesConSaldo(lotes, movimientos, id, ubicacion)])
+      )
+      const venta = construirVentaDirecta({
+        lineas,
+        lotesPorProducto,
+        ubicacion,
+        motivo: ubicacion === 'almacen' ? 'deuda_directa_almacen' : 'deuda_directa_quiosco',
+        meta: { puestoId: pid, usuarioId, ahora }
+      })
+      if (venta.faltantes.length > 0) {
+        const nombres = venta.faltantes.map(f => porId.get(f.productoId)?.nombre ?? f.productoId).join(', ')
+        throw new Error(`No hay stock suficiente en ${ubicacion} para: ${nombres}.`)
+      }
+      if (montoPagadoInicial > venta.montoTotal) {
+        throw new Error('El pago inicial no puede superar el monto total.')
+      }
+
+      const cuentaId = crypto.randomUUID()
+      await db.transaction(async () => {
+        await r(cuentasRepo).create({
+          id: cuentaId,
+          clienteId,
+          cuadreOrigenId: null,
+          puestoId: pid,
+          montoTotal: venta.montoTotal,
+          montoPagado: montoPagadoInicial,
+          costoTotal: venta.costoTotal,
+          ganancia: venta.ganancia,
+          estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= venta.montoTotal ? 'pagada' : 'parcial'
+        })
+        for (const it of venta.items) {
+          await r(itemsRepo).create({
+            id: it.id,
+            cuentaFiadoId: cuentaId,
+            productoId: it.productoId,
+            cantidad: it.cantidad,
+            precioVentaUsado: it.precioVentaUsado,
+            subtotal: it.subtotal
+          })
+        }
+        for (const m of venta.movimientos) await r(movimientosRepo).create(m)
+        // El pago inicial de una deuda directa es dinero ya cobrado por el
+        // jefe: se guarda como pago directo para no inflar ninguna gaveta.
+        if (montoPagadoInicial > 0) {
+          await r(pagosRepo).create({
+            cuentaFiadoId: cuentaId,
+            cuadreId: null,
+            monto: montoPagadoInicial,
+            formaPago: formaPagoInicial
+          })
+        }
+      })
+      return { id: cuentaId, montoTotal: venta.montoTotal, ganancia: venta.ganancia }
+    } catch (err) {
+      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      throw err
+    } finally {
+      cargando.value = false
+    }
+  }
+
+  /** Todas las deudas del puesto (pagadas incluidas), con saldo derivado. */
+  async function cargarDeudas({ conSaldo = true } = {}) {
+    const todas = await r(cuentasRepo).readAll()
+    const pid = auth.usuarioActual.value?.puestoId ?? null
+    return todas
+      .filter(c => (!pid || c.puestoId === pid) && (!conSaldo || c.estado !== 'pagada'))
+      .map(c => ({
+        ...c,
+        saldoPendiente: Number(c.montoTotal) - Number(c.montoPagado),
+        // cuadreOrigenId null = fiada por fuera del cuadre.
+        directa: !c.cuadreOrigenId
+      }))
+      .sort((a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0))
+  }
+
+  /** Historial de pagos de una deuda, para ver qué entró y por dónde. */
+  async function pagosDeCuenta(cuentaFiadoId) {
+    const todos = await r(pagosRepo).readAll()
+    return todos
+      .filter(p => p.cuentaFiadoId === cuentaFiadoId)
+      .sort((a, b) => new Date(a.creadoEn ?? 0) - new Date(b.creadoEn ?? 0))
   }
 
   /**
@@ -338,7 +477,7 @@ export function useCuentasFiado() {
    * Acepta delta negativo para revertir (edición/eliminación). Piso 0.
    */
   async function acumularCobroEnCuadre(cuadreId, delta) {
-    if (esOnline.value || !delta) return
+    if (esOnline.value || !delta || !cuadreId) return
     const cuadre = await r(cuadresRepo).read(cuadreId)
     if (!cuadre) return
     await r(cuadresRepo).update(cuadreId, {
@@ -353,7 +492,8 @@ export function useCuentasFiado() {
    * cobro entre en otro cuadre). Piso 0 por registros anteriores al ajuste.
    */
   async function acumularFiadoEnCuadre(cuadreId, delta) {
-    if (esOnline.value || !delta) return
+    // Las deudas directas no tienen cuadre de origen: su saldo baja solo.
+    if (esOnline.value || !delta || !cuadreId) return
     const cuadre = await r(cuadresRepo).read(cuadreId)
     if (!cuadre) return
     await r(cuadresRepo).update(cuadreId, {
@@ -375,7 +515,7 @@ export function useCuentasFiado() {
     clientes, cuentasDelCuadre, pagosDelCuadre, cargando,
     montoFiadoCalculado, montoCobradoFiadoCalculado,
     cargarClientes, cargarActividadDelCuadre, crearCliente,
-    registrarNuevaDeuda, editarDeuda, eliminarDeuda, cobrarDeuda,
-    itemsDeCuenta, cuentasConSaldoPendiente
+    registrarNuevaDeuda, registrarDeudaDirecta, editarDeuda, eliminarDeuda, cobrarDeuda,
+    itemsDeCuenta, cuentasConSaldoPendiente, cargarDeudas, pagosDeCuenta
   }
 }

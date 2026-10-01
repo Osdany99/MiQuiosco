@@ -308,6 +308,105 @@ export function construirVentaCuadre({ lineas, lotesPorProducto, cuadreId, meta 
 }
 
 /**
+ * Salida de mercancía fuera del cuadre: venta directa en efectivo o deuda
+ * directa. A diferencia de construirVentaCuadre, aquí el jefe elige de qué
+ * ubicación se descuenta (lo normal, el almacén) y las líneas conservan el
+ * costo FIFO por línea, para poder auditar la ganancia después.
+ *
+ * No toca ningún cuadre: cuadreId y lineaCuadreId van en null porque el
+ * efectivo nunca entra a una gaveta.
+ *
+ * @param {object} params — { lineas, lotesPorProducto, ubicacion, motivo, meta }
+ * lineas: [{ id, productoId, cantidad, precioVentaUsado, secuencia }]
+ * @returns {{ items, movimientos, montoTotal, costoTotal, ganancia, faltantes }}
+ */
+export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'almacen', motivo, ventaId, meta }) {
+  const ahora = meta.ahora ?? Date.now()
+  // ventaId solo se pasa en ventas directas: una deuda directa no tiene fila
+  // en ventas_directas, y sus movimientos deben dejar la referencia en null.
+  const refVenta = ventaId ?? null
+  const movimientos = []
+  const items = []
+  let montoTotal = 0
+  let costoTotal = 0
+  const faltantes = []
+
+  const ordenadas = [...(lineas ?? [])]
+    .filter(l => Math.trunc(Number(l.cantidad) || 0) > 0)
+    .sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
+
+  for (const l of ordenadas) {
+    const cant = Math.trunc(Number(l.cantidad) || 0)
+    const precio = Number(l.precioVentaUsado) || 0
+    const subtotal = redondear2(cant * precio)
+
+    const disponibles = (lotesPorProducto.get(l.productoId) ?? []).map(x => ({
+      id: x.id,
+      precioUnitario: x.precioUnitario,
+      saldoDisponible: x.saldo
+    }))
+    const { repartos, faltantes: falt, costoTotal: costo } = consumirFIFO(disponibles, [
+      { lineaId: l.id, productoId: l.productoId, cantidad: cant }
+    ])
+
+    if (falt.length > 0) faltantes.push(...falt)
+    costoTotal = redondear2(costoTotal + costo)
+
+    // El costo unitario es promedio ponderado de los lotes que consumió esta
+    // línea: si la cantidad pedida no se pudo cubrir, el costo se reparte
+    // solo sobre lo realmente servido (nunca sobre la cantidad fantasma).
+    const servido = repartos.reduce((s, r) => s + r.cantidad, 0)
+    const costoUnitario = servido > 0 ? redondear2(costo / servido) : 0
+
+    items.push({
+      id: l.id ?? generarId(),
+      productoId: l.productoId,
+      cantidad: cant,
+      precioVentaUsado: precio,
+      subtotal,
+      costoUnitario,
+      costoTotal: costo,
+      secuencia: Number(l.secuencia ?? 0),
+      creadoEn: ahora
+    })
+    montoTotal = redondear2(montoTotal + subtotal)
+
+    for (const r of repartos) {
+      movimientos.push({
+        id: generarId(),
+        puestoId: meta.puestoId,
+        productoId: l.productoId,
+        loteId: r.loteId,
+        cuadreId: null,
+        lineaCuadreId: null,
+        traspasoId: null,
+        tipo: 'venta',
+        cantidad: r.cantidad,
+        ventaDirectaId: refVenta,
+        deltaAlmacen: ubicacion === 'almacen' ? -r.cantidad : 0,
+        deltaQuiosco: ubicacion === 'quiosco' ? -r.cantidad : 0,
+        precioUnitario: r.precioUnitario,
+        importe: r.importe,
+        motivo: motivo ?? (ubicacion === 'almacen' ? 'venta_directa_almacen' : 'venta_directa_quiosco'),
+        nota: null,
+        usuarioId: meta.usuarioId ?? null,
+        anulado: false,
+        creadoEn: ahora
+      })
+    }
+  }
+
+  return {
+    items,
+    movimientos,
+    montoTotal,
+    costoTotal,
+    ganancia: redondear2(montoTotal - costoTotal),
+    faltantes
+  }
+}
+
+/**
  * Anulación de los movimientos de venta de un cuadre (reapertura).
  *
  * El original NO se marca anulado: sigue contabilizando su delta y es la

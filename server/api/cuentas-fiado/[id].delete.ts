@@ -26,12 +26,14 @@ export default defineEventHandler(async (event) => {
     // cuadre donde se recibieron; la deuda pendiente quitaba del montoFiado
     // del cuadre de origen.
     for (const pago of pagos) {
+      // Los cobros directos no tocaron ninguna gaveta: no hay qué revertir.
+      if (!pago.cuadreId) continue
       await tx
         .update(cuadres)
         .set({ montoCobradoFiado: sql`GREATEST(${cuadres.montoCobradoFiado} - ${pago.monto}, 0)` })
         .where(eq(cuadres.id, pago.cuadreId))
     }
-    if (pendiente > 0) {
+    if (pendiente > 0 && cuenta.cuadreOrigenId) {
       await tx
         .update(cuadres)
         .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${pendiente}, 0)` })

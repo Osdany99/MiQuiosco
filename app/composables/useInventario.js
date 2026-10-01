@@ -9,10 +9,13 @@ import { TABLES } from '../../shared/tables'
 import { useDb } from '../server-offline/db/client'
 import { entradaAlmacenSchema } from '../../shared/schemas/entradaAlmacen'
 import { traspasoSchema, ajusteInventarioSchema } from '../../shared/schemas/traspaso'
+import { ventaDirectaSchema } from '../../shared/schemas/directas'
 import {
   construirEntrada,
   construirTraspaso,
   construirAjuste,
+  construirVentaDirecta,
+  generarId,
   lotesConSaldo,
   rotarPrecioCompra
 } from '../../shared/inventario/operaciones'
@@ -26,6 +29,8 @@ const traspasosConfig = TABLES.traspasos
 const movimientosConfig = TABLES.movimientos_inventario
 const productosConfig = TABLES.productos
 const historialConfig = TABLES.historial_precios
+const ventasDirectasConfig = TABLES.ventas_directas
+const ventasDirectasItemsConfig = TABLES.ventas_directas_items
 
 export function useInventario() {
   const toast = useToast()
@@ -45,6 +50,8 @@ export function useInventario() {
   const movimientosRepo = computed(() => esOnline.value ? useRemoteRepo(movimientosConfig) : useLocalRepo(movimientosConfig))
   const productosRepo = computed(() => esOnline.value ? useRemoteRepo(productosConfig) : useLocalRepo(productosConfig))
   const historialRepo = computed(() => esOnline.value ? useRemoteRepo(historialConfig) : useLocalRepo(historialConfig))
+  const ventasDirectasRepo = computed(() => esOnline.value ? useRemoteRepo(ventasDirectasConfig) : useLocalRepo(ventasDirectasConfig))
+  const ventasDirectasItemsRepo = computed(() => esOnline.value ? useRemoteRepo(ventasDirectasItemsConfig) : useLocalRepo(ventasDirectasItemsConfig))
 
   function r(repo) {
     return repo.value
@@ -266,6 +273,105 @@ export function useInventario() {
     }
   }
 
+  // ---------- Operaciones fuera de cuadre ----------
+
+  /**
+   * Venta directa: efectivo cobrado por el jefe fuera de un cuadre. El producto
+   * sale del inventario por FIFO desde la ubicación elegida y la ganancia queda
+   * congelada en el registro; ninguna gaveta se toca.
+   */
+  async function registrarVentaDirecta(datos) {
+    exigirJefe()
+    const parsed = ventaDirectaSchema.safeParse(datos)
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues.map(i => i.message).join('; '))
+    }
+    const pid = puestoIdActual()
+    if (!pid) throw new Error('Sin puesto asignado.')
+    cargando.value = true
+    try {
+      if (esOnline.value) {
+        return await $api('/api/ventas-directas', {
+          method: 'POST',
+          body: parsed.data,
+          headers: apiHeaders()
+        })
+      }
+      const usuarioId = auth.usuarioActual.value?.id ?? null
+      const ahora = Date.now()
+      const [filasLotes, movs, prods] = await Promise.all([
+        filasPuesto(lotesRepo, pid),
+        filasPuesto(movimientosRepo, pid),
+        filasPuesto(productosRepo, pid)
+      ])
+      const ids = [...new Set(parsed.data.lineas.map(l => l.productoId))]
+      const porId = new Map(prods.map(p => [p.id, p]))
+      for (const id of ids) {
+        if (!porId.has(id)) throw new Error('Hay productos que no pertenecen a este puesto.')
+      }
+      const lotesPorProducto = new Map(
+        ids.map(id => [id, lotesConSaldo(filasLotes, movs, id, parsed.data.ubicacion)])
+      )
+      const ventaId = generarId()
+      const venta = construirVentaDirecta({
+        lineas: parsed.data.lineas,
+        lotesPorProducto,
+        ubicacion: parsed.data.ubicacion,
+        ventaId,
+        meta: { puestoId: pid, usuarioId, ahora }
+      })
+      if (venta.faltantes.length > 0) {
+        const nombres = venta.faltantes.map(f => porId.get(f.productoId)?.nombre ?? f.productoId).join(', ')
+        throw new Error(`No hay stock suficiente en ${parsed.data.ubicacion} para: ${nombres}.`)
+      }
+      await db.transaction(async () => {
+        await r(ventasDirectasRepo).create({
+          id: ventaId,
+          puestoId: pid,
+          ubicacionVenta: parsed.data.ubicacion,
+          montoTotal: venta.montoTotal,
+          costoTotal: venta.costoTotal,
+          ganancia: venta.ganancia,
+          notas: parsed.data.notas ?? null,
+          usuarioId,
+          anulado: false
+        })
+        for (const it of venta.items) {
+          await r(ventasDirectasItemsRepo).create({ ...it, ventaDirectaId: ventaId })
+        }
+        for (const m of venta.movimientos) await r(movimientosRepo).create(m)
+      })
+      await cargarSaldos().catch(() => {})
+      return {
+        id: ventaId,
+        montoTotal: venta.montoTotal,
+        costoTotal: venta.costoTotal,
+        ganancia: venta.ganancia
+      }
+    } catch (err) {
+      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      throw err
+    } finally {
+      cargando.value = false
+    }
+  }
+
+  /** Ventas directas del puesto, para la pestaña /deudas y la gráfica. */
+  async function cargarVentasDirectas({ desde, hasta } = {}) {
+    const todas = await r(ventasDirectasRepo).readAll()
+    const pid = puestoIdActual()
+    const desdeMs = desde ? new Date(desde).getTime() : null
+    const hastaMs = hasta ? new Date(hasta).getTime() : null
+    return todas.filter((v) => {
+      if (pid && v.puestoId !== pid) return false
+      if (v.anulado) return false
+      const t = new Date(v.creadoEn ?? 0).getTime()
+      if (desdeMs != null && t < desdeMs) return false
+      if (hastaMs != null && t > hastaMs) return false
+      return true
+    })
+  }
+
   // ---------- Corrección de precio de lote ----------
 
   async function corregirPrecioLote(loteId, precioUnitario, motivo) {
@@ -366,6 +472,8 @@ export function useInventario() {
     registrarEntrada,
     registrarTraspaso,
     registrarAjuste,
+    registrarVentaDirecta,
+    cargarVentasDirectas,
     corregirPrecioLote,
     sugerenciaParaManana
   }

@@ -3,6 +3,8 @@ import { TABLES } from '../../shared/tables'
 const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
+const ventasDirectasConfig = TABLES.ventas_directas
+const cuentaFiadoConfig = TABLES.cuentas_fiado
 
 /**
  * calcularGrafica(key, opts) — Cálculo de todas las gráficas del negocio.
@@ -28,6 +30,8 @@ export async function calcularGrafica(key, opts) {
   const productoRepo = useRepo(productoConfig, { toast: false })
   const cuadreRepo = useRepo(cuadreConfig, { toast: false })
   const itemsRepo = useRepo(cuadreItemConfig, { toast: false })
+  const ventasDirectasRepo = useRepo(ventasDirectasConfig, { toast: false })
+  const cuentasFiadoRepo = useRepo(cuentaFiadoConfig, { toast: false })
 
   switch (key) {
     case 'productos-mas-vendidos': return _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -35,6 +39,7 @@ export async function calcularGrafica(key, opts) {
     case 'productos-menor-rotacion': return _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'ganancia-por-periodo': return _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'ingresos-por-periodo': return _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
+    case 'ingresos-fuera-de-cuadre': return _ingresosFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo)
     case 'regalos-descuentos-por-periodo': return _regalosDescuentosPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'faltantes-sobrantes-acumulados': return _faltantesSobrantes(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'evolucion-producto': return _evolucionProducto(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -247,6 +252,56 @@ async function _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
   }
   return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
     ingresoTotal: g.reduce((s, x) => s + x.ingresoTotal, 0)
+  }))
+}
+
+/**
+ * Ingresos y ganancia fuera del cuadre: ventas directas en efectivo + deudas
+ * directas. No viven en ningún cuadre (por eso no aparecen en
+ * `ingresos-por-periodo` ni en `ganancia-por-periodo`), pero son dinero real
+ * del negocio y por eso deserve su propia serie.
+ *
+ * La ganancia viene congelada en cada registro (FIFO al momento de la venta),
+ * así que un cambio de precio posterior no altera lo ya mostrado.
+ */
+async function _ingresosFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo) {
+  const [ventas, deudas] = await Promise.all([
+    ventasDirectasRepo.readAll(),
+    cuentasFiadoRepo.readAll()
+  ]).then(rs => rs.map(r => (Array.isArray(r) ? r : (r?.data ?? []))))
+
+  const desdeStr = opts.desde || ''
+  const hastaStr = opts.hasta || ''
+  const enRango = (v) => {
+    const dia = String(v ?? '').slice(0, 10)
+    if (!dia) return false
+    if (desdeStr && dia < desdeStr) return false
+    if (hastaStr && dia > hastaStr) return false
+    return true
+  }
+
+  const filas = []
+  for (const v of ventas) {
+    if (v.anulado || !enRango(v.creadoEn)) continue
+    filas.push({
+      periodo: String(v.creadoEn).slice(0, 10),
+      ingresoDirecto: Number(v.montoTotal) || 0,
+      gananciaDirecta: Number(v.ganancia) || 0
+    })
+  }
+  // Deudas directas: el ingreso se reconoce al crearse (la mercancía salió).
+  for (const c of deudas) {
+    if (c.cuadreOrigenId || !enRango(c.creadoEn)) continue
+    filas.push({
+      periodo: String(c.creadoEn).slice(0, 10),
+      ingresoDirecto: Number(c.montoTotal) || 0,
+      gananciaDirecta: Number(c.ganancia) || 0
+    })
+  }
+
+  return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
+    ingresoDirecto: Math.round(g.reduce((s, x) => s + x.ingresoDirecto, 0)),
+    gananciaDirecta: Math.round(g.reduce((s, x) => s + x.gananciaDirecta, 0))
   }))
 }
 

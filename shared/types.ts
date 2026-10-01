@@ -110,9 +110,13 @@ export interface CuentaFiado {
   id: string
   puestoId: string
   clienteId: string
-  cuadreOrigenId: string
+  // null = deuda directa (fiada por fuera del cuadre).
+  cuadreOrigenId: string | null
   montoTotal: number
   montoPagado: number
+  // Solo en deudas directas: FIFO congelado al crearse.
+  costoTotal?: number | null
+  ganancia?: number | null
   estado: 'pendiente' | 'parcial' | 'pagada'
   creadoEn: number | string
   actualizadoEn: number | string
@@ -133,7 +137,9 @@ export interface CuentaFiadoItem {
 export interface PagoFiado {
   id: string
   cuentaFiadoId: string
-  cuadreId: string
+  // null = cobro directo: el efectivo nunca pasó por la gaveta de un cuadre.
+  cuadreId: string | null
+  directo?: boolean
   monto: number
   formaPago: 'efectivo' | 'transferencia'
   creadoEn: number | string

@@ -8,6 +8,7 @@ import {
   construirEntrada,
   construirTraspaso,
   construirVentaCuadre,
+  construirVentaDirecta,
   construirAnulacionCuadre,
   construirAjuste,
   saldosPorProducto,
@@ -16,6 +17,8 @@ import {
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
 import { productoSchema } from '../shared/schemas/producto.js'
+import { ventaDirectaSchema, deudaDirectaSchema, pagoFiadoDirectoSchema } from '../shared/schemas/directas.js'
+import { pagoFiadoSchema } from '../shared/schemas/pagoFiado.js'
 import { vistaSaldos } from '../shared/inventario/vista.js'
 
 const PUESTO = '11111111-1111-4111-8111-111111111111'
@@ -392,5 +395,161 @@ describe('producto por ubicación (activo / activoQuiosco)', () => {
       movimientos: [{ productoId: PAN, deltaAlmacen: 100, deltaQuiosco: 0, anulado: false }]
     })
     assert.equal(vista.length, 0)
+  })
+})
+
+// Ventas y deudas directas: operaciones del jefe fuera del cuadre. La regla que
+// las distingue es que no tocan ninguna gaveta, pero sí descuentan inventario
+// por FIFO y congelan su ganancia al momento.
+describe('operaciones fuera de cuadre', () => {
+  // Libro con 100 panes a 10: 60 en almacén y 40 ya traspasados al quiosco.
+  const ENTRADA = entrada(100, 10)
+  const TRASPASO = construirTraspaso({
+    lineas: [{ productoId: PAN, cantidad: 40 }],
+    lotesPorProducto: new Map([[PAN, lotesEn(ENTRADA.movimientos, 'almacen')]]),
+    meta: { ...meta, fecha: '2026-01-02' }
+  })
+  const LIBRO = [...ENTRADA.movimientos, ...TRASPASO.movimientos]
+
+  function directa(lineas, ubicacion = 'almacen', ventaId = null) {
+    const ids = [...new Set(lineas.map(l => l.productoId))]
+    const lotesPorProducto = new Map(ids.map(id => [id, lotesEn(LIBRO, ubicacion)]))
+    return construirVentaDirecta({
+      lineas,
+      lotesPorProducto,
+      ubicacion,
+      ventaId,
+      motivo: 'venta_directa_almacen',
+      meta
+    })
+  }
+
+  it('descuenta del almacén y congera la ganancia', () => {
+    const r = directa([{ productoId: PAN, cantidad: 10, precioVentaUsado: 18 }])
+    assert.equal(r.movimientos.length, 1)
+    assert.equal(r.movimientos[0].deltaAlmacen, -10)
+    assert.equal(r.movimientos[0].deltaQuiosco, 0)
+    assert.equal(r.montoTotal, 180)
+    assert.equal(r.costoTotal, 100)
+    assert.equal(r.ganancia, 80)
+  })
+
+  it('nunca toca un cuadre: ni cuadreId ni lineaCuadreId', () => {
+    const r = directa([{ productoId: PAN, cantidad: 1, precioVentaUsado: 18 }])
+    assert.equal(r.movimientos[0].cuadreId, null)
+    assert.equal(r.movimientos[0].lineaCuadreId, null)
+  })
+
+  it('descuenta del quiosco cuando el jefe lo elige', () => {
+    const r = directa([{ productoId: PAN, cantidad: 3, precioVentaUsado: 18 }], 'quiosco')
+    assert.equal(r.movimientos.length, 1)
+    assert.equal(r.movimientos[0].deltaQuiosco, -3)
+    assert.equal(r.movimientos[0].deltaAlmacen, 0)
+    // El costo del quiosco sigue siendo el del lote, no un precio de hoy.
+    assert.equal(r.costoTotal, 30)
+  })
+
+  it('consume varios lotes por FIFO y reparte el costo por línea', () => {
+    const libro = [...entrada(5, 10).movimientos, ...entrada(5, 20, '2026-02-01').movimientos]
+    const ids = [PAN]
+    const r = construirVentaDirecta({
+      lineas: [{ productoId: PAN, cantidad: 8, precioVentaUsado: 30 }],
+      lotesPorProducto: new Map(ids.map(id => [id, lotesConSaldo(
+        [...new Map(libro.map(m => [m.loteId, {
+          id: m.loteId,
+          productoId: PAN,
+          precioUnitario: m.precioUnitario,
+          fechaEntrada: m.fechaEntrada,
+          creadoEn: m.creadoEn
+        }])).values()],
+        libro,
+        PAN,
+        'almacen'
+      )])),
+      ubicacion: 'almacen',
+      meta
+    })
+    assert.equal(r.movimientos.length, 2)
+    assert.equal(r.movimientos[0].precioUnitario, 10)
+    assert.equal(r.movimientos[1].precioUnitario, 20)
+    assert.equal(r.costoTotal, 110) // 5x10 + 3x20
+    assert.equal(r.items[0].costoUnitario, 13.75) // 110 / 8
+    assert.equal(r.ganancia, 130) // 8x30 - 110
+  })
+
+  it('reporta faltantes sin inventar stock', () => {
+    // Quedan 60 en almacén (100 - 40 traspasados): pedir 200 deja 140 sin servir.
+    const r = directa([{ productoId: PAN, cantidad: 200, precioVentaUsado: 18 }])
+    assert.equal(r.movimientos.length, 1)
+    assert.equal(r.movimientos[0].cantidad, 60)
+    assert.equal(r.faltantes.length, 1)
+    assert.equal(r.faltantes[0].faltante, 140)
+  })
+
+  it('enlaza los movimientos a la venta directa solo si hay id', () => {
+    const conId = directa([{ productoId: PAN, cantidad: 1, precioVentaUsado: 18 }], 'almacen', 'venta-1')
+    assert.equal(conId.movimientos[0].ventaDirectaId, 'venta-1')
+    // Una deuda directa no tiene fila en ventas_directas: la referencia va null.
+    const sinId = directa([{ productoId: PAN, cantidad: 1, precioVentaUsado: 18 }])
+    assert.equal(sinId.movimientos[0].ventaDirectaId, null)
+  })
+
+  it('ordena las líneas por secuencia antes de consumir lotes', () => {
+    const r = directa([
+      { productoId: PAN, cantidad: 1, precioVentaUsado: 5, secuencia: 1 },
+      { productoId: PAN, cantidad: 1, precioVentaUsado: 5, secuencia: 0 }
+    ])
+    assert.deepEqual(r.items.map(i => i.secuencia), [0, 1])
+  })
+
+  it('ignora las líneas de cantidad 0', () => {
+    const r = directa([{ productoId: PAN, cantidad: 0, precioVentaUsado: 18 }])
+    assert.equal(r.items.length, 0)
+    assert.equal(r.movimientos.length, 0)
+    assert.equal(r.ganancia, 0)
+  })
+
+  it('el esquema de venta directa exige al menos una línea y una ubicación válida', () => {
+    assert.equal(ventaDirectaSchema.safeParse({ lineas: [] }).success, false)
+    assert.equal(ventaDirectaSchema.safeParse({
+      ubicacion: 'bodega',
+      lineas: [{ productoId: PAN, cantidad: 1, precioVentaUsado: 5 }]
+    }).success, false)
+    // Por defecto sale del almacén: es lo habitual.
+    const ok = ventaDirectaSchema.parse({
+      lineas: [{ productoId: PAN, cantidad: 1, precioVentaUsado: 5 }]
+    })
+    assert.equal(ok.ubicacion, 'almacen')
+  })
+
+  it('el esquema de deuda directa valida cliente y forma de pago', () => {
+    const base = { lineas: [{ productoId: PAN, cantidad: 1, precioVentaUsado: 5 }] }
+    assert.equal(deudaDirectaSchema.safeParse(base).success, false)
+    const ok = deudaDirectaSchema.parse({ ...base, clienteId: JEFE, formaPagoInicial: 'transferencia' })
+    assert.equal(ok.ubicacion, 'almacen')
+    assert.equal(ok.montoPagadoInicial, 0)
+    assert.equal(ok.formaPagoInicial, 'transferencia')
+  })
+
+  // El cobro directo es la razón de que cuadreId sea nullable en pagos_fiado.
+  it('el esquema de pago admite cuadreId null (cobro directo)', () => {
+    assert.equal(pagoFiadoSchema.safeParse({
+      cuentaFiadoId: PAN,
+      cuadreId: null,
+      monto: 50,
+      formaPago: 'efectivo'
+    }).success, true)
+    assert.equal(pagoFiadoDirectoSchema.safeParse({
+      cuentaFiadoId: PAN,
+      monto: 50,
+      formaPago: 'efectivo'
+    }).success, true)
+    // Un id de cuadre inválido sigue siendo inválido, no se "compra" con null.
+    assert.equal(pagoFiadoSchema.safeParse({
+      cuentaFiadoId: PAN,
+      cuadreId: 'no-es-uuid',
+      monto: 50,
+      formaPago: 'efectivo'
+    }).success, false)
   })
 })

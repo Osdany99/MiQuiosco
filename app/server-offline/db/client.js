@@ -221,7 +221,8 @@ function initializeSchemaMemory(mem) {
     'cuadres', 'cuadre_items', 'productos_cache',
     'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado',
     'transferencias', 'transferencia_items', 'ajustes',
-    'proveedores', 'lotes', 'traspasos', 'movimientos_inventario'
+    'proveedores', 'lotes', 'traspasos', 'movimientos_inventario',
+    'ventas_directas', 'ventas_directas_items'
   ]
   for (const t of tables) mem.ensureTable(t, '')
 }

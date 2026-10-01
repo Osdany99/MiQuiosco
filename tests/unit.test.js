@@ -489,8 +489,15 @@ describe('journal sqlite (instalación fresca)', () => {
     const conn = memoDb()
     const sentencias = separarSentencias(baseline)
     assert.ok(sentencias.length >= 13, `se esperan al menos 13 sentencias, hay ${sentencias.length}`)
+    // Se ejecutan también DROP TABLE y RENAME: las migraciones que rebuildan
+    // una tabla (cambiar NOT NULL) crean __new_<tabla>, copian, borran la
+    // original y renombran. Sin el DROP, el CREATE INDEX posterior chocaría
+    // contra el índice que ya existía en la tabla original.
     for (const s of sentencias) {
-      if (!/^CREATE\s+TABLE\s+/.test(s) && !/^CREATE\s+(UNIQUE\s+)?INDEX\s+/.test(s)) continue
+      if (!/^CREATE\s+TABLE\s+/.test(s)
+        && !/^CREATE\s+(UNIQUE\s+)?INDEX\s+/.test(s)
+        && !/^DROP\s+TABLE\s+/.test(s)
+        && !/^ALTER\s+TABLE\s+\S+\s+RENAME\s+TO\s+/.test(s)) continue
       await conn.run(s, [])
     }
     assert.equal(await tablaExiste(conn, 'usuarios'), true)

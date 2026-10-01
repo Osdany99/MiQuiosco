@@ -42,6 +42,10 @@ export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
   'devolucion',
   'anulacion'
 ])
+// De dónde sale la mercancía en una operación fuera de cuadre (venta o deuda
+// directa). El almacén es lo habitual: el quiosco solo cuando se fió desde
+// el punto de venta y no había stock atrás.
+export const ubicacionDirectaEnum = pgEnum('ubicacion_directa', ['almacen', 'quiosco'])
 
 /**
  * Puestos: soporte multi-puesto desde el día 1.
@@ -280,9 +284,14 @@ export const cuadreItems = pgTable(
 )
 
 /**
- * Cuentas de fiado: deuda generada en un cuadre específico.
+ * Cuentas de fiado.
  * montoTotal = suma de subtotales de cuentas_fiado_items.
  * montoPagado = suma de pagos recibidos contra esta cuenta.
+ *
+ * cuadreOrigenId = NULL en las deudas directas (fió el jefe por fuera del
+ * cuadre). No hay líneas de cuadre que las respalden, así que no pasan por el
+ * tope ni suman a ningún cuadre; costoTotal/ganancia se calculan al
+ * crearse y quedan congelados igual que en un cuadre cerrado.
  */
 export const cuentasFiado = pgTable(
   'cuentas_fiado',
@@ -294,13 +303,13 @@ export const cuentasFiado = pgTable(
     clienteId: uuid('cliente_id')
       .notNull()
       .references(() => usuarios.id),
-    cuadreOrigenId: uuid('cuadre_origen_id')
-      .notNull()
-      .references(() => cuadres.id),
+    cuadreOrigenId: uuid('cuadre_origen_id').references(() => cuadres.id),
     montoTotal: doublePrecision('monto_total').notNull(),
     montoPagado: doublePrecision('monto_pagado')
       .notNull()
       .default(0),
+    costoTotal: doublePrecision('costo_total'),
+    ganancia: doublePrecision('ganancia'),
     estado: estadoCuentaFiadoEnum('estado').notNull().default('pendiente'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
@@ -346,7 +355,9 @@ export const cuentasFiadoItems = pgTable(
 
 /**
  * Pagos recibidos contra cuentas de fiado.
- * cuadreId = el cuadre donde se recibe el pago (no necesariamente el de origen de la deuda).
+ * cuadreId = el cuadre donde entra el efectivo (no necesariamente el de origen
+ * de la deuda). NULL = cobro directo: el jefe lo cobró por fuera y el
+ * dinero nunca pasó por la gaveta, así que no suma a ningún cuadre.
  */
 export const pagosFiado = pgTable(
   'pagos_fiado',
@@ -355,9 +366,7 @@ export const pagosFiado = pgTable(
     cuentaFiadoId: uuid('cuenta_fiado_id')
       .notNull()
       .references(() => cuentasFiado.id, { onDelete: 'cascade' }),
-    cuadreId: uuid('cuadre_id')
-      .notNull()
-      .references(() => cuadres.id),
+    cuadreId: uuid('cuadre_id').references(() => cuadres.id),
     monto: doublePrecision('monto').notNull(),
     formaPago: formaPagoFiadoEnum('forma_pago').notNull(),
     creadoEn: timestamp('creado_en', { withTimezone: true })
@@ -596,6 +605,7 @@ export const movimientosInventario = pgTable(
       onDelete: 'set null'
     }),
     traspasoId: uuid('traspaso_id').references(() => traspasos.id),
+    ventaDirectaId: uuid('venta_directa_id').references(() => ventasDirectas.id),
     tipo: tipoMovimientoEnum('tipo').notNull(),
     cantidad: integer('cantidad').notNull(),
     deltaAlmacen: integer('delta_almacen').notNull().default(0),
@@ -625,6 +635,77 @@ export const movimientosInventario = pgTable(
     cuadreIdx: index('mov_cuadre_idx').on(table.cuadreId),
     loteIdx: index('mov_lote_idx').on(table.loteId),
     puestoFechaIdx: index('mov_puesto_fecha_idx').on(table.puestoId, table.creadoEn)
+  })
+)
+
+/**
+ * Ventas directas: ventas en efectivo hechas por el jefe fuera del cuadre
+ * (quiosco cerrado, cliente que llega a la casa, etc.).
+ *
+ * No pertenecen a ningún cuadre, así que no entran a la gaveta ni al corte del
+ * día: el efectivo se queda en el bolsillo de quien cobra. Son su propio
+ * registro para poder verlos en la gráfica de ingresos directos.
+ *
+ * costoTotal/ganancia se calculan por FIFO en el momento de la venta y
+ * quedan congelados, igual que al cerrar un cuadre: un cambio de precio de
+ * compra posterior no debe alterar lo ya vendido.
+ */
+export const ventasDirectas = pgTable(
+  'ventas_directas',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    ubicacionVenta: ubicacionDirectaEnum('ubicacion_venta').notNull().default('almacen'),
+    montoTotal: doublePrecision('monto_total').notNull(),
+    costoTotal: doublePrecision('costo_total').notNull(),
+    ganancia: doublePrecision('ganancia').notNull(),
+    notas: text('notas'),
+    usuarioId: uuid('usuario_id')
+      .notNull()
+      .references(() => usuarios.id),
+    anulado: boolean('anulado').notNull().default(false),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoFechaIdx: index('ventas_directas_puesto_fecha_idx').on(table.puestoId, table.creadoEn),
+    creadoEnIdx: index('ventas_directas_creado_en_idx').on(table.creadoEn)
+  })
+)
+
+/**
+ * Líneas de una venta directa: producto, cantidad, precio de venta y el costo
+ * FIFO que consumió. El costo va por línea para poder auditar la ganancia.
+ */
+export const ventasDirectasItems = pgTable(
+  'ventas_directas_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ventaDirectaId: uuid('venta_directa_id')
+      .notNull()
+      .references(() => ventasDirectas.id, { onDelete: 'cascade' }),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+    cantidad: integer('cantidad').notNull(),
+    precioVentaUsado: doublePrecision('precio_venta_usado').notNull(),
+    subtotal: doublePrecision('subtotal').notNull(),
+    costoUnitario: doublePrecision('costo_unitario').notNull(),
+    costoTotal: doublePrecision('costo_total').notNull(),
+    secuencia: integer('secuencia').notNull().default(0),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    ventaIdx: index('ventas_directas_items_venta_idx').on(table.ventaDirectaId),
+    productoIdx: index('ventas_directas_items_producto_idx').on(table.productoId)
   })
 )
 

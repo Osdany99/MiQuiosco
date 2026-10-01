@@ -70,6 +70,11 @@ const links = computed(() => {
         to: '/cuadres'
       },
       {
+        label: 'Deudas',
+        icon: 'i-lucide-hand-coins',
+        to: '/deudas'
+      },
+      {
         label: 'Productos',
         icon: 'i-lucide-package',
         to: '/productos'

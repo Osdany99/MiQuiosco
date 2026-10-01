@@ -65,7 +65,11 @@ export default defineEventHandler(async (event) => {
   const pendienteAnterior = cuenta.montoTotal - cuenta.montoPagado
   const pendienteNuevo = nuevoTotal - cuenta.montoPagado
 
-  await validarTopeFiado(cuenta.cuadreOrigenId, items, [id])
+  // Una deuda directa no tiene cuadre de origen y sus líneas no pasan por el
+  // tope: se edita como cualquier otra, sin tocar ningún cuadre.
+  if (cuenta.cuadreOrigenId) {
+    await validarTopeFiado(cuenta.cuadreOrigenId, items, [id])
+  }
 
   await db.transaction(async (tx) => {
     await tx.delete(cuentasFiadoItems).where(eq(cuentasFiadoItems.cuentaFiadoId, id))
@@ -90,7 +94,7 @@ export default defineEventHandler(async (event) => {
 
     // Ajustar el fiado pendiente del cuadre de origen en el delta (piso 0).
     const delta = pendienteNuevo - pendienteAnterior
-    if (delta !== 0) {
+    if (delta !== 0 && cuenta.cuadreOrigenId) {
       await tx
         .update(cuadres)
         .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} + ${delta}, 0)` })

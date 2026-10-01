@@ -50,7 +50,9 @@ export const cuentas_fiado = {
   endpoints: endpoint('cuentas-fiado'),
   puestoScoped: true,
   label: { singular: 'Cuenta', plural: 'Cuentas', gender: 'f' },
-  syncNumeric: ['montoTotal', 'montoPagado'],
+  // costoTotal/ganancia solo se llenan en deudas directas (en las de cuadre
+  // son null y el costo vive congelado en cuadres).
+  syncNumeric: ['montoTotal', 'montoPagado', 'costoTotal', 'ganancia'],
   insertOnly: false
 }
 
@@ -142,16 +144,35 @@ export const movimientos_inventario = {
   insertOnly: false
 }
 
+export const ventas_directas = {
+  tabla: 'ventas_directas',
+  endpoints: endpoint('ventas-directas'),
+  puestoScoped: true,
+  label: { singular: 'Venta directa', plural: 'Ventas directas', gender: 'f' },
+  syncNumeric: ['montoTotal', 'costoTotal', 'ganancia'],
+  insertOnly: false
+}
+
+export const ventas_directas_items = {
+  tabla: 'ventas_directas_items',
+  endpoints: endpoint('ventas-directas-items'),
+  label: { singular: 'Línea', plural: 'Líneas', gender: 'f' },
+  syncNumeric: ['cantidad', 'precioVentaUsado', 'subtotal', 'costoUnitario', 'costoTotal', 'secuencia'],
+  insertOnly: true
+}
+
 export const TABLES = {
   productos, usuarios, cuadres, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
   transferencias, transferencia_items, ajustes,
-  proveedores, lotes, traspasos, movimientos_inventario
+  proveedores, lotes, traspasos, movimientos_inventario,
+  ventas_directas, ventas_directas_items
 }
 
 export const SYNC_TABLES = [
   productos, usuarios, cuadres, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
   transferencias, transferencia_items, ajustes,
-  proveedores, lotes, traspasos, movimientos_inventario
+  proveedores, lotes, traspasos, movimientos_inventario,
+  ventas_directas, ventas_directas_items
 ]

@@ -130,6 +130,14 @@ const OFFLINE_CONFIGS = [
     overrides: {}
   },
   {
+    config: { tabla: 'ventas_directas', defaults: { ubicacionVenta: 'almacen', anulado: false }, puestoScoped: TABLES.ventas_directas.puestoScoped },
+    overrides: {}
+  },
+  {
+    config: { tabla: 'ventas_directas_items', defaults: { secuencia: 0 } },
+    overrides: {}
+  },
+  {
     config: { tabla: 'transferencias', defaults: { montoTotal: 0 }, puestoScoped: TABLES.transferencias.puestoScoped },
     overrides: {}
   },

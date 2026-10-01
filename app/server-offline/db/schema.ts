@@ -252,9 +252,12 @@ export const cuentasFiado = sqliteTable(
     id: text('id').primaryKey(),
     puestoId: text('puesto_id').notNull(),
     clienteId: text('cliente_id').notNull(),
-    cuadreOrigenId: text('cuadre_origen_id').notNull(),
+    cuadreOrigenId: text('cuadre_origen_id'),
     montoTotal: real('monto_total').notNull(),
     montoPagado: real('monto_pagado').notNull().default(0),
+    // Solo en deudas directas: FIFO congelado al crearse.
+    costoTotal: real('costo_total'),
+    ganancia: real('ganancia'),
     estado: text('estado', { enum: ['pendiente', 'parcial', 'pagada'] })
       .notNull()
       .default('pendiente'),
@@ -311,7 +314,8 @@ export const pagosFiado = sqliteTable(
   {
     id: text('id').primaryKey(),
     cuentaFiadoId: text('cuenta_fiado_id').notNull(),
-    cuadreId: text('cuadre_id').notNull(),
+    // NULL = cobro directo: el efectivo nunca paso por la gaveta de un cuadre.
+    cuadreId: text('cuadre_id'),
     monto: real('monto').notNull(),
     formaPago: text('forma_pago').notNull(),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
@@ -528,6 +532,7 @@ export const movimientosInventario = sqliteTable(
     cuadreId: text('cuadre_id'),
     lineaCuadreId: text('linea_cuadre_id'),
     traspasoId: text('traspaso_id'),
+    ventaDirectaId: text('venta_directa_id'),
     tipo: text('tipo', { enum: TIPOS_MOVIMIENTO }).notNull(),
     cantidad: integer('cantidad').notNull(),
     deltaAlmacen: integer('delta_almacen').notNull().default(0),
@@ -568,6 +573,81 @@ export const movimientosInventario = sqliteTable(
 )
 
 /**
+ * Ventas directas: ventas en efectivo hechas por el jefe fuera del cuadre
+ * (quiosco cerrado, cliente que llega a la casa, etc.).
+ *
+ * No pertenecen a ningún cuadre, así que no entran a la gaveta ni al corte del
+ * día: el efectivo se queda en el bolsillo de quien cobra. Son su propio
+ * registro para poder verlos en la gráfica de ingresos directos.
+ *
+ * costoTotal/ganancia se calculan por FIFO al vender y quedan congelados,
+ * igual que al cerrar un cuadre: cambiar después el precio de compra no debe
+ * alterar lo ya vendido.
+ */
+export const ventasDirectas = sqliteTable(
+  'ventas_directas',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    ubicacionVenta: text('ubicacion_venta', { enum: ['almacen', 'quiosco'] })
+      .notNull()
+      .default('almacen'),
+    montoTotal: real('monto_total').notNull(),
+    costoTotal: real('costo_total').notNull(),
+    ganancia: real('ganancia').notNull(),
+    notas: text('notas'),
+    usuarioId: text('usuario_id').notNull(),
+    anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoFechaIdx: index('ventas_directas_puesto_fecha_idx').on(table.puestoId, table.creadoEn),
+    creadoEnIdx: index('ventas_directas_creado_en_idx').on(table.creadoEn),
+    ubicacionCheck: check(
+      'ventas_directas_ubicacion_check',
+      sql`${table.ubicacionVenta} IN ('almacen','quiosco')`
+    )
+  })
+)
+
+/**
+ * Líneas de una venta directa: producto, cantidad, precio de venta y el costo
+ * FIFO que consumió. El costo va por línea para poder auditar la ganancia.
+ */
+export const ventasDirectasItems = sqliteTable(
+  'ventas_directas_items',
+  {
+    id: text('id').primaryKey(),
+    ventaDirectaId: text('venta_directa_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    cantidad: integer('cantidad').notNull(),
+    precioVentaUsado: real('precio_venta_usado').notNull(),
+    subtotal: real('subtotal').notNull(),
+    costoUnitario: real('costo_unitario').notNull(),
+    costoTotal: real('costo_total').notNull(),
+    secuencia: integer('secuencia').notNull().default(0),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    ventaIdx: index('ventas_directas_items_venta_idx').on(table.ventaDirectaId),
+    productoIdx: index('ventas_directas_items_producto_idx').on(table.productoId)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect
@@ -586,3 +666,5 @@ export type ProveedorSQLite = typeof proveedores.$inferSelect
 export type LoteSQLite = typeof lotes.$inferSelect
 export type TraspasoSQLite = typeof traspasos.$inferSelect
 export type MovimientoInventarioSQLite = typeof movimientosInventario.$inferSelect
+export type VentaDirectaSQLite = typeof ventasDirectas.$inferSelect
+export type VentaDirectaItemSQLite = typeof ventasDirectasItems.$inferSelect

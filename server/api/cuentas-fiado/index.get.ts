@@ -35,6 +35,8 @@ export default defineEventHandler(async (event) => {
       cuadreOrigenId: cuentasFiado.cuadreOrigenId,
       montoTotal: cuentasFiado.montoTotal,
       montoPagado: cuentasFiado.montoPagado,
+      costoTotal: cuentasFiado.costoTotal,
+      ganancia: cuentasFiado.ganancia,
       estado: cuentasFiado.estado,
       creadoEn: cuentasFiado.creadoEn,
       actualizadoEn: cuentasFiado.actualizadoEn
@@ -49,9 +51,13 @@ export default defineEventHandler(async (event) => {
     clienteId: r.clienteId,
     nombreCliente: r.nombreCliente,
     cuadreOrigenId: r.cuadreOrigenId,
+    // Deuda directa: fiada por fuera de cualquier cuadre.
+    directa: r.cuadreOrigenId === null,
     montoTotal: r.montoTotal,
     montoPagado: r.montoPagado,
     saldoPendiente: r.montoTotal - r.montoPagado,
+    costoTotal: r.costoTotal,
+    ganancia: r.ganancia,
     estado: r.estado,
     creadoEn: r.creadoEn.toISOString(),
     actualizadoEn: r.actualizadoEn.toISOString()
