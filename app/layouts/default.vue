@@ -75,6 +75,16 @@ const links = computed(() => {
         to: '/productos'
       },
       {
+        label: 'Quiosco',
+        icon: 'i-lucide-store',
+        to: '/quiosco'
+      },
+      {
+        label: 'Almacén',
+        icon: 'i-lucide-warehouse',
+        to: '/almacen'
+      },
+      {
         label: 'Usuarios',
         icon: 'i-lucide-user-cog',
         to: '/usuarios'

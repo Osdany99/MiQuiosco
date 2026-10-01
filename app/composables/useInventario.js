@@ -338,6 +338,16 @@ export function useInventario() {
       .sort((a, b) => Number(a.orden ?? 0) - Number(b.orden ?? 0))
   }
 
+  /** Todos los activos, marcando cuáles se venden en el quiosco y cuáles no. */
+  async function cargarProductosConEstado() {
+    const todos = await r(productosRepo).readAll()
+    const pid = puestoIdActual()
+    return todos
+      .filter(p => p.activo && (!pid || p.puestoId === pid))
+      .sort((a, b) => Number(a.orden ?? 0) - Number(b.orden ?? 0))
+      .map(p => ({ ...p, seVende: p.activoQuiosco !== false }))
+  }
+
   return {
     cargando,
     saldos,
@@ -352,6 +362,7 @@ export function useInventario() {
     cargarLotes,
     cargarSaldos,
     cargarProductos,
+    cargarProductosConEstado,
     registrarEntrada,
     registrarTraspaso,
     registrarAjuste,

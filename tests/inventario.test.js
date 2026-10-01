@@ -15,6 +15,8 @@ import {
 } from '../shared/inventario/operaciones.js'
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
+import { productoSchema } from '../shared/schemas/producto.js'
+import { vistaSaldos } from '../shared/inventario/vista.js'
 
 const PUESTO = '11111111-1111-4111-8111-111111111111'
 const JEFE = '22222222-2222-4222-8222-222222222222'
@@ -344,5 +346,51 @@ describe('saldosPorProducto', () => {
   it('producto sin movimientos no aparece', () => {
     const s = saldosPorProducto([])
     assert.equal(s.has(PAN), false)
+  })
+})
+
+// Un producto desactivado solo del quiosco sigue en almacén y conserva su
+// stock: por eso la vista no lo esconde, lo marca como "No se vende".
+describe('producto por ubicación (activo / activoQuiosco)', () => {
+  const base = { id: PAN, nombre: 'Pan', activo: true, orden: 1, precioCompraActual: 10, precioVentaActual: 18 }
+
+  it('productoSchema: activoQuiosco es true por defecto', () => {
+    const r = productoSchema.parse({ nombre: 'Pan' })
+    assert.equal(r.activoQuiosco, true)
+    assert.equal(r.activo, true)
+  })
+
+  it('productoSchema: acepta desactivar solo el quiosco', () => {
+    const r = productoSchema.parse({ nombre: 'Pan', activo: true, activoQuiosco: false })
+    assert.equal(r.activo, true)
+    assert.equal(r.activoQuiosco, false)
+  })
+
+  it('vistaSaldos: seVende refleja el flag y ambos saldos siguen visibles', () => {
+    const vista = vistaSaldos({
+      productos: [{ ...base }, { ...base, id: 'OTRO', nombre: 'Refresco', activoQuiosco: false }],
+      lotes: [],
+      movimientos: [
+        { productoId: PAN, deltaAlmacen: 100, deltaQuiosco: 10, anulado: false },
+        { productoId: 'OTRO', deltaAlmacen: 50, deltaQuiosco: 0, anulado: false }
+      ]
+    })
+    const pan = vista.find(v => v.productoId === PAN)
+    const otro = vista.find(v => v.productoId === 'OTRO')
+
+    assert.equal(pan.seVende, true)
+    // Desactivado del quiosco: sigue listado, con su stock de almacén intacto.
+    assert.equal(otro.seVende, false)
+    assert.equal(otro.almacen, 50)
+    assert.equal(vista.length, 2)
+  })
+
+  it('vistaSaldos: un producto inactivo (maestro) desaparece de ambas vistas', () => {
+    const vista = vistaSaldos({
+      productos: [{ ...base, activo: false }],
+      lotes: [],
+      movimientos: [{ productoId: PAN, deltaAlmacen: 100, deltaQuiosco: 0, anulado: false }]
+    })
+    assert.equal(vista.length, 0)
   })
 })

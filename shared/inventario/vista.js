@@ -45,6 +45,7 @@ export function vistaSaldos({ productos, lotes, movimientos }) {
       productoId: p.id,
       nombre: p.nombre,
       unidad: p.unidad ?? null,
+      seVende: p.activoQuiosco !== false,
       almacen: saldos.get(p.id)?.almacen ?? 0,
       quiosco: saldos.get(p.id)?.quiosco ?? 0,
       stockMinimoQuiosco: Number(p.stockMinimoQuiosco ?? 0),

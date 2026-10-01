@@ -105,6 +105,11 @@ export const productos = pgTable(
     nombre: text('nombre').notNull(),
     descripcion: text('descripcion'),
     activo: boolean('activo').notNull().default(true),
+    // Interruptor por ubicación: en false el producto deja de venderse en el
+    // quiosco (no auto-aparece en el cuadre) pero conserva sus lotes, su
+    // stock de almacén y su historial. `activo` es el interruptor maestro:
+    // en false desaparece de todas partes.
+    activoQuiosco: boolean('activo_quiosco').notNull().default(true),
     orden: integer('orden').notNull().default(0),
     precioCompraActual: doublePrecision('precio_compra_actual')
       .notNull()

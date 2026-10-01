@@ -332,10 +332,12 @@ export function useCuadre() {
 
       // Carga de productos: en online usamos el repo remoto; en local usamos
       // getProductosActivos() que filtra directamente en SQLite por puestoId.
+      // Se excluyen los desactivados solo del quiosco (activoQuiosco=false):
+      // no se venden, pero siguen teniendo stock y lotes.
       if (modo === 'online') {
         const allProds = await useRemoteRepo(productoConfig).readAll()
         productosActivos.value = allProds
-          .filter(p => p.activo)
+          .filter(p => p.activo && p.activoQuiosco !== false)
           .map(p => ({
             id: p.id,
             nombre: p.nombre,
@@ -344,12 +346,14 @@ export function useCuadre() {
           }))
       } else {
         const prods = await db.getProductosActivos(puestoId)
-        productosActivos.value = prods.map(p => ({
-          id: p.id,
-          nombre: p.nombre,
-          precioVentaActual: p.precioVentaActual,
-          orden: p.orden
-        }))
+        productosActivos.value = prods
+          .filter(p => p.activoQuiosco !== false)
+          .map(p => ({
+            id: p.id,
+            nombre: p.nombre,
+            precioVentaActual: p.precioVentaActual,
+            orden: p.orden
+          }))
       }
 
       let c

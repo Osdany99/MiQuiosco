@@ -15,7 +15,8 @@ const fields = [
   { name: 'stockMinimoQuiosco', label: 'Mínimo quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'stockRecomendadoQuiosco', label: 'Recomendado quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'stockMinimoAlmacen', label: 'Mínimo almacén', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
-  { name: 'activo', label: 'Activo', type: 'switch', required: true, colSpan: 'sm:col-span-2', props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } }
+  { name: 'activo', label: 'Activo', type: 'switch', required: true, props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } },
+  { name: 'activoQuiosco', label: 'Se vende en el quiosco', type: 'switch', required: true, colSpan: 'sm:col-span-2', props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } }
 ]
 
 const columns = [
@@ -29,12 +30,13 @@ const columns = [
   { accessorKey: 'precioCompraActual', header: 'P. compra (auto)', cell: 'currency' },
   { accessorKey: 'precioVentaActual', header: 'Precio Venta', cell: 'currency' },
   { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
+  { accessorKey: 'activoQuiosco', header: 'Vende', cell: 'activation', labelTrue: 'sí', labelFalse: 'no' },
   { accessorKey: 'action', header: 'Acciones' }
 ]
 
 const tableRef = ref(null)
 const formRef = ref(null)
-const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, unidad: '', stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true })
+const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, unidad: '', stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
 
 const showHistorial = ref(false)
 const historialProducto = ref(null)

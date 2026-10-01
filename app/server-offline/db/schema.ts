@@ -90,6 +90,7 @@ export const productos = sqliteTable(
     nombre: text('nombre').notNull(),
     descripcion: text('descripcion'),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    activoQuiosco: integer('activo_quiosco', { mode: 'boolean' }).notNull().default(true),
     orden: integer('orden').notNull().default(0),
     precioCompraActual: real('precio_compra_actual').notNull().default(0),
     precioVentaActual: real('precio_venta_actual').notNull().default(0),
