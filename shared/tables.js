@@ -15,7 +15,7 @@ export const productos = {
   endpoints: endpoint('productos'),
   puestoScoped: true,
   label: { singular: 'Producto', plural: 'Productos', gender: 'm' },
-  syncNumeric: ['precioCompraActual', 'precioVentaActual'],
+  syncNumeric: ['precioCompraActual', 'precioVentaActual', 'stockMinimoQuiosco', 'stockRecomendadoQuiosco', 'stockMinimoAlmacen'],
   insertOnly: false
 }
 
@@ -33,7 +33,7 @@ export const cuadres = {
   endpoints: endpoint('cuadres'),
   puestoScoped: true,
   label: { singular: 'Cuadre', plural: 'Cuadres', gender: 'm' },
-  syncNumeric: ['pagoTrabajador', 'totalEsperado', 'totalRealCaja', 'montoTransferencia', 'montoFiado', 'montoCobradoFiado', 'montoRegalo', 'montoDescuento', 'diferencia'],
+  syncNumeric: ['pagoTrabajador', 'totalEsperado', 'totalRealCaja', 'montoTransferencia', 'montoFiado', 'montoCobradoFiado', 'montoRegalo', 'montoDescuento', 'diferencia', 'costoTotal', 'ganancia'],
   insertOnly: false
 }
 
@@ -41,7 +41,7 @@ export const cuadre_items = {
   tabla: 'cuadre_items',
   endpoints: endpoint('cuadre-items'),
   label: { singular: 'Línea', plural: 'Líneas', gender: 'f' },
-  syncNumeric: ['precioVentaUsado', 'cantidad', 'subtotal'],
+  syncNumeric: ['precioVentaUsado', 'cantidad', 'subtotal', 'secuencia'],
   insertOnly: false
 }
 
@@ -104,14 +104,52 @@ export const historial_precios = {
   insertOnly: true
 }
 
+export const proveedores = {
+  tabla: 'proveedores',
+  endpoints: endpoint('proveedores'),
+  puestoScoped: true,
+  label: { singular: 'Proveedor', plural: 'Proveedores', gender: 'm' },
+  syncNumeric: [],
+  insertOnly: false
+}
+
+export const lotes = {
+  tabla: 'lotes',
+  endpoints: endpoint('lotes'),
+  puestoScoped: true,
+  label: { singular: 'Lote', plural: 'Lotes', gender: 'm' },
+  syncNumeric: ['cantidadInicial', 'precioUnitario'],
+  insertOnly: true
+}
+
+export const traspasos = {
+  tabla: 'traspasos',
+  endpoints: endpoint('traspasos'),
+  puestoScoped: true,
+  label: { singular: 'Traspaso', plural: 'Traspasos', gender: 'm' },
+  syncNumeric: [],
+  insertOnly: false
+}
+
+export const movimientos_inventario = {
+  tabla: 'movimientos_inventario',
+  endpoints: endpoint('movimientos-inventario'),
+  puestoScoped: true,
+  label: { singular: 'Movimiento', plural: 'Movimientos', gender: 'm' },
+  syncNumeric: ['cantidad', 'deltaAlmacen', 'deltaQuiosco', 'precioUnitario', 'importe'],
+  insertOnly: true
+}
+
 export const TABLES = {
   productos, usuarios, cuadres, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
-  transferencias, transferencia_items, ajustes
+  transferencias, transferencia_items, ajustes,
+  proveedores, lotes, traspasos, movimientos_inventario
 }
 
 export const SYNC_TABLES = [
   productos, usuarios, cuadres, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
-  transferencias, transferencia_items, ajustes
+  transferencias, transferencia_items, ajustes,
+  proveedores, lotes, traspasos, movimientos_inventario
 ]

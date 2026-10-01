@@ -135,7 +135,12 @@ const journalSqls = Object.entries(
   import.meta.glob('../../../drizzle/sqlite/*.sql', { query: '?raw', import: 'default', eager: true })
 ).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
-const BASELINE_SQL = journalSqls.map(([, sql]) => sql).join('\n')
+// OJO: el separador incluye un statement-breakpoint explícito. Sin él, la
+// última sentencia de un archivo quedaría fundida con la primera del
+// siguiente al separar, y crearTablasFaltantes/crearIndicesFaltantes
+// clasificarían mal el bloque (un CREATE TABLE pegado tras un CREATE INDEX
+// nunca se crearía en instalaciones existentes).
+const BASELINE_SQL = journalSqls.map(([, sql]) => sql).join('\n--> statement-breakpoint\n')
 
 /**
  * Migraciones legacy best-effort para instalaciones creadas antes del sistema
@@ -215,7 +220,8 @@ function initializeSchemaMemory(mem) {
     'puestos', 'usuarios', 'productos', 'historial_precios',
     'cuadres', 'cuadre_items', 'productos_cache',
     'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado',
-    'transferencias', 'transferencia_items', 'ajustes'
+    'transferencias', 'transferencia_items', 'ajustes',
+    'proveedores', 'lotes', 'traspasos', 'movimientos_inventario'
   ]
   for (const t of tables) mem.ensureTable(t, '')
 }

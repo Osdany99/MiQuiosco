@@ -34,6 +34,14 @@ export const formaPagoFiadoEnum = pgEnum('forma_pago_fiado', [
   'transferencia'
 ])
 export const tipoAjusteEnum = pgEnum('tipo_ajuste', ['regalo', 'descuento'])
+export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
+  'entrada',
+  'traspaso',
+  'venta',
+  'merma',
+  'devolucion',
+  'anulacion'
+])
 
 /**
  * Puestos: soporte multi-puesto desde el día 1.
@@ -104,6 +112,16 @@ export const productos = pgTable(
     precioVentaActual: doublePrecision('precio_venta_actual')
       .notNull()
       .default(0),
+    stockMinimoQuiosco: doublePrecision('stock_minimo_quiosco')
+      .notNull()
+      .default(0),
+    stockRecomendadoQuiosco: doublePrecision('stock_recomendado_quiosco')
+      .notNull()
+      .default(0),
+    stockMinimoAlmacen: doublePrecision('stock_minimo_almacen')
+      .notNull()
+      .default(0),
+    unidad: text('unidad'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -193,6 +211,8 @@ export const cuadres = pgTable(
       .notNull()
       .default(0),
     diferencia: doublePrecision('diferencia'),
+    costoTotal: doublePrecision('costo_total'),
+    ganancia: doublePrecision('ganancia'),
     estado: estadoCuadreEnum('estado').notNull().default('abierto'),
     notas: text('notas'),
     cerradoEn: timestamp('cerrado_en', { withTimezone: true }),
@@ -240,6 +260,7 @@ export const cuadreItems = pgTable(
     tipoLinea: tipoLineaEnum('tipo_linea').notNull().default('normal'),
     nota: text('nota'),
     esExtra: boolean('es_extra').notNull().default(false),
+    secuencia: integer('secuencia').notNull().default(0),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -446,6 +467,160 @@ export const ajustes = pgTable(
 )
 
 /**
+ * Proveedores: catálogo opcional de lugares de compra.
+ * Si no se elige proveedor, el lote guarda lugar_compra como texto libre.
+ */
+export const proveedores = pgTable(
+  'proveedores',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    notas: text('notas'),
+    activo: boolean('activo').notNull().default(true),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('proveedores_puesto_idx').on(table.puestoId),
+    nombreUk: uniqueIndex('proveedores_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('proveedores_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Lotes de compra: cada entrada al almacén crea un lote por producto.
+ * INMUTABLE: nunca se actualiza el precio una vez que el lote tiene consumo.
+ * precioUnitario es el costo congelado de este lote (base del FIFO).
+ */
+export const lotes = pgTable(
+  'lotes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+    proveedorId: uuid('proveedor_id').references(() => proveedores.id),
+    lugarCompra: text('lugar_compra'),
+    fechaEntrada: date('fecha_entrada').notNull(),
+    cantidadInicial: integer('cantidad_inicial').notNull(),
+    precioUnitario: doublePrecision('precio_unitario').notNull(),
+    detalleCompra: text('detalle_compra'),
+    entradaRef: uuid('entrada_ref'),
+    anulado: boolean('anulado').notNull().default(false),
+    notas: text('notas'),
+    creadoPor: uuid('creado_por').references(() => usuarios.id),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    productoIdx: index('lotes_producto_idx').on(table.productoId),
+    fifoIdx: index('lotes_fifo_idx').on(
+      table.productoId,
+      table.fechaEntrada,
+      table.creadoEn
+    ),
+    puestoIdx: index('lotes_puesto_idx').on(table.puestoId),
+    entradaRefIdx: index('lotes_entrada_ref_idx').on(table.entradaRef),
+    actualizadoEnIdx: index('lotes_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Traspasos almacén → quiosco: cabecera que agrupa movimientos.
+ * Los efectos reales están en movimientos_inventario.
+ */
+export const traspasos = pgTable(
+  'traspasos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    fecha: date('fecha').notNull(),
+    desde: text('desde').notNull().default('almacen'),
+    hasta: text('hasta').notNull().default('quiosco'),
+    notas: text('notas'),
+    usuarioId: uuid('usuario_id').references(() => usuarios.id),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('traspasos_puesto_idx').on(table.puestoId),
+    fechaIdx: index('traspasos_fecha_idx').on(table.fecha),
+    actualizadoEnIdx: index('traspasos_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Movimientos de inventario: libro append-only, única fuente de la verdad.
+ * Regla de oro: nunca se edita ni se borra; las correcciones son movimientos
+ * de tipo 'anulacion' con deltas invertidos.
+ */
+export const movimientosInventario = pgTable(
+  'movimientos_inventario',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+    loteId: uuid('lote_id').references(() => lotes.id),
+    cuadreId: uuid('cuadre_id').references(() => cuadres.id),
+    lineaCuadreId: uuid('linea_cuadre_id').references(() => cuadreItems.id, {
+      onDelete: 'set null'
+    }),
+    traspasoId: uuid('traspaso_id').references(() => traspasos.id),
+    tipo: tipoMovimientoEnum('tipo').notNull(),
+    cantidad: integer('cantidad').notNull(),
+    deltaAlmacen: integer('delta_almacen').notNull().default(0),
+    deltaQuiosco: integer('delta_quiosco').notNull().default(0),
+    precioUnitario: doublePrecision('precio_unitario').notNull(),
+    importe: doublePrecision('importe').notNull(),
+    motivo: text('motivo'),
+    nota: text('nota'),
+    usuarioId: uuid('usuario_id').references(() => usuarios.id),
+    anulado: boolean('anulado').notNull().default(false),
+    anuladoPor: uuid('anulado_por').references(() => usuarios.id),
+    anuladoEn: timestamp('anulado_en', { withTimezone: true }),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    productoQuioscoIdx: index('mov_producto_quiosco_idx').on(table.productoId, table.anulado),
+    productoAlmacenIdx: index('mov_producto_almacen_idx').on(
+      table.productoId,
+      table.anulado,
+      table.deltaAlmacen
+    ),
+    cuadreIdx: index('mov_cuadre_idx').on(table.cuadreId),
+    loteIdx: index('mov_lote_idx').on(table.loteId),
+    puestoFechaIdx: index('mov_puesto_fecha_idx').on(table.puestoId, table.creadoEn)
+  })
+)
+
+/**
  * Registro de eliminaciones para sincronización.
  * Trackea qué registros fueron eliminados y cuándo, para que otros dispositivos los apliquen en pull.
  */
@@ -543,6 +718,14 @@ export type TransferenciaItem = typeof transferenciaItems.$inferSelect
 export type NuevaTransferenciaItem = typeof transferenciaItems.$inferInsert
 export type Ajuste = typeof ajustes.$inferSelect
 export type NuevoAjuste = typeof ajustes.$inferInsert
+export type Proveedor = typeof proveedores.$inferSelect
+export type NuevoProveedor = typeof proveedores.$inferInsert
+export type Lote = typeof lotes.$inferSelect
+export type NuevoLote = typeof lotes.$inferInsert
+export type Traspaso = typeof traspasos.$inferSelect
+export type NuevoTraspaso = typeof traspasos.$inferInsert
+export type MovimientoInventario = typeof movimientosInventario.$inferSelect
+export type NuevoMovimientoInventario = typeof movimientosInventario.$inferInsert
 export type WebauthnCredential = typeof webauthnCredentials.$inferSelect
 export type NuevoWebauthnCredential = typeof webauthnCredentials.$inferInsert
 
@@ -552,3 +735,4 @@ export type TipoLinea = 'normal' | 'descuento' | 'regalo' | 'deuda' | 'descuento
 export type EstadoCuentaFiado = 'pendiente' | 'parcial' | 'pagada'
 export type FormaPagoFiado = 'efectivo' | 'transferencia'
 export type TipoAjuste = 'regalo' | 'descuento'
+export type TipoMovimiento = 'entrada' | 'traspaso' | 'venta' | 'merma' | 'devolucion' | 'anulacion'

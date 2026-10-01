@@ -17,11 +17,20 @@ export const ROLES = ['jefe', 'trabajador', 'cliente'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
 export const TIPOS_LINEA = ['normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar'] as const
 export const TIPOS_AJUSTE = ['regalo', 'descuento'] as const
+export const TIPOS_MOVIMIENTO = [
+  'entrada',
+  'traspaso',
+  'venta',
+  'merma',
+  'devolucion',
+  'anulacion'
+] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
 export type TipoLinea = (typeof TIPOS_LINEA)[number]
 export type TipoAjuste = (typeof TIPOS_AJUSTE)[number]
+export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number]
 
 /**
  * Puestos: espejo de la tabla del servidor para uso offline.
@@ -84,6 +93,10 @@ export const productos = sqliteTable(
     orden: integer('orden').notNull().default(0),
     precioCompraActual: real('precio_compra_actual').notNull().default(0),
     precioVentaActual: real('precio_venta_actual').notNull().default(0),
+    stockMinimoQuiosco: real('stock_minimo_quiosco').notNull().default(0),
+    stockRecomendadoQuiosco: real('stock_recomendado_quiosco').notNull().default(0),
+    stockMinimoAlmacen: real('stock_minimo_almacen').notNull().default(0),
+    unidad: text('unidad'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -151,6 +164,8 @@ export const cuadres = sqliteTable(
     montoRegalo: real('monto_regalo').notNull().default(0),
     montoDescuento: real('monto_descuento').notNull().default(0),
     diferencia: real('diferencia'),
+    costoTotal: real('costo_total'),
+    ganancia: real('ganancia'),
     estado: text('estado', { enum: ESTADOS_CUADRE }).notNull().default('abierto'),
     notas: text('notas'),
     cerradoEn: integer('cerrado_en', { mode: 'timestamp_ms' }),
@@ -194,6 +209,7 @@ export const cuadreItems = sqliteTable(
       .default('normal'),
     nota: text('nota'),
     esExtra: integer('es_extra', { mode: 'boolean' }).notNull().default(false),
+    secuencia: integer('secuencia').notNull().default(0),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -402,6 +418,152 @@ export const ajustes = sqliteTable(
 )
 
 /**
+ * Proveedores: catálogo opcional de lugares de compra.
+ */
+export const proveedores = sqliteTable(
+  'proveedores',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    notas: text('notas'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('proveedores_puesto_idx').on(table.puestoId),
+    nombreUk: uniqueIndex('proveedores_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('proveedores_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Lotes de compra: INMUTABLES una vez que tienen consumo.
+ */
+export const lotes = sqliteTable(
+  'lotes',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    proveedorId: text('proveedor_id'),
+    lugarCompra: text('lugar_compra'),
+    fechaEntrada: text('fecha_entrada').notNull(),
+    cantidadInicial: integer('cantidad_inicial').notNull(),
+    precioUnitario: real('precio_unitario').notNull(),
+    detalleCompra: text('detalle_compra'),
+    entradaRef: text('entrada_ref'),
+    anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
+    notas: text('notas'),
+    creadoPor: text('creado_por'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    productoIdx: index('lotes_producto_idx').on(table.productoId),
+    fifoIdx: index('lotes_fifo_idx').on(table.productoId, table.fechaEntrada, table.creadoEn),
+    puestoIdx: index('lotes_puesto_idx').on(table.puestoId),
+    entradaRefIdx: index('lotes_entrada_ref_idx').on(table.entradaRef),
+    actualizadoEnIdx: index('lotes_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Traspasos almacén → quiosco.
+ */
+export const traspasos = sqliteTable(
+  'traspasos',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    fecha: text('fecha').notNull(),
+    desde: text('desde').notNull().default('almacen'),
+    hasta: text('hasta').notNull().default('quiosco'),
+    notas: text('notas'),
+    usuarioId: text('usuario_id'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('traspasos_puesto_idx').on(table.puestoId),
+    fechaIdx: index('traspasos_fecha_idx').on(table.fecha),
+    actualizadoEnIdx: index('traspasos_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Movimientos de inventario: libro append-only.
+ */
+export const movimientosInventario = sqliteTable(
+  'movimientos_inventario',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    loteId: text('lote_id'),
+    cuadreId: text('cuadre_id'),
+    lineaCuadreId: text('linea_cuadre_id'),
+    traspasoId: text('traspaso_id'),
+    tipo: text('tipo', { enum: TIPOS_MOVIMIENTO }).notNull(),
+    cantidad: integer('cantidad').notNull(),
+    deltaAlmacen: integer('delta_almacen').notNull().default(0),
+    deltaQuiosco: integer('delta_quiosco').notNull().default(0),
+    precioUnitario: real('precio_unitario').notNull(),
+    importe: real('importe').notNull(),
+    motivo: text('motivo'),
+    nota: text('nota'),
+    usuarioId: text('usuario_id'),
+    anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
+    anuladoPor: text('anulado_por'),
+    anuladoEn: integer('anulado_en', { mode: 'timestamp_ms' }),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    productoQuioscoIdx: index('mov_producto_quiosco_idx').on(table.productoId, table.anulado),
+    productoAlmacenIdx: index('mov_producto_almacen_idx').on(
+      table.productoId,
+      table.anulado,
+      table.deltaAlmacen
+    ),
+    cuadreIdx: index('mov_cuadre_idx').on(table.cuadreId),
+    loteIdx: index('mov_lote_idx').on(table.loteId),
+    puestoFechaIdx: index('mov_puesto_fecha_idx').on(table.puestoId, table.creadoEn),
+    tipoCheck: check(
+      'movimientos_tipo_check',
+      sql`${table.tipo} IN ('entrada','traspaso','venta','merma','devolucion','anulacion')`
+    )
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect
@@ -416,3 +578,7 @@ export type PagoFiadoSQLite = typeof pagosFiado.$inferSelect
 export type TransferenciaSQLite = typeof transferencias.$inferSelect
 export type TransferenciaItemSQLite = typeof transferenciaItems.$inferSelect
 export type AjusteSQLite = typeof ajustes.$inferSelect
+export type ProveedorSQLite = typeof proveedores.$inferSelect
+export type LoteSQLite = typeof lotes.$inferSelect
+export type TraspasoSQLite = typeof traspasos.$inferSelect
+export type MovimientoInventarioSQLite = typeof movimientosInventario.$inferSelect

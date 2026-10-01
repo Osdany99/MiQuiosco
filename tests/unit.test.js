@@ -460,7 +460,7 @@ function leerBaselineSqlite() {
 
 describe('journal sqlite (instalación fresca)', () => {
   const journal = leerBaselineSqlite()
-  const baseline = journal.map(j => j.sql).join('\n')
+  const baseline = journal.map(j => j.sql).join('\n--> statement-breakpoint\n')
 
   it('aplica el baseline completo de corrido contra BD vacía', async () => {
     const conn = memoDb()
@@ -501,7 +501,7 @@ describe('journal sqlite (instalación fresca)', () => {
 
 describe('reconciliación de instalación existente (Bug A auto-reparación)', () => {
   const journal = leerBaselineSqlite()
-  const baseline = journal.map(j => j.sql).join('\n')
+  const baseline = journal.map(j => j.sql).join('\n--> statement-breakpoint\n')
   const columnDefs = { usuarios: [{ name: 'telefono', sqlType: 'text', notNull: false, default: undefined }] }
 
   it('repara instalación parcial (usuarios viejo sin telefono) sin perder datos', async () => {
