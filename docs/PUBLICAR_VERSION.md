@@ -14,6 +14,12 @@ cambio de esquema de BD).
   El `+` está prohibido en tags y APKs: GitHub devuelve 404 en la descarga
   directa aunque el asset exista (los releases `v1.2+3`/`v1.3+4` quedaron
   como historia con links rotos).
+  **El `versionCode` nunca puede ser `0`**: Android exige un entero positivo y
+  el build aborta con `android.defaultConfig.versionCode is set to 0`. El
+  workflow no lo valida, así que un tag tipo `v1.4.0` pasa el gate de formato y
+  revienta más tarde, ya en Gradle. Al bumpear la versión menor, comprueba que
+  el tercer número suba de verdad (de `v1.3.5` a `v1.4.0` **no** es válido:
+  mejor `v1.4.6`).
 - `versionName` (ej. `"1.2"`): solo informativo para el usuario.
 - `APP_MIN_VERSION_CODE`: por debajo de este código la actualización es
   **obligatoria** (bloquea la app) y el servidor responde `426` a esa APK.
@@ -73,6 +79,12 @@ pnpm lint && pnpm test && pnpm typecheck
    ```powershell
    git tag -a v1.3.5 -m "release: v1.3 (versionCode 5)" -m "Notas breves de la versión"
    git push origin v1.3.5
+   ```
+   Antes de subirlo, verifica que el tercer número es un entero **positivo y
+   mayor** que el del último release (`v1.4.0` daría `versionCode 0` y el build
+   falla en Gradle aunque el tag tenga buena pinta):
+   ```powershell
+   "v1.4.6" -match '^v([0-9]+\.[0-9]+)\.([0-9]+)$'   # versionName=1.4 versionCode=6
    ```
     Esto dispara el workflow `release-apk`, que hace **todo solo**:
     - Job `migrate-db`: verifica que `drizzle/` esté generado al día con el
@@ -171,6 +183,13 @@ Notas:
 - **El workflow falla en "Parsear tag"**: el tag no sigue `vX.Y.N`.
   Borra el tag (`git tag -d v...; git push origin :refs/tags/v...`) y créalo
   de nuevo con el formato correcto.
+- **El build falla con `versionCode is set to 0`**: el tag era `vX.Y.0`. El
+  gate de formato lo acepta (el `0` es un entero válido para la regex) pero
+  Android exige un entero positivo. republica con el tercer número ≥1 y mayor
+  que el anterior: `v1.4.0` → `v1.4.6`.
+- **El workflow falla al borrar o crear el tag** (`Cannot delete this tag`,
+  `creations being restricted`): es el ruleset `release-tags` acting. Es
+  intencional; como admin lo autorizas con el bypass y el run continúa.
 - **El workflow falla en "Verificar secretos de firma"**: falta algún secret.
   Revisa la tabla de la sección "Requisito previo".
 - **El workflow falla en "Verificar URL de producción"**: el secret
