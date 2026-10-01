@@ -97,18 +97,27 @@
       </template>
 
       <template #cantidad-cell="{ row }">
-        <BaseInputNumber
-          v-model="row.original.cantidad"
-          :step="1"
-          class="w-20"
-          :disabled="readonly"
-          :readonly="bloqueado(row.original.id)"
-          :increment="false"
-          :decrement="false"
-          @focus="(e) => activarEdicion(row.original, e)"
-          @blur="terminarEdicion"
-          @update:model-value="recalcularSubtotal(row.original)"
-        />
+        <div>
+          <BaseInputNumber
+            v-model="row.original.cantidad"
+            :step="1"
+            class="w-20"
+            :disabled="readonly"
+            :readonly="bloqueado(row.original.id)"
+            :increment="false"
+            :decrement="false"
+            @focus="(e) => activarEdicion(row.original, e)"
+            @blur="terminarEdicion"
+            @update:model-value="recalcularSubtotal(row.original)"
+          />
+          <div
+            v-if="stockQuiosco.has(row.original.productoId)"
+            class="text-[11px] leading-tight mt-0.5"
+            :class="Number(row.original.cantidad) > (stockQuiosco.get(row.original.productoId) ?? 0) ? 'text-error font-medium' : 'text-muted'"
+          >
+            Q: {{ stockQuiosco.get(row.original.productoId) }}
+          </div>
+        </div>
       </template>
     </BaseTable>
 
@@ -140,6 +149,21 @@ const {
 
 const eliminarOpen = ref(false)
 const aEliminar = ref(null)
+
+// Stock del quiosco como ayuda visual (solo jefe: el trabajador no ve costos
+// ni stock). No bloquea la venta; el descuento real pasa al cerrar.
+const stockQuiosco = ref(new Map())
+const { esJefe } = useAuth()
+
+onMounted(async () => {
+  if (!esJefe.value) return
+  try {
+    const saldos = await useInventario().cargarSaldos()
+    stockQuiosco.value = new Map((saldos ?? []).map(s => [s.productoId, s.quiosco]))
+  } catch {
+    // Sin saldos no hay hint; la venta sigue funcionando igual.
+  }
+})
 
 function duplicar(linea) {
   duplicarLinea(linea)

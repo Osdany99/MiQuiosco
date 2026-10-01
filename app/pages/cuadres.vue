@@ -24,6 +24,8 @@ const columns = [
   { accessorKey: 'montoFiado', header: 'Fiado', cell: 'currency' },
   { accessorKey: 'montoCobradoFiado', header: 'Cobrado fiado', cell: 'currency' },
   { accessorKey: 'diferencia', header: 'Diferencia' },
+  { accessorKey: 'costoTotal', header: 'Costo' },
+  { accessorKey: 'ganancia', header: 'Ganancia' },
   { accessorKey: 'pagoTrabajador', header: 'Pago trab.', cell: 'currencyWithValue' },
   { accessorKey: 'cerradoEn', header: 'Cerrado en', cell: 'dateWithValue' },
   { accessorKey: 'action', header: 'Acciones' }
@@ -87,6 +89,14 @@ async function confirmarReabrir() {
             : ''"
         >
           {{ row.original.diferencia != null ? fmtPrecio(row.original.diferencia) : '—' }}
+        </span>
+      </template>
+      <template #costoTotal-cell="{ row }">
+        {{ row.original.costoTotal != null ? fmtPrecio(row.original.costoTotal) : '—' }}
+      </template>
+      <template #ganancia-cell="{ row }">
+        <span :class="row.original.ganancia != null ? 'text-success font-medium' : ''">
+          {{ row.original.ganancia != null ? fmtPrecio(row.original.ganancia) : '—' }}
         </span>
       </template>
       <template #row-actions-extra="{ rowData }">

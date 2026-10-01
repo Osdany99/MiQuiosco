@@ -137,7 +137,9 @@ export const movimientos_inventario = {
   puestoScoped: true,
   label: { singular: 'Movimiento', plural: 'Movimientos', gender: 'm' },
   syncNumeric: ['cantidad', 'deltaAlmacen', 'deltaQuiosco', 'precioUnitario', 'importe'],
-  insertOnly: true
+  // No es insertOnly aunque la regla de negocio sea append-only: el flag
+  // `anulado` (reaperturas) debe propagarse como update por timestamp.
+  insertOnly: false
 }
 
 export const TABLES = {

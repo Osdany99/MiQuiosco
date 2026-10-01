@@ -2,6 +2,7 @@ import { getCurrentScope, onScopeDispose } from 'vue'
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
 import { generateId } from '~/utils/id'
+import { $api } from '../utils/api'
 import { calcularSubtotalLinea } from '../utils'
 
 const cuadreConfig = TABLES.cuadres
@@ -31,6 +32,8 @@ function normalizarCuadre(c) {
     montoRegalo: Number(c.montoRegalo ?? 0),
     montoDescuento: Number(c.montoDescuento ?? 0),
     diferencia: c.diferencia ?? null,
+    costoTotal: c.costoTotal ?? null,
+    ganancia: c.ganancia ?? null,
     trabajadorTurnoId: c.trabajadorTurnoId ?? null,
     pagoTrabajador: c.pagoTrabajador ?? null,
     notas: c.notas ?? null,
@@ -53,6 +56,7 @@ function normalizarLinea(i) {
     tipoLinea: i.tipoLinea ?? 'normal',
     nota: i.nota ?? null,
     esExtra: i.esExtra ?? false,
+    secuencia: Number(i.secuencia ?? 0),
     creadoEn: i.creadoEn ?? null,
     actualizadoEn: i.actualizadoEn ?? null
   }
@@ -483,6 +487,9 @@ export function useCuadre() {
       // línea a un producto que ya tiene original y duplicadas.
       if (autoPopulate) {
         const conLinea = new Set(lineasCargadas.map(l => l.productoId))
+        // La secuencia ordena la venta para el FIFO: cada línea nueva toma el
+        // siguiente número. Las históricas (secuencia 0) conservan su orden.
+        let maxSec = lineasCargadas.reduce((m, l) => Math.max(m, Number(l.secuencia ?? 0)), 0)
         for (const prod of productosActivos.value) {
           if (conLinea.has(prod.id)) continue
           lineasCargadas.push({
@@ -494,7 +501,8 @@ export function useCuadre() {
             subtotal: 0,
             tipoLinea: 'normal',
             nota: null,
-            esExtra: false
+            esExtra: false,
+            secuencia: ++maxSec
           })
         }
       }
@@ -510,6 +518,7 @@ export function useCuadre() {
         return 0
       })
     } else if (autoPopulate) {
+      let seq = 0
       lineas.value = productosActivos.value.map(prod => ({
         id: generateId(),
         cuadreId,
@@ -519,7 +528,8 @@ export function useCuadre() {
         subtotal: 0,
         tipoLinea: 'normal',
         nota: null,
-        esExtra: false
+        esExtra: false,
+        secuencia: ++seq
       }))
     } else {
       lineas.value = []
@@ -591,6 +601,7 @@ export function useCuadre() {
           || existente.tipoLinea !== linea.tipoLinea
           || existente.nota !== linea.nota
           || existente.esExtra !== linea.esExtra
+          || Number(existente.secuencia ?? 0) !== Number(linea.secuencia ?? 0)
         if (cambia) {
           await itemsRepo.update(existente.id, {
             cantidad: linea.cantidad,
@@ -598,7 +609,8 @@ export function useCuadre() {
             subtotal: linea.subtotal,
             tipoLinea: linea.tipoLinea,
             nota: linea.nota,
-            esExtra: linea.esExtra
+            esExtra: linea.esExtra,
+            secuencia: Number(linea.secuencia ?? 0)
           })
         }
         lineasGuardadas.add(linea.id)
@@ -615,7 +627,8 @@ export function useCuadre() {
           subtotal: linea.subtotal,
           tipoLinea: linea.tipoLinea,
           nota: linea.nota,
-          esExtra: linea.esExtra
+          esExtra: linea.esExtra,
+          secuencia: Number(linea.secuencia ?? 0)
         })
         lineasGuardadas.add(linea.id)
       }
@@ -658,6 +671,7 @@ export function useCuadre() {
   // Va marcada esExtra, que es la bandera que el esquema ya tenía prevista.
   function duplicarLinea(linea) {
     const prod = productosActivos.value.find(p => p.id === linea.productoId)
+    const maxSec = lineas.value.reduce((m, l) => Math.max(m, Number(l.secuencia ?? 0)), 0)
     const nueva = {
       id: generateId(),
       cuadreId: linea.cuadreId,
@@ -667,7 +681,8 @@ export function useCuadre() {
       subtotal: 0,
       tipoLinea: 'normal',
       nota: null,
-      esExtra: true
+      esExtra: true,
+      secuencia: maxSec + 1
     }
     const idx = lineas.value.findIndex(l => l.id === linea.id)
     lineas.value.splice(idx + 1, 0, nueva)
@@ -695,23 +710,38 @@ export function useCuadre() {
     }
   }
 
+  // Cierre con FIFO: online va a la ruta transaccional del servidor; en local
+  // se replica la misma secuencia (líneas + venta FIFO + cierre con costo).
+  // El descuento de stock NO bloquea el cierre: si falta stock, se descuenta
+  // hasta donde alcanza y se avisa (el cuadre de dinero ya está bien).
   async function cerrarCuadre() {
     if (esTrabajador.value) {
       toast.add({ title: 'Solo el jefe puede cerrar el cuadre', color: 'error' })
-      return
+      return { costoTotal: null, ganancia: null, faltantes: [] }
     }
 
     if (totalRealCaja.value === null) {
       toast.add({ title: 'Debes ingresar el dinero real en caja.', color: 'warning' })
-      return
+      return { costoTotal: null, ganancia: null, faltantes: [] }
     }
 
-    if (!cuadre.value) return
+    if (!cuadre.value) return { costoTotal: null, ganancia: null, faltantes: [] }
 
     const diff = diferencia.value ?? 0
     const tipo = tipoDiferencia.value
 
     try {
+      const lineasPayload = lineas.value.map(l => ({
+        id: l.id,
+        productoId: l.productoId,
+        precioVentaUsado: Number(l.precioVentaUsado ?? 0),
+        cantidad: Number(l.cantidad ?? 0),
+        subtotal: Number(l.subtotal ?? 0),
+        tipoLinea: l.tipoLinea ?? 'normal',
+        nota: l.nota ?? null,
+        esExtra: !!l.esExtra,
+        secuencia: Number(l.secuencia ?? 0)
+      }))
       const cambios = {
         estado: 'cerrado',
         totalEsperado: totalEsperado.value,
@@ -728,20 +758,43 @@ export function useCuadre() {
         cerradoEn: new Date()
       }
 
-      // En modo local se envuelve en transacción para no dejar el cuadre
-      // en estado inconsistente si falla algún item a mitad del guardado.
-      const persistir = async () => {
-        await cuadreRepo.update(cuadre.value.id, cambios)
-        cuadre.value = { ...cuadre.value, ...cambios }
-        await persistirLineas()
-      }
+      let costoTotal = null
+      let ganancia = null
+      let faltantes = []
 
-      if (conexion.modo.value !== 'online') {
-        await db.transaction(async () => {
-          await persistir()
+      if (conexion.modo.value === 'online') {
+        const token = auth.jwtSync.value
+        const res = await $api(`/api/cuadres/${cuadre.value.id}/cerrar`, {
+          method: 'POST',
+          body: { ...cambios, estado: undefined, diferencia: undefined, cerradoEn: undefined, lineas: lineasPayload },
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
         })
+        costoTotal = res.costoTotal
+        ganancia = res.ganancia
+        faltantes = res.faltantes ?? []
+        cuadre.value = {
+          ...cuadre.value,
+          ...cambios,
+          estado: 'cerrado',
+          diferencia: res.diferencia,
+          costoTotal,
+          ganancia,
+          cerradoEn: Date.now()
+        }
       } else {
-        await persistir()
+        // En modo local se envuelve en transacción para no dejar el cuadre
+        // en estado inconsistente si falla algún item a mitad del guardado.
+        await db.transaction(async () => {
+          await cuadreRepo.update(cuadre.value.id, cambios)
+          cuadre.value = { ...cuadre.value, ...cambios }
+          await persistirLineas()
+          const venta = await aplicarVentaFIFOLocal()
+          costoTotal = venta.costoTotal
+          ganancia = Math.round((totalEsperado.value - costoTotal) * 100) / 100
+          faltantes = venta.faltantes
+          await cuadreRepo.update(cuadre.value.id, { costoTotal, ganancia })
+          cuadre.value = { ...cuadre.value, costoTotal, ganancia }
+        })
       }
 
       let mensaje = 'Cuadre cerrado: '
@@ -757,9 +810,59 @@ export function useCuadre() {
           color: tipo === 'sobrante' ? 'info' : 'error'
         })
       }
+      if (faltantes.length > 0) {
+        const nombres = faltantes.map(f => `${getProductoNombre(f.productoId)} (${f.faltante})`).join(', ')
+        toast.add({
+          title: 'Faltó stock en quiosco',
+          description: `Se vendió más de lo registrado: ${nombres}. Revisa el inventario.`,
+          color: 'warning'
+        })
+      }
+      return { costoTotal, ganancia, faltantes }
     } catch (err) {
-      toast.add({ title: 'Error', description: err.message, color: 'error' })
+      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { costoTotal: null, ganancia: null, faltantes: [] }
     }
+  }
+
+  // Venta FIFO local del cuadre actual. Se llama dentro de una transacción.
+  async function aplicarVentaFIFOLocal() {
+    const { construirVentaCuadre, lotesConSaldo } = await import('../../shared/inventario/operaciones')
+    const pid = auth.usuarioActual.value?.puestoId
+    const movsRepo = useRepo(TABLES.movimientos_inventario)
+    const lotesRepo = useRepo(TABLES.lotes)
+    const [filasLotes, movs] = await Promise.all([
+      lotesRepo.readAll().then(r => (r.data ?? []).filter(l => !pid || l.puestoId === pid)),
+      movsRepo.readAll().then(r => (r.data ?? []).filter(m => !pid || m.puestoId === pid))
+    ])
+    const lineasVenta = lineas.value
+      .filter(l => Number(l.cantidad) > 0)
+      .sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
+      .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad }))
+    const ids = [...new Set(lineasVenta.map(l => l.productoId))]
+    const lotesPorProducto = new Map(ids.map(id => [id, lotesConSaldo(filasLotes, movs, id, 'quiosco')]))
+    const { movimientos, costoTotal, faltantes } = construirVentaCuadre({
+      lineas: lineasVenta,
+      lotesPorProducto,
+      cuadreId: cuadre.value.id,
+      meta: { puestoId: pid, usuarioId: auth.usuarioActual.value?.id ?? null, ahora: Date.now() }
+    })
+    for (const m of movimientos) await movsRepo.create(m)
+    return { costoTotal, faltantes }
+  }
+
+  // Anulación local de la venta del cuadre (reapertura). Dentro de transacción.
+  async function aplicarAnulacionLocal() {
+    const { construirAnulacionCuadre } = await import('../../shared/inventario/operaciones')
+    const pid = auth.usuarioActual.value?.puestoId
+    const movsRepo = useRepo(TABLES.movimientos_inventario)
+    const todos = await movsRepo.readAll().then(r => r.data ?? [])
+    const previos = todos.filter(m => m.cuadreId === cuadre.value.id && !m.anulado && (!pid || m.puestoId === pid))
+    const { anulaciones } = construirAnulacionCuadre({
+      movimientosPrevios: previos,
+      meta: { puestoId: pid, usuarioId: auth.usuarioActual.value?.id ?? null, ahora: Date.now() }
+    })
+    for (const a of anulaciones) await movsRepo.create(a)
   }
 
   async function reabrirCuadre() {
@@ -773,22 +876,45 @@ export function useCuadre() {
     const reabiertoVeces = (cuadre.value.reabiertoVeces ?? 0) + 1
     const ultimaReaperturaEn = Date.now()
     const pagoReabierto = trabajadorTurnoId.value ? salarioCalculado.value : null
-    await cuadreRepo.update(cuadre.value.id, {
-      estado: 'abierto',
-      reabiertoVeces,
-      ultimaReaperturaEn: new Date(ultimaReaperturaEn).toISOString(),
-      // Limpiar también en el registro: con autoguardado, lo que quede aquí
-      // resucitaría como borrador al recargar (los acumulados de fiado, que
-      // son actividad real, se conservan). Las transferencias y ajustes
-      // registrados también son actividad real y se conservan en el cuadre.
-      totalRealCaja: null,
-      pagoTrabajador: pagoReabierto
-    })
+    try {
+      if (conexion.modo.value === 'online') {
+        const token = auth.jwtSync.value
+        await $api(`/api/cuadres/${cuadre.value.id}/reabrir`, {
+          method: 'POST',
+          body: { pagoTrabajador: pagoReabierto },
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        })
+      } else {
+        await db.transaction(async () => {
+          await aplicarAnulacionLocal()
+          await cuadreRepo.update(cuadre.value.id, {
+            estado: 'abierto',
+            reabiertoVeces,
+            ultimaReaperturaEn: new Date(ultimaReaperturaEn).toISOString(),
+            // Limpiar también en el registro: con autoguardado, lo que quede aquí
+            // resucitaría como borrador al recargar (los acumulados de fiado, que
+            // son actividad real, se conservan). Las transferencias y ajustes
+            // registrados también son actividad real y se conservan en el cuadre.
+            totalRealCaja: null,
+            costoTotal: null,
+            ganancia: null,
+            diferencia: null,
+            pagoTrabajador: pagoReabierto
+          })
+        })
+      }
+    } catch (err) {
+      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return
+    }
     cuadre.value = {
       ...cuadre.value,
       estado: 'abierto',
       reabiertoVeces,
-      ultimaReaperturaEn
+      ultimaReaperturaEn,
+      costoTotal: null,
+      ganancia: null,
+      diferencia: null
     }
     // Limpiar montos de cierre del cierre anterior: al volver a cerrar hay que
     // re-ingresarlos, evitando re-usar silenciosamente el dinero en caja viejo.

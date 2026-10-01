@@ -28,7 +28,7 @@ function serializarUsuario(u) {
 
 const OFFLINE_CONFIGS = [
   {
-    config: { tabla: 'productos', defaults: { precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true }, puestoScoped: TABLES.productos.puestoScoped, customMutations: { create: createProductoMut, update: updateProductoMut } },
+    config: { tabla: 'productos', defaults: { precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true, stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0 }, puestoScoped: TABLES.productos.puestoScoped, customMutations: { create: createProductoMut, update: updateProductoMut } },
     overrides: {
       actions: {
         getHistorial: async (productoId) => {

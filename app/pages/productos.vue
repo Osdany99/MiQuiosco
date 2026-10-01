@@ -10,8 +10,11 @@ definePageMeta({
 const fields = [
   { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre del producto', colSpan: 'sm:col-span-2', props: { class: 'w-full', maxlength: 100 } },
   { name: 'descripcion', label: 'Descripción', type: 'text', required: false, placeholder: 'Descripción opcional', colSpan: 'sm:col-span-2', props: { class: 'w-full' } },
-  { name: 'precioCompraActual', label: 'Precio compra', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
   { name: 'precioVentaActual', label: 'Precio venta', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
+  { name: 'unidad', label: 'Unidad', type: 'text', required: false, placeholder: 'unidad, lb, paquete...', props: { class: 'w-full', maxlength: 30 } },
+  { name: 'stockMinimoQuiosco', label: 'Mínimo quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
+  { name: 'stockRecomendadoQuiosco', label: 'Recomendado quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
+  { name: 'stockMinimoAlmacen', label: 'Mínimo almacén', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'activo', label: 'Activo', type: 'switch', required: true, colSpan: 'sm:col-span-2', props: { uncheckedIcon: 'i-lucide-x', checkedIcon: 'i-lucide-check', class: 'w-full' } }
 ]
 
@@ -23,7 +26,7 @@ const columns = [
   // Solo lectura y oculta: sirve para verificar el orden real tras un
   // arrastre. El orden no se edita a mano (el drag es la única vía).
   { accessorKey: 'orden', header: 'Orden', visible: false },
-  { accessorKey: 'precioCompraActual', header: 'Precio Compra', cell: 'currency' },
+  { accessorKey: 'precioCompraActual', header: 'P. compra (auto)', cell: 'currency' },
   { accessorKey: 'precioVentaActual', header: 'Precio Venta', cell: 'currency' },
   { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
   { accessorKey: 'action', header: 'Acciones' }
@@ -31,7 +34,7 @@ const columns = [
 
 const tableRef = ref(null)
 const formRef = ref(null)
-const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true })
+const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, unidad: '', stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true })
 
 const showHistorial = ref(false)
 const historialProducto = ref(null)
@@ -185,7 +188,21 @@ onBeforeUnmount(() => destruirSortable())
           v-model="form"
           :fields="fields"
           :schema="productoSchema"
-        />
+        >
+          <template #field-precioVentaActual>
+            <div class="space-y-1">
+              <BaseInputNumber
+                v-model="form.precioVentaActual"
+                :min="0"
+                :step="100"
+                class="w-full"
+              />
+              <p class="text-xs text-muted">
+                Compra actual: {{ fmtPrecio(form.precioCompraActual) }} (se actualiza con las entradas al almacén)
+              </p>
+            </div>
+          </template>
+        </BaseForm>
       </template>
 
       <template #drag-cell="{ row }">

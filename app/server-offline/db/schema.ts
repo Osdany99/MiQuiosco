@@ -542,6 +542,9 @@ export const movimientosInventario = sqliteTable(
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
     sincronizado: integer('sincronizado', { mode: 'boolean' })
       .notNull()
       .default(false)

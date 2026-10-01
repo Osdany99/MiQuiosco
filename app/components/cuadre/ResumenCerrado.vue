@@ -39,6 +39,14 @@
         <span>Diferencia:</span>
         <span class="font-mono">{{ fmtPrecio(cuadre.diferencia ?? 0) }}</span>
       </div>
+      <div v-if="cuadre.costoTotal != null" class="flex justify-between">
+        <span>Costo (FIFO):</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.costoTotal) }}</span>
+      </div>
+      <div v-if="cuadre.ganancia != null" class="flex justify-between font-semibold text-success">
+        <span>Ganancia:</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.ganancia) }}</span>
+      </div>
       <div class="flex justify-between">
         <span>Trabajador:</span>
         <span>{{ cuadre.trabajadorTurnoId || '—' }}</span>

@@ -8,6 +8,25 @@ const {
   tituloCuadre, esTrabajador,
   totalRealCaja, montoTransferencia, montoFiado, faltanteReal
 } = useCuadre()
+const inv = useInventario()
+
+const showSugerencia = ref(false)
+const sugerencias = ref([])
+
+async function alCerrar() {
+  const { faltantes } = await cerrarCuadre()
+  void faltantes
+  // Sugerencia de reposición con saldos recién calculados (solo jefe).
+  if (auth.esJefe.value && cuadre.value?.estado === 'cerrado') {
+    try {
+      const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
+      sugerencias.value = inv.sugerenciaParaManana(prods ?? [], saldos ?? [])
+      if (sugerencias.value.length > 0) showSugerencia.value = true
+    } catch {
+      // Sin sugerencia no pasa nada: el cuadre ya quedó cerrado.
+    }
+  }
+}
 
 onMounted(() => {
   const pid = auth.usuarioActual.value?.puestoId
@@ -40,7 +59,7 @@ onMounted(() => {
         color="success"
         icon="i-lucide-lock"
         label="Cerrar cuadre"
-        @click="cerrarCuadre"
+        @click="alCerrar"
       />
     </template>
 
@@ -109,5 +128,7 @@ onMounted(() => {
         <CuadreResumenCerrado v-if="cuadre?.estado === 'cerrado'" :cuadre="cuadre" />
       </div>
     </div>
+
+    <InventarioDialogoSugerencia v-model="showSugerencia" :sugerencias="sugerencias" />
   </BaseHeaderPage>
 </template>

@@ -194,16 +194,33 @@ async function _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo
 async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
   const { items, prodMap, cuadres, fechaDeCuadre } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
   const filas = []
+  const porCuadre = new Map()
+  for (const c of cuadres) porCuadre.set(c.id, c)
+  const itemsPorCuadre = new Map()
   for (const i of items) {
     const cant = Number(i.cantidad) || 0
     if (cant <= 0) continue
-    const periodo = fechaDeCuadre[i.cuadreId] || ''
+    if (!itemsPorCuadre.has(i.cuadreId)) itemsPorCuadre.set(i.cuadreId, [])
+    itemsPorCuadre.get(i.cuadreId).push(i)
+  }
+  for (const [cuadreId, lineas] of itemsPorCuadre) {
+    const periodo = fechaDeCuadre[cuadreId] || ''
     if (!periodo) continue
-    const p = prodMap[i.productoId]
-    filas.push({
-      periodo,
-      ganancia: (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * cant
-    })
+    const c = porCuadre.get(cuadreId)
+    // Ganancia FIFO congelada al cerrar: exacta. Cuadres viejos (null) usan
+    // la estimación histórica con el precio de compra actual.
+    if (c?.ganancia != null) {
+      filas.push({ periodo, ganancia: Number(c.ganancia) || 0 })
+      continue
+    }
+    for (const i of lineas) {
+      const cant = Number(i.cantidad) || 0
+      const p = prodMap[i.productoId]
+      filas.push({
+        periodo,
+        ganancia: (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * cant
+      })
+    }
   }
   // Ganancia neta: restar lo pagado al trabajador en cada cuadre cerrado.
   // Cuadres sin trabajador (pago null/0) no aportan nada.

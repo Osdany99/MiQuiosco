@@ -605,6 +605,9 @@ export const movimientosInventario = pgTable(
     anuladoEn: timestamp('anulado_en', { withTimezone: true }),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
       .defaultNow()
   },
   table => ({

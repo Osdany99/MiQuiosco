@@ -14,6 +14,9 @@ export async function createProductoMut(ctx: any, data: any, auth: any) {
 }
 
 export async function updateProductoMut(ctx: any, id: string, cambios: any, auth: any) {
+  // El precio de compra lo gobiernan los lotes (entradas al almacén): aquí se
+  // ignora para no desincronizar el espejo. La corrección vive en el lote.
+  delete cambios.precioCompraActual
   const previo = await ctx.get('productos', id)
   const cambioCompra = cambios.precioCompraActual != null
     && Number(cambios.precioCompraActual) !== Number(previo?.precioCompraActual)

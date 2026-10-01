@@ -14,6 +14,8 @@ export const cuadreSchema = z.object({
   montoRegalo: z.number().min(0, 'El monto no puede ser negativo').default(0),
   montoDescuento: z.number().min(0, 'El monto no puede ser negativo').default(0),
   diferencia: z.number().nullable().optional(),
+  costoTotal: z.number().min(0).nullable().optional(),
+  ganancia: z.number().nullable().optional(),
   estado: z.enum(['abierto', 'cerrado'], { message: 'Estado inválido' }).default('abierto'),
   notas: z.string().nullable().optional(),
   cerradoEn: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Formato de fecha inválido').transform(s => new Date(s)).nullable().optional(),
