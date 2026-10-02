@@ -26,14 +26,25 @@
       icon="i-lucide-info"
       color="warning"
       variant="soft"
-      title="Todavía no hay entradas"
-      description="Empieza con el conteo inicial de lo que ya tienes guardado, o registra tu primera compra."
+      :title="hayProductos ? 'Todavía no hay entradas' : 'Todavía no hay productos'"
+      :description="hayProductos
+        ? 'Registra la mercadería que ya tienes guardada como entrada al almacén.'
+        : 'Primero crea tus productos, después registra la mercadería que ya tienes guardada.'"
       class="mb-4"
     >
       <template #actions>
         <UButton
-          to="/inventario/setup"
-          label="Ir al conteo inicial"
+          v-if="hayProductos"
+          label="Registrar entrada"
+          size="sm"
+          color="warning"
+          variant="soft"
+          @click="showEntrada = true"
+        />
+        <UButton
+          v-else
+          to="/productos"
+          label="Crear productos"
           size="sm"
           color="warning"
           variant="soft"
@@ -129,7 +140,7 @@ definePageMeta({
 
 const {
   cargando, filas, lotesHistorial, columns, columnsHistorial,
-  colorEstado, textoEstado, abrirAjuste, abrirLotes, recargar, sinMovimientos,
+  colorEstado, textoEstado, abrirAjuste, abrirLotes, recargar, sinMovimientos, hayProductos,
   showAjuste, showLotes, productoAjuste, productoLotes
 } = useVistaInventario('almacen')
 
@@ -143,6 +154,17 @@ const showEntrada = ref(false)
 const showTraspaso = ref(false)
 const showProveedores = ref(false)
 const preseleccion = ref([])
+
+const route = useRoute()
+const router = useRouter()
+
+// /almacen?nueva=entrada abre el diálogo directo (enlace desde el estado vacío de /quiosco).
+onMounted(() => {
+  if (route.query.nueva === 'entrada') {
+    showEntrada.value = true
+    router.replace({ query: { ...route.query, nueva: undefined } })
+  }
+})
 
 function abrirTraspasoDe(productoId) {
   preseleccion.value = [{ productoId, cantidad: 0 }]

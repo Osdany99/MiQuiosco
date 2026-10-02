@@ -19,21 +19,25 @@
       icon="i-lucide-info"
       color="warning"
       variant="soft"
-      title="Todavía no hay inventario"
-      description="Registra el conteo inicial o una entrada al almacén para empezar a controlar el stock."
+      :title="hayProductos ? 'Todavía no hay inventario' : 'Todavía no hay productos'"
+      :description="hayProductos
+        ? 'Registra una entrada al almacén para empezar a controlar el stock.'
+        : 'Primero crea tus productos, después registra la mercadería que ya tienes guardada.'"
       class="mb-4"
     >
       <template #actions>
         <UButton
-          to="/inventario/setup"
-          label="Ir al conteo inicial"
+          v-if="hayProductos"
+          to="/almacen?nueva=entrada"
+          label="Registrar una compra"
           size="sm"
           color="warning"
-          variant="soft"
+          variant="solid"
         />
         <UButton
-          to="/almacen"
-          label="Registrar una compra"
+          v-else
+          to="/productos"
+          label="Crear productos"
           size="sm"
           color="warning"
           variant="solid"
@@ -108,7 +112,7 @@ definePageMeta({
 
 const {
   cargando, filas, columns, colorEstado, textoEstado,
-  abrirAjuste, abrirLotes, recargar, sinMovimientos,
+  abrirAjuste, abrirLotes, recargar, sinMovimientos, hayProductos,
   showAjuste, showLotes, productoAjuste, productoLotes
 } = useVistaInventario('quiosco')
 

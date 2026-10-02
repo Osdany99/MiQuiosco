@@ -12,6 +12,7 @@ export function useVistaInventario(ubicacion) {
   const cargando = ref(true)
   const saldos = ref([])
   const lotesHistorial = ref([])
+  const productosActivos = ref([])
 
   const showAjuste = ref(false)
   const showLotes = ref(false)
@@ -80,6 +81,9 @@ export function useVistaInventario(ubicacion) {
 
   const sinMovimientos = computed(() => !cargando.value && lotesHistorial.value.length === 0)
 
+  /** Sin productos no hay entrada posible: la vista vacía debe apuntar a /productos. */
+  const hayProductos = computed(() => !cargando.value && productosActivos.value.length > 0)
+
   async function recargar() {
     cargando.value = true
     try {
@@ -99,6 +103,7 @@ export function useVistaInventario(ubicacion) {
           nombreProducto: nombreProd.get(l.productoId) ?? '—',
           origen: l.proveedorId ? (nombreProv.get(l.proveedorId) ?? '—') : (l.lugarCompra || '—')
         }))
+      productosActivos.value = prods ?? []
     } finally {
       cargando.value = false
     }
@@ -121,6 +126,7 @@ export function useVistaInventario(ubicacion) {
     abrirLotes,
     recargar,
     sinMovimientos,
+    hayProductos,
     showAjuste,
     showLotes,
     productoAjuste,
