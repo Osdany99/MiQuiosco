@@ -38,4 +38,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Auto-actualización de la APK dentro de la app (Fase 8, modo 'interno').
+         Es un permiso especial: la primera vez Android lleva a Ajustes para que
+         el usuario conceda "Instalar apps desconocidas". Requerido desde la API 26
+         para lanzar el instalador; targetSdkVersion es 36. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

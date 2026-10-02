@@ -25,10 +25,24 @@ const mensajePrueba = ref('')
 const comprobandoUpdates = ref(false)
 
 const metodoItems = [
-  { label: 'Automática (recomendada)', value: 'automatico' },
-  { label: 'Solo navegador', value: 'navegador' },
-  { label: 'En la app (próximamente)', value: 'interno' }
+  {
+    label: 'Automática',
+    description: 'Intenta en la app y, si falla, usa el navegador.',
+    value: 'automatico'
+  },
+  {
+    label: 'Solo navegador',
+    description: 'Abre la descarga en el navegador del sistema.',
+    value: 'navegador'
+  },
+  {
+    label: 'En la app',
+    description: 'Descarga aquí y abre el instalador. La primera vez pide permiso.',
+    value: 'interno'
+  }
 ]
+
+const metodoActual = computed(() => metodoItems.find(i => i.value === update.metodo.value)?.label || 'Automática')
 
 const versionTexto = computed(() => {
   if (update.versionInstalada.value == null) return 'No disponible en web'
@@ -239,10 +253,16 @@ async function whOlvidarEste() {
           </p>
         </div>
 
-        <UFormField label="Descarga de actualizaciones" help="Automática intenta en la app y si falla usa el navegador.">
+        <UFormField
+          label="Descarga de actualizaciones"
+          :help="`Método actual: ${metodoActual}. Automática intenta en la app y, si falla, usa el navegador.`"
+        >
           <USelect
             v-model="update.metodo"
             :items="metodoItems"
+            class="w-full"
+            size="lg"
+            :ui="{ content: 'min-w-72' }"
             @update:model-value="update.guardarMetodo"
           />
         </UFormField>
