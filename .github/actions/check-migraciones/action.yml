@@ -1,0 +1,34 @@
+name: Check migraciones
+description: >
+  Verifica que drizzle/ (Postgres) y drizzle/sqlite/ (offline) estén generados
+  al día con sus schemas. Falla si alguien editó un schema y no commiteó la
+  migración correspondiente, para que un APK se publique con el journal
+  desfasado o una tabla sin su columna.
+
+runs:
+  using: composite
+  steps:
+    # Nota sobre 'git status --porcelain': también lista los archivos NUEVOS
+    # sin trackear (??), que es justo el caso que queremos cazar: la migración
+    # se generó pero no se commiteó.
+    - name: Verificar drizzle/ (Postgres)
+      shell: bash
+      run: |
+        pnpm db:generate
+        if [[ -n "$(git status --porcelain -- drizzle/ ':(exclude)drizzle/sqlite')" ]]; then
+          echo "::error::server/database/schema.ts cambió sin regenerar drizzle/. Corre 'pnpm db:generate' en tu PC y commitea la migración."
+          git status --porcelain -- drizzle/ ':(exclude)drizzle/sqlite'
+          exit 1
+        fi
+        echo "drizzle/ al día con el schema OK."
+
+    - name: Verificar drizzle/sqlite/ (offline)
+      shell: bash
+      run: |
+        pnpm db:generate:sqlite
+        if [[ -n "$(git status --porcelain -- drizzle/sqlite/)" ]]; then
+          echo "::error::app/server-offline/db/schema.ts cambió sin regenerar drizzle/sqlite/. Corre 'pnpm db:generate:sqlite' en tu PC y commitea la migración."
+          git status --porcelain -- drizzle/sqlite/
+          exit 1
+        fi
+        echo "drizzle/sqlite/ al día con el schema offline OK."

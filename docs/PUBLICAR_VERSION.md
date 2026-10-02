@@ -69,7 +69,10 @@ pnpm lint && pnpm test && pnpm typecheck
    borrar columnas/tablas): ir al **Caso C** primero y volver aquí.
    Si el cambio es **aditivo** (añadir tablas/columnas nullable o con
    default, índices): solo genera y commitea la migración
-   (`pnpm db:generate`) — el workflow la aplica solo en `migrate-db`.
+   (`pnpm db:generate`, y además `pnpm db:generate:sqlite` si tocaste
+   `app/server-offline/db/schema.ts`) — el workflow la aplica solo en
+   `migrate-db`. El mismo gate corre en `ci` en cada push, así que si
+   olvidaste una de las dos, el push ya sale en rojo.
 2. Commit + push de tus cambios a la rama principal:
    ```powershell
    git add -A; git commit -m "feat: ..."; git push
@@ -87,8 +90,9 @@ pnpm lint && pnpm test && pnpm typecheck
    "v1.4.6" -match '^v([0-9]+\.[0-9]+)\.([0-9]+)$'   # versionName=1.4 versionCode=6
    ```
     Esto dispara el workflow `release-apk`, que hace **todo solo**:
-    - Job `migrate-db`: verifica que `drizzle/` esté generado al día con el
-      schema y aplica las migraciones pendientes en Neon con
+    - Job `migrate-db`: verifica que `drizzle/` (Postgres) **y** `drizzle/sqlite/` (offline) estén
+      generados al día con sus schemas —si falta cualquiera de los dos, aborta
+      sin tocar la BD— y aplica las migraciones pendientes en Neon con
       `drizzle-kit migrate` (idempotente: si la BD ya está al día, no hace
       nada). Si falla, el release se aborta aquí y no se publica nada.
    - Job `build-release`: build web con URL de producción, `cap sync`,

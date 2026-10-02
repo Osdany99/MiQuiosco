@@ -32,3 +32,8 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      # Misma verificación que usa el job migrate-db del release: si se editó
+      # un schema sin generar su migración, se ve en el push y no al etiquetar.
+      - name: Migraciones al día
+        uses: ./.github/actions/check-migraciones
