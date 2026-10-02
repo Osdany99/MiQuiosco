@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Fondo de la capa de fondo del ícono adaptativo. El glifo va en
+         ic_launcher_foreground; el color lo aporta el sistema. -->
+    <color name="ic_launcher_background">#00C16A</color>
 </resources>

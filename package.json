@@ -19,8 +19,9 @@
     "db:seed": "bun run server/database/seed.ts",
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
-    "android:build": "cd android && ./gradlew assembleDebug",
-    "android:assemble-release": "cd android && ./gradlew assembleRelease"
+    "android:build": "node scripts/gradle.mjs assembleDebug",
+    "android:assemble-release": "node scripts/gradle.mjs assembleRelease",
+    "iconos": "node scripts/generar-iconos.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "10.0.0",
@@ -65,6 +66,7 @@
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.4.1",
+    "sharp": "^0.35.5",
     "typescript": "^6.0.3",
     "vue-tsc": "^3.3.3"
   },
