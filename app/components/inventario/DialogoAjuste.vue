@@ -1,9 +1,11 @@
 <template>
   <BaseDialog
     v-model="isOpen"
-    title="Ajuste de inventario"
-    description="Merma (se pierde) o devolución (vuelve del quiosco al almacén)."
-    confirm-text="Guardar ajuste"
+    :title="esDevolucion ? 'Devolver al almacén' : 'Ajuste de inventario'"
+    :description="esDevolucion
+      ? 'La mercancía vuelve del quiosco al almacén. Se conserva el costo del lote.'
+      : 'Merma (se pierde) o devolución (vuelve del quiosco al almacén).'"
+    :confirm-text="esDevolucion ? 'Registrar devolución' : 'Guardar ajuste'"
     :loading="guardando"
     :disabled-guardar="!valida"
     @confirm="confirmar"
@@ -55,7 +57,10 @@
 
 <script setup>
 const props = defineProps({
-  productoId: { type: String, default: null }
+  productoId: { type: String, default: null },
+  // 'merma' para el ajuste manual, 'devolucion' cuando se abre desde
+  // "Devolver al almacén" en /quiosco.
+  tipoInicial: { type: String, default: 'merma' }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -72,6 +77,8 @@ const ubicaciones = [{ id: 'quiosco', nombre: 'Quiosco' }, { id: 'almacen', nomb
 
 const form = ref({ productoId: null, tipo: 'merma', ubicacion: 'quiosco', cantidad: 0, motivo: '' })
 
+const esDevolucion = computed(() => props.tipoInicial === 'devolucion')
+
 const etiquetaUbicacion = computed(() => form.value.tipo === 'devolucion' ? 'quiosco' : form.value.ubicacion)
 const disponible = computed(() => {
   const s = saldosMap.value.get(form.value.productoId)
@@ -87,7 +94,9 @@ const valida = computed(() =>
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { productoId: props.productoId, tipo: 'merma', ubicacion: 'quiosco', cantidad: 0, motivo: '' }
+  const tipo = props.tipoInicial === 'devolucion' ? 'devolucion' : 'merma'
+  // La devolución siempre sale del quiosco; en merma la ubicación se elige.
+  form.value = { productoId: props.productoId, tipo, ubicacion: 'quiosco', cantidad: 0, motivo: '' }
   const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
   productos.value = prods
   saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))

@@ -120,6 +120,13 @@
       "when": 1790892966285,
       "tag": "0016_foamy_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790976222849,
+      "tag": "0017_needy_talisman",
+      "breakpoints": true
     }
   ]
 }

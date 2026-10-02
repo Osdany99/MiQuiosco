@@ -2,7 +2,7 @@
   <BaseDialog
     v-model="isOpen"
     title="Entrada al almacén"
-    description="Registra una compra: fecha, dónde se compró y qué entró."
+    description="Registra una compra: qué entró y a qué precio."
     confirm-text="Guardar entrada"
     :loading="guardando"
     :disabled-guardar="!valida"
@@ -25,14 +25,9 @@
           />
         </UFormField>
       </div>
-      <div class="grid grid-cols-2 gap-2">
-        <UFormField v-if="!form.proveedorId" label="¿Dónde se compró?">
-          <UInput v-model="form.lugarCompra" placeholder="Mercado, tienda..." class="w-full" />
-        </UFormField>
-        <UFormField label="Detalle de la compra">
-          <UInput v-model="form.detalleCompra" placeholder="3 cajas x 24..." class="w-full" />
-        </UFormField>
-      </div>
+      <p v-if="proveedorActual?.lugar" class="text-xs text-muted -mt-2">
+        Lugar: {{ proveedorActual.lugar }}
+      </p>
 
       <div class="space-y-2">
         <div
@@ -106,10 +101,13 @@ const guardando = ref(false)
 const form = ref({
   fechaEntrada: hoyLocal(),
   proveedorId: null,
-  lugarCompra: '',
-  detalleCompra: '',
   lineas: []
 })
+
+/** El lugar de la tienda vive en el proveedor: el lote lo hereda al guardarse. */
+const proveedorActual = computed(
+  () => proveedoresItems.value.find(p => p.id === form.value.proveedorId) ?? null
+)
 
 /** Solo lo que todavía no está en el formulario: evita líneas duplicadas. */
 const productosDisponibles = computed(() => {
@@ -163,7 +161,7 @@ const totalEntrada = computed(() =>
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { fechaEntrada: hoyLocal(), proveedorId: null, lugarCompra: '', detalleCompra: '', lineas: [] }
+  form.value = { fechaEntrada: hoyLocal(), proveedorId: null, lineas: [] }
   seleccion.value = []
   const [prods, provs, loteRows] = await Promise.all([
     inv.cargarProductos(),
@@ -181,8 +179,9 @@ async function confirmar() {
     await inv.registrarEntrada({
       fechaEntrada: form.value.fechaEntrada,
       proveedorId: form.value.proveedorId ?? null,
-      lugarCompra: form.value.proveedorId ? null : (form.value.lugarCompra || null),
-      detalleCompra: form.value.detalleCompra || null,
+      // El detalle no se pide: la compra se describe con el proveedor y el precio.
+      lugarCompra: proveedorActual.value?.lugar || null,
+      detalleCompra: null,
       lineas: form.value.lineas.map(l => ({
         productoId: l.productoId,
         cantidad: Math.trunc(Number(l.cantidad)),

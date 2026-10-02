@@ -1,0 +1,1 @@
+ALTER TABLE "proveedores" ADD COLUMN "lugar" text;

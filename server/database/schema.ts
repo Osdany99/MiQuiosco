@@ -493,6 +493,8 @@ export const proveedores = pgTable(
       .references(() => puestos.id),
     nombre: text('nombre').notNull(),
     telefono: text('telefono'),
+    // Lugar donde está la tienda del proveedor. Llega al lote como lugar_compra.
+    lugar: text('lugar'),
     notas: text('notas'),
     activo: boolean('activo').notNull().default(true),
     creadoEn: timestamp('creado_en', { withTimezone: true })

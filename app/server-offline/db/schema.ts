@@ -432,6 +432,8 @@ export const proveedores = sqliteTable(
     puestoId: text('puesto_id').notNull(),
     nombre: text('nombre').notNull(),
     telefono: text('telefono'),
+    // Lugar donde está la tienda del proveedor. Llega al lote como lugar_compra.
+    lugar: text('lugar'),
     notas: text('notas'),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })

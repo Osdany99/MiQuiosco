@@ -13,12 +13,6 @@
         label="Traspasar"
         @click="showTraspaso = true"
       />
-      <UButton
-        icon="i-lucide-truck"
-        variant="outline"
-        label="Proveedores"
-        @click="showProveedores = true"
-      />
     </template>
 
     <UAlert
@@ -129,7 +123,6 @@
     <InventarioDialogoTraspaso v-model="showTraspaso" :preseleccion="preseleccion" @guardado="recargar" />
     <InventarioDialogoAjuste v-model="showAjuste" :producto-id="productoAjuste" @guardado="recargar" />
     <InventarioTablaLotes v-model="showLotes" :producto="productoLotes" @guardado="recargar" />
-    <InventarioGestionProveedores v-model="showProveedores" />
   </BaseHeaderPage>
 </template>
 
@@ -152,7 +145,6 @@ const tabs = [
 
 const showEntrada = ref(false)
 const showTraspaso = ref(false)
-const showProveedores = ref(false)
 const preseleccion = ref([])
 
 const route = useRoute()

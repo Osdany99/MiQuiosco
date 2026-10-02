@@ -12,6 +12,12 @@
         label="Reponer"
         @click="showTraspaso = true"
       />
+      <UButton
+        icon="i-lucide-undo-2"
+        variant="outline"
+        label="Devolver"
+        @click="abrirDevolucion"
+      />
     </template>
 
     <UAlert
@@ -83,7 +89,7 @@
               size="xs"
               color="neutral"
               variant="ghost"
-              @click="abrirAjuste(row.original.productoId)"
+              @click="abrirAjusteDe(row.original)"
             />
           </UTooltip>
           <UTooltip text="Ver lotes" :delay-duration="0">
@@ -100,7 +106,12 @@
     </UTable>
 
     <InventarioDialogoTraspaso v-model="showTraspaso" :preseleccion="preseleccion" @guardado="recargar" />
-    <InventarioDialogoAjuste v-model="showAjuste" :producto-id="productoAjuste" @guardado="recargar" />
+    <InventarioDialogoAjuste
+      v-model="showAjuste"
+      :producto-id="productoAjuste"
+      :tipo-inicial="tipoAjuste"
+      @guardado="recargar"
+    />
     <InventarioTablaLotes v-model="showLotes" :producto="productoLotes" @guardado="recargar" />
   </BaseHeaderPage>
 </template>
@@ -118,6 +129,22 @@ const {
 
 const showTraspaso = ref(false)
 const preseleccion = ref([])
+
+// El ajuste se abre en modo devolución desde el botón del encabezado, y en
+// modo merma desde la llave inglesa de cada fila (comportamiento de siempre).
+const tipoAjuste = ref('merma')
+
+function abrirDevolucion() {
+  tipoAjuste.value = 'devolucion'
+  // Sin producto: el jefe elige cuál vuelve del quiosco.
+  productoAjuste.value = null
+  showAjuste.value = true
+}
+
+function abrirAjusteDe(fila) {
+  tipoAjuste.value = 'merma'
+  abrirAjuste(fila.productoId)
+}
 
 function abrirTraspasoDe(productoId) {
   preseleccion.value = [{ productoId, cantidad: 0 }]

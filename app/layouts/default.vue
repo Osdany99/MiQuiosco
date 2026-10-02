@@ -80,6 +80,11 @@ const links = computed(() => {
         to: '/productos'
       },
       {
+        label: 'Proveedores',
+        icon: 'i-lucide-truck',
+        to: '/proveedores'
+      },
+      {
         label: 'Quiosco',
         icon: 'i-lucide-store',
         to: '/quiosco'
