@@ -3,7 +3,21 @@
  *
  * Compartido por /quiosco y /almacen: solo cambia qué columna se muestra y qué
  * acciones aplican. Evita duplicar la carga de saldos, lotes y proveedores.
+ *
+ * El estado de cada fila (OK / Reponer / Bajo mínimo / No se vende) NO se
+ * calcula aquí: lo trae shared/inventario/analitica.js, que es el mismo que
+ * usan las gráficas. Si divergieran, la tabla y la gráfica dirían cosas
+ * distintas del mismo producto.
  */
+import { estadoDeFila } from '../../shared/inventario/analitica'
+
+const COLOR_POR_ESTADO = {
+  'ok': 'success',
+  'reponer': 'warning',
+  'bajo-minimo': 'error',
+  'no-se-vende': 'neutral'
+}
+
 export function useVistaInventario(ubicacion) {
   const inv = useInventario()
 
@@ -42,31 +56,19 @@ export function useVistaInventario(ubicacion) {
 
   const filas = computed(() => saldos.value)
 
-  function stockDe(fila) {
-    return esQuiosco.value ? fila.quiosco : fila.almacen
-  }
-
-  function minimoDe(fila) {
-    return esQuiosco.value ? fila.stockMinimoQuiosco : fila.stockMinimoAlmacen
-  }
-
   // Un producto desactivado solo del quiosco conserva stock: se muestra, pero
   // marcado "No se vende" para que el jefe lo devuelva o lo ajuste en vez de
-  // perderlo de vista.
+  // perderlo de vista. Del resto decide la regla compartida de estadoDeFila.
+  function estado(fila) {
+    return estadoDeFila(fila, esQuiosco.value ? 'quiosco' : 'almacen')
+  }
+
   function colorEstado(fila) {
-    if (esQuiosco.value && fila.seVende === false) return 'neutral'
-    const s = stockDe(fila)
-    if (s < minimoDe(fila)) return 'error'
-    if (esQuiosco.value && s < fila.stockRecomendadoQuiosco) return 'warning'
-    return 'success'
+    return COLOR_POR_ESTADO[estado(fila).estado]
   }
 
   function textoEstado(fila) {
-    if (esQuiosco.value && fila.seVende === false) return 'No se vende'
-    const s = stockDe(fila)
-    if (s < minimoDe(fila)) return 'Bajo mínimo'
-    if (esQuiosco.value && s < fila.stockRecomendadoQuiosco) return 'Reponer'
-    return 'OK'
+    return estado(fila).texto
   }
 
   function abrirAjuste(productoId) {

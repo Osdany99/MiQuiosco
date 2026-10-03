@@ -20,6 +20,13 @@ import { productoSchema } from '../shared/schemas/producto.js'
 import { ventaDirectaSchema, deudaDirectaSchema, pagoFiadoDirectoSchema } from '../shared/schemas/directas.js'
 import { pagoFiadoSchema } from '../shared/schemas/pagoFiado.js'
 import { vistaSaldos } from '../shared/inventario/vista.js'
+import { saldosDesdeMovimientos } from '../shared/inventario/fifo.js'
+import {
+  aDia, diasEntre, enRango, indiceFechasNegocio,
+  resumenVentas, magnitudesPorTipo, magnitudesPorProducto,
+  ventanaCobertura, diasCobertura, antiguedadLotes, antiguedadMediaPonderada,
+  totalesValorInventario, estadoDeFila, conteoEstadoStock
+} from '../shared/inventario/analitica.js'
 
 const PUESTO = '11111111-1111-4111-8111-111111111111'
 const JEFE = '22222222-2222-4222-8222-222222222222'
@@ -551,5 +558,393 @@ describe('operaciones fuera de cuadre', () => {
       monto: 50,
       formaPago: 'efectivo'
     }).success, false)
+  })
+})
+
+// ─── Analítica sobre el libro (shared/inventario/analitica.js) ─────────────
+// Lo que consumen las gráficas nuevas. Se prueban las TRES reglas que hacen
+// que los números sean ciertos: se suma en neto (nunca se cuentan ventas), la
+// fecha es la del cuadre (nunca el reloj del dispositivo) y el costo es el del
+// lote (nunca el precio de compra de hoy).
+
+/** Epoch ms de una fecha, como los que entregan los repos (epoch, no ISO). */
+function ms(dia, hora = 17) {
+  const [y, m, d] = dia.split('-').map(Number)
+  return new Date(y, m - 1, d, hora, 0, 0).getTime()
+}
+
+const CUADRE_1 = 'cuadre-1'
+const CUADRE_2 = 'cuadre-2'
+const LECHE = '44444444-4444-4444-8444-444444444444'
+
+/** 100 panes a 10 el 01-01 y 300 a 20 el 02-01, ambos al almacén. */
+const E1 = entrada(100, 10, '2026-01-01', ms('2026-01-01'))
+const E2 = entrada(300, 20, '2026-02-01', ms('2026-02-01'))
+const LOTES_MOV = [...E1.movimientos, ...E2.movimientos]
+const LOTES_FILAS = [...E1.lotes, ...E2.lotes]
+
+/**
+ * Se traspasan 120 al quiosco el 01-01 (FIFO: las 100 del lote viejo y 20 del
+ * nuevo) y se venden 10 el 05-01 y 95 el 10-03. La segunda venta AGOTA el lote
+ * viejo y cruza al nuevo: 90 x 10 y 5 x 20.
+ */
+const TRASPASO_LIBRO = construirTraspaso({
+  lineas: [{ productoId: PAN, cantidad: 120 }],
+  lotesPorProducto: new Map([[PAN, lotesConSaldo(LOTES_FILAS, LOTES_MOV, PAN, 'almacen')]]),
+  meta: { ...meta, fecha: '2026-01-01', ahora: ms('2026-01-01') }
+})
+const CON_TRASPASO = [...LOTES_MOV, ...TRASPASO_LIBRO.movimientos]
+
+/**
+ * El movimiento se registra un día DESPUÉS del día del cuadre: es lo que pasa
+ * cuando el cuadre se reabre y se vuelve a cerrar. Por eso el precio del reloj
+ * no puede ser el eje de ninguna gráfica.
+ *
+ * `libro` es el estado del quiosco ANTES de esta venta: cada venta descuenta
+ * del saldo de la anterior, así que la segunda necesita la primera dentro.
+ */
+function venta(cuadreId, lineaId, cantidad, registro, libro = CON_TRASPASO) {
+  return construirVentaCuadre({
+    lineas: [{ id: lineaId, productoId: PAN, cantidad }],
+    lotesPorProducto: new Map([[PAN, lotesConSaldo(
+      LOTES_FILAS, libro, PAN, 'quiosco'
+    )]]),
+    cuadreId,
+    meta: { ...meta, ahora: ms(registro) }
+  })
+}
+
+const VENTA1 = venta(CUADRE_1, 'linea-1', 10, '2026-01-06')
+const VENTA2 = venta(CUADRE_2, 'linea-2', 95, '2026-03-10', [...CON_TRASPASO, ...VENTA1.movimientos])
+const LIBRO = [...CON_TRASPASO, ...VENTA1.movimientos, ...VENTA2.movimientos]
+
+const CUADRES = [
+  { id: CUADRE_1, fecha: '2026-01-05', puestoId: PUESTO },
+  { id: CUADRE_2, fecha: '2026-03-10', puestoId: PUESTO }
+]
+
+describe('analitica: fechas', () => {
+  it('aDia normaliza epoch, ISO, Date y el propio YYYY-MM-DD', () => {
+    assert.equal(aDia(ms('2026-01-05')), '2026-01-05')
+    assert.equal(aDia('2026-01-05T23:59:59.000Z'), '2026-01-05')
+    assert.equal(aDia('2026-01-05'), '2026-01-05')
+    assert.equal(aDia(new Date(2026, 0, 5)), '2026-01-05')
+    assert.equal(aDia(null), '')
+    assert.equal(aDia('no-es-fecha'), '')
+  })
+
+  it('diasEntre cuenta días, no milisegundos', () => {
+    assert.equal(diasEntre('2026-01-01', '2026-01-31'), 30)
+    assert.equal(diasEntre('2026-02-01', '2026-03-01'), 28)
+    assert.equal(diasEntre('2026-01-05', '2026-01-05'), 0)
+    assert.equal(diasEntre('', '2026-01-05'), 0)
+  })
+
+  it('enRango incluye ambos extremos y trata el rango vacío como todo', () => {
+    assert.equal(enRango('2026-01-05', '2026-01-01', '2026-01-31'), true)
+    assert.equal(enRango('2026-01-01', '2026-01-01', '2026-01-31'), true)
+    assert.equal(enRango('2026-01-31', '2026-01-01', '2026-01-31'), true)
+    assert.equal(enRango('2025-12-31', '2026-01-01', '2026-01-31'), false)
+    assert.equal(enRango('2026-02-05', '', '2026-01-31'), false)
+    assert.equal(enRango('2026-05-05', '', ''), true)
+  })
+})
+
+describe('analitica: fecha de negocio', () => {
+  const fechas = indiceFechasNegocio({
+    movimientos: LIBRO,
+    cuadres: CUADRES,
+    lotes: LOTES_FILAS,
+    traspasos: [TRASPASO_LIBRO.traspaso]
+  })
+
+  it('la venta toma la fecha de su cuadre, no su creadoEn', () => {
+    const mov = VENTA1.movimientos[0]
+    assert.equal(mov.cuadreId, CUADRE_1)
+    assert.notEqual(fechas.get(mov.id), aDia(mov.creadoEn))
+    assert.equal(fechas.get(mov.id), '2026-01-05')
+  })
+
+  it('la entrada toma la fecha del lote (la compra, no el registro)', () => {
+    assert.equal(fechas.get(E1.movimientos[0].id), '2026-01-01')
+    assert.equal(fechas.get(E2.movimientos[0].id), '2026-02-01')
+  })
+
+  it('el traspaso toma la fecha del traspaso', () => {
+    assert.equal(fechas.get(TRASPASO_LIBRO.movimientos[0].id), '2026-01-01')
+  })
+
+  it('sin cabecera cae al día del creadoEn, en vez de dejar el movimiento fuera', () => {
+    const suelta = indiceFechasNegocio({
+      movimientos: [{ id: 'x', productoId: PAN, tipo: 'merma', deltaAlmacen: -1, deltaQuiosco: 0, creadoEn: ms('2026-04-02') }]
+    })
+    assert.equal(suelta.get('x'), '2026-04-02')
+  })
+})
+
+describe('analitica: ventas netas', () => {
+  const fechas = indiceFechasNegocio({ movimientos: LIBRO, cuadres: CUADRES })
+  const resumen = resumenVentas(LIBRO, fechas)
+
+  it('las unidades vendidas son las netas, no el conteo de filas', () => {
+    // 10 + 95 = 105: la segunda venta consume 90 del lote viejo y 5 del nuevo.
+    assert.equal(resumen.get(PAN).unidades, 105)
+    assert.equal(resumen.get(PAN).dias.size, 2)
+  })
+
+  it('el costo es el FIFO real del lote, no el precio de compra de hoy', () => {
+    // 10x10 + 90x10 + 5x20 = 1100. Con el precio de hoy (20) saldría 2100.
+    assert.equal(resumen.get(PAN).costo, 1100)
+  })
+
+  it('las unidades quedan separadas por día de negocio', () => {
+    const dias = resumen.get(PAN).dias
+    assert.equal(dias.get('2026-01-05'), 10)
+    assert.equal(dias.get('2026-03-10'), 95)
+    assert.equal(dias.size, 2)
+  })
+
+  it('reabrir y volver a cerrar deja la venta como estaba, en su día de cuadre', () => {
+    const { anulaciones } = construirAnulacionCuadre({
+      movimientosPrevios: VENTA1.movimientos,
+      meta: { ...meta, ahora: ms('2026-01-06') }
+    })
+    assert.equal(anulaciones.length, 1)
+    assert.equal(anulaciones[0].tipo, 'anulacion')
+    assert.equal(anulaciones[0].deltaQuiosco, 10)
+    // El anulado NO se marca: sigue contabilizando, y es su contramovimiento
+    // la que lo cancela.
+    assert.equal(anulaciones[0].anulado, false)
+
+    // Tras reabrir y volver a cerrar el cuadre, el libro tiene venta original
+    // + anulación + venta nueva. Las tres caen en el día del CUADRE, no en el
+    // día en que se escribieron, y su neto es una sola venta.
+    const conCierre = [...LIBRO, ...anulaciones, ...VENTA1.movimientos]
+    const r = resumenVentas(conCierre, indiceFechasNegocio({ movimientos: conCierre, cuadres: CUADRES }))
+    assert.equal(r.get(PAN).unidades, 105)
+    assert.equal(r.get(PAN).costo, 1100)
+    assert.equal(r.get(PAN).dias.get('2026-01-05'), 10)
+  })
+
+  it('ignora las filas anuladas y las que no mueven stock', () => {
+    const sucias = [
+      ...LIBRO,
+      { id: 'anulada', productoId: PAN, tipo: 'venta', cantidad: 999, deltaQuiosco: -999, importe: 9999, anulado: true },
+      { id: 'nula', productoId: PAN, tipo: 'venta', cantidad: 5, deltaQuiosco: 0, importe: 50, anulado: false }
+    ]
+    const r = resumenVentas(sucias, fechas)
+    assert.equal(r.get(PAN).unidades, 105)
+    assert.equal(r.get(PAN).costo, 1100)
+  })
+})
+
+describe('analitica: magnitudes por tipo', () => {
+  const mermas = construirAjuste({
+    productoId: PAN,
+    tipo: 'merma',
+    ubicacion: 'almacen',
+    cantidad: 4,
+    motivo: 'se rompió',
+    lotesOrdenados: lotesConSaldo(LOTES_FILAS, LOTES_MOV, PAN, 'almacen'),
+    meta: { ...meta, ahora: ms('2026-01-20') }
+  })
+  const conMerma = [...LIBRO, ...mermas.movimientos]
+  const fechas = indiceFechasNegocio({ movimientos: conMerma, cuadres: CUADRES, lotes: LOTES_FILAS })
+
+  it('la merma se acumula en positivo aunque el delta sea negativo', () => {
+    assert.ok(mermas.movimientos[0].deltaAlmacen < 0)
+    const porTipo = magnitudesPorTipo(conMerma, fechas, ['entrada', 'merma', 'traspaso'])
+    const merma = porTipo.get('merma').get('2026-01-20')
+    assert.equal(merma.unidades, 4)
+    assert.equal(merma.valor, 40) // 4 x 10, en magnitud
+  })
+
+  it('las entradas y los traspasos también salen en magnitud', () => {
+    const porTipo = magnitudesPorTipo(conMerma, fechas, ['entrada', 'merma', 'traspaso'])
+    assert.equal(porTipo.get('entrada').get('2026-01-01').unidades, 100)
+    assert.equal(porTipo.get('entrada').get('2026-02-01').valor, 6000) // 300 x 20
+    // El traspaso mueve 120 conservando la identidad de cada lote (100 + 20).
+    assert.equal(porTipo.get('traspaso').get('2026-01-01').unidades, 120)
+  })
+
+  it('magnitudesPorProducto reparte la merma por producto y día', () => {
+    const porProducto = magnitudesPorProducto(conMerma, fechas, ['merma'])
+    assert.equal(porProducto.get(PAN).get('2026-01-20').valor, 40)
+  })
+})
+
+describe('analitica: días de cobertura', () => {
+  const fechas = indiceFechasNegocio({ movimientos: LIBRO, cuadres: CUADRES })
+  const resumen = resumenVentas(LIBRO, fechas)
+  // El quiosco conserva 15 del lote viejo y el almacén 275 del nuevo: 290.
+  const saldos = new Map([[PAN, { almacen: 275, quiosco: 15 }]])
+
+  it('amplía la ventana cuando el rango es más corto que minDias y lo avisa', () => {
+    // El rango del filtro arranca en hoy: con un solo día el promedio no dice nada.
+    const v = ventanaCobertura({ desde: '2026-03-10', hasta: '2026-03-10', hoy: '2026-03-10' })
+    assert.equal(v.ampliada, true)
+    assert.equal(v.dias, 7)
+    assert.equal(v.hasta, '2026-03-10')
+    assert.equal(v.desde, '2026-03-04')
+  })
+
+  it('respeta una ventana ya suficiente sin ampliarla', () => {
+    const v = ventanaCobertura({ desde: '2026-03-01', hasta: '2026-03-10', hoy: '2026-03-10', minDias: 7 })
+    assert.equal(v.ampliada, false)
+    assert.equal(v.dias, 10)
+    assert.equal(v.desde, '2026-03-01')
+  })
+
+  it('divide por los días CON venta, no por los días del rango', () => {
+    // 105 unidades en 2 días con venta: 52.5 por día, no repartidas en 69 días.
+    const { ventana, filas } = diasCobertura({
+      resumen, saldos, desde: '2026-01-01', hasta: '2026-03-10', hoy: '2026-03-10'
+    })
+    assert.equal(ventana.dias, 69)
+    assert.equal(filas.length, 1)
+    const [fila] = filas
+    assert.equal(fila.unidades, 105)
+    assert.equal(fila.diasConVenta, 2)
+    assert.equal(fila.promedioDiario, 52.5)
+    assert.equal(fila.stock, 290)
+    assert.equal(fila.cobertura, 5.5) // 290 / 52.5
+    assert.equal(fila.estado, 'warning') // 3 a 7 días: hay que reponer, no es crítico
+  })
+
+  it('ordena por urgencia y marca crítico lo que dura menos de 3 días', () => {
+    // Dos productos: Pan se acaba en menos de 6 días, Leche en unas horas.
+    const dos = new Map([
+      ...resumen,
+      [LECHE, { unidades: 10, costo: 50, dias: new Map([['2026-03-10', 10]]) }]
+    ])
+    const { filas } = diasCobertura({
+      resumen: dos,
+      saldos: new Map([[PAN, { almacen: 275, quiosco: 15 }], [LECHE, { almacen: 0, quiosco: 3 }]]),
+      nombrePorProducto: new Map([[PAN, 'Pan'], [LECHE, 'Leche']]),
+      desde: '2026-01-01',
+      hasta: '2026-03-10',
+      hoy: '2026-03-10'
+    })
+    assert.equal(filas.length, 2)
+    assert.equal(filas[0].nombre, 'Leche')
+    assert.equal(filas[0].cobertura, 0.3)
+    assert.equal(filas[0].estado, 'error')
+    assert.equal(filas[1].nombre, 'Pan')
+    assert.equal(filas[1].estado, 'warning')
+  })
+
+  it('un producto sin ventas en la ventana no sale, en vez de cobertura cero', () => {
+    const { filas } = diasCobertura({
+      resumen, saldos, desde: '2026-02-01', hasta: '2026-02-28', hoy: '2026-03-10'
+    })
+    assert.equal(filas.length, 0)
+  })
+})
+
+describe('analitica: antigüedad del stock', () => {
+  // Libro aparte a propósito: capital dormido ES stock que no se movió, así
+  // que aquí no hay ni ventas ni traspasos, solo dos compras sin vender.
+  const D1 = entrada(100, 10, '2026-01-01', ms('2026-01-01'))
+  const D2 = entrada(50, 20, '2026-02-01', ms('2026-02-01'))
+  const DORMIDO = [...D1.movimientos, ...D2.movimientos]
+  const saldos = saldosDesdeMovimientos(DORMIDO.map(m => ({
+    productoId: m.productoId,
+    loteId: m.loteId,
+    deltaAlmacen: m.deltaAlmacen,
+    deltaQuiosco: m.deltaQuiosco,
+    anulado: m.anulado
+  })))
+  const r = antiguedadLotes({
+    lotes: [...D1.lotes, ...D2.lotes],
+    saldos,
+    hoy: '2026-03-10',
+    nombrePorProducto: new Map([[PAN, 'Pan']])
+  })
+
+  it('solo cuenta los lotes con saldo', () => {
+    assert.equal(r.lotes.length, 2)
+    assert.equal(r.lotes.find(l => l.precioUnitario === 10).saldo, 100)
+    assert.equal(r.lotes.find(l => l.precioUnitario === 20).saldo, 50)
+    assert.equal(r.totalUnidades, 150)
+  })
+
+  it('los días se cuentan desde la entrada del lote', () => {
+    const viejo = r.lotes.find(l => l.precioUnitario === 10)
+    assert.equal(viejo.dias, 68) // 01-01 → 10-03
+    assert.equal(viejo.tramo, '60+')
+    assert.equal(r.lotes.find(l => l.precioUnitario === 20).dias, 37)
+    assert.equal(r.lotes.find(l => l.precioUnitario === 20).tramo, '31-60')
+  })
+
+  it('el valor pendiente usa el precio del propio lote', () => {
+    // 100 x 10 = 1000 y 50 x 20 = 1000. Valorizar todo al precio nuevo daría 3000.
+    assert.equal(r.lotes.find(l => l.precioUnitario === 10).valor, 1000)
+    assert.equal(r.totalValor, 2000)
+  })
+
+  it('el más viejo va arriba y la antigüedad media pondera por valor', () => {
+    assert.equal(r.lotes[0].precioUnitario, 10)
+    // (1000 x 68 + 1000 x 37) / 2000 = 52.5
+    assert.equal(antiguedadMediaPonderada(r.lotes), 52.5)
+  })
+
+  it('un lote anulado no se contabiliza', () => {
+    const conAnulado = antiguedadLotes({
+      lotes: [...D1.lotes, { ...D2.lotes[0], anulado: true }],
+      saldos,
+      hoy: '2026-03-10'
+    })
+    assert.equal(conAnulado.lotes.length, 1)
+    assert.equal(conAnulado.totalValor, 1000)
+  })
+
+  it('agrupa por tramos sin perder ni un peso de la plata', () => {
+    const suma = r.porTramo.reduce((s, t) => s + t.valor, 0)
+    assert.equal(suma, r.totalValor)
+    assert.equal(r.porTramo.length, 5)
+    assert.equal(r.porTramo.find(t => t.clave === '60+').valor, 1000)
+    assert.equal(r.porTramo.find(t => t.clave === '31-60').valor, 1000)
+    // Los tres tramos vacíos valen 0, no NaN.
+    assert.equal(r.porTramo.find(t => t.clave === '0-7').valor, 0)
+  })
+})
+
+describe('analitica: valor y estado del stock', () => {
+  const filas = [
+    { nombre: 'Pan', almacen: 50, quiosco: 25, valorizadoAlmacen: 500, valorizadoQuiosco: 250, stockMinimoQuiosco: 5, stockRecomendadoQuiosco: 20, stockMinimoAlmacen: 20, seVende: true },
+    { nombre: 'Leche', almacen: 4, quiosco: 1, valorizadoAlmacen: 40, valorizadoQuiosco: 10, stockMinimoQuiosco: 5, stockRecomendadoQuiosco: 20, stockMinimoAlmacen: 20, seVende: true },
+    { nombre: 'Café', almacen: 30, quiosco: 15, valorizadoAlmacen: 300, valorizadoQuiosco: 150, stockMinimoQuiosco: 5, stockRecomendadoQuiosco: 20, stockMinimoAlmacen: 20, seVende: true },
+    { nombre: 'Refresco', almacen: 12, quiosco: 6, valorizadoAlmacen: 120, valorizadoQuiosco: 60, stockMinimoQuiosco: 5, stockRecomendadoQuiosco: 20, stockMinimoAlmacen: 20, seVende: false }
+  ]
+
+  it('los totales valorizan por ubicación y suman el todo', () => {
+    const t = totalesValorInventario(filas)
+    assert.equal(t.almacen, 960)
+    assert.equal(t.quiosco, 470)
+    assert.equal(t.total, 1430)
+    assert.equal(t.unidadesAlmacen, 96)
+    assert.equal(t.unidadesQuiosco, 47)
+    assert.equal(t.productos, 4)
+  })
+
+  it('el estado sale de los mínimos de la ubicación que se mira', () => {
+    assert.equal(estadoDeFila(filas[0], 'quiosco').estado, 'ok')
+    assert.equal(estadoDeFila(filas[1], 'quiosco').estado, 'bajo-minimo')
+    // Café: 15 en quiosco, por debajo del recomendado de 20 pero arriba del mínimo 5.
+    assert.equal(estadoDeFila(filas[2], 'quiosco').estado, 'reponer')
+    // En almacén solo importa el mínimo de almacén: Café (30) y Pan (50) están bien.
+    assert.equal(estadoDeFila(filas[2], 'almacen').estado, 'ok')
+    // Desactivado del quiosco: conserva su stock pero no se marca como faltante.
+    assert.equal(estadoDeFila(filas[3], 'quiosco').estado, 'no-se-vende')
+    assert.equal(estadoDeFila(filas[3], 'almacen').estado, 'bajo-minimo')
+  })
+
+  it('el pie cuenta los cuatro estados con su texto', () => {
+    const conteo = conteoEstadoStock(filas, 'quiosco')
+    assert.deepEqual(conteo.map(c => c.estado), ['OK', 'Reponer', 'Bajo mínimo', 'No se vende'])
+    assert.deepEqual(conteo.map(c => c.cantidad), [1, 1, 1, 1])
+    // En almacén "Refresco" (12 de 20) es una pieza más de plata parada:
+    // no aparece como "no se vende", que es un estado del quiosco.
+    assert.deepEqual(conteoEstadoStock(filas, 'almacen').map(c => c.cantidad), [2, 0, 2, 0])
   })
 })
