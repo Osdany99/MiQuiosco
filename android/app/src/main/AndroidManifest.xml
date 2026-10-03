@@ -76,4 +76,10 @@
          de runtime: declararlo no basta, hay que pedirlo. En API < 33 se concede
          en la instalacion, asi que el plugin lo detecta y no pregunta de mas. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Importar contactos del dispositivo para crear clientes con sus numeros.
+         Es opcional: sin el, la vista de Clientes funciona igual pero sin
+         importar. Es "dangerous" y, como la app es sideloaded, hay que haber
+         levantado antes el candado de "ajustes restringidos". -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 </manifest>

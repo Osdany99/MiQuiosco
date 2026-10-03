@@ -1,6 +1,7 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
+import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 
 const toast = useToast()
 const conexion = useModoConexion()
@@ -16,10 +17,13 @@ const auth = useAuth()
 // se reacciona y se ofrecen las acciones.
 const sms = useSmsEtecsa()
 const concediendo = ref('')
+/** Estado del permiso de Contactos, que vive en su propio plugin. */
+const contactos = ref({ disponible: false, permiso: false, restringido: false })
 
 const sinCandado = computed(() => !sms.estado.value.restringido)
 const permisoRecibir = computed(() => !!sms.estado.value.permisoRecibir)
 const notificacionesOk = computed(() => !!sms.estado.value.notificaciones)
+const permisoContactos = computed(() => !!contactos.value.permiso)
 
 const permisosListos = computed(() => {
   return sinCandado.value && permisoRecibir.value && notificacionesOk.value
@@ -47,6 +51,12 @@ const listaPermisos = computed(() => {
       ok: notificacionesOk.value,
       texto: 'Avisos de recarga',
       accion: 'Activar'
+    },
+    {
+      clave: 'contactos',
+      ok: permisoContactos.value,
+      texto: 'Contactos del teléfono (opcional)',
+      accion: 'Conceder'
     }
   ]
 })
@@ -54,7 +64,28 @@ const listaPermisos = computed(() => {
 const ACCIONES_PERMISOS = {
   restringidos: () => sms.abrirAjustesPermisos('restringidos'),
   sms: () => sms.pedirPermiso(),
-  notificaciones: () => sms.pedirPermisoNotificaciones()
+  notificaciones: () => sms.pedirPermisoNotificaciones(),
+  contactos: () => pedirPermisoContactos()
+}
+
+/** Pide READ_CONTACTS y vuelve a pintar la lista con el estado real. */
+async function pedirPermisoContactos() {
+  const res = await contactosPedirPermiso()
+  contactos.value = await contactosEstado()
+  if (!res.permiso && contactos.value.restringido) {
+    toast.add({
+      title: 'Permiso bloqueado por Android',
+      description: 'Activa antes "Permitir ajustes restringidos" en Ajustes del sistema; si no, el permiso aparece gris.',
+      color: 'warning'
+    })
+  }
+  return res
+}
+
+/** Repinta la lista entera de permisos (SMS y contactos). */
+async function refrescarPermisos() {
+  await sms.refrescarEstado()
+  contactos.value = await contactosEstado()
 }
 
 async function ejecutarPermiso(clave) {
@@ -67,7 +98,7 @@ async function ejecutarPermiso(clave) {
     // que el permiso sigue sin conceder. No hace falta un toast de error.
   } finally {
     concediendo.value = ''
-    await sms.refrescarEstado()
+    await refrescarPermisos()
   }
 }
 
@@ -75,12 +106,12 @@ async function ejecutarPermiso(clave) {
 // Al volver hay que volver a preguntar, o la lista seguiría pidiendo
 // "Desbloquear" a alguien que ya lo desbloqueó.
 function alVolverDeAjustes() {
-  if (esNativo.value && !document.hidden) sms.refrescarEstado()
+  if (esNativo.value && !document.hidden) refrescarPermisos()
 }
 
 onMounted(() => {
   if (!esNativo.value) return
-  sms.refrescarEstado()
+  refrescarPermisos()
   document.addEventListener('visibilitychange', alVolverDeAjustes)
 })
 
@@ -482,13 +513,14 @@ async function whOlvidarEste() {
             color="neutral"
             variant="ghost"
             aria-label="Actualizar estado"
-            @click="sms.refrescarEstado()"
+            @click="refrescarPermisos()"
           />
         </div>
 
         <p class="text-xs text-muted">
           Necesarios para anotar las recargas de Etecsa solas, con la app cerrada.
-          Sin ellos puedes ver los SMS manualmente.
+          Sin ellos puedes ver los SMS manualmente. El de Contactos es
+          opcional: solo hace falta para crear clientes desde la agenda.
         </p>
 
         <ul class="space-y-2">

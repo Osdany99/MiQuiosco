@@ -22,8 +22,8 @@
             { label: 'Efectivo', value: 'efectivo' },
             { label: 'Transferencia', value: 'transferencia' }
           ]"
-          value-attribute="value"
-          text-attribute="label"
+          value-key="value"
+          label-key="label"
           class="w-full"
           :search-input="false"
         />

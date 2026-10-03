@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity {
         // para que el sistema lo despierte sin depender del proceso.
         registerPlugin(ApkInstallerPlugin.class);
         registerPlugin(SmsReaderPlugin.class);
+        registerPlugin(ContactosPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

@@ -100,12 +100,22 @@ const links = computed(() => {
         to: '/usuarios'
       },
       {
+        label: 'Clientes',
+        icon: 'i-lucide-users',
+        to: '/clientes'
+      },
+      {
         label: 'Gráficas',
         icon: 'i-lucide-bar-chart-2',
         to: '/graficas'
       },
       {
-        label: 'SMS de recarga',
+        label: 'Recargas',
+        icon: 'i-lucide-smartphone-charging',
+        to: '/recargas'
+      },
+      {
+        label: 'Por confirmar',
         icon: 'i-lucide-message-square-text',
         to: '/recargas/sms'
       }

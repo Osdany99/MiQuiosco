@@ -5,7 +5,6 @@ import { consumoPorProductoEnCuadreLocal } from '../utils/topeGeneral'
 import { construirVentaDirecta, lotesConSaldo } from '../../shared/inventario/operaciones'
 import { useDb } from '../server-offline/db/client'
 
-const usuarioConfig = TABLES.usuarios
 const cuentaFiadoConfig = TABLES.cuentas_fiado
 const cuentaFiadoItemConfig = TABLES.cuentas_fiado_items
 const pagoFiadoConfig = TABLES.pagos_fiado
@@ -30,7 +29,6 @@ export function useCuentasFiado() {
   }
 
   // Repos mode-aware (online → API remota, local → SQLite)
-  const usuariosRepo = computed(() => esOnline.value ? useRemoteRepo(usuarioConfig) : useLocalRepo(usuarioConfig))
   const cuentasRepo = computed(() => esOnline.value ? useRemoteRepo(cuentaFiadoConfig) : useLocalRepo(cuentaFiadoConfig))
   const itemsRepo = computed(() => esOnline.value ? useRemoteRepo(cuentaFiadoItemConfig) : useLocalRepo(cuentaFiadoItemConfig))
   const pagosRepo = computed(() => esOnline.value ? useRemoteRepo(pagoFiadoConfig) : useLocalRepo(pagoFiadoConfig))
@@ -48,7 +46,7 @@ export function useCuentasFiado() {
     return repo.value
   }
 
-  const clientes = ref([])
+  const { clientes, cargarClientes, crearCliente } = useClientes()
   const cuentasDelCuadre = ref([])
   const pagosDelCuadre = ref([])
   const cargando = ref(false)
@@ -63,26 +61,11 @@ export function useCuentasFiado() {
       .reduce((sum, p) => sum + Number(p.monto), 0)
   )
 
-  async function cargarClientes(puestoId) {
-    const todos = await r(usuariosRepo).readAll()
-    clientes.value = todos.filter(c => c.puestoId === puestoId && c.activo)
-  }
-
   async function cargarActividadDelCuadre(cuadreId) {
     const todasCuentas = await r(cuentasRepo).readAll()
     cuentasDelCuadre.value = todasCuentas.filter(c => c.cuadreOrigenId === cuadreId)
     const todosPagos = await r(pagosRepo).readAll()
     pagosDelCuadre.value = todosPagos.filter(p => p.cuadreId === cuadreId)
-  }
-
-  async function crearCliente(data, puestoId) {
-    // PIN aleatorio criptográfico si el jefe no lo especifica
-    const pin = data.pin || String(crypto.getRandomValues(new Uint16Array(1))[0] % 9000 + 1000)
-    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-    const { pin: _unused, ...rest } = data
-    const nuevo = await r(usuariosRepo).create({ ...rest, puestoId, rol: 'cliente', pin })
-    clientes.value.push(nuevo)
-    return nuevo
   }
 
   /**
@@ -448,12 +431,19 @@ export function useCuentasFiado() {
     }
   }
 
-  /** Todas las deudas del puesto (pagadas incluidas), con saldo derivado. */
-  async function cargarDeudas({ conSaldo = true } = {}) {
+  /**
+   * Deudas del puesto con el saldo derivado.
+   * @param {object} [opts]
+   * @param {boolean} [opts.conSaldo=true] false trae también las saldadas.
+   * @param {string|null} [opts.clienteId] acota a un cliente (vista de deudas).
+   */
+  async function cargarDeudas({ conSaldo = true, clienteId = null } = {}) {
     const todas = await r(cuentasRepo).readAll()
     const pid = auth.usuarioActual.value?.puestoId ?? null
     return todas
-      .filter(c => (!pid || c.puestoId === pid) && (!conSaldo || c.estado !== 'pagada'))
+      .filter(c => (!pid || c.puestoId === pid)
+        && (!conSaldo || c.estado !== 'pagada')
+        && (!clienteId || c.clienteId === clienteId))
       .map(c => ({
         ...c,
         saldoPendiente: Number(c.montoTotal) - Number(c.montoPagado),
