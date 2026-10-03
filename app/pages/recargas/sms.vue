@@ -69,13 +69,46 @@ async function barrer() {
 }
 
 async function pedirPermiso() {
-  const ok = await sms.pedirPermiso()
+  const res = await sms.pedirPermiso()
+  if (res.permisoRecibir) {
+    toast.add({
+      title: 'Permiso concedido',
+      description: 'La app ya puede recibir los SMS de recarga.',
+      color: 'success'
+    })
+    await sms.cargar()
+    return
+  }
+  if (res.error) {
+    // El diálogo ni siquiera llegó a abrirse: insistir no arregla nada.
+    toast.add({
+      title: 'No se pudo pedir el permiso',
+      description: 'La app no pudo lanzar la ventana de permisos. Cierra y vuelve a abrir la app e inténtalo otra vez.',
+      color: 'error'
+    })
+    return
+  }
   toast.add({
-    title: ok ? 'Permiso concedido' : 'Permiso denegado',
-    description: ok
-      ? 'La app ya puede recibir los SMS de recarga.'
-      : 'Sin este permiso no se registrarán las recargas.',
-    color: ok ? 'success' : 'error'
+    title: 'Permiso denegado',
+    description: 'Sin este permiso no se registrarán las recargas. Puedes concederlo en Ajustes del sistema → Apps → MiQuiosco → Permisos → SMS.',
+    color: 'warning'
+  })
+}
+
+async function pedirNotificaciones() {
+  const res = await sms.pedirPermisoNotificaciones()
+  if (res.notificaciones) {
+    toast.add({
+      title: 'Avisos activados',
+      description: 'La app te avisará cuando entre una recarga nueva.',
+      color: 'success'
+    })
+    return
+  }
+  toast.add({
+    title: 'Avisos no activados',
+    description: 'Puedes habilitarlos en Ajustes del sistema → Notificaciones → Mostrar notificaciones.',
+    color: 'warning'
   })
 }
 
@@ -130,7 +163,19 @@ onUnmounted(() => {
       class="mb-4"
     >
       <template #actions>
-        <UButton size="xs" label="Conceder permiso" @click="pedirPermiso" />
+        <UButton
+          size="xs"
+          label="Conceder permiso"
+          @click="pedirPermiso"
+        />
+        <UButton
+          size="xs"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-settings"
+          label="Abrir Ajustes"
+          @click="sms.abrirAjustesPermisos"
+        />
       </template>
     </UAlert>
 
@@ -224,6 +269,20 @@ onUnmounted(() => {
             variant="ghost"
             label="Vaciar cola"
             @click="limpiar"
+          />
+          <UButton
+            icon="i-lucide-bell"
+            color="neutral"
+            variant="outline"
+            label="Permitir avisos"
+            @click="pedirNotificaciones"
+          />
+          <UButton
+            icon="i-lucide-settings"
+            color="neutral"
+            variant="outline"
+            label="Abrir Ajustes"
+            @click="sms.abrirAjustesPermisos"
           />
         </div>
         <p

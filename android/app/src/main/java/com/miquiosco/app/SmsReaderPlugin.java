@@ -3,8 +3,12 @@ package com.miquiosco.app;
 import android.Manifest;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
 import android.provider.Telephony;
 
 import androidx.core.content.ContextCompat;
@@ -15,6 +19,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONArray;
@@ -25,7 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Puente JS <-> captura de SMS.
+ * Puente JS &lt;-&gt; captura de SMS.
  *
  * Complementa a SmsReceiver (que escribe sin necesidad del WebView). Aquí el
  * frontend drena la cola y, si hace falta, barre el buzón del sistema.
@@ -34,9 +39,30 @@ import java.util.List;
  * BroadcastReceiver no llegó a dispararse (app force-stopped, o un fabricante
  * que bloquea la recepción en background). Se deduplica por hash igual que la
  * cola, así que repetir el barrido es idempotente.
+ *
+ * Nota sobre los permisos: Capacitor 8 ya NO trae plugin `Permissions`
+ * (capacitor-android 8.4.1 solo empaqueta WebView, CapacitorHttp,
+ * CapacitorCookies y SystemBars), así que.registerPlugin('Permissions') falla
+ * en silencio y nunca llega al nativo. Los permisos se piden desde aquí, con
+ * requestPermissionForAliases + un @PermissionCallback, que es la vía soportada.
  */
-@CapacitorPlugin(name = "SmsReader")
+@CapacitorPlugin(
+    name = "SmsReader",
+    permissions = {
+        @Permission(
+            strings = { Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS },
+            alias = "sms"
+        ),
+        @Permission(
+            strings = { Manifest.permission.POST_NOTIFICATIONS },
+            alias = "notificaciones"
+        )
+    }
+)
 public class SmsReaderPlugin extends Plugin {
+
+    private static final String ALIAS_SMS = "sms";
+    private static final String ALIAS_NOTIF = "notificaciones";
 
     /** Cuántos mensajes trays del buzón en un barrido. */
     private static final int LIMITE_BARRIDO = 100;
@@ -149,15 +175,53 @@ public class SmsReaderPlugin extends Plugin {
     }
 
     /**
-     * Barrido del buzón (capa 3). Requiere READ_SMS; si falta, pide el
-     * permiso y devuelve un código para que el JS lo encaje en su flujo.
+     * Pide RECEIVE_SMS y READ_SMS. Android los agrupa bajo un único diálogo
+     * ("SMS"), así que se piden juntos con un solo alias.
+     *
+     * El @PermissionCallback responde con el estado real ya comprobado, para
+     * que el JS distinga "concedido" de "el usuario dijo que no".
+     */
+    @PluginMethod
+    public void pedirPermisos(PluginCall call) {
+        if (tienePermiso(Manifest.permission.RECEIVE_SMS) && tienePermiso(Manifest.permission.READ_SMS)) {
+            resolverPermisos(call);
+            return;
+        }
+        requestPermissionForAliases(new String[]{ ALIAS_SMS }, call, "permisosResueltos");
+    }
+
+    @PermissionCallback
+    private void permisosResueltos(PluginCall call) {
+        resolverPermisos(call);
+    }
+
+    private void resolverPermisos(PluginCall call) {
+        boolean recibir = tienePermiso(Manifest.permission.RECEIVE_SMS);
+        boolean leer = tienePermiso(Manifest.permission.READ_SMS);
+        JSObject r = new JSObject();
+        r.put("permisoRecibir", recibir);
+        r.put("permisoLeer", leer);
+        r.put("concedidos", recibir || leer);
+        JSObject res = new JSObject();
+        res.put("ok", recibir || leer);
+        res.put("data", r);
+        call.resolve(res);
+    }
+
+    /**
+     * Barrido del buzón (capa 3). Sin READ_SMS no puede ejecutarse, así que en
+     * vez de abrir otro diálogo desde aquí devuelve permisoFalta y deja que el
+     * JS lo pida con pedirPermisos(). Un solo camino para pedir permisos.
      */
     @PluginMethod
     public void barrerBuzon(PluginCall call) {
         if (!tienePermiso(Manifest.permission.READ_SMS)) {
-            // Alias = nombre del método. El callback onReadSms reentra aquí con
-            // el permiso ya concedido y hace el barrido real.
-            requestPermissionForAliases(new String[]{ "barrerBuzon" }, call, "onReadSms");
+            JSObject r = new JSObject();
+            r.put("permisoFalta", true);
+            JSObject res = new JSObject();
+            res.put("ok", false);
+            res.put("data", r);
+            call.resolve(res);
             return;
         }
         long desde = call.getLong("desde", 0L);
@@ -179,15 +243,6 @@ public class SmsReaderPlugin extends Plugin {
         JSObject res = new JSObject();
         res.put("ok", true);
         res.put("data", r);
-        call.resolve(res);
-    }
-
-    // El alias que se pide en barrerBuzon tiene que coincidir con el callback.
-    @PermissionCallback
-    private void onReadSms(PluginCall call) {
-        JSObject res = new JSObject();
-        res.put("ok", tienePermiso(Manifest.permission.READ_SMS));
-        res.put("data", new JSObject());
         call.resolve(res);
     }
 
@@ -257,6 +312,70 @@ public class SmsReaderPlugin extends Plugin {
             // vista restringida del Android 15. No es fatal: la capa 1 sigue.
         }
         return fuera;
+    }
+
+    /**
+     * Pide POST_NOTIFICATIONS para poder avisar cuando entra una recarga.
+     *
+     * Solo es runtime desde API 33. Por debajo el permiso se concede en la
+     * instalacion, así que se responde granted sin abrir ningún diálogo (API 32
+     * y anteriores ni siquiera tienen el permiso declarado).
+     */
+    @PluginMethod
+    public void pedirPermisoNotificaciones(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            JSObject r = new JSObject();
+            r.put("notificaciones", true);
+            JSObject res = new JSObject();
+            res.put("ok", true);
+            res.put("data", r);
+            call.resolve(res);
+            return;
+        }
+        if (tienePermiso(Manifest.permission.POST_NOTIFICATIONS)) {
+            resolverNotificaciones(call);
+            return;
+        }
+        requestPermissionForAliases(new String[]{ ALIAS_NOTIF }, call, "notificacionesResueltas");
+    }
+
+    @PermissionCallback
+    private void notificacionesResueltas(PluginCall call) {
+        resolverNotificaciones(call);
+    }
+
+    private void resolverNotificaciones(PluginCall call) {
+        boolean ok = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || tienePermiso(Manifest.permission.POST_NOTIFICATIONS);
+        JSObject r = new JSObject();
+        r.put("notificaciones", ok);
+        JSObject res = new JSObject();
+        res.put("ok", ok);
+        res.put("data", r);
+        call.resolve(res);
+    }
+
+    /**
+     * Abre Ajustes en la pantalla de permisos de esta app.
+     *
+     * Necesario porque SMS es un permiso de grupo: READ y RECEIVE se piden
+     * juntos y, una vez denegados, Android no vuelve a mostrar el diálogo. Sumado
+     * al EnhancedConfirmationDialog de HyperOS, que puede responder denegado sin
+     * teachernos los botones, Ajustes acaba siendo la única vía que queda.
+     */
+    @PluginMethod
+    public void abrirAjustesPermisos(PluginCall call) {
+        try {
+            Intent intent = new Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getContext().getPackageName())
+            );
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception ex) {
+            call.reject("No se pudieron abrir los ajustes: " + ex.getMessage(), ex);
+        }
     }
 
     private boolean tienePermiso(String permiso) {

@@ -1,21 +1,27 @@
 /**
  * app/utils/sms.js - Puente con el plugin nativo SmsReader.
  *
- * Envoltorio fino sobre el plugin: normaliza la forma de respuesta, degrada a
+ * Envoltorio fino sobre el plugin: normaliza la forma de respuesta y degrada a
  * un estado "no disponible" cuando se corre en web o en un build viejo sin el
- * plugin, y encapsula el pedir permisos.
+ * plugin, para que la UI pueda mostrarlo sin reventar.
  *
  * El plugin nativo (android/.../SmsReaderPlugin.java) expone:
- *   estado()               -> { permisoRecibir, permisoLeer, remitentes, pendientes }
- *   leerPendientes()       -> { mensajes: [...] }  (drena la cola)
- *   verPendientes()        -> { mensajes: [...] }  (mira sin drenar)
- *   limpiar()              -> {}
- *   setRemitentes({...})   -> {}
- *   barrerBuzon({ desde }) -> { mensajes: [...] }  (capa 3, pide READ_SMS)
+ *   estado()                    -> { permisoRecibir, permisoLeer, remitentes, pendientes }
+ *   pedirPermisos()             -> { permisoRecibir, permisoLeer, concedidos }
+ *   leerPendientes()            -> { mensajes: [...] }  (drena la cola)
+ *   verPendientes()             -> { mensajes: [...] }  (mira sin drenar)
+ *   limpiar()                   -> {}
+ *   setRemitentes({ remitentes }) -> {}
+ *   barrerBuzon({ desde })      -> { mensajes, permisoFalta? }  (capa 3)
  */
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
 const SmsReader = registerPlugin('SmsReader')
+
+export const PERMISOS_SMS = [
+  'android.permission.RECEIVE_SMS',
+  'android.permission.READ_SMS'
+]
 
 /** Capacitor devuelve { data } en éxito; lo aplanamos a un objeto plano. */
 function plano(resultado) {
@@ -52,6 +58,35 @@ export async function smsEstado() {
     }
   } catch {
     return { ...SMS_NO_DISPONIBLE }
+  }
+}
+
+/**
+ * Pide los permisos de SMS.
+ *
+ * NO se usa registerPlugin('Permissions'): ese plugin ya no existe en
+ * Capacitor 8 — capacitor-android 8.4.1 solo empaqueta WebView, CapacitorHttp,
+ * CapacitorCookies y SystemBars. Llamarlo falla sin llegar al nativo y el
+ * usuario ve un "denegado" sin que Android le haya preguntado nada.
+ *
+ * El pedido real lo hace SmsReaderPlugin con requestPermissionForAliases, que
+ * es la vía soportada.
+ *
+ * @returns {Promise<{ok: boolean, permisoRecibir: boolean, permisoLeer: boolean}>}
+ *   `ok` indica que se concedió al menos algo; `permisoRecibir` es el que
+ *   realmente importa para capturar recargas.
+ */
+export async function smsPedirPermisos() {
+  if (!esNativo()) return { ok: false, permisoRecibir: false, permisoLeer: false }
+  try {
+    const d = plano(await SmsReader.pedirPermisos())
+    return {
+      ok: !!d.concedidos,
+      permisoRecibir: !!d.permisoRecibir,
+      permisoLeer: !!d.permisoLeer
+    }
+  } catch (error) {
+    return { ok: false, permisoRecibir: false, permisoLeer: false, error }
   }
 }
 
@@ -100,34 +135,53 @@ export async function smsSetRemitentes(remitentes) {
 }
 
 /**
- * Barrido del buzón (capa 3). Pide READ_SMS si falta: en ese caso devuelve
- * { permisoRequerido: true } para que el JS lo encaje en su propio flujo de
- * onboarding en vez de pedirlo aquí a ciegas.
+ * Pide POST_NOTIFICATIONS para poder avisar de las recargas.
+ *
+ * En Android 13 o inferior el permiso se concede en la instalación y el plugin
+ * responde granted sin abrir nada; el booleano indica si realmente se puede
+ * notificar.
+ */
+export async function smsPedirPermisoNotificaciones() {
+  if (!esNativo()) return { ok: false, notificaciones: false }
+  try {
+    const d = plano(await SmsReader.pedirPermisoNotificaciones())
+    return { ok: !!d.notificaciones, notificaciones: !!d.notificaciones }
+  } catch (error) {
+    return { ok: false, notificaciones: false, error }
+  }
+}
+
+/**
+ * Abre Ajustes en la pantalla de permisos de esta app.
+ *
+ * Necesario porque SMS es un permiso de grupo: READ y RECEIVE se piden juntos y,
+ * una vez denegados, Android no vuelve a mostrar el diálogo. HyperOS además
+ * puede responder denegado con un aviso sin mostrar nunca los botones. En ambos
+ * casos Ajustes es la única vía, así que la UI debe ofrecerla explícitamente en
+ * lugar de un toast que no dice cómo arreglarlo.
+ */
+export async function smsAbrirAjustesPermisos() {
+  if (!esNativo()) return false
+  try {
+    await SmsReader.abrirAjustesPermisos()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Barrido del buzón (capa 3). Devuelve permisoRequerido si falta READ_SMS, para
+ * que el JS lo pida con smsPedirPermisos() en lugar de abrir otro diálogo aquí.
  */
 export async function smsBarrerBuzon({ desde = 0 } = {}) {
   if (!esNativo()) return { mensajes: [], error: null, permisoRequerido: false }
   try {
     const d = plano(await SmsReader.barrerBuzon({ desde }))
+    if (d.permisoFalta) return { mensajes: [], error: null, permisoRequerido: true }
     return { mensajes: normaliza(d.mensajes), error: null, permisoRequerido: false }
   } catch (error) {
-    return { mensajes: [], error, permisoRequerido: true }
-  }
-}
-
-/**
- * Comprueba el permiso RECEIVE_SMS y lo pide si falta. El plugin no declara
- * permisos en la anotación, así que el pedido se hace directamente con
- * Capacitor's Permissions API para no arrastrar requestPermissionForAliases
- * al JS.
- */
-export async function smsPedirPermisoRecibir() {
-  if (!esNativo()) return false
-  try {
-    const { Permissions } = await import('@capacitor/core')
-    const res = await Permissions.request({ name: 'android.permission.RECEIVE_SMS' })
-    return res.state === 'granted'
-  } catch {
-    return false
+    return { mensajes: [], error, permisoRequerido: false }
   }
 }
 
@@ -139,7 +193,7 @@ function normaliza(mensajes) {
     cuerpo: m.cuerpo ?? '',
     recibidoEn: Number(m.recibidoEn) || 0,
     origen: m.origen ?? 'cola',
-    // Índice local para el v-for; el hash puede venir vacío en inyección manual.
+    // Índice local para el v-for; el hash puede venir vacío.
     clave: m.hash || `${m.remitente}-${i}-${m.recibidoEn}`
   }))
 }

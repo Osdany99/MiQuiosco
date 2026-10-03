@@ -71,4 +71,9 @@
 
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
+
+    <!-- Avisar al entrar una recarga. Desde Android 13 (API 33) este permiso es
+         de runtime: declararlo no basta, hay que pedirlo. En API < 33 se concede
+         en la instalacion, asi que el plugin lo detecta y no pregunta de mas. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

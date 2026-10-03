@@ -18,7 +18,9 @@ import {
   smsBarrerBuzon,
   smsLimpiar,
   smsSetRemitentes,
-  smsPedirPermisoRecibir
+  smsPedirPermisos,
+  smsPedirPermisoNotificaciones,
+  smsAbrirAjustesPermisos
 } from '../utils/sms'
 
 const mensajes = ref([])
@@ -80,10 +82,29 @@ export function useSmsEtecsa() {
     return { mensajes: res.mensajes || [], permisoRequerido: false }
   }
 
+  /**
+   * Pide los permisos de SMS. Devuelve el detalle del resultado para poder
+   * distinguir "el usuario lo negó" de "el diálogo ni siquiera apareció"
+   * (que fue un bug real: Permissions no venía de @capacitor/core).
+   */
   async function pedirPermiso() {
-    const ok = await smsPedirPermisoRecibir()
+    const res = await smsPedirPermisos()
     await refrescarEstado()
-    return ok
+    return res
+  }
+
+  /**
+   * Abre Ajustes en la pantalla de permisos de la app. Se expone para que la UI
+   * ofrezca una salida cuando el diálogo de permisos no sirve (ya denegado antes,
+   * o el aviso de HyperOS que responde solo).
+   */
+  function abrirAjustesPermisos() {
+    return smsAbrirAjustesPermisos()
+  }
+
+  /** Pide POST_NOTIFICATIONS (solo relevante desde Android 13). */
+  async function pedirPermisoNotificaciones() {
+    return smsPedirPermisoNotificaciones()
   }
 
   async function guardarRemitentes(lista) {
@@ -128,6 +149,8 @@ export function useSmsEtecsa() {
     refrescarEstado,
     barrer,
     pedirPermiso,
+    pedirPermisoNotificaciones,
+    abrirAjustesPermisos,
     guardarRemitentes,
     limpiarCola,
     reiniciar,
