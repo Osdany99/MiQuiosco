@@ -96,6 +96,74 @@ export async function crearIndicesFaltantes(conn, sql) {
   }
 }
 
+/** DDL de una tabla a partir de los defs del schema (el mismo que emite Drizzle). */
+function ddlDeTabla(tabla, defs) {
+  const cols = defs.map((d) => {
+    const notNull = d.notNull && d.default !== undefined ? ' NOT NULL' : ''
+    const defaultSql = d.default !== undefined ? ` DEFAULT ${formatearDefault(d.default)}` : ''
+    return `  ${d.name} ${d.sqlType}${notNull}${defaultSql}`
+  })
+  return `CREATE TABLE ${tabla} (\n${cols.join(',\n')}\n)`
+}
+
+/**
+ * Quita columnas que el schema ya no declara (p. ej. `usuario_id` de
+ * `clientes_telefonos` tras separar los clientes de `usuarios`).
+ *
+ * Es el complemento obligatorio de `añadirColumnasFaltantes`: aquel solo añade
+ * y nunca quita, así que una columna NOT NULL sin DEFAULT que el código ya no
+ * envía deja los inserts imposibles. Y `ALTER TABLE DROP COLUMN` no se puede
+ * usar a ciegas porque solo existe desde SQLite 3.35 (Android 11).
+ *
+ * Se intenta primero el DROP y, si no está soportado, se reconstruye la tabla
+ * desde los defs del schema copiando solo las columnas que siguen existiendo.
+ */
+export async function eliminarColumnasObsoletas(conn, tabla, columnDefs, obsoletas) {
+  if (!obsoletas?.length) return false
+  if (!await tablaExiste(conn, tabla)) return false
+
+  const existentes = await columnasDeTabla(conn, tabla)
+  const sobrantes = obsoletas.filter(c => existentes.has(c))
+  if (!sobrantes.length) return false
+
+  try {
+    for (const col of sobrantes) {
+      await txRun(conn, `ALTER TABLE ${tabla} DROP COLUMN ${col}`)
+    }
+    return true
+  } catch {
+    // SQLite antiguo: se reconstruye la tabla.
+  }
+
+  const defs = columnDefs[tabla]
+  if (!defs) return false
+
+  const temporal = `${tabla}__rebuild`
+  try {
+    await txRun(conn, `DROP TABLE IF EXISTS ${temporal}`)
+    // La tabla nueva se crea con la forma DEL SCHEMA, no con la intersección:
+    // si se filtrara por las columnas viejas, `cliente_id` (la que acaba de
+    // añadir `añadirColumnasFaltantes`) desaparecería y el insert seguiría
+    // fallando, que es justo lo que se viene a arreglar.
+    await txRun(conn, ddlDeTabla(temporal, defs))
+    // La copia solo arrastra las columnas que existen en ambas.
+    const comunes = defs.map(d => d.name).filter(n => existentes.has(n))
+    if (comunes.length) {
+      await txRun(
+        conn,
+        `INSERT INTO ${temporal} (${comunes.join(',')}) SELECT ${comunes.join(',')} FROM ${tabla}`
+      )
+    }
+    await txRun(conn, `DROP TABLE ${tabla}`)
+    await txRun(conn, `ALTER TABLE ${temporal} RENAME TO ${tabla}`)
+    return true
+  } catch {
+    await txRun(conn, `DROP TABLE IF EXISTS ${temporal}`).catch(() => {})
+    // Mejor esfuerzo: si falla, la instalación sigue como estaba.
+    return false
+  }
+}
+
 /**
  * Transacción con SQL crudo, independiente de la versión del plugin.
  * @capacitor-community/sqlite cambió los nombres de begin/commit/rollback

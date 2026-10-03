@@ -11,7 +11,7 @@ import { Capacitor } from '@capacitor/core'
 import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
-import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, crearColaTransacciones, txRun } from './esquema'
+import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
 
@@ -200,6 +200,20 @@ const MIGRACIONES_LEGACY = [
 /** Nombre del baseline actual del journal, generado desde schema.ts. */
 const NOMBRE_BASELINE = journalSqls.length > 0 ? journalSqls[0][0] : '0000_inicial.sql'
 
+/**
+ * Columnas que el schema ya no declara, por tabla.
+ *
+ * `añadirColumnasFaltantes` solo añade y nunca quita, así que en una
+ * instalación que ya corrió una versión anterior de estas tablas las columnas
+ * viejas se quedan. Con `clientes_telefonos` eso era mortal: `usuario_id` quedó
+ * NOT NULL sin DEFAULT y, al dejar de enviarse, todo insert de teléfono
+ * fallaba.
+ */
+const COLUMNAS_OBSOLETAS = {
+  clientes_telefonos: ['usuario_id'],
+  sms_etecsa: ['procesado']
+}
+
 async function marcarMigracion(conn, name) {
   await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [name, Date.now()])
 }
@@ -250,6 +264,10 @@ async function initializeSchema(conn) {
   await marcarMigracion(conn, NOMBRE_BASELINE)
   await crearTablasFaltantes(conn, BASELINE_SQL)
   await añadirColumnasFaltantes(conn, COLUMN_DEFS)
+  // Antes de crear índices: quitar columnas puede reconstruir la tabla.
+  for (const [tabla, obsoletas] of Object.entries(COLUMNAS_OBSOLETAS)) {
+    await eliminarColumnasObsoletas(conn, tabla, COLUMN_DEFS, obsoletas)
+  }
   await crearIndicesFaltantes(conn, BASELINE_SQL)
 }
 

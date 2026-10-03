@@ -161,12 +161,51 @@ export const ventas_directas_items = {
   insertOnly: true
 }
 
+export const recargas = {
+  tabla: 'recargas',
+  endpoints: endpoint('recargas'),
+  puestoScoped: true,
+  label: { singular: 'Recarga', plural: 'Recargas', gender: 'f' },
+  syncNumeric: ['montoNominal', 'costo', 'ganancia', 'montoCobrado'],
+  insertOnly: false
+}
+
+export const clientes = {
+  tabla: 'clientes',
+  endpoints: endpoint('clientes'),
+  puestoScoped: true,
+  label: { singular: 'Cliente', plural: 'Clientes', gender: 'm' },
+  syncNumeric: [],
+  insertOnly: false
+}
+
+export const clientes_telefonos = {
+  tabla: 'clientes_telefonos',
+  endpoints: endpoint('clientes-telefonos'),
+  puestoScoped: true,
+  label: { singular: 'Teléfono', plural: 'Teléfonos', gender: 'm' },
+  syncNumeric: [],
+  insertOnly: false
+}
+
+export const cobros_recarga = {
+  tabla: 'cobros_recarga',
+  endpoints: endpoint('cobros-recarga'),
+  label: { singular: 'Cobro', plural: 'Cobros', gender: 'm' },
+  syncNumeric: ['monto'],
+  insertOnly: true
+}
+
+// sms_etecsa NO entra en SYNC_TABLES: es un log local de diagnóstico del
+// teléfono. Sincronizar 1 por 1 cada SMS crudo no aporta nada al negocio.
+
 export const TABLES = {
   productos, usuarios, cuadres, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
   transferencias, transferencia_items, ajustes,
   proveedores, lotes, traspasos, movimientos_inventario,
-  ventas_directas, ventas_directas_items
+  ventas_directas, ventas_directas_items,
+  recargas, clientes, clientes_telefonos, cobros_recarga
 }
 
 export const SYNC_TABLES = [
@@ -174,5 +213,6 @@ export const SYNC_TABLES = [
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
   transferencias, transferencia_items, ajustes,
   proveedores, lotes, traspasos, movimientos_inventario,
-  ventas_directas, ventas_directas_items
+  ventas_directas, ventas_directas_items,
+  recargas, clientes, clientes_telefonos, cobros_recarga
 ]

@@ -25,6 +25,11 @@ export const TIPOS_MOVIMIENTO = [
   'devolucion',
   'anulacion'
 ] as const
+export const TIPOS_RECARGA = ['saldo', 'voz', 'sms', 'datos'] as const
+export const ESTADOS_PAGO_RECARGA = ['pagada', 'pendiente'] as const
+export const PLATAFORMAS_RECARGA = ['monedero', 'banco'] as const
+export const ESTADOS_SMS_ETECSA = ['pendiente', 'guardada', 'descartada'] as const
+export const FORMAS_PAGO_FIADO = ['efectivo', 'transferencia'] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
@@ -650,6 +655,215 @@ export const ventasDirectasItems = sqliteTable(
 )
 
 /**
+ * Bandeja de confirmaciones de Etecsa (SMS crudo + datos extraídos).
+ * Local al teléfono: no entra en SYNC_TABLES.
+ */
+export const smsEtecsa = sqliteTable(
+  'sms_etecsa',
+  {
+    id: text('id').primaryKey(),
+    remitente: text('remitente').notNull(),
+    cuerpo: text('cuerpo').notNull(),
+    recibidoEn: integer('recibido_en', { mode: 'timestamp_ms' }).notNull(),
+    hash: text('hash').notNull().unique(),
+    telefonoDestino: text('telefono_destino'),
+    telefonoRaw: text('telefono_raw'),
+    plataforma: text('plataforma', { enum: PLATAFORMAS_RECARGA }),
+    tipo: text('tipo', { enum: TIPOS_RECARGA }),
+    descripcion: text('descripcion'),
+    unidades: integer('unidades'),
+    montoNominal: real('monto_nominal'),
+    costo: real('costo'),
+    ganancia: real('ganancia'),
+    idTransaccion: text('id_transaccion'),
+    saldoCarteraCup: real('saldo_cartera_cup'),
+    saldoCarteraUsd: real('saldo_cartera_usd'),
+    estado: text('estado', { enum: ESTADOS_SMS_ETECSA }).notNull().default('pendiente'),
+    clienteId: text('cliente_id'),
+    recargaId: text('recarga_id'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    hashUk: uniqueIndex('sms_etecsa_hash_uk').on(table.hash),
+    estadoIdx: index('sms_etecsa_estado_idx').on(table.estado),
+    idTransaccionIdx: index('sms_etecsa_id_transaccion_idx').on(table.idTransaccion),
+    creadoEnIdx: index('sms_etecsa_creado_en_idx').on(table.creadoEn),
+    estadoCheck: check('sms_etecsa_estado_check', sql`${table.estado} IN ('pendiente', 'guardada', 'descartada')`)
+  })
+)
+
+/**
+ * Recargas Etecsa confirmadas desde la bandeja.
+ */
+export const recargas = sqliteTable(
+  'recargas',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    clienteId: text('cliente_id'),
+    telefonoDestino: text('telefono_destino').notNull(),
+    telefonoRaw: text('telefono_raw'),
+    plataforma: text('plataforma', { enum: PLATAFORMAS_RECARGA }).notNull(),
+    tipo: text('tipo', { enum: TIPOS_RECARGA }).notNull().default('saldo'),
+    descripcion: text('descripcion'),
+    unidades: integer('unidades'),
+    montoNominal: real('monto_nominal').notNull(),
+    costo: real('costo').notNull(),
+    ganancia: real('ganancia').notNull(),
+    idTransaccion: text('id_transaccion').unique(),
+    saldoCarteraCup: real('saldo_cartera_cup'),
+    saldoCarteraUsd: real('saldo_cartera_usd'),
+    estadoPago: text('estado_pago', { enum: ESTADOS_PAGO_RECARGA }).notNull().default('pendiente'),
+    montoCobrado: real('monto_cobrado').notNull().default(0),
+    smsId: text('sms_id'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    telefonoFechaIdx: index('recargas_telefono_fecha_idx').on(table.telefonoDestino, table.creadoEn),
+    estadoPagoIdx: index('recargas_estado_pago_idx').on(table.estadoPago),
+    clienteIdx: index('recargas_cliente_idx').on(table.clienteId),
+    idTransaccionUk: uniqueIndex('recargas_id_transaccion_uk').on(table.idTransaccion),
+    actualizadoEnIdx: index('recargas_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('recargas_sincronizado_idx').on(table.sincronizado),
+    plataformaCheck: check('recargas_plataforma_check', sql`${table.plataforma} IN ('monedero', 'banco')`),
+    tipoCheck: check('recargas_tipo_check', sql`${table.tipo} IN ('saldo', 'voz', 'sms', 'datos')`),
+    estadoPagoCheck: check('recargas_estado_pago_check', sql`${table.estadoPago} IN ('pagada', 'pendiente')`)
+  })
+)
+
+/**
+ * Clientes: lista única del negocio (recargas + fiado). Espejo de Postgres.
+ */
+export const clientes = sqliteTable(
+  'clientes',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    nombre: text('nombre').notNull(),
+    notas: text('notas'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
+    puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('clientes_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Teléfonos de clientes (1:N), en forma canónica de 10 dígitos.
+ */
+export const clientesTelefonos = sqliteTable(
+  'clientes_telefonos',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    clienteId: text('cliente_id').notNull(),
+    telefono: text('telefono').notNull().unique(),
+    telefonoRaw: text('telefono_raw'),
+    etiqueta: text('etiqueta'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    telefonoUk: uniqueIndex('clientes_telefonos_telefono_uk').on(table.telefono),
+    clienteIdx: index('clientes_telefonos_cliente_idx').on(table.clienteId),
+    actualizadoEnIdx: index('clientes_telefonos_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('clientes_telefonos_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Cobros contra recargas fiadas (append-only).
+ */
+export const cobrosRecarga = sqliteTable(
+  'cobros_recarga',
+  {
+    id: text('id').primaryKey(),
+    recargaId: text('recarga_id').notNull(),
+    monto: real('monto').notNull(),
+    formaPago: text('forma_pago').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    recargaIdx: index('cobros_recarga_recarga_idx').on(table.recargaId),
+    creadoEnIdx: index('cobros_recarga_creado_en_idx').on(table.creadoEn),
+    sincIdx: index('cobros_recarga_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Cierre diario del módulo de recargas (la UI llega en Fase 3).
+ */
+export const cuadresRecarga = sqliteTable(
+  'cuadres_recarga',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    fecha: text('fecha').notNull(),
+    estado: text('estado').notNull().default('abierto'),
+    totalNominal: real('total_nominal').notNull().default(0),
+    totalCosto: real('total_costo').notNull().default(0),
+    totalGanancia: real('total_ganancia').notNull().default(0),
+    saldoCarteraInicial: real('saldo_cartera_inicial'),
+    saldoCarteraFinal: real('saldo_cartera_final'),
+    efectivoReal: real('efectivo_real'),
+    diferencia: real('diferencia'),
+    notas: text('notas'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoFechaUk: uniqueIndex('cuadres_recarga_puesto_fecha_uk').on(table.puestoId, table.fecha),
+    actualizadoEnIdx: index('cuadres_recarga_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('cuadres_recarga_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect
@@ -670,3 +884,9 @@ export type TraspasoSQLite = typeof traspasos.$inferSelect
 export type MovimientoInventarioSQLite = typeof movimientosInventario.$inferSelect
 export type VentaDirectaSQLite = typeof ventasDirectas.$inferSelect
 export type VentaDirectaItemSQLite = typeof ventasDirectasItems.$inferSelect
+export type SmsEtecsaSQLite = typeof smsEtecsa.$inferSelect
+export type RecargaSQLite = typeof recargas.$inferSelect
+export type ClienteTelefonoSQLite = typeof clientesTelefonos.$inferSelect
+export type ClienteSQLite = typeof clientes.$inferSelect
+export type CobroRecargaSQLite = typeof cobrosRecarga.$inferSelect
+export type CuadreRecargaSQLite = typeof cuadresRecarga.$inferSelect
