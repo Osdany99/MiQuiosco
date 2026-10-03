@@ -6,7 +6,7 @@
  * plugin, para que la UI pueda mostrarlo sin reventar.
  *
  * El plugin nativo (android/.../SmsReaderPlugin.java) expone:
- *   estado()                    -> { permisoRecibir, permisoLeer, remitentes, pendientes }
+ *   estado()                    -> { permisoRecibir, permisoLeer, notificaciones, restringido, remitentes, pendientes }
  *   pedirPermisos()             -> { permisoRecibir, permisoLeer, concedidos }
  *   leerPendientes()            -> { mensajes: [...] }  (drena la cola)
  *   verPendientes()             -> { mensajes: [...] }  (mira sin drenar)
@@ -41,6 +41,8 @@ export const SMS_NO_DISPONIBLE = {
   disponible: false,
   permisoRecibir: false,
   permisoLeer: false,
+  notificaciones: false,
+  restringido: false,
   remitentes: [],
   pendientes: 0
 }
@@ -53,6 +55,8 @@ export async function smsEstado() {
       disponible: true,
       permisoRecibir: !!d.permisoRecibir,
       permisoLeer: !!d.permisoLeer,
+      notificaciones: !!d.notificaciones,
+      restringido: !!d.restringido,
       remitentes: Array.isArray(d.remitentes) ? d.remitentes : [],
       pendientes: Number(d.pendientes) || 0
     }

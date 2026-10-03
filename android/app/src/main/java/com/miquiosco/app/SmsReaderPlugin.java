@@ -12,6 +12,7 @@ import android.os.Build;
 import android.provider.Settings;
 import android.provider.Telephony;
 
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSArray;
@@ -72,6 +73,12 @@ public class SmsReaderPlugin extends Plugin {
      * Estado del subsistema de SMS: permisos, remitentes aceptados y tamaño de
      * la cola. La pantalla de diagnóstico lo pinta para poder ver de un vistazo
      * si algo está fallando antes de mirar un solo mensaje.
+     *
+     * Aquí van también los dos estados que antes exigían una llamada aparte
+     * (notificaciones y el candado de ajustes restringidos): Configuración
+     * necesita los tres para pintar la lista, y preguntar por separado era una
+     * ida y vuelta de más en cada visita. Con POST_NOTIFICATIONS no se pide nada
+     * aquí, solo se LEE: areNotificationsEnabled() no abre ningún diálogo.
      */
     @PluginMethod
     public void estado(PluginCall call) {
@@ -80,6 +87,8 @@ public class SmsReaderPlugin extends Plugin {
         boolean recibir = tienePermiso(Manifest.permission.RECEIVE_SMS);
         r.put("permisoRecibir", recibir);
         r.put("permisoLeer", leer);
+        r.put("notificaciones", notificacionesOk());
+        r.put("restringido", estaRestringido());
 
         JSArray remitentes = new JSArray();
         for (String s : SmsAlmacen.remitentes(getContext())) remitentes.put(s);
@@ -90,6 +99,20 @@ public class SmsReaderPlugin extends Plugin {
         res.put("ok", true);
         res.put("data", r);
         call.resolve(res);
+    }
+
+    /**
+     * ¿Se pueden mostrar notificaciones? No abre ningún diálogo: consulta el
+     * estado real. Antes de API 33 el permiso no es runtime y viene concedido en
+     * la instalación, así que solo queda el interruptor del sistema, que es
+     * justamente lo que areNotificationsEnabled() refleja.
+     */
+    private boolean notificacionesOk() {
+        try {
+            return NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

@@ -6,51 +6,86 @@ const toast = useToast()
 const conexion = useModoConexion()
 const update = useAppUpdate()
 const auth = useAuth()
-const sms = useSmsEtecsa()
-
 // --- Permisos de recarga (solo Android) ---
+// Configuración es el ÚNICO sitio donde se piden. No hay asistente al arrancar:
+// la app no interrumpe a quien solo usa el quiosco, y quien sí quiere recargas
+// tiene aquí el botón. Los tres estados (candado, SMS y notificaciones) llegan
+// en una sola llamada a estado(), así que pintar la lista no pide nada.
+//
 // El estado vive en useSmsEtecsa para no duplicar consultas al plugin; aquí solo
-// se reacciona y se ofrecen los accesos a Ajustes.
-const restringido = ref(false)
+// se reacciona y se ofrecen las acciones.
+const sms = useSmsEtecsa()
+const concediendo = ref('')
+
+const sinCandado = computed(() => !sms.estado.value.restringido)
+const permisoRecibir = computed(() => !!sms.estado.value.permisoRecibir)
+const notificacionesOk = computed(() => !!sms.estado.value.notificaciones)
 
 const permisosListos = computed(() => {
-  const st = sms.estado.value
-  return st.disponible && st.permisoRecibir && !restringido.value
+  return sinCandado.value && permisoRecibir.value && notificacionesOk.value
 })
 
+// La lista es puramente datos y las acciones se enlazan por clave desde la
+// plantilla (ACCIONES_PERMISOS). Guardar funciones dentro del array obligaría a
+// Vue a arrastrarlas al render, que es justo lo que reventaba antes.
 const listaPermisos = computed(() => {
-  const st = sms.estado.value
-  if (!st.disponible) return []
   return [
     {
       clave: 'restringidos',
-      ok: !restringido.value,
+      ok: sinCandado.value,
       texto: 'Ajustes restringidos desbloqueados',
-      accion: 'Desbloquear',
-      hacer: () => sms.abrirAjustesPermisos('restringidos')
+      accion: 'Desbloquear'
     },
     {
       clave: 'sms',
-      ok: !!st.permisoRecibir,
+      ok: permisoRecibir.value,
       texto: 'Lectura de SMS',
-      accion: 'Conceder',
-      hacer: () => sms.pedirPermiso().then(recargarPermisos)
+      accion: 'Conceder'
+    },
+    {
+      clave: 'notificaciones',
+      ok: notificacionesOk.value,
+      texto: 'Avisos de recarga',
+      accion: 'Activar'
     }
   ]
 })
 
-async function recargarPermisos() {
-  await sms.refrescarEstado()
+const ACCIONES_PERMISOS = {
+  restringidos: () => sms.abrirAjustesPermisos('restringidos'),
+  sms: () => sms.pedirPermiso(),
+  notificaciones: () => sms.pedirPermisoNotificaciones()
+}
+
+async function ejecutarPermiso(clave) {
+  if (concediendo.value) return
+  concediendo.value = clave
   try {
-    const { smsEstaRestringido } = await import('../utils/sms')
-    restringido.value = await smsEstaRestringido()
+    await ACCIONES_PERMISOS[clave]?.()
   } catch {
-    restringido.value = false
+    // Si el plugin falla, la lista se repinta con el estado real y ya se ve
+    // que el permiso sigue sin conceder. No hace falta un toast de error.
+  } finally {
+    concediendo.value = ''
+    await sms.refrescarEstado()
   }
 }
 
+// El paso del candado solo se resuelve FUERA de la app, en Ajustes del sistema.
+// Al volver hay que volver a preguntar, o la lista seguiría pidiendo
+// "Desbloquear" a alguien que ya lo desbloqueó.
+function alVolverDeAjustes() {
+  if (esNativo.value && !document.hidden) sms.refrescarEstado()
+}
+
 onMounted(() => {
-  if (esNativo.value) recargarPermisos()
+  if (!esNativo.value) return
+  sms.refrescarEstado()
+  document.addEventListener('visibilitychange', alVolverDeAjustes)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', alVolverDeAjustes)
 })
 
 // La URL del servidor y las actualizaciones in-app solo aplican en Android:
@@ -303,8 +338,15 @@ async function whOlvidarEste() {
           label="Descarga de actualizaciones"
           :help="`Método actual: ${metodoActual}. Automática intenta en la app y, si falla, usa el navegador.`"
         >
+          <!-- OJO: `update` es un objeto PLANO de refs (lo devuelve useAppUpdate), no un
+             reactive(), así que en la plantilla hay que leer `.value` a mano.
+             Con `v-model="update.metodo"` el USelect recibía el objeto Ref en
+             vez de su valor, y el recorrido que Nuxt UI hace sobre las props
+             (ohash `diff`, que no detecta ciclos) se lo comía entero:
+             ref -> dep -> Map de dependencias -> más refs -> nodos del DOM, hasta
+             reventar con "Cannot serialize HTMLDivElement". -->
           <USelect
-            v-model="update.metodo"
+            :model-value="update.metodo.value"
             :items="metodoItems"
             class="w-full"
             size="lg"
@@ -425,9 +467,9 @@ async function whOlvidarEste() {
       </div>
     </UCard>
 
-    <!-- Permisos del módulo de Recargas. Aquí vive el aviso porque es donde
-         alguien va a mirar si quiere cambiar algo; la pantalla /recargas/sms
-         queda como diagnóstico técnico y no molesta una vez concedido. -->
+    <!-- Permisos del módulo de Recargas. Es el único sitio donde se piden:
+         no hay asistente al arrancar. Cada fila dice si algo falta y ofrece
+         el botón que lo resuelve. -->
     <UCard v-if="esNativo">
       <div class="space-y-3">
         <div class="flex items-center justify-between gap-3">
@@ -440,9 +482,14 @@ async function whOlvidarEste() {
             color="neutral"
             variant="ghost"
             aria-label="Actualizar estado"
-            @click="recargarPermisos"
+            @click="sms.refrescarEstado()"
           />
         </div>
+
+        <p class="text-xs text-muted">
+          Necesarios para anotar las recargas de Etecsa solas, con la app cerrada.
+          Sin ellos puedes ver los SMS manualmente.
+        </p>
 
         <ul class="space-y-2">
           <li
@@ -464,7 +511,9 @@ async function whOlvidarEste() {
               color="neutral"
               variant="outline"
               :label="p.accion"
-              @click="p.hacer()"
+              :loading="concediendo === p.clave"
+              :disabled="!!concediendo"
+              @click="ejecutarPermiso(p.clave)"
             />
           </li>
         </ul>

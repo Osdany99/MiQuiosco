@@ -7,18 +7,6 @@ conexion.cargar()
 
 const update = useAppUpdate()
 
-// Permisos del módulo de Recargas. Se monta en app.vue (y no en la página de
-// Recargas) porque el paso 1 ocurre fuera de la app, en Ajustes: hay que poder
-// recibir al usuario de vuelta y reevaluar desde donde esté. El asistente es
-// una tarjeta encima, no bloquea el resto — quien solo usa el quiosco puede
-// seguir trabajando sin conceder estos permisos.
-const permisosRecarga = usePermisosRecarga()
-let soltarResumePermisos = null
-
-onUnmounted(() => {
-  soltarResumePermisos?.()
-})
-
 // El diálogo debe seguir abierto mientras la entrega interna avanza: si solo
 // mirara 'opcional', se cerraría en cuanto entregar() pasara a 'descargando'
 // y el usuario vería desaparecer el aviso a mitad de la descarga.
@@ -66,11 +54,6 @@ onMounted(async () => {
   await update.cargarMetodo().catch(() => {})
   await update.limpiarDescargaPrevia().catch(() => {})
   await update.comprobar().catch(() => {})
-
-  // Permisos de recarga: se evalúa al entrar y se vuelve a evaluar cada vez que
-  // la app vuelve a primer plano, porque el paso 1 solo se resuelve en Ajustes.
-  permisosRecarga.iniciar().catch(() => {})
-  soltarResumePermisos = permisosRecarga.observarRegreso()
 
   // Al volver a la app tras el instalador del sistema hay que reconsultar el
   // manifiesto: la versionCode solo cambia si el usuario aceptó la instalación.
@@ -128,15 +111,6 @@ useSeoMeta({
         </template>
       </NuxtErrorBoundary>
     </NuxtLayout>
-
-    <!-- Asistente de permisos de Recargas. Solo aparece la primera vez y nunca
-         bloquea el resto de la app. z-9998: queda por debajo del bloqueo de
-         actualización obligatoria (z-9999), que sí es bloqueante. -->
-    <RecargasAsistentePermisos
-      v-if="permisosRecarga.debeMostrar.value"
-      :paso="permisosRecarga.paso.value"
-      @listo="permisosRecarga.evaluar()"
-    />
 
     <!-- Descarga en curso / permiso de instalación: una sola instancia para
          el flujo opcional y el obligatorio, así no se duplica la barra. -->

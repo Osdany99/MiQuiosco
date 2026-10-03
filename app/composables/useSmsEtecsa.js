@@ -24,10 +24,18 @@ import {
 } from '../utils/sms'
 
 const mensajes = ref([])
+/**
+ * Estado del subsistema de SMS. Es un ref con un objeto plano y NO un
+ * readonly: readonly() devuelve un proxy reactivo que Vue no sabe serializar,
+ * y las pantallas que lo usan en listas loogy "Cannot serialize HTMLDivElement"
+ * al renderizar. Quien lo consume lo lee por `.value` y ya.
+ */
 const estado = ref({
   disponible: false,
   permisoRecibir: false,
   permisoLeer: false,
+  notificaciones: false,
+  restringido: false,
   remitentes: [],
   pendientes: 0
 })
@@ -141,9 +149,9 @@ export function useSmsEtecsa() {
   }
 
   return {
-    mensajes: readonly(mensajes),
-    estado: readonly(estado),
-    cargando: readonly(cargando),
+    mensajes,
+    estado,
+    cargando,
     cargar,
     refrescarEstado,
     barrer,
