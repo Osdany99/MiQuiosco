@@ -15,6 +15,8 @@
     "db:studio": "drizzle-kit studio",
     "db:generate:sqlite": "drizzle-kit generate --config drizzle.sqlite.config.ts",
     "test": "node --test tests/unit.test.js tests/inventario.test.js tests/recargas.test.js",
+    "test:api": "node tests/api/run.mjs",
+    "test:todo": "pnpm test && pnpm test:api",
     "db:reset:local": "echo 'Usa resetLocalDatabase() desde la consola del navegador (F12 > App > Consola). Se exporta por useLocalDb().'",
     "db:seed": "bun run server/database/seed.ts",
     "cap:sync": "cap sync android",
