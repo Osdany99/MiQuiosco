@@ -1,7 +1,6 @@
 import { crudList } from '../../utils/crud'
 import { requireRole } from '../../utils/auth'
 import { condicionHijosDelPuesto } from '../../utils/puesto'
-import { historialPrecios } from '../../database/schema'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')

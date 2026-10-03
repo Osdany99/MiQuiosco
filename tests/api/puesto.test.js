@@ -15,7 +15,7 @@
 import { describe, it, before } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  tokenJefe, get, raw, nombreUnico
+  tokenJefe, get, post, raw, nombreUnico
 } from './cliente.js'
 import {
   crearPuesto, crearUsuarioEnPuesto, insertar, filas
@@ -318,6 +318,48 @@ describe('simetria: B tampoco toca lo de A', () => {
     })
     assert.equal(ajeno.status, 404)
     assert.equal((await filas('productos', `id = '${idA}'`))[0].nombre.slice(0, 7), 'prod_sa')
+  })
+})
+
+describe('listas crud: el flag sin auth no filtraba (fix)', () => {
+  it('GET /api/productos no trae los de B', async () => {
+    const nombre = nombreUnico('prod_lb')
+    await post('/api/productos', { nombre, precioVentaActual: 5 }, { token: tokenB, status: 200 })
+    const lista = await get('/api/productos', { token: tokenA, status: 200 })
+    assert.ok(!lista.some(p => p.nombre === nombre))
+  })
+
+  it('GET /api/cuadres no trae los de B', async () => {
+    const fecha = fechaUnica()
+    await post('/api/cuadres', { fecha }, { token: tokenB, status: 200 })
+    const lista = await get('/api/cuadres', { token: tokenA, status: 200 })
+    assert.ok(!lista.some(c => c.fecha === fecha))
+  })
+
+  it('GET /api/proveedores no trae los de B', async () => {
+    const nombre = nombreUnico('prov_lb')
+    await post('/api/proveedores', { nombre }, { token: tokenB, status: 200 })
+    const lista = await get('/api/proveedores', { token: tokenA, status: 200 })
+    assert.ok(!lista.some(p => p.nombre === nombre))
+  })
+
+  it('GET /api/traspasos y movimientos no traen los de B', async () => {
+    const nombre = nombreUnico('tras_lb')
+    const prod = await post('/api/productos', { nombre, precioVentaActual: 8 }, { token: tokenB, status: 200 })
+    await post('/api/inventario/entradas', {
+      fechaEntrada: '2026-05-10',
+      lineas: [{ productoId: prod.id, cantidad: 4, precioUnitario: 3 }]
+    }, { token: tokenB, status: 200 })
+    await post('/api/inventario/traspasos', {
+      fecha: '2026-05-10',
+      lineas: [{ productoId: prod.id, cantidad: 4 }]
+    }, { token: tokenB, status: 200 })
+    const idsB = (await filas('traspasos', `puesto_id = '${puestoB}'`)).map(t => t.id)
+    assert.ok(idsB.length > 0, 'B debe tener traspasos en la BD')
+    const tras = await get('/api/traspasos', { token: tokenA, status: 200 })
+    assert.ok(!tras.some(t => idsB.includes(t.id)))
+    const movs = await get('/api/movimientos-inventario', { token: tokenA, status: 200 })
+    assert.ok(!movs.some(m => m.productoId === prod.id))
   })
 })
 

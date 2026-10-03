@@ -4,7 +4,7 @@ import {
   lotes,
   movimientosInventario,
   productos,
-  usuarios,
+  clientes,
   cuentasFiado,
   cuentasFiadoItems,
   pagosFiado
@@ -38,10 +38,13 @@ export default defineEventHandler(async (event) => {
   const ahora = new Date()
   const ahoraMs = ahora.getTime()
 
+  // Los clientes viven en su propia tabla desde la migracion 0018 (antes eran
+  // usuarios con rol='cliente'): validar contra usuarios hacia imposible crear
+  // deudas directas (siempre 400 'Cliente inválido').
   const [cliente] = await db
     .select()
-    .from(usuarios)
-    .where(eq(usuarios.id, datos.clienteId))
+    .from(clientes)
+    .where(eq(clientes.id, datos.clienteId))
     .limit(1)
   if (!cliente || cliente.puestoId !== puestoId || !cliente.activo) {
     throw createError({ statusCode: 400, statusMessage: 'Cliente inválido.' })

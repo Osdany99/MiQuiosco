@@ -79,6 +79,46 @@ describe('mergeFields', () => {
     const { merged } = mergeFields(server, client)
     assert.equal(merged.nombre, 'Server')
   })
+  it('cliente mas nuevo gana (clientTs > serverTs)', () => {
+    const server = { id: '1', nombre: 'Server', actualizadoEn: '2026-01-01T00:00:00.000Z' }
+    const client = { id: '1', nombre: 'Client', actualizadoEn: '2026-01-03T00:00:00.000Z' }
+    const { merged } = mergeFields(server, client)
+    assert.equal(merged.nombre, 'Client')
+  })
+  it('empate exacto de timestamps → gana servidor', () => {
+    const ts = '2026-01-01T00:00:00.000Z'
+    const server = { id: '1', nombre: 'Server', actualizadoEn: ts }
+    const client = { id: '1', nombre: 'Client', actualizadoEn: ts }
+    const { merged } = mergeFields(server, client)
+    assert.equal(merged.nombre, 'Server')
+  })
+  it('valor → null no marca difiereDelServidor (el null no pisa)', () => {
+    const server = { id: '1', telefono: '555', actualizadoEn: '2026-01-01T00:00:00.000Z' }
+    const client = { id: '1', telefono: null, actualizadoEn: '2026-01-02T00:00:00.000Z' }
+    const { merged, difiereDelServidor } = mergeFields(server, client)
+    assert.equal(merged.telefono, '555')
+    assert.equal(difiereDelServidor, false)
+  })
+  it('id siempre del servidor y sincronizado siempre 1', () => {
+    const server = { id: 's1', sincronizado: 0, actualizadoEn: '2026-01-01T00:00:00.000Z' }
+    const client = { id: 'c1', sincronizado: 0, actualizadoEn: '2026-01-05T00:00:00.000Z' }
+    const { merged } = mergeFields(server, client)
+    assert.equal(merged.id, 's1')
+    assert.equal(merged.sincronizado, 1)
+  })
+  it('actualizadoEn ausente cuenta como 0 (el otro lado gana)', () => {
+    const server = { id: '1', nombre: 'Server' }
+    const client = { id: '1', nombre: 'Client', actualizadoEn: '2026-01-01T00:00:00.000Z' }
+    const { merged } = mergeFields(server, client)
+    assert.equal(merged.nombre, 'Client')
+  })
+  it('clave solo en cliente con valor → se aporta y difiere', () => {
+    const server = { id: '1', actualizadoEn: '2026-01-01T00:00:00.000Z' }
+    const client = { id: '1', extra: 'x', actualizadoEn: '2026-01-01T00:00:00.000Z' }
+    const { merged, difiereDelServidor } = mergeFields(server, client)
+    assert.equal(merged.extra, 'x')
+    assert.equal(difiereDelServidor, true)
+  })
 })
 
 // --- utils ---

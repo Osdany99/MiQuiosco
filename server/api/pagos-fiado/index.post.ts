@@ -24,13 +24,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Cuenta de fiado no encontrada.' })
   }
 
+  // Primero el estado: cobrar una cuenta saldada es conflicto (409) sin importar
+  // el monto. (Antes el chequeo de saldo iba primero y cualquier cobro a una
+  // pagada caia en 400 'excede el saldo', ocultando el verdadero problema.)
+  if (cuenta.estado === 'pagada') {
+    throw createError({ statusCode: 409, statusMessage: 'Esta deuda ya está saldada.' })
+  }
+
   const saldoPendiente = cuenta.montoTotal - cuenta.montoPagado
   if (monto > saldoPendiente) {
     throw createError({ statusCode: 400, statusMessage: `El monto excede el saldo pendiente (${saldoPendiente}).` })
-  }
-
-  if (cuenta.estado === 'pagada') {
-    throw createError({ statusCode: 409, statusMessage: 'Esta deuda ya está saldada.' })
   }
 
   // El cuadre receptor, si lo hay, debe existir y ser del mismo puesto.

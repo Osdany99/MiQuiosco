@@ -264,7 +264,7 @@ if (estadoSeed !== 'ok') {
 const solo = (process.argv.find(a => a.startsWith('--solo=')) ?? '').slice('--solo='.length)
 
 log('suite paralela...')
-const paralelas = ['auth.test.js', 'puesto.test.js', 'sync.test.js', 'webauthn-ratelimit.test.js']
+const paralelas = ['auth.test.js', 'puesto.test.js', 'sync.test.js', 'webauthn-ratelimit.test.js', 'transaccional.test.js', 'crud.test.js']
   .filter(a => !solo || a.includes(solo))
 const r1 = correr(paralelas)
 

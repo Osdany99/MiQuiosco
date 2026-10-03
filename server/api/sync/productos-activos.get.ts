@@ -1,4 +1,4 @@
-import { eq, asc } from 'drizzle-orm'
+import { and, eq, asc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { productos } from '../../database/schema'
 import { requireAuth } from '../../utils/auth'
@@ -10,7 +10,7 @@ import { requireAuth } from '../../utils/auth'
  * - id, nombre, precioVentaActual, orden
  */
 export default defineEventHandler(async (event) => {
-  await requireAuth(event, 'sync')
+  const auth = await requireAuth(event, 'sync')
   const rows = await db
     .select({
       id: productos.id,
@@ -19,7 +19,8 @@ export default defineEventHandler(async (event) => {
       orden: productos.orden
     })
     .from(productos)
-    .where(eq(productos.activo, true))
+    // Sin el filtro descargaba el catalogo de TODOS los puestos.
+    .where(and(eq(productos.activo, true), eq(productos.puestoId, auth.usuario.puestoId)))
     .orderBy(asc(productos.orden))
 
   return rows.map(r => ({

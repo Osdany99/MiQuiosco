@@ -16,7 +16,7 @@ import {
   tokenJefe, get, raw, nombreUnico
 } from './cliente.js'
 import {
-  crearPuesto, crearUsuarioEnPuesto, insertar, filas, contar
+  crearPuesto, crearUsuarioEnPuesto, insertar, filas
 } from './db-directa.js'
 
 let tokenA
@@ -229,13 +229,17 @@ describe('push: deletes con puesto', () => {
 
   it('delete inexistente se acepta sin tombstone (idempotente)', async () => {
     const id = randomUUID()
-    const antes = await contar('deleted_records')
     const r = await raw('POST', '/api/sync/push', {
       body: { deletes: [{ tabla: 'productos', id }] }, token: tokenA
     })
     assert.equal(r.status, 200)
     assert.ok(r.body.deletesAceptados.some(d => d.id === id))
-    assert.equal(await contar('deleted_records'), antes, 'sin tombstone para lo que nunca existio')
+    // Acotado a mi id: el conteo global cambia por los tests paralelos
+    // (otros deletes si dejan tombstone).
+    assert.equal(
+      (await filas('deleted_records', `registro_id = '${id}'`)).length, 0,
+      'sin tombstone para lo que nunca existio'
+    )
   })
 
   it('delete de fila ajena da 403 y no la borra', async () => {

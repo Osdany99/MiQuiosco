@@ -23,7 +23,10 @@ interface CrudListConfig {
 
 interface CrudListOpts {
   query?: Record<string, any>
-  auth?: AuthUser
+  // Requerido: sin auth, el filtro puestoScoped queda muerto y el listado
+  // devuelve filas de todos los puestos (paso en productos, cuadres,
+  // proveedores, traspasos y movimientos). TypeScript lo exige.
+  auth: AuthUser
   listFilter?: (ctx: { query: Record<string, any>, auth?: AuthUser, table: Table, columns: Record<string, Column> }) => any
   serialize?: (row: any) => any
 }
@@ -142,7 +145,7 @@ function buildFilterFromQuery(query: Record<string, any>, columns: Record<string
   return conditions.length ? and(...conditions) : undefined
 }
 
-export async function crudList(config: CrudListConfig, opts: CrudListOpts = {}) {
+export async function crudList(config: CrudListConfig, opts: CrudListOpts) {
   const { query: queryOpts, auth, listFilter, serialize } = opts
   const table = getTable(config.tabla)
   const columns = getTableColumns(table)

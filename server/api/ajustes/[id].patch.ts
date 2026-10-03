@@ -51,18 +51,31 @@ export default defineEventHandler(async (event) => {
       .where(eq(ajustes.id, id))
 
     // Ajustar el acumulado del cuadre: restar el monto anterior del campo
-    // original y sumar el nuevo al campo correspondiente.
-    const campoAnterior = ajuste.tipo === 'regalo' ? cuadres.montoRegalo : cuadres.montoDescuento
-    await tx
-      .update(cuadres)
-      .set({ [campoAnterior.name]: sql`GREATEST(${campoAnterior} - ${ajuste.monto}, 0)` })
-      .where(eq(cuadres.id, ajuste.cuadreId))
-
-    const campoNuevo = nuevoTipo === 'regalo' ? cuadres.montoRegalo : cuadres.montoDescuento
-    await tx
-      .update(cuadres)
-      .set({ [campoNuevo.name]: sql`${campoNuevo} + ${nuevoMonto}` })
-      .where(eq(cuadres.id, ajuste.cuadreId))
+    // original y sumar el nuevo al campo correspondiente (funciona aunque el
+    // tipo cambie de regalo a descuento o viceversa). Ver [id].delete.ts: las
+    // claves de .set() son las JS, no los nombres SQL.
+    if (ajuste.tipo === 'regalo') {
+      await tx
+        .update(cuadres)
+        .set({ montoRegalo: sql`GREATEST(${cuadres.montoRegalo} - ${ajuste.monto}, 0)` })
+        .where(eq(cuadres.id, ajuste.cuadreId))
+    } else {
+      await tx
+        .update(cuadres)
+        .set({ montoDescuento: sql`GREATEST(${cuadres.montoDescuento} - ${ajuste.monto}, 0)` })
+        .where(eq(cuadres.id, ajuste.cuadreId))
+    }
+    if (nuevoTipo === 'regalo') {
+      await tx
+        .update(cuadres)
+        .set({ montoRegalo: sql`${cuadres.montoRegalo} + ${nuevoMonto}` })
+        .where(eq(cuadres.id, ajuste.cuadreId))
+    } else {
+      await tx
+        .update(cuadres)
+        .set({ montoDescuento: sql`${cuadres.montoDescuento} + ${nuevoMonto}` })
+        .where(eq(cuadres.id, ajuste.cuadreId))
+    }
   })
 
   return { id, tipo: nuevoTipo, cantidad: nuevaCantidad, monto: nuevoMonto }
