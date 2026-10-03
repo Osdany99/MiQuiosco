@@ -83,9 +83,11 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # pnpm db:seed corre con bun (ver package.json).
+      # pnpm db:seed corre con bun (ver package.json). Se instala por npm en vez
+      # de oven-sh/setup-bun: esa action (tag o SHA) hace que el scheduler de
+      # GitHub rechace el workflow con startup_failure y cero jobs.
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        run: npm install -g bun
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
