@@ -1,5 +1,5 @@
 import { eq, and, ne } from 'drizzle-orm'
-import { usuarioSchema, usuarioDbSchema } from '#shared/schemas/usuario'
+import { usuarioSchema, usuarioUpdateSchema, usuarioDbSchema } from '#shared/schemas/usuario'
 import { crudPatch } from '../../utils/crud'
 import { hashPin } from '../../utils/auth'
 import { db } from '../../database/client'
@@ -10,7 +10,16 @@ export default defineEventHandler(async (event) => {
   const id = event.context.params!.id as string
   const body = await readBody(event)
 
-  return await crudPatch({ tabla: 'usuarios', label: 'Usuario', schema: usuarioSchema, dbSchema: usuarioDbSchema }, {
+  return await crudPatch({
+    tabla: 'usuarios',
+    label: 'Usuario',
+    // usuarioUpdateSchema y no usuarioSchema.partial(): el partial() heredaba
+    // los .default() de rol/activo, asi que un PATCH { notas } guardaba tambien
+    // rol='trabajador' y degradaba al jefe sin que nadie lo pidiera.
+    schema: usuarioSchema,
+    updateSchema: usuarioUpdateSchema,
+    dbSchema: usuarioDbSchema
+  }, {
     id,
     body,
     auth,

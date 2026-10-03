@@ -272,7 +272,22 @@ export async function crudRemove(opts: CrudRemoveConfig) {
   const table = schemaByTabla[tabla]
   if (!table) throw new Error(`Tabla "${tabla}" no encontrada en schema`)
   const columns = getTableColumns(table)
-  const [row] = await db.delete(table).where(eq(columns.id as Column, id)).returning({ id: columns.id! })
-  if (!row) throw createError({ statusCode: 404, statusMessage: `${label} no encontrado.` })
-  return { success: true, id: row.id }
+  try {
+    const [row] = await db.delete(table).where(eq(columns.id as Column, id)).returning({ id: columns.id! })
+    if (!row) throw createError({ statusCode: 404, statusMessage: `${label} no encontrado.` })
+    return { success: true, id: row.id }
+  } catch (e: any) {
+    // 23503 = foreign_key_violation. Pasa cuando otras filas apuntan a este
+    // registro (por ejemplo, un jefe que tiene cuadres, lotes o traspasos).
+    // Sin esto la API respondia 500 "Server Error" y el cliente lo leia como
+    // un fallo generico, sin saber que el problema es que hay datos que lo
+    // sujetan. 409 + mensaje accionable: se desactiva en vez de borrar.
+    if (e?.code === '23503' || e?.cause?.code === '23503') {
+      throw createError({
+        statusCode: 409,
+        statusMessage: `No se puede eliminar ${label.toLowerCase()}: tiene datos asociados que lo necesitan. Desactívalo en lugar de eliminarlo.`
+      })
+    }
+    throw e
+  }
 }
