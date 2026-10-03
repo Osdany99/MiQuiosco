@@ -2,6 +2,11 @@ CREATE TYPE "public"."estado_pago_recarga" AS ENUM('pagada', 'pendiente');--> st
 CREATE TYPE "public"."estado_sms_etecsa" AS ENUM('pendiente', 'guardada', 'descartada');--> statement-breakpoint
 CREATE TYPE "public"."plataforma_recarga" AS ENUM('monedero', 'banco');--> statement-breakpoint
 CREATE TYPE "public"."tipo_recarga" AS ENUM('saldo', 'voz', 'sms', 'datos');--> statement-breakpoint
+-- 0005 borro la tabla clientes y la 0012/0014 la trajeron de vuelta con otras
+-- columnas, pero sobre una BD hecha con db:push la tabla ya existia con el
+-- schema final y este CREATE TABLE fallaba con "la relacion ya existe".
+-- DROP ... IF EXISTS + CASCADE la deja siempre en el estado que la 0018 quiere.
+DROP TABLE IF EXISTS "clientes" CASCADE;--> statement-breakpoint
 CREATE TABLE "clientes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"puesto_id" uuid NOT NULL,
