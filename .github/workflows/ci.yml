@@ -68,10 +68,7 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # pnpm db:seed corre con bun (ver package.json).
-      - name: Install bun
-        uses: oven-sh/setup-bun@v2
-
+      # PROBE 3: sin setup-bun (si planifica, ese uses era el culpable).
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
