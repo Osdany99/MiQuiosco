@@ -129,9 +129,53 @@ async function recuperarSeed() {
   return reintento.status === 200 ? 'recuperado' : 'FALLO'
 }
 
+/**
+ * PID escuchando en localhost:PUERTO, o null. En Windows un `servidor.kill()`
+ * solo mata el cmd.exe y deja huerfano el proceso nuxt: sin esto, la proxima
+ * corrida cree levantar un server nuevo, el puerto sigue ocupado por el
+ * huerfano, el health-check pasa contra el VIEJO y los tests corren contra
+ * codigo y BD viejos (asi se contamino la BD real en una ocasion).
+ */
+function pidEnPuerto(puerto) {
+  try {
+    const r = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-Command',
+        `(Get-NetTCPConnection -LocalPort ${puerto} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    )
+    const n = Number((r.stdout || '').trim())
+    return Number.isInteger(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
+function liberarPuerto(puerto) {
+  const pid = pidEnPuerto(puerto)
+  if (pid == null) return
+  log(`puerto ${puerto} ocupado por PID ${pid}: se libera (huerfano de corrida anterior)`)
+  if (ES_WIN) {
+    spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+  } else {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch { /* ya murio */ }
+  }
+}
+
+async function esperarPuertoLibre(puerto, intentos = 10) {
+  for (let i = 0; i < intentos; i++) {
+    if (pidEnPuerto(puerto) == null) return true
+    await new Promise(r => setTimeout(r, 500))
+  }
+  return false
+}
+
 // --- Arrancar el server si hace falta ---
 let servidor = null
 if (!process.env.API_BASE_URL) {
+  liberarPuerto(3000)
   log('arrancando nuxt dev...')
   servidor = spawn('pnpm', ['dev'], {
     cwd: RAIZ,
@@ -214,15 +258,31 @@ if (estadoSeed !== 'ok') {
   process.exit(1)
 }
 
+// --solo=<frag>: corre solo los archivos que contengan el fragmento (para
+// iterar una suite sin levantar todo dos veces). Ej: node tests/api/run.mjs
+// --solo=webauthn  |  KEEP_DB=1 node tests/api/run.mjs --solo=sync
+const solo = (process.argv.find(a => a.startsWith('--solo=')) ?? '').slice('--solo='.length)
+
 log('suite paralela...')
-const r1 = correr(['auth.test.js'])
+const paralelas = ['auth.test.js', 'puesto.test.js', 'sync.test.js', 'webauthn-ratelimit.test.js']
+  .filter(a => !solo || a.includes(solo))
+const r1 = correr(paralelas)
 
 // --- Suite 2: secuenciales (saturan el rate limit o desactivan jefes) ---
 // Un archivo por invocacion: comparten estado global y no pueden correr a la vez.
 log('suite secuencial (un archivo a la vez)...')
-const r2 = correrSecuencial(['auth-secuencial.test.js', 'usuarios-guardas.test.js'])
+const r2 = correrSecuencial(
+  ['auth-secuencial.test.js', 'usuarios-guardas.test.js'].filter(a => !solo || a.includes(solo))
+)
 
 matarServidor()
-log('server detenido')
+if (await esperarPuertoLibre(3000)) {
+  log('server detenido')
+} else {
+  // No se deja un huerfano atras: la proxima corrida testearia contra el.
+  console.error('El puerto 3000 sigue ocupado tras matar el server. '
+    + 'Liberenlo a mano antes de la proxima corrida.')
+  process.exit(1)
+}
 
 process.exit(r1 === 0 && r2 === 0 ? 0 : 1)

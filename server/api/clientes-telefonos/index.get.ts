@@ -4,9 +4,10 @@ import { clientes, clientesTelefonos } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const query = getQuery(event)
-  const conditions = []
+  // Siempre el puesto propio (la tabla lleva puestoId: ver shared/tables.js).
+  const conditions = [eq(clientesTelefonos.puestoId, auth.usuario.puestoId)]
 
   if (query.clienteId) {
     conditions.push(eq(clientesTelefonos.clienteId, String(query.clienteId)))
@@ -33,7 +34,7 @@ export default defineEventHandler(async (event) => {
     })
     .from(clientesTelefonos)
     .innerJoin(clientes, eq(clientesTelefonos.clienteId, clientes.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(clientesTelefonos.creadoEn))
 
   return rows.map(r => ({

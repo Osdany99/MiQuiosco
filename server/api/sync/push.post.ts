@@ -3,6 +3,7 @@ import { eq, inArray, getTableName, getTableColumns } from 'drizzle-orm'
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
+import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { pushSyncSchema } from '#shared/schemas/pushSync'
 import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
@@ -10,7 +11,8 @@ import type { Table, Column } from 'drizzle-orm'
 const TABLAS_SYNC_SET = new Set(SYNC_TABLES.map(t => t.tabla))
 
 export default defineEventHandler(async (event) => {
-  await requireAuth(event, 'sync')
+  const auth = await requireAuth(event, 'sync')
+  const puestoId = auth.usuario.puestoId
 
   const body = await readBody(event)
   const parsed = pushSyncSchema.safeParse(body)
@@ -29,7 +31,8 @@ export default defineEventHandler(async (event) => {
   const conflictos: Record<string, any[]> = {}
 
   // Todo el push se aplica en una única transacción: o se completa entero,
-  // o no deja estado parcial en el servidor.
+  // o no deja estado parcial en el servidor. Las validaciones de puesto van
+  // DENTRO de la tx y antes de cada escritura: un 403 aborta todo el push.
   await db.transaction(async (tx) => {
     for (const syncConfig of SYNC_TABLES) {
       const table = schemaByTabla[syncConfig.tabla] as Table | undefined
@@ -59,9 +62,38 @@ export default defineEventHandler(async (event) => {
         const existing = existingById.get(row.id)
 
         if (!existing) {
+          // INSERT: la fila debe pertenecer al puesto del JWT.
+          if (syncConfig.puestoScoped) {
+            if (row.puestoId && row.puestoId !== puestoId) {
+              throw createError({
+                statusCode: 403,
+                statusMessage: `La fila ${row.id} de ${tableName} pertenece a otro puesto.`
+              })
+            }
+            // Espejo de crudCreate: si no trae puesto, es del que sincroniza.
+            if (!row.puestoId) row.puestoId = puestoId
+          } else {
+            // Hija sin puestoId propio: el padre debe existir y ser propio.
+            // Se lee en la tx para ver tambien padres del mismo push.
+            await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId)
+          }
           await tx.insert(table).values(coerceRow(row, syncConfig, columns))
           aceptados.push(row.id)
           continue
+        }
+
+        // UPDATE o conflicto: la fila existente debe ser del puesto. Esto
+        // tambien cierra el oraculo de la rama de conflicto (antes, pushear un
+        // id adivinado devolvia la fila completa del servidor).
+        if (syncConfig.puestoScoped) {
+          if ((existing as any).puestoId !== puestoId) {
+            throw createError({
+              statusCode: 403,
+              statusMessage: `La fila ${row.id} de ${tableName} pertenece a otro puesto.`
+            })
+          }
+        } else {
+          await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, existing)
         }
 
         if (syncConfig.insertOnly) {
@@ -89,6 +121,27 @@ export default defineEventHandler(async (event) => {
       const columns = getTableColumns(table) as Record<string, Column>
       if (!columns.id) continue
 
+      const [existing] = await tx.select().from(table).where(eq(columns.id!, del.id)).limit(1)
+      if (!existing) {
+        // Idempotente: borrar lo que no existe se acepta sin tombstone (no hay
+        // nada que propagar a otros dispositivos).
+        deletesAceptados.push({ tabla: del.tabla, id: del.id })
+        continue
+      }
+
+      // Borrar filas ajenas: 403 fail-closed.
+      const syncConfig = SYNC_TABLES.find(t => t.tabla === del.tabla)
+      if (syncConfig?.puestoScoped) {
+        if ((existing as any).puestoId !== puestoId) {
+          throw createError({
+            statusCode: 403,
+            statusMessage: `La fila ${del.id} de ${del.tabla} pertenece a otro puesto.`
+          })
+        }
+      } else if (syncConfig) {
+        await exigirPadrePropio(tx, syncConfig.tabla, existing, puestoId, existing)
+      }
+
       await tx.delete(table).where(eq(columns.id!, del.id))
       await tx.insert(deletedRecords).values({
         tabla: del.tabla,
@@ -100,6 +153,47 @@ export default defineEventHandler(async (event) => {
 
   return { aceptados, conflictos, deletesAceptados }
 })
+
+/**
+ * Verifica que el padre de una fila hija exista y sea del puesto que
+ * sincroniza. Lee en la tx para ver padres del mismo push. 404 si el padre no
+ * existe (antes era un 500 opaco por violacion de FK), 403 si es ajeno.
+ */
+async function exigirPadrePropio(
+  tx: any,
+  tablaHija: string,
+  row: any,
+  puestoId: string,
+  existing?: any
+): Promise<void> {
+  const padre = PADRE_POR_TABLA[tablaHija]
+  if (!padre) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: `La tabla ${tablaHija} no es sincronizable por este puesto.`
+    })
+  }
+  const fk = row?.[padre.fk] ?? existing?.[padre.fk]
+  const parentTable = schemaByTabla[padre.padre] as Table | undefined
+  if (!parentTable || fk == null) {
+    throw createError({ statusCode: 404, statusMessage: 'Registro padre no encontrado.' })
+  }
+  const parentCols = getTableColumns(parentTable) as Record<string, Column>
+  const [parent] = await tx
+    .select()
+    .from(parentTable)
+    .where(eq(parentCols.id!, fk))
+    .limit(1)
+  if (!parent) {
+    throw createError({ statusCode: 404, statusMessage: 'Registro padre no encontrado.' })
+  }
+  if ((parent as any).puestoId !== puestoId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El registro padre pertenece a otro puesto.'
+    })
+  }
+}
 
 function registrarConflicto(
   conflictos: Record<string, any[]>,

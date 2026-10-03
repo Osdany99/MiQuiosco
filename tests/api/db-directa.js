@@ -81,10 +81,67 @@ export async function contar(tabla) {
   })
 }
 
+/**
+ * Crea un puesto de pruebas y devuelve su id. No hay POST /api/puestos
+ * (la tabla solo se siembra), asi que los tests multi-puesto lo crean por SQL.
+ */
+export async function crearPuesto(nombre) {
+  return conDb(async (c) => {
+    const { rows } = await c.query(
+      'INSERT INTO puestos (nombre, activo) VALUES ($1, true) RETURNING id',
+      [nombre]
+    )
+    return rows[0].id
+  })
+}
+
+/**
+ * Crea un usuario con PIN en un puesto dado y devuelve { id, nombre, rol }.
+ * El hash se calcula con bcryptjs, la misma libreria del servidor.
+ */
+export async function crearUsuarioEnPuesto(puestoId, nombre, rol = 'jefe', pin = '1234') {
+  const bcrypt = (await import('bcryptjs')).default
+  const pinHash = await bcrypt.hash(pin, 10)
+  return conDb(async (c) => {
+    const { rows } = await c.query(
+      `INSERT INTO usuarios (puesto_id, nombre, rol, pin_hash, activo)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, nombre, rol`,
+      [puestoId, nombre, rol, pinHash]
+    )
+    return rows[0]
+  })
+}
+
 /** Filas de una tabla que cumplen una condicion simple. */
 export async function filas(tabla, where = 'true') {
   return conDb(async (c) => {
     const { rows } = await c.query(`SELECT * FROM "${tabla}" WHERE ${where}`)
     return rows
+  })
+}
+
+/**
+ * INSERT generico con columnas snake_case y RETURNING id. Para montar fixtures
+ * de entidades cuyas rutas transaccionales son complejas (transferencias,
+ * cuentas de fiado, pagos...). Las claves van en snake_case tal cual en la BD.
+ */
+export async function insertar(tabla, fila) {
+  const cols = Object.keys(fila)
+  const vals = Object.values(fila)
+  const ph = vals.map((_, i) => `$${i + 1}`).join(', ')
+  return conDb(async (c) => {
+    const { rows } = await c.query(
+      `INSERT INTO "${tabla}" (${cols.map(x => `"${x}"`).join(', ')}) VALUES (${ph}) RETURNING id`,
+      vals
+    )
+    return rows[0].id
+  })
+}
+
+/** Borra filas que cumplen una condicion. Para limpiar fixtures propios. */
+export async function borrar(tabla, where) {
+  return conDb(async (c) => {
+    await c.query(`DELETE FROM "${tabla}" WHERE ${where}`)
   })
 }

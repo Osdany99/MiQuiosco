@@ -313,7 +313,18 @@ async function whOlvidarEste() {
       </p>
     </div>
 
-    <UCard v-if="!cargando && esNativo">
+    <!-- Solo el jefe toca la URL y el metodo de actualizacion: un trabajador
+      que apunte la app a otro servidor (o cambie el metodo) rompe la
+      sincronizacion del puesto sin que nadie lo note. -->
+    <UAlert
+      v-if="esNativo && !auth.esJefe"
+      color="neutral"
+      icon="i-lucide-info"
+      title="Ajustes del puesto"
+      description="La URL del servidor y las actualizaciones las configura el jefe."
+    />
+
+    <UCard v-if="!cargando && esNativo && auth.esJefe">
       <div class="space-y-4">
         <UFormField label="URL del servidor" help="Ej: http://192.168.1.100:3000">
           <UInput
@@ -354,7 +365,7 @@ async function whOlvidarEste() {
       </div>
     </UCard>
 
-    <UCard v-if="esNativo">
+    <UCard v-if="esNativo && auth.esJefe">
       <div class="space-y-4">
         <div>
           <h2 class="text-sm font-medium">

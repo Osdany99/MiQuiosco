@@ -23,7 +23,9 @@ const BASE = process.env.API_BASE_URL || 'http://localhost:3000'
 let seq = 0
 export function nombreUnico(prefijo) {
   seq += 1
-  return `${prefijo}_${Date.now()}_${seq}`
+  // Con el PID: los archivos de test corren en procesos separados y dos
+  // procesos pueden coincidir en ms y seq, generando el mismo nombre.
+  return `${prefijo}_${Date.now()}_${process.pid}_${seq}`
 }
 
 /** Error de API con status y payload, para aserciones sobre 401/403/429/426. */

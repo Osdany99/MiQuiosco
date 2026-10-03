@@ -2,11 +2,12 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { ajustes, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { exigirPuesto } from '../../utils/puesto'
 import { validarTopeCuadre } from '../../utils/fiadoTope'
 import { updateAjusteSchema } from '#shared/schemas/updateAjuste'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const id = event.context.params?.id
   if (!id) throw createError({ statusCode: 400, statusMessage: 'ID requerido.' })
 
@@ -17,15 +18,8 @@ export default defineEventHandler(async (event) => {
   }
   const cambios = parsed.data
 
-  const [ajuste] = await db
-    .select()
-    .from(ajustes)
-    .where(eq(ajustes.id, id))
-    .limit(1)
-
-  if (!ajuste) {
-    throw createError({ statusCode: 404, statusMessage: 'Ajuste no encontrado.' })
-  }
+  // 404 si no existe O si es de otro puesto (misma respuesta).
+  const ajuste = await exigirPuesto(auth, 'ajustes', id, 'Ajuste')
 
   const nuevoTipo = cambios.tipo ?? ajuste.tipo
   const nuevaCantidad = cambios.cantidad ?? ajuste.cantidad

@@ -1,18 +1,22 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { cuentasFiado, cuentasFiadoItems, pagosFiado, usuarios, productos } from '../../database/schema'
+import { cuentasFiado, cuentasFiadoItems, pagosFiado, clientes, productos } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { exigirPuesto } from '../../utils/puesto'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const id = event.context.params?.id
   if (!id) throw createError({ statusCode: 400, statusMessage: 'ID requerido.' })
+
+  // 404 si no existe O si es de otro puesto (misma respuesta).
+  await exigirPuesto(auth, 'cuentas_fiado', id, 'Cuenta de fiado')
 
   const [cuenta] = await db
     .select({
       id: cuentasFiado.id,
       clienteId: cuentasFiado.clienteId,
-      nombreCliente: usuarios.nombre,
+      nombreCliente: clientes.nombre,
       cuadreOrigenId: cuentasFiado.cuadreOrigenId,
       montoTotal: cuentasFiado.montoTotal,
       montoPagado: cuentasFiado.montoPagado,
@@ -21,7 +25,9 @@ export default defineEventHandler(async (event) => {
       actualizadoEn: cuentasFiado.actualizadoEn
     })
     .from(cuentasFiado)
-    .innerJoin(usuarios, eq(cuentasFiado.clienteId, usuarios.id))
+    // clienteId apunta a la tabla clientes desde la migracion 0018 (antes a
+    // usuarios): el join contra usuarios hacia INVISIBLES las deudas nuevas.
+    .innerJoin(clientes, eq(cuentasFiado.clienteId, clientes.id))
     .where(eq(cuentasFiado.id, id))
     .limit(1)
 

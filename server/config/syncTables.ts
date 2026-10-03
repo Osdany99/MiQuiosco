@@ -8,10 +8,12 @@ export interface SyncTable {
   tabla: string
   syncNumeric: string[]
   insertOnly: boolean
+  puestoScoped: boolean
 }
 
 export const SYNC_TABLES: SyncTable[] = _SYNC_TABLES.map(t => ({
   tabla: t.tabla,
   syncNumeric: t.syncNumeric,
-  insertOnly: t.insertOnly
+  insertOnly: t.insertOnly,
+  puestoScoped: (t as { puestoScoped?: boolean }).puestoScoped === true
 }))

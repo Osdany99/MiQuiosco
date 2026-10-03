@@ -211,6 +211,59 @@ describe('cabeceras de seguridad', () => {
     )
   })
 
+  it('S7: el CORS abierto es seguro porque la auth es solo Bearer (sin cookies)', async () => {
+    // Decision documentada: NO se restringe el origen porque la app Capacitor
+    // (https://localhost) y el dev web lo necesitan. El CORS abierto solo es
+    // peligroso con auth por cookies (CSRF); aqui el unico credential es el
+    // header Authorization, que un sitio malicioso no puede leer ni enviar por
+    // la victima. Estos tests fijan el invariante: si algun dia se introduce
+    // auth por cookie, hay que restringir el CORS.
+    const r = await raw('GET', '/api/usuarios', {
+      token,
+      headers: { origin: 'https://sitio-maligno.example' }
+    })
+    assert.equal(r.status, 200)
+    assert.equal(r.headers['access-control-allow-origin'], '*')
+
+    // Sin Bearer no hay acceso aunque se envien cookies.
+    const conCookies = await raw('GET', '/api/usuarios', {
+      headers: { cookie: 'sesion=falsa', origin: 'https://sitio-maligno.example' }
+    })
+    assert.equal(conCookies.status, 401)
+
+    // El servidor nunca crea sesion por cookie.
+    assert.equal(r.headers['set-cookie'], undefined)
+    const loginOk = await raw('POST', '/api/auth/login', {
+      body: { nombre_usuario: 'jefe', pin: '1234' },
+      headers: { 'x-forwarded-for': '10.99.240.1' }
+    })
+    assert.equal(loginOk.status, 200)
+    assert.equal(loginOk.headers['set-cookie'], undefined)
+  })
+
+  it('S8: /api/health es publico pero no filtra nada sensible', async () => {
+    const r = await raw('GET', '/api/health')
+    assert.equal(r.status, 200)
+    // Solo estas dos claves. Si aparece cualquier otra (version de BD, uptime,
+    // rutas...), este test avisa para re-evaluar si /health puede seguir
+    // publico (lo usa el boton "Probar conexion" de Ajustes sin sesion).
+    assert.deepEqual(Object.keys(r.body).sort(), ['status', 'timestamp'])
+    assert.equal(r.body.status, 'ok')
+  })
+
+  it('S9: el logout de un usuario no afecta al resto (blacklist por token)', async () => {
+    // Limitacion documentada (auth.ts: tokenBlacklist en memoria, muere con el
+    // proceso: un token deslogueado revive si el server reinicia dentro de su
+    // ventana de 24h). Lo que SI se garantiza: la revocacion es por token.
+    const { token: t1 } = await crearJefe(nombreUnico('logout_a'), '1234')
+    const { token: t2 } = await crearJefe(nombreUnico('logout_b'), '1234')
+    await raw('POST', '/api/auth/logout', { token: t1 })
+    const r1 = await raw('GET', '/api/usuarios', { token: t1 })
+    const r2 = await raw('GET', '/api/usuarios', { token: t2 })
+    assert.equal(r1.status, 401, 'el token deslogueado queda invalido')
+    assert.equal(r2.status, 200, 'el otro token sigue valido')
+  })
+
   it('/api/health es publico (lo usa el boton "Probar conexion" de Ajustes)', async () => {
     const r = await raw('GET', '/api/health')
     assert.equal(r.status, 200)

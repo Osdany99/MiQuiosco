@@ -1,12 +1,17 @@
 import { eq, and, ne } from 'drizzle-orm'
 import { crudRemove } from '../../utils/crud'
 import { requireRole } from '../../utils/auth'
+import { exigirPuesto } from '../../utils/puesto'
 import { db } from '../../database/client'
 import { usuarios } from '../../database/schema'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const id = event.context.params!.id as string
+
+  // Primero el puesto: la guarda del ultimo jefe cuenta jefes GLOBALES, asi que
+  // sin este 404 previo revelaria si un id ajeno es jefe.
+  await exigirPuesto(auth, 'usuarios', id, 'Usuario')
 
   // Guard: no borrar al último jefe activo
   const [target] = await db.select({ rol: usuarios.rol }).from(usuarios).where(eq(usuarios.id, id)).limit(1)
@@ -17,5 +22,5 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  return await crudRemove({ tabla: 'usuarios', label: 'Usuario', id })
+  return await crudRemove({ tabla: 'usuarios', label: 'Usuario', id, auth })
 })

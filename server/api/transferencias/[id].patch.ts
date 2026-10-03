@@ -2,11 +2,12 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { transferencias, transferenciaItems, cuadres, productos } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { exigirPuesto } from '../../utils/puesto'
 import { validarTopeCuadre } from '../../utils/fiadoTope'
 import { updateTransferenciaSchema } from '#shared/schemas/updateTransferencia'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const id = event.context.params?.id
   if (!id) throw createError({ statusCode: 400, statusMessage: 'ID requerido.' })
 
@@ -17,15 +18,8 @@ export default defineEventHandler(async (event) => {
   }
   const { items } = parsed.data
 
-  const [transferencia] = await db
-    .select()
-    .from(transferencias)
-    .where(eq(transferencias.id, id))
-    .limit(1)
-
-  if (!transferencia) {
-    throw createError({ statusCode: 404, statusMessage: 'Transferencia no encontrada.' })
-  }
+  // 404 si no existe O si es de otro puesto (misma respuesta).
+  const transferencia = await exigirPuesto(auth, 'transferencias', id, 'Transferencia')
 
   // Precios congelados: los productos que siguen conservan su precio original;
   // los nuevos toman el precio de venta actual.
