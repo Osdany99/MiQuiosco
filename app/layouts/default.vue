@@ -103,6 +103,11 @@ const links = computed(() => {
         label: 'Gráficas',
         icon: 'i-lucide-bar-chart-2',
         to: '/graficas'
+      },
+      {
+        label: 'SMS de recarga',
+        icon: 'i-lucide-message-square-text',
+        to: '/recargas/sms'
       }
     )
   } else if (auth.esTrabajador.value) {

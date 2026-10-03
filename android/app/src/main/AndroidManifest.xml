@@ -33,6 +33,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Receptor de SMS del modulo de Recargas.
+             Declarado en el manifest y no en runtime a proposito: asi el
+             sistema despierta la app aunque este en background o su proceso
+             haya sido matado (HyperOS lo hace a menudo). La prioridad alta hace
+             que reciba el SMS antes que la app de mensajeria por defecto, que
+             es la que pinta las notificaciones.
+             android:permission=BROADCAST_SMS (que solo posee el sistema)
+             impide que otra app inyecte un SMS falso. -->
+        <receiver
+            android:name=".SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->
@@ -44,4 +61,14 @@
          el usuario conceda "Instalar apps desconocidas". Requerido desde la API 26
          para lanzar el instalador; targetSdkVersion es 36. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Modulo de Recargas Etecsa/Transfermovil.
+         RECEIVE_SMS: SmsReceiver intercepta la confirmacion de cada recarga
+         aunque el proceso de la app este muerto.
+         READ_SMS: solo para el barrido del buzon, la red de seguridad para
+         cuando el broadcast no llego a dispararse.
+         Ambos son "dangerous": se piden en runtime la primera vez. -->
+
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
 </manifest>
