@@ -1,34 +1,33 @@
 /**
- * useSmsEtecsa - Estado compartido del subsistema de SMS de Etecsa.
+ * useSmsEtecsa - Estado compartido del subsistema de captura de SMS.
  *
- * Responsabilidad: mantener una sola copia de "qué SMS han llegado" para toda
- * la app, y avisar a quien quiera escucharlo. El parseo y el registro de
- * recargas (Fase 1) se enganchan aquí después; por ahora esta capa solo mueve
- * los mensajes crudos desde el plugin nativo.
+ * Responsabilidad: mover los mensajes desde la cola nativa al dominio. Ya no
+ * guarda una lista propia en memoria —la bandeja vive en `sms_etecsa`— porque
+ * una lista de sesión se pierde al reiniciar el WebView y hacía creer que no
+ * había recargas pendientes.
  *
  * El estado es a scope de módulo (fuera de la función) por el mismo motivo que
- * en useAppUpdate: varias pantallas y composables llaman a useSmsEtcsa() y con
- * refs propias cada una vería una cola distinta.
+ * en useAppUpdate: varias pantallas llaman a useSmsEtecsa() y con refs propias
+ * cada una vería una cola distinta.
  */
 import { App } from '@capacitor/app'
+import { useRecargas } from './useRecargas'
 import {
   smsEstado,
   smsLeerPendientes,
   smsVerPendientes,
   smsBarrerBuzon,
   smsLimpiar,
-  smsSetRemitentes,
   smsPedirPermisos,
   smsPedirPermisoNotificaciones,
   smsAbrirAjustesPermisos
 } from '../utils/sms'
 
-const mensajes = ref([])
 /**
- * Estado del subsistema de SMS. Es un ref con un objeto plano y NO un
- * readonly: readonly() devuelve un proxy reactivo que Vue no sabe serializar,
- * y las pantallas que lo usan en listas loogy "Cannot serialize HTMLDivElement"
- * al renderizar. Quien lo consume lo lee por `.value` y ya.
+ * Estado del subsistema. Es un ref con un objeto plano y NO un readonly:
+ * readonly() devuelve un proxy reactivo que Vue no sabe serializar, y las
+ * pantallas que lo usan en listas fallan al renderizar. Quien lo consume lo
+ * lee por `.value`.
  */
 const estado = ref({
   disponible: false,
@@ -45,60 +44,54 @@ let _resumeHook = null
 
 export function useSmsEtecsa() {
   /**
-   * Lee la cola del plugin y la acumula en `mensajes`.
+   * Lee la cola del plugin y pasa lo que haya al dominio (parseo → bandeja).
+   * Idempotente: el hash único de `sms_etecsa` hace que reprocesar los mismos
+   * mensajes no duplique nada, así que se puede llamar en cada mount/resume.
+   *
    * @param {object} [opts]
    * @param {boolean} [opts.drenar=true] si es false solo mira sin vaciar.
+   * @returns {Promise<{pendientes:number, descartadas:number, duplicadas:number, omitidas:number}>}
    */
   async function cargar({ drenar = true } = {}) {
     cargando.value = true
     try {
-      const st = await smsEstado()
-      estado.value = st
-      if (!st.disponible) return []
+      estado.value = await smsEstado()
+      if (!estado.value.disponible) return null
 
-      const res = drenar
-        ? await smsLeerPendientes()
-        : await smsVerPendientes()
-
-      if (res.mensajes?.length) {
-        // Drenar vacía la cola, pero la app puede haber leído los mismos
-        // mensajes en otro momento (p.ej. tras un reinicio del WebView sin
-        // reinicio de proceso). El hash evita duplicarlos en la vista.
-        const vistos = new Set(mensajes.value.map(m => m.hash).filter(Boolean))
-        const nuevos = res.mensajes.filter(m => !m.hash || !vistos.has(m.hash))
-        mensajes.value = [...nuevos, ...mensajes.value]
+      const res = drenar ? await smsLeerPendientes() : await smsVerPendientes()
+      if (!res.mensajes?.length) {
+        await refrescarEstado()
+        return null
       }
-      return res.mensajes || []
+
+      const { stats } = await useRecargas().procesarLote(res.mensajes)
+      await refrescarEstado()
+      return stats
     } finally {
       cargando.value = false
     }
   }
 
-  /** Recarga permisos/tamaño de cola sin tocar la lista mostrada. */
+  /** Recarga permisos/tamaño de cola sin tocar la bandeja. */
   async function refrescarEstado() {
     estado.value = await smsEstado()
     return estado.value
   }
 
   /**
-   * Fusiona mensajes en la vista evitando duplicados por hash. El barrido del
-   * buzón ya los dejó en la cola nativa, así que el `cargar()` posterior los
-   * filtra como vistos: aquí solo se etiquetan con su origen real.
-   */
-  function fusionar(lista) {
-    if (!lista?.length) return
-    const vistos = new Set(mensajes.value.map(m => m.hash).filter(Boolean))
-    const nuevos = lista.filter(m => !m.hash || !vistos.has(m.hash))
-    if (nuevos.length) mensajes.value = [...nuevos, ...mensajes.value]
-  }
-
-  /**
    * Capa 3: barre el buzón del sistema. Complementa al BroadcastReceiver para
-   * el caso en que este no se ejecutó. `desde` en milisegundos.
+   * el caso en que este no se ejecutó (app force-stopped, o un fabricante que
+   * bloquea la recepción en background).
+   *
+   * Lo que ya está en el historial no vuelve a proponerlo: el dominio
+   * descarta por ID de transacción.
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.desde=0] marca de tiempo en milisegundos.
    */
   async function barrer({ desde = 0 } = {}) {
     const res = await smsBarrerBuzon({ desde })
-    if (res.permisoRequerido) return { mensajes: [], permisoRequerido: true }
+    if (res.permisoRequerido || res.permisoFalta) return { mensajes: [], permisoRequerido: true }
     return { mensajes: res.mensajes || [], permisoRequerido: false }
   }
 
@@ -113,40 +106,28 @@ export function useSmsEtecsa() {
     return res
   }
 
-  /**
-   * Abre Ajustes. Por defecto va a la pantalla de "ajustes restringidos", que es
-   * el candado real sobre el permiso de SMS en apps sideloaded.
-   */
-  function abrirAjustesPermisos(opcion = 'restringidos') {
-    return smsAbrirAjustesPermisos(opcion)
-  }
-
   /** Pide POST_NOTIFICATIONS (solo relevante desde Android 13). */
   async function pedirPermisoNotificaciones() {
     return smsPedirPermisoNotificaciones()
   }
 
-  async function guardarRemitentes(lista) {
-    const ok = await smsSetRemitentes(lista)
-    await refrescarEstado()
-    return ok
+  /**
+   * Abre Ajustes. Por defecto va a "ajustes restringidos", que es el candado
+   * real sobre los permisos sensibles de una app sideloaded.
+   */
+  function abrirAjustesPermisos(opcion = 'restringidos') {
+    return smsAbrirAjustesPermisos(opcion)
   }
 
+  /** Vacía la cola nativa. La bandeja ya guardada no se toca. */
   async function limpiarCola() {
     await smsLimpiar()
-    mensajes.value = []
     await refrescarEstado()
-  }
-
-  function reiniciar() {
-    mensajes.value = []
-    estado.value = { ...estado.value, pendientes: 0 }
   }
 
   /**
-   * Registra un hook único que recarga al volver a primer plano. Es el momento
-   * clave: si el proceso estuvo muerto, la cola nativa tiene lo que se perdió
-   * mientras tanto.
+   * Recarga al volver a primer plano. Es el momento clave: si el proceso
+   * estuvo muerto, la cola nativa tiene lo que se perdió mientras tanto.
    */
   function observarResume() {
     if (_resumeHook) return () => {}
@@ -161,19 +142,15 @@ export function useSmsEtecsa() {
   }
 
   return {
-    mensajes,
     estado,
     cargando,
     cargar,
     refrescarEstado,
-    fusionar,
     barrer,
     pedirPermiso,
     pedirPermisoNotificaciones,
     abrirAjustesPermisos,
-    guardarRemitentes,
     limpiarCola,
-    reiniciar,
     observarResume
   }
 }

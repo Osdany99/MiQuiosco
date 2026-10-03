@@ -1,7 +1,6 @@
 package com.miquiosco.app;
 
 import android.Manifest;
-import android.app.AppOpsManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -12,6 +11,7 @@ import android.os.Build;
 import android.provider.Settings;
 import android.provider.Telephony;
 
+import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
@@ -388,6 +388,65 @@ public class SmsReaderPlugin extends Plugin {
     }
 
     /**
+     * Muestra una notificación local (p.ej. "recarga registrada sin asignar").
+     * Sin dependencias nuevas: NotificationCompat viene con androidx.core, que
+     * ya usa el plugin. Si el usuario silenció las notificaciones del sistema,
+     * se resuelve ok=false y el JS no insiste.
+     */
+    @PluginMethod
+    public void notificar(PluginCall call) {
+        try {
+            if (!notificacionesOk()) {
+                JSObject r = new JSObject();
+                r.put("mostrada", false);
+                JSObject res = new JSObject();
+                res.put("ok", false);
+                res.put("data", r);
+                call.resolve(res);
+                return;
+            }
+            String titulo = call.getString("titulo", "Recarga Etecsa");
+            String cuerpo = call.getString("cuerpo", "");
+            Context ctx = getContext();
+
+            String canal = "recargas";
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                    canal, "Recargas", android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                android.app.NotificationManager nm = ctx.getSystemService(android.app.NotificationManager.class);
+                if (nm != null) nm.createNotificationChannel(ch);
+            }
+
+            Intent abrir = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            android.app.PendingIntent pi = null;
+            if (abrir != null) {
+                int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= android.app.PendingIntent.FLAG_IMMUTABLE;
+                pi = android.app.PendingIntent.getActivity(ctx, 0, abrir, flags);
+            }
+            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, canal)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(titulo)
+                .setContentText(cuerpo)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(cuerpo))
+                .setAutoCancel(true);
+            if (pi != null) b.setContentIntent(pi);
+
+            int nid = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+            NotificationManagerCompat.from(ctx).notify(nid, b.build());
+
+            JSObject r = new JSObject();
+            r.put("mostrada", true);
+            JSObject res = new JSObject();
+            res.put("ok", true);
+            res.put("data", r);
+            call.resolve(res);
+        } catch (Exception ex) {
+            call.reject("No se pudo mostrar la notificación: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
      * ¿Siguen restringidos los permisos de esta app?
      *
      * Android considera "sideloaded" a cualquier app que no venga de Google
@@ -410,20 +469,7 @@ public class SmsReaderPlugin extends Plugin {
     }
 
     private boolean estaRestringido() {
-        try {
-            AppOpsManager ops = (AppOpsManager) getContext().getSystemService(Context.APP_OPS_SERVICE);
-            if (ops == null) return false;
-            int mode = ops.unsafeCheckOpNoThrow(
-                "android:access_restricted_settings",
-                android.os.Process.myUid(),
-                getContext().getPackageName()
-            );
-            // Una app normal cae en MODE_DEFAULT; el candado se levanta cuando
-            // el usuario activa "Permitir ajustes restringidos" y pasa a ALLOWED.
-            return mode != AppOpsManager.MODE_ALLOWED;
-        } catch (Exception e) {
-            return false;
-        }
+        return Restricciones.estaRestringido(getContext());
     }
 
     /**

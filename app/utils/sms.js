@@ -156,6 +156,21 @@ export async function smsPedirPermisoNotificaciones() {
 }
 
 /**
+ * Muestra una notificación local del sistema (p.ej. recarga sin asignar).
+ * No hace nada en web. Si el usuario silenció las notificaciones, el plugin
+ * responde mostrada=false y no se insiste.
+ */
+export async function smsNotificar({ titulo, cuerpo }) {
+  if (!esNativo()) return { mostrada: false }
+  try {
+    const d = plano(await SmsReader.notificar({ titulo, cuerpo }))
+    return { mostrada: !!d.mostrada }
+  } catch {
+    return { mostrada: false }
+  }
+}
+
+/**
  * Abre Ajustes para destrabar los permisos restringidos.
  *
  * Contexto importante: Android marca como *restringidos* los permisos sensibles

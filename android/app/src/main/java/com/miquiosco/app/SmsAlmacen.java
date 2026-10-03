@@ -35,13 +35,14 @@ public final class SmsAlmacen {
     private static final int MAX = 200;
 
     /**
-     * Remitentes aceptados por defecto. Verificado contra el buzón real del
-     * dispositivo: `PAGOxMOVIL` es un alphanumeric sender ID (Banco
-     * Metropolitano) y `+5353138610` es Monedero Mi Transfer.
+     * Remitentes aceptados por defecto.
      *
-     * Se guardan ya normalizados (mayúsculas) porque se comparan así.
+     * Solo `PAGOxMOVIL` (Banco Metropolitano): es el alphanumeric sender ID
+     * que manda las confirmaciones de recarga. Se descartó `+5353138610`
+     * (Monedero Mi Transfer) por decisión del usuario, así que sus SMS ya no
+     * entran ni en vivo ni por barrido.
      */
-    private static final String[] POR_DEFECTO = { "PAGOXMOVIL", "+5353138610" };
+    private static final String[] POR_DEFECTO = { "PAGOXMOVIL" };
 
     private SmsAlmacen() {
     }
