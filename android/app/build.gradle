@@ -36,6 +36,15 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Solo arm64. El APK pesa 10 MB menos porque NO se empaquetan las
+            // copias x86 y x86_64 de libsqlcipher.so, que solo necesita un
+            // emulador. Va en release y no en defaultConfig a propósito: el
+            // debug conserva las cuatro arquitecturas para poder probar en el
+            // emulador, que es x86. Si algún día un teléfono de 32 bits no
+            // instala la app, se agrega 'armeabi-v7a' acá y se vuelve a subir.
+            ndk {
+                abiFilters 'arm64-v8a'
+            }
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
