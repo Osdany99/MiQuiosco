@@ -1,6 +1,10 @@
 name: ci
 
-on: push
+# `push` cubre la rama principal y las de trabajo. `pull_request` hace que el
+# rojo se vea ANTES de mergear, no despues.
+on:
+  push:
+  pull_request:
 
 jobs:
   ci:
@@ -32,6 +36,12 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      # Los tests unitarios (inventario/FIFO, topes de fiado, merge de sync,
+      # journal SQLite, parser de SMS) solo se ejecutaban a mano. Si el push
+      # rompe uno, el rojo tiene que verse aqui y no en el proximo release.
+      - name: Tests
+        run: pnpm run test
 
       # Misma verificación que usa el job migrate-db del release: si se editó
       # un schema sin generar su migración, se ve en el push y no al etiquetar.

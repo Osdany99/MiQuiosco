@@ -58,6 +58,18 @@ jobs:
       - name: Verificar que las migraciones estén commiteadas
         uses: ./.github/actions/check-migraciones
 
+      # Gate antes de tocar producción: si los tests o el typecheck fallan, el
+      # release se aborta aquí y Neon no se migra. Publicar con el árbol en rojo
+      # es justo lo que el workflow debe impedir.
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Tests
+        run: pnpm run test
+
       - name: Migrar producción
         shell: bash
         env:
