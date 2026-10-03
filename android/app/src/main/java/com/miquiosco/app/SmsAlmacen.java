@@ -104,7 +104,13 @@ public final class SmsAlmacen {
 
     // ---------------------------------------------------------------- cola
 
-    public static void encolar(Context ctx, String remitente, String cuerpo, long recibidoEn) {
+    /**
+     * Encola un SMS y devuelve su hash. El hash se devuelve siempre, incluso si
+     * el mensaje ya estaba en cola: el barrido del buzón lo necesita para que
+     * el JS pueda deduplicar lo que muestra, y la cola nativa ya filtra el
+     * duplicado por su cuenta.
+     */
+    public static String encolar(Context ctx, String remitente, String cuerpo, long recibidoEn) {
         SharedPreferences p = prefs(ctx);
         JSONArray cola = leerCola(p);
         String hash = hash(remitente, cuerpo, recibidoEn);
@@ -113,7 +119,7 @@ public final class SmsAlmacen {
         // sistema, o varias ranuras SIM). Comparamos contra lo que ya está en cola.
         for (int i = 0; i < cola.length(); i++) {
             JSONObject o = cola.optJSONObject(i);
-            if (o != null && hash.equals(o.optString("hash"))) return;
+            if (o != null && hash.equals(o.optString("hash"))) return hash;
         }
 
         JSONObject item = new JSONObject();
@@ -125,11 +131,12 @@ public final class SmsAlmacen {
             item.put("encoladoEn", System.currentTimeMillis());
             cola.put(item);
         } catch (Exception e) {
-            return; // mejor perder el item que romper la recepción
+            return hash; // mejor perder el item que romper la recepción
         }
 
         while (cola.length() > MAX) cola.remove(0);
         p.edit().putString(K_COLA, cola.toString()).apply();
+        return hash;
     }
 
     /** Vacía y devuelve la cola. */

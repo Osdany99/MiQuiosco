@@ -61,6 +61,10 @@ async function barrer() {
         color: 'info'
       })
     }
+    // Los del barrido se etiquetan con su origen antes de drenar: el nativo ya
+    // los dejó en la cola, así que cargar() los vería como "cola" y los
+    // filtraría por hash. fusionar() los pone primero con origen "buzon".
+    sms.fusionar(res.mensajes)
     await sms.cargar()
     ultimoBarrido.value = Date.now()
   } finally {
@@ -142,16 +146,6 @@ onUnmounted(() => {
         @click="recargar"
       />
     </template>
-
-    <UAlert
-      v-if="!sms.estado.value.disponible"
-      color="warning"
-      variant="soft"
-      icon="i-lucide-info"
-      title="Solo funciona en la app Android"
-      description="Esta pantalla verifica el plugin nativo de captura de SMS. En web no hay nada que diagnosticar."
-      class="mb-4"
-    />
 
     <!-- Aviso solo si falta algo. Una vez concedido, esta pantalla queda limpia:
          el módulo ya funciona y la investigación vive en Configuración. -->
@@ -345,7 +339,7 @@ onUnmounted(() => {
         >
           <li
             v-for="m in sms.mensajes.value"
-            :key="m.clave"
+            :key="m.hash"
             class="py-3"
           >
             <div class="flex items-start justify-between gap-3 mb-1">

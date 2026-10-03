@@ -81,6 +81,18 @@ export function useSmsEtecsa() {
   }
 
   /**
+   * Fusiona mensajes en la vista evitando duplicados por hash. El barrido del
+   * buzón ya los dejó en la cola nativa, así que el `cargar()` posterior los
+   * filtra como vistos: aquí solo se etiquetan con su origen real.
+   */
+  function fusionar(lista) {
+    if (!lista?.length) return
+    const vistos = new Set(mensajes.value.map(m => m.hash).filter(Boolean))
+    const nuevos = lista.filter(m => !m.hash || !vistos.has(m.hash))
+    if (nuevos.length) mensajes.value = [...nuevos, ...mensajes.value]
+  }
+
+  /**
    * Capa 3: barre el buzón del sistema. Complementa al BroadcastReceiver para
    * el caso en que este no se ejecutó. `desde` en milisegundos.
    */
@@ -154,6 +166,7 @@ export function useSmsEtecsa() {
     cargando,
     cargar,
     refrescarEstado,
+    fusionar,
     barrer,
     pedirPermiso,
     pedirPermisoNotificaciones,

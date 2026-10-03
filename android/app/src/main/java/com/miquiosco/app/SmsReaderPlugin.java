@@ -131,6 +131,9 @@ public class SmsReaderPlugin extends Plugin {
             m.put("remitente", o.optString("remitente"));
             m.put("cuerpo", o.optString("cuerpo"));
             m.put("recibidoEn", o.optLong("recibidoEn"));
+            // La pantalla de diagnóstico lo muestra como badge: sin esto los
+            // mensajes que llegaron en vivo saldr��an sin etiqueta.
+            m.put("origen", "cola");
             mensajes.put(m);
         }
         JSObject r = new JSObject();
@@ -154,6 +157,7 @@ public class SmsReaderPlugin extends Plugin {
             m.put("remitente", o.optString("remitente"));
             m.put("cuerpo", o.optString("cuerpo"));
             m.put("recibidoEn", o.optLong("recibidoEn"));
+            m.put("origen", "cola");
             mensajes.put(m);
         }
         JSObject r = new JSObject();
@@ -294,8 +298,11 @@ public class SmsReaderPlugin extends Plugin {
                 condiciones.add("address LIKE ?");
                 args.add("%" + d + "%");
             } else {
-                condiciones.add("address = ?");
-                args.add(a);
+                // `a` viene normalizado a mayúsculas pero la dirección real del
+                // SMS es `PAGOxMOVIL` (mixta): `=` es sensible a mayúsculas en
+                // SQLite y no matcheaba nada. UPPER() en ambos lados sí.
+                condiciones.add("UPPER(address) = ?");
+                args.add(a.toUpperCase(java.util.Locale.ROOT));
             }
         }
         String where = "(" + String.join(" OR ", condiciones) + ")";
@@ -323,8 +330,9 @@ public class SmsReaderPlugin extends Plugin {
                 // exactamente el configurado; se revalida aquí.
                 if (!SmsAlmacen.remitenteAceptado(addr, aceptados)) continue;
 
-                SmsAlmacen.encolar(ctx, addr, body, date);
+                String h = SmsAlmacen.encolar(ctx, addr, body, date);
                 JSONObject o = new JSONObject();
+                o.put("hash", h);
                 o.put("remitente", addr);
                 o.put("cuerpo", body);
                 o.put("recibidoEn", date);
