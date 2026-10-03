@@ -94,18 +94,53 @@ class InMemoryDb {
   }
 }
 
+/**
+ * Abre la conexión sqlite en Android, tolerando que ya exista del lado nativo.
+ *
+ * POR QUÉ HACE FALTA ESTA CAPA
+ * Recargar por completo la WebView reinicia este módulo (y con él las variables
+ * de arriba), pero el plugin nativo conserva su registro de conexiones, porque
+ * ese estado vive en el lado Java y sobrevive a la recarga. Entonces el
+ * contexto nuevo llama createConnection y el plugin responde "Connection
+ * already exists".
+ *
+ * Antes de arreglarlo, ese fallo además envenenaba dbConnectionPromise para
+ * siempre: una sola recarga dejaba TODAS las lecturas offline siguientes
+ * devolviendo vacío, y el jefe veía la app sin datos (cuadres en cero, gráficas
+ * vacías) sin ninguna pista de por qué.
+ *
+ * No se pregunta si existe: isConnection() no está implementado en Android
+ * (comprobado en el plugin 8.1.0). Se cierra sin preguntar, que es idempotente
+ * y barato: cuando no hay nada que cerrar, no hace nada.
+ */
+async function abrirConexionNativa() {
+  const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
+  const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
+
+  await sqliteConnection.closeConnection(DB_NAME, false).catch(() => {})
+
+  const conn = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+  await conn.open()
+  await initializeSchema(conn)
+  await sembrarJefeLocal(conn)
+  return conn
+}
+
 async function getConnection() {
   if (Capacitor.isNativePlatform()) {
     if (!dbConnection) {
       if (!dbConnectionPromise) {
-        dbConnectionPromise = (async () => {
-          const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
-          const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
-          dbConnection = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-          await dbConnection.open()
-          await initializeSchema(dbConnection)
-          await sembrarJefeLocal(dbConnection)
-        })()
+        dbConnectionPromise = abrirConexionNativa()
+          .then((conn) => {
+            dbConnection = conn
+            return conn
+          })
+          .catch((error) => {
+            // Sin esta línea la promesa queda envenenada y un único fallo deja
+            // la app sin base por el resto de la vida de la página.
+            dbConnectionPromise = null
+            throw error
+          })
       }
       await dbConnectionPromise
     }
@@ -118,7 +153,10 @@ async function getConnection() {
         inMemoryDb = new InMemoryDb()
         initializeSchemaMemory(inMemoryDb)
         await sembrarJefeLocal(inMemoryDb)
-      })()
+      })().catch((error) => {
+        inMemoryDbPromise = null
+        throw error
+      })
     }
     await inMemoryDbPromise
   }
