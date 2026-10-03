@@ -94,12 +94,11 @@ export function useSmsEtecsa() {
   }
 
   /**
-   * Abre Ajustes en la pantalla de permisos de la app. Se expone para que la UI
-   * ofrezca una salida cuando el diálogo de permisos no sirve (ya denegado antes,
-   * o el aviso de HyperOS que responde solo).
+   * Abre Ajustes. Por defecto va a la pantalla de "ajustes restringidos", que es
+   * el candado real sobre el permiso de SMS en apps sideloaded.
    */
-  function abrirAjustesPermisos() {
-    return smsAbrirAjustesPermisos()
+  function abrirAjustesPermisos(opcion = 'restringidos') {
+    return smsAbrirAjustesPermisos(opcion)
   }
 
   /** Pide POST_NOTIFICATIONS (solo relevante desde Android 13). */

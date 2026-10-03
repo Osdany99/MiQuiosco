@@ -152,20 +152,44 @@ export async function smsPedirPermisoNotificaciones() {
 }
 
 /**
- * Abre Ajustes en la pantalla de permisos de esta app.
+ * Abre Ajustes para destrabar los permisos restringidos.
  *
- * Necesario porque SMS es un permiso de grupo: READ y RECEIVE se piden juntos y,
- * una vez denegados, Android no vuelve a mostrar el diálogo. HyperOS además
- * puede responder denegado con un aviso sin mostrar nunca los botones. En ambos
- * casos Ajustes es la única vía, así que la UI debe ofrecerla explícitamente en
- * lugar de un toast que no dice cómo arreglarlo.
+ * Contexto importante: Android marca como *restringidos* los permisos sensibles
+ * de apps instaladas fuera de Google Play. Mientras la app sea sideloaded, el
+ * interruptor de SMS sale bloqueado con "A la app se le negó el acceso a SMS" y
+ * no hay forma de activarlo desde la pantalla de permisos: hay que habilitar
+ * antes "Permitir ajustes restringidos" en Ajustes → Apps → la app → ⋮.
+ *
+ * @param {'restringidos'|'permisos'} [opcion='restringidos']
+ *   'restringidos' lleva directo a esa pantalla; 'permisos' a la de la app.
  */
-export async function smsAbrirAjustesPermisos() {
+export async function smsAbrirAjustesPermisos(opcion = 'restringidos') {
   if (!esNativo()) return false
   try {
-    await SmsReader.abrirAjustesPermisos()
+    await SmsReader.abrirAjustesPermisos({ opcion })
     return true
   } catch {
+    return false
+  }
+}
+
+/**
+ * ¿Siguen restringidos los permisos de esta app?
+ *
+ * Android llama "sideloaded" a toda app que no venga de Google Play y le
+ * bloquea los permisos sensibles tras un candado en Ajustes. Con el candado
+ * puesto, el permiso de SMS sale gris y el diálogo del sistema no concede
+ * nada. Por eso el onboarding tiene dos pasos: desbloquear, y solo después
+ * pedir el permiso.
+ */
+export async function smsEstaRestringido() {
+  if (!esNativo()) return false
+  try {
+    const d = plano(await SmsReader.estaRestringido())
+    return !!d.restringido
+  } catch {
+    // Si no se puede consultar, asumir que NO lo está evita bloquear al
+    // usuario con un paso que igual ya dio.
     return false
   }
 }

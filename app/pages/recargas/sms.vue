@@ -153,41 +153,53 @@ onUnmounted(() => {
       class="mb-4"
     />
 
+    <!-- Aviso solo si falta algo. Una vez concedido, esta pantalla queda limpia:
+         el módulo ya funciona y la investigación vive en Configuración. -->
     <UAlert
-      v-else-if="!sms.estado.value.permisoRecibir"
-      color="error"
+      v-if="!sms.estado.value.disponible"
+      color="warning"
+      variant="soft"
+      icon="i-lucide-info"
+      title="Solo funciona en la app Android"
+      description="Esta pantalla verifica el plugin nativo de captura de SMS. En web no hay nada que diagnosticar."
+      class="mb-4"
+    />
+
+    <UAlert
+      v-else-if="sms.estado.value.permisoRecibir"
+      color="success"
+      variant="soft"
+      icon="i-lucide-shield-check"
+      title="Captura funcionando"
+      description="La app recibe las confirmaciones de recarga aunque esté cerrada en segundo plano."
+      class="mb-4"
+    />
+
+    <UAlert
+      v-else
+      color="warning"
       variant="soft"
       icon="i-lucide-shield-alert"
       title="Falta el permiso de SMS"
-      description="Sin este permiso Android no entrega los SMS a la app y no se registrará ninguna recarga."
+      description="Mientras no esté concedido no se anotarán las recargas automáticamente."
       class="mb-4"
     >
       <template #actions>
         <UButton
           size="xs"
-          label="Conceder permiso"
-          @click="pedirPermiso"
+          icon="i-lucide-lock-open"
+          label="Desbloquear"
+          @click="sms.abrirAjustesPermisos('restringidos')"
         />
         <UButton
           size="xs"
           color="neutral"
           variant="outline"
-          icon="i-lucide-settings"
-          label="Abrir Ajustes"
-          @click="sms.abrirAjustesPermisos"
+          label="Conceder"
+          @click="pedirPermiso"
         />
       </template>
     </UAlert>
-
-    <UAlert
-      v-else
-      color="success"
-      variant="soft"
-      icon="i-lucide-shield-check"
-      title="Permiso de SMS concedido"
-      description="La app puede recibir las confirmaciones de recarga aunque esté cerrada en segundo plano."
-      class="mb-4"
-    />
 
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
       <UCard>
@@ -278,11 +290,18 @@ onUnmounted(() => {
             @click="pedirNotificaciones"
           />
           <UButton
+            icon="i-lucide-lock-open"
+            color="neutral"
+            variant="outline"
+            label="Ajustes restringidos"
+            @click="sms.abrirAjustesPermisos('restringidos')"
+          />
+          <UButton
             icon="i-lucide-settings"
             color="neutral"
             variant="outline"
-            label="Abrir Ajustes"
-            @click="sms.abrirAjustesPermisos"
+            label="Permisos de la app"
+            @click="sms.abrirAjustesPermisos('permisos')"
           />
         </div>
         <p

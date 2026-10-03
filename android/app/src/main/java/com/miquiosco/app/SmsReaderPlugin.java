@@ -1,6 +1,7 @@
 package com.miquiosco.app;
 
 import android.Manifest;
+import android.app.AppOpsManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -356,20 +357,75 @@ public class SmsReaderPlugin extends Plugin {
     }
 
     /**
-     * Abre Ajustes en la pantalla de permisos de esta app.
+     * ¿Siguen restringidos los permisos de esta app?
      *
-     * Necesario porque SMS es un permiso de grupo: READ y RECEIVE se piden
-     * juntos y, una vez denegados, Android no vuelve a mostrar el diálogo. Sumado
-     * al EnhancedConfirmationDialog de HyperOS, que puede responder denegado sin
-     * teachernos los botones, Ajustes acaba siendo la única vía que queda.
+     * Android considera "sideloaded" a cualquier app que no venga de Google
+     * Play y le bloquea los permisos sensibles tras un candado (Ajustes → Apps →
+     * app → ⋮ → "Permitir ajustes restringidos"). Mientras el candado siga
+     * puesto, el permiso de SMS aparece gris en Ajustes y el diálogo del
+     * sistema no concede nada, aunque el AppOp esté en allow.
+     *
+     * Por eso el onboarding tiene dos pasos reales y no uno: desbloquear
+     * primero, pedir el permiso después.
+     */
+    @PluginMethod
+    public void estaRestringido(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("restringido", estaRestringido());
+        JSObject res = new JSObject();
+        res.put("ok", true);
+        res.put("data", r);
+        call.resolve(res);
+    }
+
+    private boolean estaRestringido() {
+        try {
+            AppOpsManager ops = (AppOpsManager) getContext().getSystemService(Context.APP_OPS_SERVICE);
+            if (ops == null) return false;
+            int mode = ops.unsafeCheckOpNoThrow(
+                "android:access_restricted_settings",
+                android.os.Process.myUid(),
+                getContext().getPackageName()
+            );
+            // Una app normal cae en MODE_DEFAULT; el candado se levanta cuando
+            // el usuario activa "Permitir ajustes restringidos" y pasa a ALLOWED.
+            return mode != AppOpsManager.MODE_ALLOWED;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Abre Ajustes en la lista de "ajustes restringidos" de esta app.
+     *
+     * Contexto: Android marca como *restringidos* los permisos sensibles de apps
+     * instaladas fuera de Google Play (sideload). Mientras la app se considere
+     * sideloaded, el interruptor de SMS aparece bloqueado con el aviso "A la app
+     * se le negó el acceso a SMS" y no se puede activar: hay que habilitar antes
+     * "Permitir ajustes restringidos" en Ajustes → Apps → MiQuiosco → ⋮.
+     *
+     * Esta app se distribuye por APK directo, así que ese es siempre el caso y
+     * el diálogo del sistema nunca concede el permiso por sí solo. Por eso el
+     * paso tiene que ser explícito en el onboarding en vez de confiar en él.
+     *
+     * @param opcion "restringidos" (default) | "permisos"
      */
     @PluginMethod
     public void abrirAjustesPermisos(PluginCall call) {
         try {
-            Intent intent = new Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:" + getContext().getPackageName())
-            );
+            String opcion = call.getString("opcion", "restringidos");
+            Intent intent = "permisos".equals(opcion)
+                    ? new Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getContext().getPackageName()))
+                    : new Intent(
+                        // El string literal a proposito: la constante pública es
+                        // Settings.ACTION_MANAGE_APP_ALL_RESTRICTED_SETTINGS
+                        // (API 30+), pero minSdk de la app es 24 y compilar
+                        // contra ella no la resuelve. El valor es estable y
+                        // está en AOSP desde Android 11.
+                        "android.settings.RESTRICTED_SETTINGS",
+                        Uri.parse("package:" + getContext().getPackageName()));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getActivity().startActivity(intent);
             call.resolve();

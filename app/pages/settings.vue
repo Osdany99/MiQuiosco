@@ -6,6 +6,52 @@ const toast = useToast()
 const conexion = useModoConexion()
 const update = useAppUpdate()
 const auth = useAuth()
+const sms = useSmsEtecsa()
+
+// --- Permisos de recarga (solo Android) ---
+// El estado vive en useSmsEtecsa para no duplicar consultas al plugin; aquí solo
+// se reacciona y se ofrecen los accesos a Ajustes.
+const restringido = ref(false)
+
+const permisosListos = computed(() => {
+  const st = sms.estado.value
+  return st.disponible && st.permisoRecibir && !restringido.value
+})
+
+const listaPermisos = computed(() => {
+  const st = sms.estado.value
+  if (!st.disponible) return []
+  return [
+    {
+      clave: 'restringidos',
+      ok: !restringido.value,
+      texto: 'Ajustes restringidos desbloqueados',
+      accion: 'Desbloquear',
+      hacer: () => sms.abrirAjustesPermisos('restringidos')
+    },
+    {
+      clave: 'sms',
+      ok: !!st.permisoRecibir,
+      texto: 'Lectura de SMS',
+      accion: 'Conceder',
+      hacer: () => sms.pedirPermiso().then(recargarPermisos)
+    }
+  ]
+})
+
+async function recargarPermisos() {
+  await sms.refrescarEstado()
+  try {
+    const { smsEstaRestringido } = await import('../utils/sms')
+    restringido.value = await smsEstaRestringido()
+  } catch {
+    restringido.value = false
+  }
+}
+
+onMounted(() => {
+  if (esNativo.value) recargarPermisos()
+})
 
 // La URL del servidor y las actualizaciones in-app solo aplican en Android:
 // en web el navegador ya habla con su mismo origen.
@@ -376,6 +422,64 @@ async function whOlvidarEste() {
         >
           Descargar APK
         </UButton>
+      </div>
+    </UCard>
+
+    <!-- Permisos del módulo de Recargas. Aquí vive el aviso porque es donde
+         alguien va a mirar si quiere cambiar algo; la pantalla /recargas/sms
+         queda como diagnóstico técnico y no molesta una vez concedido. -->
+    <UCard v-if="esNativo">
+      <div class="space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-medium">
+            Permisos de recarga
+          </h2>
+          <UButton
+            icon="i-lucide-refresh-cw"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            aria-label="Actualizar estado"
+            @click="recargarPermisos"
+          />
+        </div>
+
+        <ul class="space-y-2">
+          <li
+            v-for="p in listaPermisos"
+            :key="p.clave"
+            class="flex items-center justify-between gap-3 text-sm"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <UIcon
+                :name="p.ok ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'"
+                class="size-4 shrink-0"
+                :class="p.ok ? 'text-success' : 'text-warning'"
+              />
+              <span :class="p.ok ? '' : 'font-medium'">{{ p.texto }}</span>
+            </div>
+            <UButton
+              v-if="!p.ok"
+              size="xs"
+              color="neutral"
+              variant="outline"
+              :label="p.accion"
+              @click="p.hacer()"
+            />
+          </li>
+        </ul>
+
+        <p
+          v-if="permisosListos"
+          class="text-xs text-muted"
+        >
+          Las recargas se anotan solas. En
+          <NuxtLink
+            to="/recargas/sms"
+            class="underline"
+          >SMS de recarga</NuxtLink>
+          puedes ver los mensajes tal cual llegan.
+        </p>
       </div>
     </UCard>
 
