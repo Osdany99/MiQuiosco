@@ -29,7 +29,9 @@ const option = computed(() => {
     ...(props.config.colors ? { color: props.config.colors } : {}),
     tooltip: {
       trigger: 'item',
-      formatter: p => `${p.marker} ${p.name}<br />${fmtNumero(p.value)} (${pct(p.percent)}%)`
+      // El total de la esquina es la magnitud (5.0K se lee de un vistazo); al
+      // pasar el cursor sí hace falta el número exacto.
+      formatter: p => `${p.marker} ${p.name}<br />${fmtNumeroExacto(p.value)} (${pct(p.percent)}%)`
     },
     legend: { bottom: 0, type: 'scroll' },
     title: {

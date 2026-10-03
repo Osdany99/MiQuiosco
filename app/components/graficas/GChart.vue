@@ -2,11 +2,22 @@
 import { computed } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart as EChartsBar, LineChart as EChartsLine, PieChart as EChartsPie } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
+import { BarChart as EChartsBar, LineChart as EChartsLine, PieChart as EChartsPie, HeatmapChart as EChartsHeatmap } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, TitleComponent, VisualMapComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 
-use([CanvasRenderer, EChartsBar, EChartsLine, EChartsPie, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
+use([
+  CanvasRenderer,
+  EChartsBar,
+  EChartsLine,
+  EChartsPie,
+  EChartsHeatmap,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  TitleComponent,
+  VisualMapComponent
+])
 
 defineProps({
   option: {

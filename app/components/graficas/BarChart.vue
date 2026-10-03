@@ -23,21 +23,34 @@ const option = computed(() => {
   const yKeys = props.config.yKeys || []
   const labels = props.config.labels || {}
   const horizontal = props.config.horizontal === true
+  // Apilado: para 누적ativos (capital por tramo de antigüedad, deuda por
+  // cliente). El valor de cada serie se lee dentro del segmento, no encima.
+  const stacked = props.config.stacked === true
+  const ocultarEtiquetas = props.config.ocultarEtiquetas === true
+  const coloresSerie = props.config.seriesColors || []
   const categorias = props.data.map(row => String(row[xKey] ?? ''))
 
-  const series = yKeys.map(key => ({
-    name: labels[key] || key,
-    type: 'bar',
-    data: props.data.map(row => Number(row[key]) || 0),
-    barMaxWidth: 56,
-    label: {
-      show: true,
-      position: horizontal ? 'right' : 'top',
-      formatter: p => fmtNumero(p.value),
-      fontSize: 11
-    },
-    itemStyle: { borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0] }
-  }))
+  const series = yKeys.map((key, i) => {
+    const color = Array.isArray(coloresSerie) ? coloresSerie[i] : coloresSerie
+    return {
+      name: labels[key] || key,
+      type: 'bar',
+      stack: stacked ? 'total' : undefined,
+      data: props.data.map(row => Number(row[key]) || 0),
+      barMaxWidth: 56,
+      label: {
+        show: !ocultarEtiquetas,
+        position: stacked ? 'inside' : (horizontal ? 'right' : 'top'),
+        formatter: p => fmtNumero(p.value),
+        fontSize: 11
+      },
+      itemStyle: {
+        color,
+        // Apiladas, las esquinas redondeadas se notarían en cada segmento.
+        borderRadius: stacked ? 0 : (horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0])
+      }
+    }
+  })
 
   const ejeCategorias = {
     type: 'category',
@@ -57,7 +70,9 @@ const option = computed(() => {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      valueFormatter: v => fmtNumero(v)
+      // Exacto en el tooltip, abreviado en el eje y en la etiqueta: en el
+      // tooltip la persona quiere el número, no su magnitud.
+      valueFormatter: v => fmtNumeroExacto(v)
     },
     legend: { show: yKeys.length > 1, top: 0 },
     grid: { left: 8, right: 16, top: yKeys.length > 1 ? 40 : 30, bottom: 0, containLabel: true },
