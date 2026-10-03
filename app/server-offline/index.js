@@ -152,6 +152,29 @@ const OFFLINE_CONFIGS = [
   {
     config: { tabla: 'historial_precios', defaults: {} },
     overrides: {}
+  },
+  // ------------------------------------------------------------ módulo recargas
+  {
+    config: { tabla: 'clientes', defaults: { activo: true }, puestoScoped: TABLES.clientes.puestoScoped },
+    overrides: { requireRole: 'jefe' }
+  },
+  {
+    config: { tabla: 'clientes_telefonos', defaults: { activo: true }, puestoScoped: TABLES.clientes_telefonos.puestoScoped },
+    overrides: { requireRole: 'jefe' }
+  },
+  {
+    config: { tabla: 'recargas', defaults: { estadoPago: 'pendiente', montoCobrado: 0, tipo: 'saldo' }, puestoScoped: TABLES.recargas.puestoScoped },
+    overrides: { requireRole: 'jefe' }
+  },
+  {
+    config: { tabla: 'cobros_recarga', defaults: {} },
+    overrides: { requireRole: 'jefe' }
+  },
+  // Bandeja de SMS: es local al teléfono (no se sincroniza) y por eso no lleva
+  // puestoScoped.
+  {
+    config: { tabla: 'sms_etecsa', defaults: { estado: 'pendiente' } },
+    overrides: { requireRole: 'jefe' }
   }
 ]
 
