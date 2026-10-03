@@ -189,7 +189,6 @@ export function useAuth() {
       // Llamamos directamente: procesarRespuestaLogin se invoca desde login() que está en setup context.
       if (import.meta.client) {
         try {
-          const { useSync } = await import('./useSync.js')
           const { pullServidor } = useSync()
           pullServidor({ silent: true }).catch(() => {})
         } catch {
