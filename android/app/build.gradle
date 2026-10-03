@@ -34,7 +34,17 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            // R8 solo en release. El debug se mantiene sin minificar para que el
+            // ciclo de desarrollo siga siendo rápido y con stack traces legibles.
+            //
+            // Antes de activarlo se probó también en debug, firmado igual que el
+            // de siempre, para instalar encima en un teléfono real sin perder la
+            // base: los 11 plugins se registran, checkBiometry responde,
+            // sqlite lee y escribe, y el login por huella descifra el PIN con
+            // Tink. Ese camino es el único que no se puede automatizar (hace
+            // falta el sensor), y es justo el que justificaba el -keep de Tink.
+            minifyEnabled true
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             // Solo arm64. El APK pesa 10 MB menos porque NO se empaquetan las
             // copias x86 y x86_64 de libsqlcipher.so, que solo necesita un
