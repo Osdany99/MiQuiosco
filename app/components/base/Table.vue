@@ -92,6 +92,8 @@
             :default-value="row.original[col.accessorKey]"
             :config="config"
             :table-ref="selfTableRef"
+            :field="col.accessorKey"
+            :cascade-off="col.cascadeOff ?? null"
           />
           <BaseBadgeTrueOrFalse
             v-else-if="col.cell === 'boolean'"

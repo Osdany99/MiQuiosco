@@ -294,13 +294,16 @@ async function confirmarNuevaDeuda() {
 
   if (form.directa) {
     // Fuera del cuadre: no toca el tope ni el corte del día, pero sí el stock.
-    await registrarDeudaDirecta({
+    const r = await registrarDeudaDirecta({
       clienteId: form.clienteId,
       ubicacion: form.ubicacion,
       lineas
     })
+    // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
+    if (!r?.ok) return
   } else {
-    await registrarNuevaDeuda({ ...form, cuadreId: props.cuadreId, puestoId: props.puestoId })
+    const r = await registrarNuevaDeuda({ ...form, cuadreId: props.cuadreId, puestoId: props.puestoId })
+    if (!r?.ok) return
   }
   nuevaDeudaOpen.value = false
   fiadoForm.value = FIADO_VACIO()
@@ -323,7 +326,8 @@ async function confirmarEdicion() {
       precioVentaUsado: Number(i.precioVentaUsado) || 0
     }))
   if (items.length === 0) return
-  await editarDeuda({ cuentaFiadoId: editarCuentaId.value, items, cuadreId: props.cuadreId })
+  const r = await editarDeuda({ cuentaFiadoId: editarCuentaId.value, items, cuadreId: props.cuadreId })
+  if (!r?.ok) return
   editarOpen.value = false
   emit('actualizado')
 }

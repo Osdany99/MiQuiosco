@@ -74,7 +74,7 @@ export function useTransferencias() {
       const topeMsg = await validarTopeLocal(cuadreId, items)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         await $api('/api/transferencias', {
@@ -103,8 +103,10 @@ export function useTransferencias() {
         await acumularTransferenciaEnCuadre(cuadreId, montoTotal)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
@@ -116,7 +118,7 @@ export function useTransferencias() {
       const topeMsg = await validarTopeLocal(cuadreId, items, transferenciaId)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         await $api(`/api/transferencias/${transferenciaId}`, {
@@ -174,8 +176,10 @@ export function useTransferencias() {
         if (delta !== 0) await acumularTransferenciaEnCuadre(cuadreId, delta)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }

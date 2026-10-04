@@ -29,7 +29,7 @@ const columns = [
   { accessorKey: 'orden', header: 'Orden', visible: false },
   { accessorKey: 'precioCompraActual', header: 'P. compra (auto)', cell: 'currency' },
   { accessorKey: 'precioVentaActual', header: 'Precio Venta', cell: 'currency' },
-  { accessorKey: 'activo', header: 'Estado', cell: 'activation' },
+  { accessorKey: 'activo', header: 'Estado', cell: 'activation', cascadeOff: 'activoQuiosco' },
   { accessorKey: 'activoQuiosco', header: 'Vende', cell: 'activation', labelTrue: 'sí', labelFalse: 'no' },
   { accessorKey: 'action', header: 'Acciones' }
 ]
@@ -37,6 +37,11 @@ const columns = [
 const tableRef = ref(null)
 const formRef = ref(null)
 const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, unidad: '', stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
+
+// Producto inactivo no se vende: al desmarcar Activo se desmarca Vende solo.
+watch(() => form.value.activo, (activo) => {
+  if (!activo) form.value.activoQuiosco = false
+})
 
 const showHistorial = ref(false)
 const historialProducto = ref(null)

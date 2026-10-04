@@ -199,52 +199,12 @@ onUnmounted(() => soltarResume?.())
   >
     <template #trailing>
       <UButton
-        icon="i-lucide-refresh-cw"
+        icon="i-lucide-bar-chart-2"
         variant="outline"
-        label="Recargar"
-        :loading="rec.cargando.value"
-        @click="tableRef?.refresh(); cargarClientes()"
+        label="Ver gráficas"
+        @click="navigateTo('/graficas?seccion=recargas')"
       />
     </template>
-
-    <p class="mb-2 text-xs text-muted">
-      Totales de todo el historial, sin aplicar los filtros de la tabla.
-    </p>
-
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-      <UCard>
-        <p class="text-xs text-muted">
-          Recargas
-        </p>
-        <p class="text-xl font-bold font-mono">
-          {{ rec.totales.value.cantidad }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Fiadas
-        </p>
-        <p class="text-xl font-bold font-mono text-warning">
-          {{ rec.totales.value.pendientes }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Saldo por cobrar
-        </p>
-        <p class="text-xl font-bold font-mono">
-          {{ rec.totales.value.saldo }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Ganancia
-        </p>
-        <p class="text-xl font-bold font-mono text-success">
-          +{{ rec.totales.value.ganancia }}
-        </p>
-      </UCard>
-    </div>
 
     <BaseTable
       ref="tableRef"

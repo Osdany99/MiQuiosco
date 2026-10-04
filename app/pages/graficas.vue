@@ -2,13 +2,13 @@
 /**
  * /graficas — Análisis del negocio.
  *
- * El catálogo está en SECCIONES porque son 38 gráficas y una lista sola de
+ * El catálogo está en SECCIONES porque son más de 40 gráficas y una lista sola de
  * tarjetas deja deserve para elegir. Cada descriptor lleva lo que la gráfica
  * necesita saber de sí misma (qué componente la dibuja, si necesita producto,
  * si ignora el rango), de modo que añadir una gráfica es añadir una línea.
  *
  * Convenciones de los descriptores:
- * - seccion:      'ventas' | 'inventario' | 'ganancia' | 'deudas'
+ * - seccion:      'ventas' | 'inventario' | 'ganancia' | 'deudas' | 'recargas'
  * - componente:   'bar' | 'bar-horizontal' | 'linea' | 'pie' | 'combo' | 'heatmap'
  * - params:       { agrupacion: 'dia' } → muestra el selector de agrupación
  * - requiereProducto: true → muestra el selector de producto
@@ -46,7 +46,8 @@ const SECCIONES = [
   { value: 'ganancia', label: 'Ganancia y caja' },
   { value: 'inventario', label: 'Inventario' },
   { value: 'ventas', label: 'Ventas' },
-  { value: 'deudas', label: 'Deudas' }
+  { value: 'deudas', label: 'Deudas' },
+  { value: 'recargas', label: 'Recargas' }
 ]
 
 const graficas = [
@@ -94,7 +95,17 @@ const graficas = [
   // ---------- Deudas ----------
   { key: 'deuda-por-cliente', seccion: 'deudas', componente: 'bar-horizontal', titulo: 'Deuda por cliente', descripcion: 'Quién debe y cuánto queda', icon: 'i-lucide-hand-coins' },
   { key: 'antiguedad-cartera', seccion: 'deudas', componente: 'pie', titulo: 'Antigüedad de la cartera', descripcion: 'Qué parte de lo que se debe lleva mucho tiempo parado', icon: 'i-lucide-hourglass' },
-  { key: 'cobrado-vs-fiado', seccion: 'deudas', componente: 'linea', titulo: 'Cobrado vs. fiado', descripcion: 'Si la cartera crece o se va cerrando', icon: 'i-lucide-arrow-left-right', params: { agrupacion: 'dia' } }
+  { key: 'cobrado-vs-fiado', seccion: 'deudas', componente: 'linea', titulo: 'Cobrado vs. fiado', descripcion: 'Si la cartera crece o se va cerrando', icon: 'i-lucide-arrow-left-right', params: { agrupacion: 'dia' } },
+
+  // ---------- Recargas ----------
+  { key: 'recargas-por-periodo', seccion: 'recargas', componente: 'bar', titulo: 'Recargas por período', descripcion: 'Cantidad y monto nominal por día/semana/mes', icon: 'i-lucide-smartphone-charging', params: { agrupacion: 'dia' } },
+  { key: 'ganancia-recargas-por-periodo', seccion: 'recargas', componente: 'bar', titulo: 'Ganancia de recargas', descripcion: 'Ganancia y costo por período', icon: 'i-lucide-coins', params: { agrupacion: 'dia' } },
+  { key: 'cobrado-vs-fiado-recargas', seccion: 'recargas', componente: 'linea', titulo: 'Cobrado vs. fiado de recargas', descripcion: 'Si la cartera de recargas crece o se cierra', icon: 'i-lucide-arrow-left-right', params: { agrupacion: 'dia' } },
+  { key: 'estado-pago-recargas', seccion: 'recargas', componente: 'pie', titulo: 'Pagadas vs. fiadas', descripcion: 'Reparto del nominal en el rango', icon: 'i-lucide-pie-chart' },
+  { key: 'recargas-por-plataforma', seccion: 'recargas', componente: 'bar-horizontal', titulo: 'Banco vs. monedero', descripcion: 'Cantidad e importe por origen', icon: 'i-lucide-arrow-right-left' },
+  { key: 'recargas-por-tipo', seccion: 'recargas', componente: 'bar-horizontal', titulo: 'Por tipo', descripcion: 'Saldo, voz, datos y SMS', icon: 'i-lucide-tags' },
+  { key: 'top-clientes-recarga', seccion: 'recargas', componente: 'bar-horizontal', titulo: 'Top clientes de recarga', descripcion: 'Quién más recarga y cuánta ganancia deja', icon: 'i-lucide-users' },
+  { key: 'deuda-recargas-por-cliente', seccion: 'recargas', componente: 'bar-horizontal', titulo: 'Deuda de recargas por cliente', descripcion: 'Saldo pendiente de recargas por cobrar', icon: 'i-lucide-hand-coins' }
 ]
 
 // La ganancia por período es la gráfica que se mira casi siempre: es la que
@@ -148,6 +159,17 @@ onMounted(async () => {
   // Rango por defecto: últimos 7 días. Con solo hoy, las gráficas de período
   // salían vacías o con una sola barra al entrar.
   verUltimosDias(7)
+
+  // Entrada directa desde /recargas y /recargas/sms: ?seccion=recargas abre la
+  // sección y su primera gráfica sin buscarla.
+  const seccionQuery = useRoute().query.seccion
+  if (typeof seccionQuery === 'string' && SECCIONES.some(s => s.value === seccionQuery)) {
+    const primera = graficas.find(g => g.seccion === seccionQuery)
+    if (primera) {
+      seccionActiva.value = seccionQuery
+      graficaActiva.value = primera
+    }
+  }
 
   await conexion.cargar().catch(() => {})
 
@@ -270,7 +292,17 @@ function getChartConfig(g) {
     // Deudas
     'deuda-por-cliente': barra('nombre', ['saldo'], { nombre: 'Cliente', saldo: 'Saldo pendiente' }),
     'antiguedad-cartera': { nameKey: 'forma', valueKey: 'saldo', labels: { forma: 'Antigüedad', saldo: 'Saldo' } },
-    'cobrado-vs-fiado': { xKey: 'periodo', yKeys: ['fiado', 'cobrado'], labels: { periodo: 'Período', fiado: 'Fiado', cobrado: 'Cobrado' } }
+    'cobrado-vs-fiado': { xKey: 'periodo', yKeys: ['fiado', 'cobrado'], labels: { periodo: 'Período', fiado: 'Fiado', cobrado: 'Cobrado' } },
+
+    // Recargas
+    'recargas-por-periodo': barra('periodo', ['cantidad', 'nominal'], { periodo: 'Período', cantidad: 'Cantidad', nominal: 'Nominal' }),
+    'ganancia-recargas-por-periodo': barra('periodo', ['ganancia', 'costo'], { periodo: 'Período', ganancia: 'Ganancia', costo: 'Costo' }),
+    'cobrado-vs-fiado-recargas': { xKey: 'periodo', yKeys: ['fiado', 'cobrado'], labels: { periodo: 'Período', fiado: 'Fiado', cobrado: 'Cobrado' } },
+    'estado-pago-recargas': { nameKey: 'forma', valueKey: 'total', labels: { forma: 'Estado', total: 'Nominal' } },
+    'recargas-por-plataforma': barra('plataforma', ['cantidad', 'nominal'], { plataforma: 'Origen', cantidad: 'Cantidad', nominal: 'Nominal' }),
+    'recargas-por-tipo': barra('tipo', ['cantidad', 'nominal'], { tipo: 'Tipo', cantidad: 'Cantidad', nominal: 'Nominal' }),
+    'top-clientes-recarga': barra('nombre', ['nominal', 'ganancia'], { nombre: 'Cliente', nominal: 'Nominal', ganancia: 'Ganancia' }),
+    'deuda-recargas-por-cliente': barra('nombre', ['saldo'], { nombre: 'Cliente', saldo: 'Saldo pendiente' })
   }
   return configs[g.key] || {}
 }
@@ -312,7 +344,7 @@ function getChartConfig(g) {
       </UCard>
     </div>
 
-    <!-- Secciones: son 38 gráficas, una lista sola ya no ayuda a elegir -->
+    <!-- Secciones: son más de 40 gráficas, una lista sola ya no ayuda a elegir -->
     <UTabs
       :model-value="seccionActiva"
       :items="SECCIONES"

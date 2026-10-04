@@ -87,7 +87,7 @@ export function useAjustes() {
       const topeMsg = await validarTopeLocal(cuadreId, [{ productoId, cantidad }])
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         await $api('/api/ajustes', {
@@ -100,8 +100,10 @@ export function useAjustes() {
         await acumularAjusteEnCuadre(cuadreId, tipo, monto)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
@@ -120,7 +122,7 @@ export function useAjustes() {
       const topeMsg = await validarTopeLocal(cuadreId, [{ productoId: nuevoProductoId, cantidad: nuevaCantidad }], ajusteId)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
 
       if (esOnline.value) {
@@ -146,8 +148,10 @@ export function useAjustes() {
         }
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }

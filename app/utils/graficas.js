@@ -15,6 +15,9 @@ const ventasDirectasConfig = TABLES.ventas_directas
 const ventasDirectasItemsConfig = TABLES.ventas_directas_items
 const cuentaFiadoConfig = TABLES.cuentas_fiado
 const pagoFiadoConfig = TABLES.pagos_fiado
+const recargaConfig = TABLES.recargas
+const cobroRecargaConfig = TABLES.cobros_recarga
+const clienteConfig = TABLES.clientes
 const usuarioConfig = TABLES.usuarios
 const proveedorConfig = TABLES.proveedores
 const loteConfig = TABLES.lotes
@@ -54,6 +57,9 @@ export async function calcularGrafica(key, opts) {
   const ventasDirectasRepo = useRepo(ventasDirectasConfig, { toast: false })
   const cuentasFiadoRepo = useRepo(cuentaFiadoConfig, { toast: false })
   const pagosRepo = useRepo(pagoFiadoConfig, { toast: false })
+  const recargasRepo = useRepo(recargaConfig, { toast: false })
+  const cobrosRecargaRepo = useRepo(cobroRecargaConfig, { toast: false })
+  const clientesRepo = useRepo(clienteConfig, { toast: false })
   const usuariosRepo = useRepo(usuarioConfig, { toast: false })
 
   switch (key) {
@@ -101,6 +107,16 @@ export async function calcularGrafica(key, opts) {
     case 'deuda-por-cliente': return _deudaPorCliente(opts, cuentasFiadoRepo, usuariosRepo)
     case 'antiguedad-cartera': return _antiguedadCartera(opts, cuentasFiadoRepo)
     case 'cobrado-vs-fiado': return _cobradoVsFiado(opts, pagosRepo, cuentasFiadoRepo)
+
+    // ---------- Recargas ----------
+    case 'recargas-por-periodo': return _recargasPorPeriodo(opts, recargasRepo)
+    case 'ganancia-recargas-por-periodo': return _gananciaRecargasPorPeriodo(opts, recargasRepo)
+    case 'cobrado-vs-fiado-recargas': return _cobradoVsFiadoRecargas(opts, recargasRepo, cobrosRecargaRepo)
+    case 'estado-pago-recargas': return _estadoPagoRecargas(opts, recargasRepo)
+    case 'recargas-por-plataforma': return _recargasPorPlataforma(opts, recargasRepo)
+    case 'recargas-por-tipo': return _recargasPorTipo(opts, recargasRepo)
+    case 'top-clientes-recarga': return _topClientesRecarga(opts, recargasRepo, clientesRepo)
+    case 'deuda-recargas-por-cliente': return _deudaRecargasPorCliente(opts, recargasRepo, clientesRepo)
 
     default: return []
   }
@@ -1385,4 +1401,207 @@ async function _cobradoVsFiado(opts, pagosRepo, cuentasRepo) {
     fiado: Math.round(g.reduce((s, x) => s + x.fiado, 0)),
     cobrado: Math.round(g.reduce((s, x) => s + x.cobrado, 0))
   }))
+}
+
+// ═════════════════════════════════ Recargas ══════════════════════════════════
+
+function saldoRecarga(r) {
+  return Math.max(0, (Number(r.montoNominal) || 0) - (Number(r.montoCobrado) || 0))
+}
+
+/** Cantidad de recargas y monto nominal por período. */
+async function _recargasPorPeriodo(opts, recargasRepo) {
+  const recargas = fila(await recargasRepo.readAll())
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  const filas = []
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    filas.push({ periodo: dia, cantidad: 1, nominal: Number(r.montoNominal) || 0 })
+  }
+  return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
+    cantidad: g.reduce((s, x) => s + x.cantidad, 0),
+    nominal: Math.round(g.reduce((s, x) => s + x.nominal, 0))
+  }))
+}
+
+/** Ganancia y costo de recargas por período. */
+async function _gananciaRecargasPorPeriodo(opts, recargasRepo) {
+  const recargas = fila(await recargasRepo.readAll())
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  const filas = []
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    filas.push({
+      periodo: dia,
+      ganancia: Number(r.ganancia) || 0,
+      costo: Number(r.costo) || 0
+    })
+  }
+  return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
+    ganancia: Math.round(g.reduce((s, x) => s + x.ganancia, 0)),
+    costo: Math.round(g.reduce((s, x) => s + x.costo, 0))
+  }))
+}
+
+/** Nominal fiado (recargas creadas pendientes) vs cobrado (cobros_recarga). */
+async function _cobradoVsFiadoRecargas(opts, recargasRepo, cobrosRepo) {
+  const [recargas, cobros] = await Promise.all([
+    recargasRepo.readAll(),
+    cobrosRepo.readAll()
+  ]).then(rs => rs.map(fila))
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  const filas = []
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    if (r.estadoPago === 'pagada') continue
+    filas.push({ periodo: dia, fiado: Number(r.montoNominal) || 0, cobrado: 0 })
+  }
+  for (const p of cobros) {
+    const dia = aDia(p.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    filas.push({ periodo: dia, fiado: 0, cobrado: Number(p.monto) || 0 })
+  }
+  return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
+    fiado: Math.round(g.reduce((s, x) => s + x.fiado, 0)),
+    cobrado: Math.round(g.reduce((s, x) => s + x.cobrado, 0))
+  }))
+}
+
+/** Pagadas vs fiadas en el rango, por importe nominal. */
+async function _estadoPagoRecargas(opts, recargasRepo) {
+  const recargas = fila(await recargasRepo.readAll())
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  let pagada = 0
+  let fiada = 0
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    if (r.estadoPago === 'pagada') pagada += Number(r.montoNominal) || 0
+    else fiada += Number(r.montoNominal) || 0
+  }
+  return [
+    { forma: 'Pagada', total: Math.round(pagada) },
+    { forma: 'Fiada', total: Math.round(fiada) }
+  ].filter(f => f.total > 0)
+}
+
+function etiquetaPlataforma(p) {
+  return p === 'banco' ? 'Banco' : (p === 'monedero' ? 'Monedero' : (p || '—'))
+}
+
+/** Banco vs monedero en cantidad e importe. */
+async function _recargasPorPlataforma(opts, recargasRepo) {
+  const recargas = fila(await recargasRepo.readAll())
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  const porPlat = new Map()
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    const k = etiquetaPlataforma(r.plataforma)
+    if (!porPlat.has(k)) porPlat.set(k, { cantidad: 0, nominal: 0 })
+    const acc = porPlat.get(k)
+    acc.cantidad++
+    acc.nominal += Number(r.montoNominal) || 0
+  }
+  return [...porPlat.entries()]
+    .map(([plataforma, acc]) => ({
+      plataforma,
+      cantidad: acc.cantidad,
+      nominal: Math.round(acc.nominal)
+    }))
+    .sort((a, b) => b.nominal - a.nominal)
+}
+
+function etiquetaTipo(t) {
+  if (t === 'saldo') return 'Saldo'
+  if (t === 'voz') return 'Voz'
+  if (t === 'datos') return 'Datos'
+  if (t === 'sms') return 'SMS'
+  return t || '—'
+}
+
+/** Saldo / voz / datos / SMS en cantidad e importe. */
+async function _recargasPorTipo(opts, recargasRepo) {
+  const recargas = fila(await recargasRepo.readAll())
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  const porTipo = new Map()
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    const k = etiquetaTipo(r.tipo)
+    if (!porTipo.has(k)) porTipo.set(k, { cantidad: 0, nominal: 0 })
+    const acc = porTipo.get(k)
+    acc.cantidad++
+    acc.nominal += Number(r.montoNominal) || 0
+  }
+  return [...porTipo.entries()]
+    .map(([tipo, acc]) => ({
+      tipo,
+      cantidad: acc.cantidad,
+      nominal: Math.round(acc.nominal)
+    }))
+    .sort((a, b) => b.nominal - a.nominal)
+}
+
+/** Top clientes por nominal recargado, con ganancia generada. */
+async function _topClientesRecarga(opts, recargasRepo, clientesRepo) {
+  const [recargas, clientes] = await Promise.all([
+    recargasRepo.readAll(),
+    clientesRepo.readAll()
+  ]).then(rs => rs.map(fila))
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+  const nombrePorCliente = new Map(clientes.map(c => [c.id, c.nombre]))
+  const porCliente = new Map()
+  for (const r of recargas) {
+    const dia = aDia(r.creadoEn)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    const k = r.clienteId || 'sin-asignar'
+    if (!porCliente.has(k)) porCliente.set(k, { nominal: 0, ganancia: 0, cantidad: 0 })
+    const acc = porCliente.get(k)
+    acc.nominal += Number(r.montoNominal) || 0
+    acc.ganancia += Number(r.ganancia) || 0
+    acc.cantidad++
+  }
+  return [...porCliente.entries()]
+    .map(([clienteId, acc]) => ({
+      nombre: clienteId === 'sin-asignar' ? 'Sin asignar' : (nombrePorCliente.get(clienteId) ?? 'Cliente'),
+      nominal: Math.round(acc.nominal),
+      ganancia: Math.round(acc.ganancia),
+      cantidad: acc.cantidad
+    }))
+    .sort((a, b) => b.nominal - a.nominal)
+    .slice(0, 10)
+}
+
+/** Quién debe recargas y cuánto queda por cobrar. */
+async function _deudaRecargasPorCliente(opts, recargasRepo, clientesRepo) {
+  const [recargas, clientes] = await Promise.all([
+    recargasRepo.readAll(),
+    clientesRepo.readAll()
+  ]).then(rs => rs.map(fila))
+  const nombrePorCliente = new Map(clientes.map(c => [c.id, c.nombre]))
+  const porCliente = new Map()
+  for (const r of recargas) {
+    const saldo = saldoRecarga(r)
+    if (saldo <= 0) continue
+    const k = r.clienteId || 'sin-asignar'
+    porCliente.set(k, (porCliente.get(k) || 0) + saldo)
+  }
+  return [...porCliente.entries()]
+    .map(([clienteId, saldo]) => ({
+      nombre: clienteId === 'sin-asignar' ? 'Sin asignar' : (nombrePorCliente.get(clienteId) ?? 'Cliente'),
+      saldo: Math.round(saldo)
+    }))
+    .sort((a, b) => b.saldo - a.saldo)
+    .slice(0, 12)
 }

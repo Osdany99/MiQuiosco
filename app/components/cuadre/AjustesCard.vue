@@ -168,7 +168,7 @@ function abrirEdicion(a) {
 async function confirmarNuevo() {
   const f = nuevaForm.value
   if (!f.productoId || Number(f.cantidad) <= 0) return
-  await registrarAjuste({
+  const r = await registrarAjuste({
     cuadreId: props.cuadreId,
     clienteId: f.clienteId ?? null,
     productoId: f.productoId,
@@ -178,6 +178,8 @@ async function confirmarNuevo() {
     nota: f.nota ?? null,
     puestoId: props.puestoId
   })
+  // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
+  if (!r?.ok) return
   nuevaOpen.value = false
   nuevaForm.value = { clienteId: null, productoId: '', tipo: 'regalo', cantidad: 0, monto: 0, nota: null }
   emit('actualizado')
@@ -186,7 +188,7 @@ async function confirmarNuevo() {
 async function confirmarEdicion() {
   const f = editarForm.value
   if (!f.productoId || Number(f.cantidad) <= 0) return
-  await editarAjuste({
+  const r = await editarAjuste({
     ajusteId: editarAjusteId.value,
     cuadreId: props.cuadreId,
     cambios: {
@@ -198,6 +200,7 @@ async function confirmarEdicion() {
       nota: f.nota ?? null
     }
   })
+  if (!r?.ok) return
   editarOpen.value = false
   emit('actualizado')
 }

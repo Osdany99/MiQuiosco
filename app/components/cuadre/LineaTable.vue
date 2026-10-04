@@ -10,15 +10,6 @@
       :disable-filters="true"
       @reload="reload"
     >
-      <template #toolbar-leading>
-        <UFileUpload
-          v-model="importJsonFile"
-          variant="button"
-          accept=".json"
-          size="sm"
-        />
-      </template>
-
       <template #producto-cell="{ row }">
         <div>
           <!-- Columna estrecha a propósito: en el móvil tiene que caber
@@ -143,7 +134,7 @@ const emit = defineEmits(['reload'])
 const {
   lineas, expandida, cargando,
   recalcularSubtotal, toggleExpandir,
-  getProductoNombre, procesarImportacionJSON,
+  getProductoNombre,
   flushAutosave, duplicarLinea, eliminarLinea
 } = useCuadre()
 
@@ -174,13 +165,6 @@ function confirmarEliminar() {
   aEliminar.value = null
   eliminarOpen.value = false
 }
-
-const importJsonFile = ref(null)
-watch(importJsonFile, (file) => {
-  if (!file) return
-  procesarImportacionJSON(file)
-  importJsonFile.value = null
-})
 
 defineProps({
   readonly: { type: Boolean, default: false }

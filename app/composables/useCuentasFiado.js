@@ -117,7 +117,7 @@ export function useCuentasFiado() {
       const topeMsg = await validarTopeLocal(cuadreId, items)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         // Endpoint transaccional del servidor (cuenta + items + pago inicial + cuadre)
@@ -157,8 +157,10 @@ export function useCuentasFiado() {
         await acumularFiadoEnCuadre(cuadreId, montoTotal - (montoPagadoInicial || 0))
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
@@ -186,7 +188,7 @@ export function useCuentasFiado() {
         const topeMsg = await validarTopeLocal(cuenta.cuadreOrigenId, items, [cuentaFiadoId])
         if (topeMsg) {
           toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-          return
+          return { ok: false, error: new Error(topeMsg) }
         }
 
         // Precios congelados: líneas existentes conservan su precio.
@@ -244,8 +246,10 @@ export function useCuentasFiado() {
         if (delta !== 0) await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, delta)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
@@ -344,11 +348,12 @@ export function useCuentasFiado() {
     cargando.value = true
     try {
       if (esOnline.value) {
-        return await $api('/api/cuentas-fiado/directas', {
+        const rpta = await $api('/api/cuentas-fiado/directas', {
           method: 'POST',
           body: { clienteId, lineas, ubicacion, montoPagadoInicial, formaPagoInicial },
           headers: apiHeaders()
         })
+        return { ok: true, ...(rpta ?? {}) }
       }
       const pid = auth.usuarioActual.value?.puestoId ?? null
       if (!pid) throw new Error('Sin puesto asignado.')
@@ -422,10 +427,10 @@ export function useCuentasFiado() {
           })
         }
       })
-      return { id: cuentaId, montoTotal: venta.montoTotal, ganancia: venta.ganancia }
+      return { ok: true, id: cuentaId, montoTotal: venta.montoTotal, ganancia: venta.ganancia }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
-      throw err
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }

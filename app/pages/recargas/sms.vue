@@ -38,8 +38,6 @@ const nombreCliente = p => clienteDe(p)?.nombre ?? null
 
 const totales = computed(() => ({
   cantidad: rec.pendientes.value.length,
-  nominal: rec.pendientes.value.reduce((s, p) => s + Number(p.montoNominal ?? 0), 0),
-  ganancia: rec.pendientes.value.reduce((s, p) => s + Number(p.ganancia ?? 0), 0),
   sinCliente: rec.pendientes.value.filter(p => !clienteDe(p)).length
 }))
 
@@ -185,11 +183,10 @@ onUnmounted(() => soltarResume?.())
         @click="barrer"
       />
       <UButton
-        icon="i-lucide-refresh-cw"
+        icon="i-lucide-bar-chart-2"
         variant="outline"
-        label="Recargar"
-        :loading="rec.cargando.value"
-        @click="recargar"
+        label="Ver gráficas"
+        @click="navigateTo('/graficas?seccion=recargas')"
       />
     </template>
 
@@ -222,29 +219,13 @@ onUnmounted(() => soltarResume?.())
       </template>
     </UAlert>
 
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+    <div class="grid grid-cols-2 gap-3 mb-4">
       <UCard>
         <p class="text-xs text-muted">
           Por confirmar
         </p>
         <p class="text-xl font-bold font-mono">
           {{ totales.cantidad }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Importe
-        </p>
-        <p class="text-xl font-bold font-mono">
-          {{ totales.nominal }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Ganancia
-        </p>
-        <p class="text-xl font-bold font-mono text-success">
-          +{{ totales.ganancia }}
         </p>
       </UCard>
       <UCard>

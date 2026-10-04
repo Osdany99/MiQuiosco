@@ -204,15 +204,16 @@ export function useRecargas() {
     return act
   }
 
-  const totales = computed(() => ({
-    cantidad: lista.value.length,
-    pendientes: lista.value.filter(r => r.estadoPago !== 'pagada').length,
-    saldo: lista.value.reduce(
-      (s, r) => s + Math.max(0, Number(r.montoNominal ?? 0) - Number(r.montoCobrado ?? 0)),
-      0
-    ),
-    ganancia: lista.value.reduce((s, r) => s + Number(r.ganancia ?? 0), 0)
-  }))
+  /**
+   * Historial de cobros de una recarga, para ver qué se cobró y por dónde.
+   * Espejo de pagosDeCuenta en Deudas.
+   */
+  async function cobrosDeRecarga(recargaId) {
+    const todos = await cobrosRepo.value.readAll()
+    return (todos || [])
+      .filter(p => p.recargaId === recargaId)
+      .sort((a, b) => new Date(a.creadoEn ?? 0) - new Date(b.creadoEn ?? 0))
+  }
 
   return {
     cli,
@@ -221,13 +222,13 @@ export function useRecargas() {
     pendientes,
     lista,
     cargando,
-    totales,
     procesarSms,
     procesarLote,
     cargarPendientes,
     confirmar,
     cargarRecargas,
     asignarCliente,
-    cobrar
+    cobrar,
+    cobrosDeRecarga
   }
 }

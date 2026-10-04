@@ -485,18 +485,26 @@ export function useCuadre() {
         prev.subtotal = Math.round(((Number(prev.subtotal) || 0) + (Number(l.subtotal) || 0)) * 100) / 100
       }
       const lineasCargadas = [...porId.values()]
+      // Fantasmas fuera: líneas en cero de productos que ya no están en el
+      // catálogo (se desactivaron a mitad del día). No son venta real y se
+      // pintarían sin nombre ('—'). Las que tienen cantidad se conservan
+      // aunque el producto ya no se venda.
+      const enCatalogo = new Set(productosActivos.value.map(p => p.id))
+      const visibles = lineasCargadas.filter(
+        l => (Number(l.cantidad) || 0) > 0 || enCatalogo.has(l.productoId)
+      )
 
       // Catálogo: un producto aparece si no tiene NINGUNA línea todavía. Se
       // comprueba por producto (no por clave de mapa) para no añadir otra
       // línea a un producto que ya tiene original y duplicadas.
       if (autoPopulate) {
-        const conLinea = new Set(lineasCargadas.map(l => l.productoId))
+        const conLinea = new Set(visibles.map(l => l.productoId))
         // La secuencia ordena la venta para el FIFO: cada línea nueva toma el
         // siguiente número. Las históricas (secuencia 0) conservan su orden.
-        let maxSec = lineasCargadas.reduce((m, l) => Math.max(m, Number(l.secuencia ?? 0)), 0)
+        let maxSec = visibles.reduce((m, l) => Math.max(m, Number(l.secuencia ?? 0)), 0)
         for (const prod of productosActivos.value) {
           if (conLinea.has(prod.id)) continue
-          lineasCargadas.push({
+          visibles.push({
             id: generateId(),
             cuadreId,
             productoId: prod.id,
@@ -510,7 +518,7 @@ export function useCuadre() {
           })
         }
       }
-      lineas.value = lineasCargadas
+      lineas.value = visibles
       // Orden de catálogo; las duplicadas (esExtra) quedan justo detrás de
       // su original, de modo que se leen juntas.
       const ordenDe = new Map(productosActivos.value.map(p => [p.id, Number(p.orden ?? 9999)]))
@@ -930,37 +938,6 @@ export function useCuadre() {
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
   }
 
-  async function procesarImportacionJSON(file) {
-    try {
-      const texto = await file.text()
-      const datos = JSON.parse(texto)
-      if (!Array.isArray(datos)) {
-        toast.add({ title: 'Formato inválido', description: 'El archivo debe contener un array de líneas.', color: 'error' })
-        return
-      }
-
-      let actualizadas = 0
-
-      for (const item of datos) {
-        if (!item.productoId) continue
-        const index = lineas.value.findIndex(l => l.productoId === item.productoId)
-        if (index === -1) continue
-        const linea = lineas.value[index]
-        if (item.cantidad != null) linea.cantidad = Number(item.cantidad)
-        if (item.precioVentaUsado != null) linea.precioVentaUsado = Number(item.precioVentaUsado)
-        recalcularSubtotal(linea)
-        actualizadas++
-      }
-
-      if (actualizadas === 0) {
-        toast.add({ title: 'Sin cambios', description: 'Ninguna línea coincidió con los productos del cuadre.', color: 'warning' })
-      }
-    } catch (err) {
-      console.error('Error al importar JSON:', err)
-      toast.add({ title: 'Error al importar', description: err.message, color: 'error' })
-    }
-  }
-
   function getProductoNombre(productoId) {
     return productosActivos.value.find(p => p.id === productoId)?.nombre || '—'
   }
@@ -975,7 +952,7 @@ export function useCuadre() {
     cargarDatos, recalcularSubtotal,
     toggleExpandir, cerrarCuadre, reabrirCuadre,
     duplicarLinea, eliminarLinea, expandirConNotas,
-    procesarImportacionJSON, getProductoNombre,
+    getProductoNombre,
     marcarPagoManual, flushAutosave,
     hoy
   }

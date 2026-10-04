@@ -179,7 +179,9 @@ async function confirmarNueva() {
   const items = armarItems(nuevaForm.value)
   if (items.length === 0) return
   if (!nuevaForm.value.clienteId) return
-  await registrarTransferencia({ ...nuevaForm.value, items, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  const r = await registrarTransferencia({ ...nuevaForm.value, items, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
+  if (!r?.ok) return
   nuevaOpen.value = false
   nuevaForm.value = { clienteId: null, items: [] }
   emit('actualizado')
@@ -188,7 +190,8 @@ async function confirmarNueva() {
 async function confirmarEdicion() {
   const items = armarItems(editarForm.value)
   if (items.length === 0) return
-  await editarTransferencia({ transferenciaId: editarTransferenciaId.value, items, cuadreId: props.cuadreId })
+  const r = await editarTransferencia({ transferenciaId: editarTransferenciaId.value, items, cuadreId: props.cuadreId })
+  if (!r?.ok) return
   editarOpen.value = false
   emit('actualizado')
 }
