@@ -1,12 +1,13 @@
 import { eq, and, desc, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { ajustes, usuarios, productos } from '../../database/schema'
+import { ajustes, clientes, productos } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const query = getQuery(event)
-  const conditions = []
+  // Siempre el puesto propio (ver transferencias/index.get.ts).
+  const conditions = [eq(ajustes.puestoId, auth.usuario.puestoId)]
 
   if (query.cuadre_id || query.cuadreId) {
     conditions.push(eq(ajustes.cuadreId, String(query.cuadre_id || query.cuadreId)))
@@ -25,7 +26,7 @@ export default defineEventHandler(async (event) => {
     .select({
       id: ajustes.id,
       clienteId: ajustes.clienteId,
-      nombreCliente: usuarios.nombre,
+      nombreCliente: clientes.nombre,
       cuadreId: ajustes.cuadreId,
       productoId: ajustes.productoId,
       nombreProducto: productos.nombre,
@@ -37,9 +38,11 @@ export default defineEventHandler(async (event) => {
       actualizadoEn: ajustes.actualizadoEn
     })
     .from(ajustes)
-    .leftJoin(usuarios, eq(ajustes.clienteId, usuarios.id))
+    // clienteId apunta a clientes desde la 0018 (el leftJoin contra usuarios
+    // dejaba nombreCliente en null para los ajustes nuevos).
+    .leftJoin(clientes, eq(ajustes.clienteId, clientes.id))
     .innerJoin(productos, eq(ajustes.productoId, productos.id))
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(ajustes.creadoEn))
 
   return rows.map(r => ({

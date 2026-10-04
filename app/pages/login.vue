@@ -323,6 +323,9 @@ async function onSubmit() {
             v-model="nombreUsuario"
             placeholder="Ej. jefe"
             autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             size="lg"
           />
         </UFormField>

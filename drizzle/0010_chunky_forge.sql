@@ -1,7 +1,11 @@
 CREATE TYPE "public"."tipo_ajuste" AS ENUM('regalo', 'descuento');--> statement-breakpoint
-ALTER TYPE "public"."tipo_linea" ADD VALUE 'regalo';--> statement-breakpoint
-ALTER TYPE "public"."tipo_linea" ADD VALUE 'deuda';--> statement-breakpoint
-ALTER TYPE "public"."tipo_linea" ADD VALUE 'descuento_familiar';--> statement-breakpoint
+-- Estas tres etiquetas ya las agrego 0008 sobre esta misma cadena. Repetirlas
+-- hacia fallar con "la etiqueta de enum ya existe" al reproducir la cadena
+-- 0000..0018 sobre una BD limpia. IF NOT EXISTS (Postgres 12+) las deja como
+-- no-op sin cambiar el resultado.
+ALTER TYPE "public"."tipo_linea" ADD VALUE IF NOT EXISTS 'regalo';--> statement-breakpoint
+ALTER TYPE "public"."tipo_linea" ADD VALUE IF NOT EXISTS 'deuda';--> statement-breakpoint
+ALTER TYPE "public"."tipo_linea" ADD VALUE IF NOT EXISTS 'descuento_familiar';--> statement-breakpoint
 CREATE TABLE "ajustes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"puesto_id" uuid NOT NULL,
@@ -59,12 +63,15 @@ CREATE INDEX "transferencia_items_creado_en_idx" ON "transferencia_items" USING 
 CREATE INDEX "transferencias_cliente_idx" ON "transferencias" USING btree ("cliente_id");--> statement-breakpoint
 CREATE INDEX "transferencias_cuadre_idx" ON "transferencias" USING btree ("cuadre_id");--> statement-breakpoint
 CREATE INDEX "transferencias_actualizado_en_idx" ON "transferencias" USING btree ("actualizado_en");--> statement-breakpoint
-CREATE UNIQUE INDEX "cuadres_puesto_fecha_uk" ON "cuadres" USING btree ("puesto_id","fecha");--> statement-breakpoint
-CREATE INDEX "cuadres_actualizado_en_idx" ON "cuadres" USING btree ("actualizado_en");--> statement-breakpoint
-CREATE INDEX "cuentas_fiado_actualizado_en_idx" ON "cuentas_fiado" USING btree ("actualizado_en");--> statement-breakpoint
-CREATE INDEX "cuentas_fiado_items_creado_en_idx" ON "cuentas_fiado_items" USING btree ("creado_en");--> statement-breakpoint
-CREATE INDEX "historial_precios_creado_en_idx" ON "historial_precios" USING btree ("creado_en");--> statement-breakpoint
-CREATE INDEX "pagos_fiado_creado_en_idx" ON "pagos_fiado" USING btree ("creado_en");--> statement-breakpoint
-CREATE INDEX "productos_actualizado_en_idx" ON "productos" USING btree ("actualizado_en");--> statement-breakpoint
-CREATE UNIQUE INDEX "usuarios_puesto_nombre_uk" ON "usuarios" USING btree ("puesto_id","nombre");--> statement-breakpoint
-CREATE INDEX "usuarios_actualizado_en_idx" ON "usuarios" USING btree ("actualizado_en");
+-- Los 9 indices siguientes ya los creo 0009 sobre esta misma cadena. Repetirlos
+-- hacia fallar con "la relacion ya existe" al reproducir la cadena desde cero.
+-- IF NOT EXISTS los vuelve no-op sin cambiar el resultado.
+CREATE UNIQUE INDEX IF NOT EXISTS "cuadres_puesto_fecha_uk" ON "cuadres" USING btree ("puesto_id","fecha");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "cuadres_actualizado_en_idx" ON "cuadres" USING btree ("actualizado_en");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "cuentas_fiado_actualizado_en_idx" ON "cuentas_fiado" USING btree ("actualizado_en");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "cuentas_fiado_items_creado_en_idx" ON "cuentas_fiado_items" USING btree ("creado_en");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "historial_precios_creado_en_idx" ON "historial_precios" USING btree ("creado_en");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "pagos_fiado_creado_en_idx" ON "pagos_fiado" USING btree ("creado_en");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "productos_actualizado_en_idx" ON "productos" USING btree ("actualizado_en");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "usuarios_puesto_nombre_uk" ON "usuarios" USING btree ("puesto_id","nombre");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "usuarios_actualizado_en_idx" ON "usuarios" USING btree ("actualizado_en");

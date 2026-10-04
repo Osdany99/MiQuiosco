@@ -1,11 +1,106 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
+import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 
 const toast = useToast()
 const conexion = useModoConexion()
 const update = useAppUpdate()
 const auth = useAuth()
+// --- Permisos de recarga (solo Android) ---
+// Configuración es el ÚNICO sitio donde se piden. No hay asistente al arrancar:
+// la app no interrumpe a quien solo usa el quiosco, y quien sí quiere recargas
+// tiene aquí el botón. Los tres estados (candado, SMS y notificaciones) llegan
+// en una sola llamada a estado(), así que pintar la lista no pide nada.
+//
+// El estado vive en useSmsEtecsa para no duplicar consultas al plugin; aquí solo
+// se reacciona y se ofrecen las acciones.
+const sms = useSmsEtecsa()
+const concediendo = ref('')
+/** Estado del permiso de Contactos, que vive en su propio plugin. */
+const contactos = ref({ disponible: false, permiso: false, restringido: false })
+
+const sinCandado = computed(() => !sms.estado.value.restringido)
+const permisoRecibir = computed(() => !!sms.estado.value.permisoRecibir)
+const notificacionesOk = computed(() => !!sms.estado.value.notificaciones)
+const permisoContactos = computed(() => !!contactos.value.permiso)
+
+const permisosListos = computed(() => {
+  return sinCandado.value && permisoRecibir.value && notificacionesOk.value
+})
+
+// La lista es puramente datos y las acciones se enlazan por clave desde la
+// plantilla (ACCIONES_PERMISOS). Guardar funciones dentro del array obligaría a
+// Vue a arrastrarlas al render, que es justo lo que reventaba antes.
+const listaPermisos = computed(() => {
+  return [
+    {
+      clave: 'restringidos',
+      ok: sinCandado.value,
+      texto: 'Ajustes restringidos desbloqueados',
+      accion: 'Desbloquear'
+    },
+    {
+      clave: 'sms',
+      ok: permisoRecibir.value,
+      texto: 'Lectura de SMS',
+      accion: 'Conceder'
+    },
+    {
+      clave: 'notificaciones',
+      ok: notificacionesOk.value,
+      texto: 'Avisos de recarga',
+      accion: 'Activar'
+    },
+    {
+      clave: 'contactos',
+      ok: permisoContactos.value,
+      texto: 'Contactos del teléfono (opcional)',
+      accion: 'Conceder'
+    }
+  ]
+})
+
+const ACCIONES_PERMISOS = {
+  restringidos: () => sms.abrirAjustesPermisos('restringidos'),
+  sms: () => sms.pedirPermiso(),
+  notificaciones: () => sms.pedirPermisoNotificaciones(),
+  contactos: () => pedirPermisoContactos()
+}
+
+/** Pide READ_CONTACTS y vuelve a pintar la lista con el estado real. */
+async function pedirPermisoContactos() {
+  const res = await contactosPedirPermiso()
+  contactos.value = await contactosEstado()
+  if (!res.permiso && contactos.value.restringido) {
+    toast.add({
+      title: 'Permiso bloqueado por Android',
+      description: 'Activa antes "Permitir ajustes restringidos" en Ajustes del sistema; si no, el permiso aparece gris.',
+      color: 'warning'
+    })
+  }
+  return res
+}
+
+/** Repinta la lista entera de permisos (SMS y contactos). */
+async function refrescarPermisos() {
+  await sms.refrescarEstado()
+  contactos.value = await contactosEstado()
+}
+
+async function ejecutarPermiso(clave) {
+  if (concediendo.value) return
+  concediendo.value = clave
+  try {
+    await ACCIONES_PERMISOS[clave]?.()
+  } catch {
+    // Si el plugin falla, la lista se repinta con el estado real y ya se ve
+    // que el permiso sigue sin conceder. No hace falta un toast de error.
+  } finally {
+    concediendo.value = ''
+    await refrescarPermisos()
+  }
+}
 
 // La URL del servidor y las actualizaciones in-app solo aplican en Android:
 // en web el navegador ya habla con su mismo origen.
@@ -17,6 +112,23 @@ const esNativo = computed(() => {
   }
 })
 
+// El paso del candado solo se resuelve FUERA de la app, en Ajustes del sistema.
+// Al volver hay que volver a preguntar, o la lista seguiría pidiendo
+// "Desbloquear" a alguien que ya lo desbloqueó.
+function alVolverDeAjustes() {
+  if (esNativo.value && !document.hidden) refrescarPermisos()
+}
+
+onMounted(() => {
+  if (!esNativo.value) return
+  refrescarPermisos()
+  document.addEventListener('visibilitychange', alVolverDeAjustes)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', alVolverDeAjustes)
+})
+
 const serverUrl = ref('')
 const cargando = ref(true)
 const probando = ref(false)
@@ -25,10 +137,24 @@ const mensajePrueba = ref('')
 const comprobandoUpdates = ref(false)
 
 const metodoItems = [
-  { label: 'Automática (recomendada)', value: 'automatico' },
-  { label: 'Solo navegador', value: 'navegador' },
-  { label: 'En la app (próximamente)', value: 'interno' }
+  {
+    label: 'Automática',
+    description: 'Intenta en la app y, si falla, usa el navegador.',
+    value: 'automatico'
+  },
+  {
+    label: 'Solo navegador',
+    description: 'Abre la descarga en el navegador del sistema.',
+    value: 'navegador'
+  },
+  {
+    label: 'En la app',
+    description: 'Descarga aquí y abre el instalador. La primera vez pide permiso.',
+    value: 'interno'
+  }
 ]
+
+const metodoActual = computed(() => metodoItems.find(i => i.value === update.metodo.value)?.label || 'Automática')
 
 const versionTexto = computed(() => {
   if (update.versionInstalada.value == null) return 'No disponible en web'
@@ -187,7 +313,18 @@ async function whOlvidarEste() {
       </p>
     </div>
 
-    <UCard v-if="!cargando && esNativo">
+    <!-- Solo el jefe toca la URL y el metodo de actualizacion: un trabajador
+      que apunte la app a otro servidor (o cambie el metodo) rompe la
+      sincronizacion del puesto sin que nadie lo note. -->
+    <UAlert
+      v-if="esNativo && !auth.esJefe"
+      color="neutral"
+      icon="i-lucide-info"
+      title="Ajustes del puesto"
+      description="La URL del servidor y las actualizaciones las configura el jefe."
+    />
+
+    <UCard v-if="!cargando && esNativo && auth.esJefe">
       <div class="space-y-4">
         <UFormField label="URL del servidor" help="Ej: http://192.168.1.100:3000">
           <UInput
@@ -228,7 +365,7 @@ async function whOlvidarEste() {
       </div>
     </UCard>
 
-    <UCard v-if="esNativo">
+    <UCard v-if="esNativo && auth.esJefe">
       <div class="space-y-4">
         <div>
           <h2 class="text-sm font-medium">
@@ -239,10 +376,23 @@ async function whOlvidarEste() {
           </p>
         </div>
 
-        <UFormField label="Descarga de actualizaciones" help="Automática intenta en la app y si falla usa el navegador.">
+        <UFormField
+          label="Descarga de actualizaciones"
+          :help="`Método actual: ${metodoActual}. Automática intenta en la app y, si falla, usa el navegador.`"
+        >
+          <!-- OJO: `update` es un objeto PLANO de refs (lo devuelve useAppUpdate), no un
+             reactive(), así que en la plantilla hay que leer `.value` a mano.
+             Con `v-model="update.metodo"` el USelect recibía el objeto Ref en
+             vez de su valor, y el recorrido que Nuxt UI hace sobre las props
+             (ohash `diff`, que no detecta ciclos) se lo comía entero:
+             ref -> dep -> Map de dependencias -> más refs -> nodos del DOM, hasta
+             reventar con "Cannot serialize HTMLDivElement". -->
           <USelect
-            v-model="update.metodo"
+            :model-value="update.metodo.value"
             :items="metodoItems"
+            class="w-full"
+            size="lg"
+            :ui="{ content: 'min-w-72' }"
             @update:model-value="update.guardarMetodo"
           />
         </UFormField>
@@ -356,6 +506,72 @@ async function whOlvidarEste() {
         >
           Descargar APK
         </UButton>
+      </div>
+    </UCard>
+
+    <!-- Permisos del módulo de Recargas. Es el único sitio donde se piden:
+         no hay asistente al arrancar. Cada fila dice si algo falta y ofrece
+         el botón que lo resuelve. -->
+    <UCard v-if="esNativo">
+      <div class="space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-medium">
+            Permisos de recarga
+          </h2>
+          <UButton
+            icon="i-lucide-refresh-cw"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            aria-label="Actualizar estado"
+            @click="refrescarPermisos()"
+          />
+        </div>
+
+        <p class="text-xs text-muted">
+          Necesarios para anotar las recargas de Etecsa solas, con la app cerrada.
+          Sin ellos puedes ver los SMS manualmente. El de Contactos es
+          opcional: solo hace falta para crear clientes desde la agenda.
+        </p>
+
+        <ul class="space-y-2">
+          <li
+            v-for="p in listaPermisos"
+            :key="p.clave"
+            class="flex items-center justify-between gap-3 text-sm"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <UIcon
+                :name="p.ok ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'"
+                class="size-4 shrink-0"
+                :class="p.ok ? 'text-success' : 'text-warning'"
+              />
+              <span :class="p.ok ? '' : 'font-medium'">{{ p.texto }}</span>
+            </div>
+            <UButton
+              v-if="!p.ok"
+              size="xs"
+              color="neutral"
+              variant="outline"
+              :label="p.accion"
+              :loading="concediendo === p.clave"
+              :disabled="!!concediendo"
+              @click="ejecutarPermiso(p.clave)"
+            />
+          </li>
+        </ul>
+
+        <p
+          v-if="permisosListos"
+          class="text-xs text-muted"
+        >
+          Las recargas se anotan solas. En
+          <NuxtLink
+            to="/recargas/sms"
+            class="underline"
+          >SMS de recarga</NuxtLink>
+          puedes ver los mensajes tal cual llegan.
+        </p>
       </div>
     </UCard>
 

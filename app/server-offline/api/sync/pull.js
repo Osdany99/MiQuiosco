@@ -4,11 +4,11 @@
  * Aplica un resultado de pull (proveniente del server) a la DB local.
  * Incluye aplicación de deletes recibidos del servidor.
  */
-import { TABLES } from '../../../../shared/tables'
+import { SYNC_TABLES } from '../../../../shared/tables'
 import { removePendingDeletesAccepted, enrichForInsert, enrichForUpdate } from '../_factory'
 import { useDb } from '../../db/client'
 
-const SYNC_TABLAS = Object.values(TABLES)
+const SYNC_TABLAS = SYNC_TABLES
 
 async function upsertRegistro(cfg, reg) {
   const db = useDb()

@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { gt, getTableName, getTableColumns } from 'drizzle-orm'
+import { and, eq, gt, inArray, getTableName, getTableColumns } from 'drizzle-orm'
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
+import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
-  await requireAuth(event, 'sync')
+  const auth = await requireAuth(event, 'sync')
+  const puestoId = auth.usuario.puestoId
 
   const query = getQuery(event)
   const desdeRaw = query.desde
@@ -25,7 +27,34 @@ export default defineEventHandler(async (event) => {
 
     const filterCol = syncConfig.insertOnly ? columns.creadoEn : columns.actualizadoEn
     if (!filterCol) return { tabla: tableName, rows: [] }
-    const rows = await db.select().from(table).where(gt(filterCol, desde))
+
+    // Aislamiento por puesto: cada terminal solo descarga lo suyo. Las hijas
+    // sin puestoId se filtran por el puesto del padre (subquery, sin roundtrip
+    // extra). Sin esto, un JWT cualquiera descargaba todos los puestos.
+    const conditions = [gt(filterCol, desde)]
+    if (syncConfig.puestoScoped) {
+      if (!columns.puestoId) return { tabla: tableName, rows: [] }
+      conditions.push(eq(columns.puestoId, puestoId))
+    } else {
+      const padre = PADRE_POR_TABLA[syncConfig.tabla]
+      if (!padre) return { tabla: tableName, rows: [] }
+      const parentTable = schemaByTabla[padre.padre] as Table | undefined
+      const fkCol = (columns as any)[padre.fk]
+      if (!parentTable || !fkCol) return { tabla: tableName, rows: [] }
+      const parentCols = getTableColumns(parentTable) as Record<string, Column>
+      if (!parentCols.puestoId || !parentCols.id) return { tabla: tableName, rows: [] }
+      conditions.push(
+        inArray(
+          fkCol as any,
+          db
+            .select({ id: parentCols.id as any })
+            .from(parentTable as any)
+            .where(eq(parentCols.puestoId as any, puestoId))
+        )
+      )
+    }
+
+    const rows = await db.select().from(table).where(and(...conditions))
 
     for (const row of rows) {
       const ts = (row as any).actualizadoEn ?? (row as any).creadoEn

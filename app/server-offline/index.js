@@ -28,7 +28,7 @@ function serializarUsuario(u) {
 
 const OFFLINE_CONFIGS = [
   {
-    config: { tabla: 'productos', defaults: { precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true }, puestoScoped: TABLES.productos.puestoScoped, customMutations: { create: createProductoMut, update: updateProductoMut } },
+    config: { tabla: 'productos', defaults: { precioCompraActual: 0, precioVentaActual: 0, orden: 0, activo: true, activoQuiosco: true, stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0 }, puestoScoped: TABLES.productos.puestoScoped, customMutations: { create: createProductoMut, update: updateProductoMut } },
     overrides: {
       actions: {
         getHistorial: async (productoId) => {
@@ -130,6 +130,14 @@ const OFFLINE_CONFIGS = [
     overrides: {}
   },
   {
+    config: { tabla: 'ventas_directas', defaults: { ubicacionVenta: 'almacen', anulado: false }, puestoScoped: TABLES.ventas_directas.puestoScoped },
+    overrides: {}
+  },
+  {
+    config: { tabla: 'ventas_directas_items', defaults: { secuencia: 0 } },
+    overrides: {}
+  },
+  {
     config: { tabla: 'transferencias', defaults: { montoTotal: 0 }, puestoScoped: TABLES.transferencias.puestoScoped },
     overrides: {}
   },
@@ -144,6 +152,29 @@ const OFFLINE_CONFIGS = [
   {
     config: { tabla: 'historial_precios', defaults: {} },
     overrides: {}
+  },
+  // ------------------------------------------------------------ módulo recargas
+  {
+    config: { tabla: 'clientes', defaults: { activo: true }, puestoScoped: TABLES.clientes.puestoScoped },
+    overrides: { requireRole: 'jefe' }
+  },
+  {
+    config: { tabla: 'clientes_telefonos', defaults: { activo: true }, puestoScoped: TABLES.clientes_telefonos.puestoScoped },
+    overrides: { requireRole: 'jefe' }
+  },
+  {
+    config: { tabla: 'recargas', defaults: { estadoPago: 'pendiente', montoCobrado: 0, tipo: 'saldo' }, puestoScoped: TABLES.recargas.puestoScoped },
+    overrides: { requireRole: 'jefe' }
+  },
+  {
+    config: { tabla: 'cobros_recarga', defaults: {} },
+    overrides: { requireRole: 'jefe' }
+  },
+  // Bandeja de SMS: es local al teléfono (no se sincroniza) y por eso no lleva
+  // puestoScoped.
+  {
+    config: { tabla: 'sms_etecsa', defaults: { estado: 'pendiente' } },
+    overrides: { requireRole: 'jefe' }
   }
 ]
 

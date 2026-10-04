@@ -1,0 +1,264 @@
+{
+  "descripcion": "13 recargas reales del buzon del telefono (barrido Fase 3.9). Derivado de sms-etecsa-corpus.json filtrando lo que parsea parseEtecsaSms. No depende del telefono.",
+  "total": 13,
+  "plataformas": {
+    "monedero": 2,
+    "banco": 11
+  },
+  "telefonos": [
+    "5352827521",
+    "5353138656",
+    "5354470653",
+    "5354561527",
+    "5358971694"
+  ],
+  "mensajes": [
+    {
+      "address": "+5353138610",
+      "date": 1790990914904,
+      "body": "Monedero Mi Transfer:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324 CUP. Telefono: 5354561527. Id transaccion: TMW187085207. Saldo cuenta USD: 0 \r\n Saldo cuenta CUP: 4088.49. \r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "monedero",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5354561527",
+        "telefonoRaw": "5354561527",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "TMW187085207",
+        "saldoCarteraCup": 4088.49,
+        "saldoCarteraUsd": 0
+      }
+    },
+    {
+      "address": "+5353138610",
+      "date": 1790990876082,
+      "body": "Monedero Mi Transfer:  La compra del Plan fue completado. \r\n Ha comprado Plan de Voz de 40 minutos x 250 CUP  \r\n Telefono: 5354470653. \r\n Importe: 250.00 \r\n Importe Pagado: 225.00 CUP \r\n Nro. Transaccion: TMW187119913 \r\n Saldo cuenta USD: 0.00 \r\n Saldo cuenta CUP: 3863.49.",
+      "esperado": {
+        "plataforma": "monedero",
+        "tipo": "voz",
+        "descripcion": "Plan de Voz de 40 minutos",
+        "unidades": 40,
+        "telefono": "5354470653",
+        "telefonoRaw": "5354470653",
+        "montoNominal": 250,
+        "costo": 225,
+        "ganancia": 25,
+        "idTransaccion": "TMW187119913",
+        "saldoCarteraCup": 3863.49,
+        "saldoCarteraUsd": 0
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1789187649329,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 52827521. Id transaccion: MM6053BY2T987. Saldo Restante: CR 972.17. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5352827521",
+        "telefonoRaw": "52827521",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM6053BY2T987",
+        "saldoCarteraCup": 972.17,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1789187600141,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 58971694. Id transaccion: MM6053BY1X987. Saldo Restante: CR 1296.17. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5358971694",
+        "telefonoRaw": "58971694",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM6053BY1X987",
+        "saldoCarteraCup": 1296.17,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1788891963636,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 53138656. Id transaccion: MM6052JVNT987. Saldo Restante: CR 8620.17. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5353138656",
+        "telefonoRaw": "53138656",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM6052JVNT987",
+        "saldoCarteraCup": 8620.17,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1786564010092,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 52827521. Id transaccion: MM604Y7X8E987. Saldo Restante: CR 4766.55. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5352827521",
+        "telefonoRaw": "52827521",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604Y7X8E987",
+        "saldoCarteraCup": 4766.55,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1786563168508,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 58971694. Id transaccion: MM604Y7T9T987. Saldo Restante: CR 5090.55. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5358971694",
+        "telefonoRaw": "58971694",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604Y7T9T987",
+        "saldoCarteraCup": 5090.55,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1786223739004,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 53138656. Id transaccion: MM604XCTLM987. Saldo Restante: CR 7414.55. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5353138656",
+        "telefonoRaw": "53138656",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604XCTLM987",
+        "saldoCarteraCup": 7414.55,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1783834888275,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 58971694. Id transaccion: MM604SS03N987. Saldo Restante: CR 8455.53. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5358971694",
+        "telefonoRaw": "58971694",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604SS03N987",
+        "saldoCarteraCup": 8455.53,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1783530238625,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 53138656. Id transaccion: MM604S7S7H987. Saldo Restante: CR 23779.53. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5353138656",
+        "telefonoRaw": "53138656",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604S7S7H987",
+        "saldoCarteraCup": 23779.53,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1781230437792,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 58971694. Id transaccion: MM604NNYBL987. Saldo Restante: CR 20166.83. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5358971694",
+        "telefonoRaw": "58971694",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604NNYBL987",
+        "saldoCarteraCup": 20166.83,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1780862810253,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 53138656. Id transaccion: MM604MPQP9987. Saldo Restante: CR 20490.83. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5353138656",
+        "telefonoRaw": "53138656",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604MPQP9987",
+        "saldoCarteraCup": 20490.83,
+        "saldoCarteraUsd": null
+      }
+    },
+    {
+      "address": "PAGOxMOVIL",
+      "date": 1778151827315,
+      "body": "Banco Metropolitano:  La recarga se realizo con exito. Saldo a acreditar: 360 CUP. Saldo acreditado: 360 CUP. Monto Pagado: 324.0 CUP. Telefono: 53138656. Id transaccion: MM604GI5VY987. Saldo Restante: CR 1018.51. \r\r\n Gracias por utilizar nuestros servicios, ETECSA.",
+      "esperado": {
+        "plataforma": "banco",
+        "tipo": "saldo",
+        "descripcion": null,
+        "unidades": null,
+        "telefono": "5353138656",
+        "telefonoRaw": "53138656",
+        "montoNominal": 360,
+        "costo": 324,
+        "ganancia": 36,
+        "idTransaccion": "MM604GI5VY987",
+        "saldoCarteraCup": 1018.51,
+        "saldoCarteraUsd": null
+      }
+    }
+  ]
+}

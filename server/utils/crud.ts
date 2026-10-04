@@ -2,6 +2,8 @@
 import { eq, and, ilike, asc, desc, getTableColumns, type Table, type Column } from 'drizzle-orm'
 import { db, schemaByTabla } from '../database/client'
 import { makePgCtx } from './pgContext'
+import { exigirPuesto } from './puesto'
+import type { AuthContext } from './auth'
 
 /**
  * server/utils/crud.ts — Funciones CRUD reutilizables para endpoints.
@@ -12,10 +14,7 @@ import { makePgCtx } from './pgContext'
 type SafeParseResult = { success: boolean, data?: any, error?: any }
 type SafeParseFn = (data: any) => SafeParseResult
 
-interface AuthUser {
-  usuario?: { id?: string, puestoId?: string, [key: string]: any }
-  [key: string]: any
-}
+type AuthUser = AuthContext
 
 interface CrudListConfig {
   tabla: string
@@ -24,7 +23,10 @@ interface CrudListConfig {
 
 interface CrudListOpts {
   query?: Record<string, any>
-  auth?: AuthUser
+  // Requerido: sin auth, el filtro puestoScoped queda muerto y el listado
+  // devuelve filas de todos los puestos (paso en productos, cuadres,
+  // proveedores, traspasos y movimientos). TypeScript lo exige.
+  auth: AuthUser
   listFilter?: (ctx: { query: Record<string, any>, auth?: AuthUser, table: Table, columns: Record<string, Column> }) => any
   serialize?: (row: any) => any
 }
@@ -36,6 +38,9 @@ interface CrudGetConfig {
 
 interface CrudGetOpts {
   id: string
+  // Requerido: sin auth no se puede verificar el puesto (aislamiento
+  // multi-terminal, ver server/utils/puesto.ts). TypeScript lo exige.
+  auth: AuthUser
   serialize?: (row: any) => any
 }
 
@@ -72,7 +77,8 @@ interface CrudPatchConfig {
 interface CrudPatchOpts {
   id: string
   body: any
-  auth?: AuthUser
+  // Requerido: sin auth no se puede verificar el puesto (ver CrudGetOpts).
+  auth: AuthUser
   hooks?: {
     beforeUpdate?: (cambios: any, auth?: AuthUser) => Promise<any>
   }
@@ -83,6 +89,8 @@ interface CrudRemoveConfig {
   tabla: string
   label: string
   id: string
+  // Requerido: sin auth no se puede verificar el puesto (ver CrudGetOpts).
+  auth: AuthUser
 }
 
 function getTable(tabla: string): Table {
@@ -137,7 +145,7 @@ function buildFilterFromQuery(query: Record<string, any>, columns: Record<string
   return conditions.length ? and(...conditions) : undefined
 }
 
-export async function crudList(config: CrudListConfig, opts: CrudListOpts = {}) {
+export async function crudList(config: CrudListConfig, opts: CrudListOpts) {
   const { query: queryOpts, auth, listFilter, serialize } = opts
   const table = getTable(config.tabla)
   const columns = getTableColumns(table)
@@ -172,11 +180,9 @@ export async function crudList(config: CrudListConfig, opts: CrudListOpts = {}) 
 }
 
 export async function crudGet(config: CrudGetConfig, opts: CrudGetOpts) {
-  const { id, serialize } = opts
-  const table = getTable(config.tabla)
-  const columns = getTableColumns(table)
-  const [row] = await db.select().from(table).where(eq(columns.id as Column, id)).limit(1)
-  if (!row) throw createError({ statusCode: 404, statusMessage: `${config.label} no encontrado.` })
+  const { id, auth, serialize } = opts
+  // Lanza 404 si no existe O si es de otro puesto (misma respuesta).
+  const row = await exigirPuesto(auth, config.tabla, id, config.label)
   return serialize ? serialize(row) : row
 }
 
@@ -237,6 +243,9 @@ export async function crudPatch(config: CrudPatchConfig, opts: CrudPatchOpts) {
   const table = getTable(config.tabla)
   const columns = getTableColumns(table)
 
+  // Primero el puesto: un 404 temprano evita validar y tocar filas ajenas.
+  await exigirPuesto(auth, config.tabla, id, config.label)
+
   const updateSchema = config.updateSchema || config.schema.partial()
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) {
@@ -268,11 +277,28 @@ export async function crudPatch(config: CrudPatchConfig, opts: CrudPatchOpts) {
 }
 
 export async function crudRemove(opts: CrudRemoveConfig) {
-  const { tabla, label, id } = opts
+  const { tabla, label, id, auth } = opts
   const table = schemaByTabla[tabla]
   if (!table) throw new Error(`Tabla "${tabla}" no encontrada en schema`)
   const columns = getTableColumns(table)
-  const [row] = await db.delete(table).where(eq(columns.id as Column, id)).returning({ id: columns.id! })
-  if (!row) throw createError({ statusCode: 404, statusMessage: `${label} no encontrado.` })
-  return { success: true, id: row.id }
+  // Primero el puesto: no se borra lo ajeno (lanza 404 si no existe o es ajeno).
+  await exigirPuesto(auth, tabla, id, label)
+  try {
+    const [row] = await db.delete(table).where(eq(columns.id as Column, id)).returning({ id: columns.id! })
+    if (!row) throw createError({ statusCode: 404, statusMessage: `${label} no encontrado.` })
+    return { success: true, id: row.id }
+  } catch (e: any) {
+    // 23503 = foreign_key_violation. Pasa cuando otras filas apuntan a este
+    // registro (por ejemplo, un jefe que tiene cuadres, lotes o traspasos).
+    // Sin esto la API respondia 500 "Server Error" y el cliente lo leia como
+    // un fallo generico, sin saber que el problema es que hay datos que lo
+    // sujetan. 409 + mensaje accionable: se desactiva en vez de borrar.
+    if (e?.code === '23503' || e?.cause?.code === '23503') {
+      throw createError({
+        statusCode: 409,
+        statusMessage: `No se puede eliminar ${label.toLowerCase()}: tiene datos asociados que lo necesitan. Desactívalo en lugar de eliminarlo.`
+      })
+    }
+    throw e
+  }
 }

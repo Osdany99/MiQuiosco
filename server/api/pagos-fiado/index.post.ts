@@ -5,7 +5,7 @@ import { requireRole } from '../../utils/auth'
 import { pagoFiadoSchema } from '#shared/schemas/pagoFiado'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const body = await readBody(event)
   const parsed = pagoFiadoSchema.safeParse(body)
   if (!parsed.success) {
@@ -24,9 +24,28 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Cuenta de fiado no encontrada.' })
   }
 
+  // Primero el estado: cobrar una cuenta saldada es conflicto (409) sin importar
+  // el monto. (Antes el chequeo de saldo iba primero y cualquier cobro a una
+  // pagada caia en 400 'excede el saldo', ocultando el verdadero problema.)
+  if (cuenta.estado === 'pagada') {
+    throw createError({ statusCode: 409, statusMessage: 'Esta deuda ya está saldada.' })
+  }
+
   const saldoPendiente = cuenta.montoTotal - cuenta.montoPagado
   if (monto > saldoPendiente) {
     throw createError({ statusCode: 400, statusMessage: `El monto excede el saldo pendiente (${saldoPendiente}).` })
+  }
+
+  // El cuadre receptor, si lo hay, debe existir y ser del mismo puesto.
+  if (cuadreId) {
+    const [destino] = await db
+      .select({ id: cuadres.id, puestoId: cuadres.puestoId })
+      .from(cuadres)
+      .where(eq(cuadres.id, cuadreId))
+      .limit(1)
+    if (!destino || destino.puestoId !== auth.usuario.puestoId) {
+      throw createError({ statusCode: 404, statusMessage: 'Cuadre no encontrado.' })
+    }
   }
 
   const result = await db.transaction(async (tx) => {
@@ -46,18 +65,26 @@ export default defineEventHandler(async (event) => {
       })
       .where(eq(cuentasFiado.id, cuentaFiadoId))
 
-    await tx
-      .update(cuadres)
-      .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${monto}` })
-      .where(eq(cuadres.id, cuadreId))
+    // Cobro directo: el efectivo no entró a ninguna gaveta, así que ningún
+    // cuadre suma montoCobradoFiado.
+    if (cuadreId) {
+      await tx
+        .update(cuadres)
+        .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${monto}` })
+        .where(eq(cuadres.id, cuadreId))
+    }
 
     // La deuda pendiente baja en el cuadre de ORIGEN (no necesariamente el
     // mismo donde se cobra: puede ser una deuda vieja). Piso 0 por cuadres
     // creados antes de este ajuste, cuyo montoFiado quedó en 0.
-    await tx
-      .update(cuadres)
-      .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${monto}, 0)` })
-      .where(eq(cuadres.id, cuenta.cuadreOrigenId))
+    // Las deudas directas no tienen cuadre de origen: solo bajan su propio
+    // montoPagado, que ya se escribió arriba.
+    if (cuenta.cuadreOrigenId) {
+      await tx
+        .update(cuadres)
+        .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${monto}, 0)` })
+        .where(eq(cuadres.id, cuenta.cuadreOrigenId))
+    }
 
     return p
   })

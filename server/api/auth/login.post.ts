@@ -58,10 +58,15 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     })
   }
 
-  if (usuario.rol === 'cliente') {
+  // Solo el jefe entra a la app: el trabajador no se loguea (decision de
+  // producto, Fase 3). Sin esto, el trabajador quedaba en modo online sin
+  // token y cada pantalla daba 401 sin Authorization.
+  if (usuario.rol !== 'jefe') {
     throw createError({
       statusCode: 403,
-      statusMessage: 'Los clientes no pueden iniciar sesión aún. Próximamente habilitado.'
+      statusMessage: usuario.rol === 'cliente'
+        ? 'Los clientes no pueden iniciar sesión aún. Próximamente habilitado.'
+        : 'Solo el jefe puede iniciar sesión.'
     })
   }
 
@@ -74,17 +79,8 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     }
   }
 
-  // Trabajador: NO se emite JWT, devuelve también el hash para cache offline
-  if (usuario.rol === 'trabajador') {
-    const config = useRuntimeConfig(event)
-    const horasExp = Number(config.public.sessionExpirationTrabajadorHoras) || 24
-    const msExp = horasExp * 60 * 60 * 1000
-    return {
-      ...baseResponse,
-      expiraEn: Date.now() + msExp
-    }
-  }
-
+  // A partir de aqui el rol es 'jefe': es el unico que recibe JWT con scope
+  // 'sync' (acceso a /api/sync/* y demas API).
   const { token, expiraEn } = signToken({
     sub: usuario.id,
     rol: usuario.rol as Rol,

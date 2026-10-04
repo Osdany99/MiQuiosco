@@ -1,0 +1,1 @@
+ALTER TABLE "movimientos_inventario" ADD COLUMN "actualizado_en" timestamp with time zone DEFAULT now() NOT NULL;

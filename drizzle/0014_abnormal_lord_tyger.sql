@@ -1,0 +1,1 @@
+ALTER TABLE "productos" ADD COLUMN "activo_quiosco" boolean DEFAULT true NOT NULL;

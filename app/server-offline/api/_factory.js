@@ -102,6 +102,22 @@ function matchValue(val, filter) {
   return s.toLowerCase().includes(f.toLowerCase())
 }
 
+/**
+ * Claves de rango de fechas: no son columnas, así que el filtrado por
+ * substring de abajo las descartaría y dejaría la lista vacía. Mapean a
+ * `creadoEn` con comparación inclusiva.
+ */
+const COLUMNAS_RANGO = { desde: 'creadoEn', hasta: 'creadoEn', fechaDesde: 'creadoEn', fechaHasta: 'creadoEn' }
+const RESERVADAS = new Set(['orderBy', 'orderDir', ...Object.keys(COLUMNAS_RANGO)])
+
+/** Acepta epoch ms (SQLite) o una fecha ISO (remoto) y devuelve milisegundos. */
+function aMilisegundos(valor) {
+  if (valor == null) return null
+  if (typeof valor === 'number') return valor
+  const t = Date.parse(String(valor))
+  return Number.isNaN(t) ? null : t
+}
+
 export async function queryFromDb(tabla, opts, auth, config) {
   const db = useDb()
   const all = await db.queryAll(tabla)
@@ -114,7 +130,19 @@ export async function queryFromDb(tabla, opts, auth, config) {
   const filterSource = opts?.filter || opts?.query
   if (filterSource) {
     for (const [key, value] of Object.entries(filterSource)) {
-      if (value == null || value === '' || key === 'orderBy' || key === 'orderDir') continue
+      if (value == null || value === '') continue
+      const columnaRango = COLUMNAS_RANGO[key]
+      if (columnaRango) {
+        const limite = aMilisegundos(value)
+        if (limite == null) continue
+        rows = rows.filter((r) => {
+          const v = aMilisegundos(r[columnaRango])
+          if (v == null) return false
+          return key === 'desde' || key === 'fechaDesde' ? v >= limite : v <= limite
+        })
+        continue
+      }
+      if (RESERVADAS.has(key)) continue
       rows = rows.filter(r => matchValue(r[key], value))
     }
   }

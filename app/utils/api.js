@@ -13,6 +13,14 @@ let versionCodePromise = null
 const _serverAlcanzable = shallowRef(true)
 export const serverAlcanzable = readonly(_serverAlcanzable)
 
+// Contador de fallos de red CONSECUTIVOS (se resetea con cada exito).
+// Existe porque un watch sobre el booleano solo dispara en las transiciones
+// true->false: con el servidor caido el valor se queda en false y el contador
+// del watcher nunca llegaba a 2, asi que la degradacion automatica a Local
+// jamas ocurria. Este contador sube con CADA fallo.
+const _fallosRed = shallowRef(0)
+export const fallosRed = readonly(_fallosRed)
+
 export function esErrorDeRed(err) {
   if (!err || typeof err !== 'object') return false
   if (err.name === 'AbortError') return true
@@ -118,10 +126,12 @@ export async function $api(path, opts = {}) {
       signal: controller.signal
     })
     _serverAlcanzable.value = true
+    _fallosRed.value = 0
     return result
   } catch (err) {
     if (esErrorDeRed(err)) {
       _serverAlcanzable.value = false
+      _fallosRed.value += 1
     }
     throw err
   } finally {

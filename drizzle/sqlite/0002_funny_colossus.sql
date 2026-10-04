@@ -1,0 +1,1 @@
+ALTER TABLE `movimientos_inventario` ADD `actualizado_en` integer NOT NULL;

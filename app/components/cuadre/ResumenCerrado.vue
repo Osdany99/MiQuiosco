@@ -39,9 +39,17 @@
         <span>Diferencia:</span>
         <span class="font-mono">{{ fmtPrecio(cuadre.diferencia ?? 0) }}</span>
       </div>
+      <div v-if="cuadre.costoTotal != null" class="flex justify-between">
+        <span>Costo (FIFO):</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.costoTotal) }}</span>
+      </div>
+      <div v-if="cuadre.ganancia != null" class="flex justify-between font-semibold text-success">
+        <span>Ganancia:</span>
+        <span class="font-mono">{{ fmtPrecio(cuadre.ganancia) }}</span>
+      </div>
       <div class="flex justify-between">
         <span>Trabajador:</span>
-        <span>{{ cuadre.trabajadorTurnoId || '—' }}</span>
+        <span>{{ nombreTrabajador }}</span>
       </div>
       <div class="flex justify-between">
         <span>Pago trabajador:</span>
@@ -64,7 +72,24 @@
 </template>
 
 <script setup>
-defineProps({
+import { TABLES } from '../../../shared/tables'
+
+const props = defineProps({
   cuadre: { type: Object, required: true }
+})
+
+// Sin toast: si la lista no carga, se muestra el id como respaldo.
+const repo = useRepo(TABLES.usuarios, { toast: false })
+const trabajadores = ref([])
+const nombreTrabajador = computed(() => {
+  if (!props.cuadre.trabajadorTurnoId) return '—'
+  return trabajadores.value.find(t => t.id === props.cuadre.trabajadorTurnoId)?.nombre
+    ?? props.cuadre.trabajadorTurnoId
+})
+
+onMounted(async () => {
+  if (!props.cuadre.trabajadorTurnoId) return
+  const { data } = await repo.readAll()
+  if (Array.isArray(data)) trabajadores.value = data
 })
 </script>

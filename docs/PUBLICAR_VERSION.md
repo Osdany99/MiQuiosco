@@ -69,7 +69,10 @@ pnpm lint && pnpm test && pnpm typecheck
    borrar columnas/tablas): ir al **Caso C** primero y volver aquí.
    Si el cambio es **aditivo** (añadir tablas/columnas nullable o con
    default, índices): solo genera y commitea la migración
-   (`pnpm db:generate`) — el workflow la aplica solo en `migrate-db`.
+   (`pnpm db:generate`, y además `pnpm db:generate:sqlite` si tocaste
+   `app/server-offline/db/schema.ts`) — el workflow la aplica solo en
+   `migrate-db`. El mismo gate corre en `ci` en cada push, así que si
+   olvidaste una de las dos, el push ya sale en rojo.
 2. Commit + push de tus cambios a la rama principal:
    ```powershell
    git add -A; git commit -m "feat: ..."; git push
@@ -87,8 +90,9 @@ pnpm lint && pnpm test && pnpm typecheck
    "v1.4.6" -match '^v([0-9]+\.[0-9]+)\.([0-9]+)$'   # versionName=1.4 versionCode=6
    ```
     Esto dispara el workflow `release-apk`, que hace **todo solo**:
-    - Job `migrate-db`: verifica que `drizzle/` esté generado al día con el
-      schema y aplica las migraciones pendientes en Neon con
+    - Job `migrate-db`: verifica que `drizzle/` (Postgres) **y** `drizzle/sqlite/` (offline) estén
+      generados al día con sus schemas —si falta cualquiera de los dos, aborta
+      sin tocar la BD— y aplica las migraciones pendientes en Neon con
       `drizzle-kit migrate` (idempotente: si la BD ya está al día, no hace
       nada). Si falla, el release se aborta aquí y no se publica nada.
    - Job `build-release`: build web con URL de producción, `cap sync`,
@@ -232,14 +236,56 @@ $ver = (Get-ChildItem $bt -Directory | Sort-Object Name -Descending)[0].Name
 # Debe mostrar firmante release. Si falla, no distribuir.
 ```
 
-## Fase 8 (futura): entrega interna en la app (modo B)
+## Entrega interna en la app (modo B, "En la app")
 
-Sin tocar servidor ni decisión de versiones, solo cliente + nativo:
+Ya implementado. El usuario elige el método en **Configuración → Descarga de
+actualizaciones** (`Automática` / `Solo navegador` / `En la app`). Con
+`Automática`, el servidor manda: `APP_METODO_SUGERIDO=interno` hace que la
+actualización se descargue dentro de la app en vez de abrir el navegador.
 
-1. `pnpm add @m430/capacitor-app-install` (o equivalente) + `cap:sync`.
-2. `AndroidManifest.xml`: permiso `REQUEST_INSTALL_PACKAGES` + `FileProvider`
-   (`${applicationId}.fileprovider`) y `res/xml/file_paths.xml`.
-3. Implementar `entregarDescargaInterna(url)` en `useAppUpdate.js`:
-   `Filesystem.downloadFile` al `Cache` con progreso → `installApk`.
-   El fallback al navegador ya existe: si B falla, cae solo a A.
-4. Probar en dispositivo físico (varios fabricantes si es posible).
+**Cómo funciona**
+
+- `useAppUpdate.entregarDescargaInterna()` baja la APK a `Directory.Cache` con
+  `Filesystem.downloadFile` (barra de progreso vía el listener `progress`),
+  con un timeout de 5 min, y luego llama a `instalarApk()`.
+- `instalarApk()` va a `app/utils/appInstall.js` → plugin propio
+  `ApkInstallerPlugin.java`, que convierte el archivo en un `content://` con el
+  `FileProvider` ya declarado (`${applicationId}.fileprovider`) y lanza el
+  instalador del sistema con `ACTION_VIEW` + `application/vnd.android.package-archive`.
+- Si algo falla (red, timeout, instalador), **cae solo al navegador**: una
+  actualización obligatoria nunca se queda sin vía.
+
+**El permiso especial (único rodeo del modo B)**
+
+`REQUEST_INSTALL_PACKAGES` es un permiso especial: la **primera** vez que se usa
+el modo interno, Android lleva a Ajustes → *Instalar apps desconocidas*. La app
+no lo pide sola; muestra "Abrir ajustes" y reintenta cuando el usuario vuelve
+(estado `espera-permiso`). Android 13+ concede el permiso a una app concreta,
+así que no es un "permitir todo". Mientras espera, se puede cambiar a
+*navegador* desde el propio aviso.
+
+**Requisitos para que funcione**
+
+- `APP_APK_URL` debe apuntar a la APK **de producción, firmada**. Es la misma
+  que publica el workflow, así que en producción ya cumple.
+- Todas las releases se firman con `miquiosco-prod.jks`. Android rechaza
+  instalar encima de una app firmada con otra clave
+  (`INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES`): sin ese keystore, una
+  actualización in-app no es posible. Ver el secret
+  `ANDROID_KEYSTORE_BASE64`.
+
+**Probar en local**
+
+No copies la APK a `public/apk/`: `cap:sync` empaquetaría el APK **dentro** de
+la propia APK. Sírvela aparte y apúntala con URL absoluta en `.env`:
+
+```powershell
+# en otra terminal, desde la carpeta del APK
+npx serve android\app\build\outputs\apk\release -l 8099
+# .env  ->  APP_APK_URL=http://<TU_IP_LAN>:8099/app-release.apk
+```
+
+Usa **`assembleRelease`**, no `assembleDebug`: el build debug va firmado con la
+debug key y Android lo rechaza como actualización de una release. Prueba en
+**dispositivo físico** (el emulador no reproduce bien el instalador) y, si
+puedes, en más de un fabricante.

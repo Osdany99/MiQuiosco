@@ -83,12 +83,65 @@
 
     <BaseDialog
       v-model="nuevaDeudaOpen"
-      title="Nueva deuda"
+      :title="fiadoForm.directa ? 'Nueva deuda (fuera del cuadre)' : 'Nueva deuda'"
       confirm-text="Registrar"
       :loading="cargando"
       @confirm="confirmarNuevaDeuda"
       @cancel="nuevaDeudaOpen = false"
     >
+      <div v-if="!readonly" class="mb-4">
+        <UFormField label="¿Dónde nace esta deuda?">
+          <div class="flex gap-2 w-full">
+            <UButton
+              size="sm"
+              class="flex-1"
+              :variant="!fiadoForm.directa ? 'solid' : 'outline'"
+              :color="!fiadoForm.directa ? 'primary' : 'neutral'"
+              icon="i-lucide-clipboard-check"
+              @click="fiadoForm.directa = false"
+            >
+              Del cuadre de hoy
+            </UButton>
+            <UButton
+              size="sm"
+              class="flex-1"
+              :variant="fiadoForm.directa ? 'solid' : 'outline'"
+              :color="fiadoForm.directa ? 'primary' : 'neutral'"
+              icon="i-lucide-pocket"
+              @click="fiadoForm.directa = true"
+            >
+              Fuera del cuadre
+            </UButton>
+          </div>
+        </UFormField>
+        <UAlert
+          v-if="fiadoForm.directa"
+          color="info"
+          variant="soft"
+          icon="i-lucide-info"
+          title="Deuda directa"
+          description="No pertenece a ningún cuadre: no pasa por el tope ni suma al corte del día, y el producto sale del inventario."
+          class="mt-2"
+        />
+      </div>
+
+      <UFormField v-if="fiadoForm.directa" label="Sale del" class="mb-4">
+        <div class="flex gap-2 w-full">
+          <UButton
+            v-for="op in opcionesUbicacion"
+            :key="op.value"
+            size="sm"
+            class="flex-1"
+            :variant="fiadoForm.ubicacion === op.value ? 'solid' : 'outline'"
+            :color="fiadoForm.ubicacion === op.value ? 'primary' : 'neutral'"
+            :icon="op.icon"
+            @click="fiadoForm.ubicacion = op.value"
+          >
+            {{ op.label }}
+          </UButton>
+        </div>
+      </UFormField>
+
       <CuadreFiadoForm
         ref="fiadoFormRef"
         v-model="fiadoForm"
@@ -155,7 +208,7 @@ const {
   clientes, cargando, cuentasDelCuadre,
   montoFiadoCalculado, montoCobradoFiadoCalculado,
   cargarClientes, cargarActividadDelCuadre, crearCliente,
-  registrarNuevaDeuda, editarDeuda, eliminarDeuda, cobrarDeuda,
+  registrarNuevaDeuda, registrarDeudaDirecta, editarDeuda, eliminarDeuda, cobrarDeuda,
   itemsDeCuenta
 } = useCuentasFiado()
 
@@ -163,7 +216,20 @@ const nuevaDeudaOpen = ref(false)
 const cobrarOpen = ref(false)
 const editarOpen = ref(false)
 const eliminarOpen = ref(false)
-const fiadoForm = ref({ clienteId: null, items: [], montoPagadoInicial: 0, formaPagoInicial: 'efectivo' })
+const FIADO_VACIO = () => ({
+  clienteId: null,
+  items: [],
+  montoPagadoInicial: 0,
+  formaPagoInicial: 'efectivo',
+  // directa = la deuda nace fuera del cuadre: sin tope, sin tocar el corte.
+  directa: false,
+  ubicacion: 'almacen'
+})
+const opcionesUbicacion = [
+  { value: 'almacen', label: 'Almacén', icon: 'i-lucide-warehouse' },
+  { value: 'quiosco', label: 'Quiosco', icon: 'i-lucide-store' }
+]
+const fiadoForm = ref(FIADO_VACIO())
 const cobrarForm = ref({ cuentaFiadoId: null, monto: 0, formaPago: 'efectivo' })
 const editarForm = ref({ clienteId: null, items: [] })
 const editarCuentaId = ref(null)
@@ -173,6 +239,7 @@ const cobrarFormRef = ref(null)
 const editarFormRef = ref(null)
 
 const emit = defineEmits(['actualizado'])
+const toast = useToast()
 
 const deudasActivas = computed(() =>
   cuentasDelCuadre.value.filter(c => c.estado !== 'pagada')
@@ -207,9 +274,39 @@ async function abrirEdicion(deuda) {
 }
 
 async function confirmarNuevaDeuda() {
-  await registrarNuevaDeuda({ ...fiadoForm.value, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  const form = fiadoForm.value
+  if (!form.clienteId) {
+    toast.add({ title: 'Error', description: 'Elige el cliente que debe.', color: 'error' })
+    return
+  }
+  const lineas = form.items
+    .filter(i => i.productoId && Number(i.cantidad) > 0)
+    .map((i, idx) => ({
+      productoId: i.productoId,
+      cantidad: Math.trunc(Number(i.cantidad) || 0),
+      precioVentaUsado: Number(i.precioVentaUsado) || 0,
+      secuencia: idx
+    }))
+  if (lineas.length === 0) {
+    toast.add({ title: 'Error', description: 'Agrega al menos un producto.', color: 'error' })
+    return
+  }
+
+  if (form.directa) {
+    // Fuera del cuadre: no toca el tope ni el corte del día, pero sí el stock.
+    const r = await registrarDeudaDirecta({
+      clienteId: form.clienteId,
+      ubicacion: form.ubicacion,
+      lineas
+    })
+    // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
+    if (!r?.ok) return
+  } else {
+    const r = await registrarNuevaDeuda({ ...form, cuadreId: props.cuadreId, puestoId: props.puestoId })
+    if (!r?.ok) return
+  }
   nuevaDeudaOpen.value = false
-  fiadoForm.value = { clienteId: null, items: [], montoPagadoInicial: 0, formaPagoInicial: 'efectivo' }
+  fiadoForm.value = FIADO_VACIO()
   emit('actualizado')
 }
 
@@ -229,7 +326,8 @@ async function confirmarEdicion() {
       precioVentaUsado: Number(i.precioVentaUsado) || 0
     }))
   if (items.length === 0) return
-  await editarDeuda({ cuentaFiadoId: editarCuentaId.value, items, cuadreId: props.cuadreId })
+  const r = await editarDeuda({ cuentaFiadoId: editarCuentaId.value, items, cuadreId: props.cuadreId })
+  if (!r?.ok) return
   editarOpen.value = false
   emit('actualizado')
 }

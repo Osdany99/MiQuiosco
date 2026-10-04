@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Verde de marca: es el color green-500 de app/assets/css/main.css, que
+         a su vez es el primary de Nuxt UI en toda la app. -->
+    <color name="colorPrimary">#00C16A</color>
+    <color name="colorPrimaryDark">#007F45</color>
+    <color name="colorAccent">#00C16A</color>
+
+    <!-- Fondo del splash. En Android 12+ lo usa el sistema a través de
+         windowSplashScreenBackground (ver values-v31/styles.xml); antes lo
+         cubría el PNG de cada drawable-*. -->
+    <color name="splashBackground">#00C16A</color>
+</resources>

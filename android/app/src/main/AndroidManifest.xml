@@ -7,7 +7,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
@@ -33,9 +34,53 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Receptor de SMS del modulo de Recargas.
+             Declarado en el manifest y no en runtime a proposito: asi el
+             sistema despierta la app aunque este en background o su proceso
+             haya sido matado (HyperOS lo hace a menudo). La prioridad alta hace
+             que reciba el SMS antes que la app de mensajeria por defecto, que
+             es la que pinta las notificaciones.
+             android:permission=BROADCAST_SMS (que solo posee el sistema)
+             impide que otra app inyecte un SMS falso. -->
+        <receiver
+            android:name=".SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Auto-actualización de la APK dentro de la app (Fase 8, modo 'interno').
+         Es un permiso especial: la primera vez Android lleva a Ajustes para que
+         el usuario conceda "Instalar apps desconocidas". Requerido desde la API 26
+         para lanzar el instalador; targetSdkVersion es 36. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Modulo de Recargas Etecsa/Transfermovil.
+         RECEIVE_SMS: SmsReceiver intercepta la confirmacion de cada recarga
+         aunque el proceso de la app este muerto.
+         READ_SMS: solo para el barrido del buzon, la red de seguridad para
+         cuando el broadcast no llego a dispararse.
+         Ambos son "dangerous": se piden en runtime la primera vez. -->
+
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+    <!-- Avisar al entrar una recarga. Desde Android 13 (API 33) este permiso es
+         de runtime: declararlo no basta, hay que pedirlo. En API < 33 se concede
+         en la instalacion, asi que el plugin lo detecta y no pregunta de mas. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Importar contactos del dispositivo para crear clientes con sus numeros.
+         Es opcional: sin el, la vista de Clientes funciona igual pero sin
+         importar. Es "dangerous" y, como la app es sideloaded, hay que haber
+         levantado antes el candado de "ajustes restringidos". -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 </manifest>

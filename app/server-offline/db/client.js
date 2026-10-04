@@ -11,7 +11,7 @@ import { Capacitor } from '@capacitor/core'
 import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
-import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, crearColaTransacciones, txRun } from './esquema'
+import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
 
@@ -94,18 +94,53 @@ class InMemoryDb {
   }
 }
 
+/**
+ * Abre la conexión sqlite en Android, tolerando que ya exista del lado nativo.
+ *
+ * POR QUÉ HACE FALTA ESTA CAPA
+ * Recargar por completo la WebView reinicia este módulo (y con él las variables
+ * de arriba), pero el plugin nativo conserva su registro de conexiones, porque
+ * ese estado vive en el lado Java y sobrevive a la recarga. Entonces el
+ * contexto nuevo llama createConnection y el plugin responde "Connection
+ * already exists".
+ *
+ * Antes de arreglarlo, ese fallo además envenenaba dbConnectionPromise para
+ * siempre: una sola recarga dejaba TODAS las lecturas offline siguientes
+ * devolviendo vacío, y el jefe veía la app sin datos (cuadres en cero, gráficas
+ * vacías) sin ninguna pista de por qué.
+ *
+ * No se pregunta si existe: isConnection() no está implementado en Android
+ * (comprobado en el plugin 8.1.0). Se cierra sin preguntar, que es idempotente
+ * y barato: cuando no hay nada que cerrar, no hace nada.
+ */
+async function abrirConexionNativa() {
+  const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
+  const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
+
+  await sqliteConnection.closeConnection(DB_NAME, false).catch(() => {})
+
+  const conn = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+  await conn.open()
+  await initializeSchema(conn)
+  await sembrarJefeLocal(conn)
+  return conn
+}
+
 async function getConnection() {
   if (Capacitor.isNativePlatform()) {
     if (!dbConnection) {
       if (!dbConnectionPromise) {
-        dbConnectionPromise = (async () => {
-          const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
-          const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
-          dbConnection = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-          await dbConnection.open()
-          await initializeSchema(dbConnection)
-          await sembrarJefeLocal(dbConnection)
-        })()
+        dbConnectionPromise = abrirConexionNativa()
+          .then((conn) => {
+            dbConnection = conn
+            return conn
+          })
+          .catch((error) => {
+            // Sin esta línea la promesa queda envenenada y un único fallo deja
+            // la app sin base por el resto de la vida de la página.
+            dbConnectionPromise = null
+            throw error
+          })
       }
       await dbConnectionPromise
     }
@@ -118,7 +153,10 @@ async function getConnection() {
         inMemoryDb = new InMemoryDb()
         initializeSchemaMemory(inMemoryDb)
         await sembrarJefeLocal(inMemoryDb)
-      })()
+      })().catch((error) => {
+        inMemoryDbPromise = null
+        throw error
+      })
     }
     await inMemoryDbPromise
   }
@@ -135,7 +173,12 @@ const journalSqls = Object.entries(
   import.meta.glob('../../../drizzle/sqlite/*.sql', { query: '?raw', import: 'default', eager: true })
 ).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
-const BASELINE_SQL = journalSqls.map(([, sql]) => sql).join('\n')
+// OJO: el separador incluye un statement-breakpoint explícito. Sin él, la
+// última sentencia de un archivo quedaría fundida con la primera del
+// siguiente al separar, y crearTablasFaltantes/crearIndicesFaltantes
+// clasificarían mal el bloque (un CREATE TABLE pegado tras un CREATE INDEX
+// nunca se crearía en instalaciones existentes).
+const BASELINE_SQL = journalSqls.map(([, sql]) => sql).join('\n--> statement-breakpoint\n')
 
 /**
  * Migraciones legacy best-effort para instalaciones creadas antes del sistema
@@ -156,6 +199,20 @@ const MIGRACIONES_LEGACY = [
 
 /** Nombre del baseline actual del journal, generado desde schema.ts. */
 const NOMBRE_BASELINE = journalSqls.length > 0 ? journalSqls[0][0] : '0000_inicial.sql'
+
+/**
+ * Columnas que el schema ya no declara, por tabla.
+ *
+ * `añadirColumnasFaltantes` solo añade y nunca quita, así que en una
+ * instalación que ya corrió una versión anterior de estas tablas las columnas
+ * viejas se quedan. Con `clientes_telefonos` eso era mortal: `usuario_id` quedó
+ * NOT NULL sin DEFAULT y, al dejar de enviarse, todo insert de teléfono
+ * fallaba.
+ */
+const COLUMNAS_OBSOLETAS = {
+  clientes_telefonos: ['usuario_id'],
+  sms_etecsa: ['procesado']
+}
 
 async function marcarMigracion(conn, name) {
   await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [name, Date.now()])
@@ -207,6 +264,10 @@ async function initializeSchema(conn) {
   await marcarMigracion(conn, NOMBRE_BASELINE)
   await crearTablasFaltantes(conn, BASELINE_SQL)
   await añadirColumnasFaltantes(conn, COLUMN_DEFS)
+  // Antes de crear índices: quitar columnas puede reconstruir la tabla.
+  for (const [tabla, obsoletas] of Object.entries(COLUMNAS_OBSOLETAS)) {
+    await eliminarColumnasObsoletas(conn, tabla, COLUMN_DEFS, obsoletas)
+  }
   await crearIndicesFaltantes(conn, BASELINE_SQL)
 }
 
@@ -215,7 +276,9 @@ function initializeSchemaMemory(mem) {
     'puestos', 'usuarios', 'productos', 'historial_precios',
     'cuadres', 'cuadre_items', 'productos_cache',
     'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado',
-    'transferencias', 'transferencia_items', 'ajustes'
+    'transferencias', 'transferencia_items', 'ajustes',
+    'proveedores', 'lotes', 'traspasos', 'movimientos_inventario',
+    'ventas_directas', 'ventas_directas_items'
   ]
   for (const t of tables) mem.ensureTable(t, '')
 }

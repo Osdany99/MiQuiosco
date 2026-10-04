@@ -134,17 +134,17 @@ Después de sync, **Run ▶** o **Apply Changes** en Android Studio.
 
 ### Usando Android Studio — Logcat
 1. Abrir la pestaña **Logcat** en la parte inferior de Android Studio
-2. En el filtro, escribir `MiQuiosco` o `com.miquiosco.app`
+2. En el filtro, escribir `MiQuiosco` o `com.myquiosco.app`
 3. Los logs de WebView (console.log, errores JS) aparecen aquí con tag `Capacitor/WebView`
 
 ### Ver logs en tiempo real filtrados
 En el campo de búsqueda del Logcat:
 ```
-package:com.miquiosco.app
+package:com.myquiosco.app
 ```
 O para ver solo errores:
 ```
-package:com.miquiosco.app level:ERROR
+package:com.myquiosco.app level:ERROR
 ```
 
 ---
@@ -232,7 +232,7 @@ Después de cambiar, ejecutar `pnpm run cap:sync` y **Run ▶** de nuevo.
 
 ### App se cierra al abrir (crash en WebView)
 1. Abrir la pestaña **Logcat** en Android Studio
-2. Filtrar por `com.miquiosco.app`
+2. Filtrar por `com.myquiosco.app`
 3. Buscar errores de SQLite, permisos, o excepciones de WebView
 
 ### SQLite no funciona en Android
@@ -247,7 +247,7 @@ No hace falta registrar el plugin a mano: `MainActivity.java` extiende
 ### Copiar base de datos SQLite del dispositivo (para debug)
 ```bash
 # La BD local se llama miquioscoSQLite.db (ver DB_NAME en app/server-offline/db/client.js)
-adb shell run-as com.miquiosco.app cp /data/data/com.miquiosco.app/databases/miquioscoSQLite.db /sdcard/miquioscoSQLite.db
+adb shell run-as com.myquiosco.app cp /data/data/com.myquiosco.app/databases/miquioscoSQLite.db /sdcard/miquioscoSQLite.db
 adb pull /sdcard/miquioscoSQLite.db .
 
 # O desde Android Studio: Device Explorer (View → Tool Windows → Device Explorer)

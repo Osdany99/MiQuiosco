@@ -2,21 +2,15 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { transferencias, transferenciaItems, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { exigirPuesto } from '../../utils/puesto'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const id = event.context.params?.id
   if (!id) throw createError({ statusCode: 400, statusMessage: 'ID requerido.' })
 
-  const [transferencia] = await db
-    .select()
-    .from(transferencias)
-    .where(eq(transferencias.id, id))
-    .limit(1)
-
-  if (!transferencia) {
-    throw createError({ statusCode: 404, statusMessage: 'Transferencia no encontrada.' })
-  }
+  // 404 si no existe O si es de otro puesto (misma respuesta).
+  const transferencia = await exigirPuesto(auth, 'transferencias', id, 'Transferencia')
 
   await db.transaction(async (tx) => {
     await tx

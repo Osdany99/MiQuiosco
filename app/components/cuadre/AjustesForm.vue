@@ -37,7 +37,7 @@
 
     <div class="grid grid-cols-2 gap-4">
       <UFormField label="Tipo" class="col-span-2">
-        <USegmentedGroup
+        <UTabs
           v-model="model.tipo"
           :items="[
             { value: 'regalo', label: 'Regalo' },
@@ -95,37 +95,36 @@ const clienteFields = [
   { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre completo', props: { class: 'w-full', maxlength: 100 } }
 ]
 
-function onTipoChange(tipo) {
-  if (model.value.productoId) {
-    const prod = props.productos.find(p => p.id === model.value.productoId)
-    if (prod) {
-      const precio = Number(prod.precioVentaActual) || 0
-      if (tipo === 'regalo') {
-        // Un regalo entrega el producto: su importe (cantidad × precio) es lo
-        // que deja de entrar, por eso se calcula automáticamente la cantidad.
-        model.value.monto = (Number(model.value.cantidad) || 0) * precio
-      }
-    }
-  }
+/**
+ * Un regalo entrega el producto, así que su importe (cantidad × precio) es lo
+ * que deja de entrar y se autocalcula. En 'descuento' no: el monto es el
+ * importe que decide el usuario (ver server/database/schema.ts:446, "monto = el
+ * importe que se resta del total esperado; descuento: el monto descontado"), y
+ * pisarlo con cantidad × precio borraría el descuento ya escrito.
+ *
+ * El tipo se acepta por parámetro para que `onTipoChange` trabajo sobre el valor
+ * que le entrega el evento, y no sobre una lectura de `model` que solo sería
+ * válida porque el compilador emite v-model antes que el listener.
+ */
+function calcularMontoRegalo(tipo = model.value.tipo) {
+  if (tipo !== 'regalo' || !model.value.productoId) return
+  const prod = props.productos.find(p => p.id === model.value.productoId)
+  if (!prod) return
+  const precio = Number(prod.precioVentaActual) || 0
+  model.value.monto = (Number(model.value.cantidad) || 0) * precio
 }
 
-function onProductoChange(productoId) {
-  const prod = props.productos.find(p => p.id === productoId)
-  if (prod) {
-    const precio = Number(prod.precioVentaActual) || 0
-    model.value.monto = (Number(model.value.cantidad) || 0) * precio
-  }
+function onTipoChange(tipo) {
+  calcularMontoRegalo(tipo)
+}
+
+function onProductoChange() {
+  calcularMontoRegalo()
 }
 
 function onCantidadChange() {
   if (model.value.cantidad == null || model.value.cantidad === '' || model.value.cantidad < 0) model.value.cantidad = 0
-  if (model.value.tipo === 'regalo' && model.value.productoId) {
-    const prod = props.productos.find(p => p.id === model.value.productoId)
-    if (prod) {
-      const precio = Number(prod.precioVentaActual) || 0
-      model.value.monto = (Number(model.value.cantidad) || 0) * precio
-    }
-  }
+  calcularMontoRegalo()
 }
 
 async function confirmarCrearCliente() {

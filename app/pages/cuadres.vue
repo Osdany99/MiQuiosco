@@ -24,6 +24,8 @@ const columns = [
   { accessorKey: 'montoFiado', header: 'Fiado', cell: 'currency' },
   { accessorKey: 'montoCobradoFiado', header: 'Cobrado fiado', cell: 'currency' },
   { accessorKey: 'diferencia', header: 'Diferencia' },
+  { accessorKey: 'costoTotal', header: 'Costo' },
+  { accessorKey: 'ganancia', header: 'Ganancia' },
   { accessorKey: 'pagoTrabajador', header: 'Pago trab.', cell: 'currencyWithValue' },
   { accessorKey: 'cerradoEn', header: 'Cerrado en', cell: 'dateWithValue' },
   { accessorKey: 'action', header: 'Acciones' }
@@ -49,6 +51,12 @@ async function confirmarReabrir() {
   reabriendo.value = true
   try {
     await cuadreCtl.cargarDatos(pid, row.id)
+    // cargarDatos avisa con toast y sale sin lanzar si no pudo cargar: no
+    // actuar sobre un cuadre ajeno que quede en el estado compartido.
+    if (cuadreCtl.cuadre.value?.id !== row.id) {
+      toast.add({ title: 'No se pudo reabrir', description: 'No se pudo cargar el cuadre. Inténtalo de nuevo.', color: 'error' })
+      return
+    }
     await cuadreCtl.reabrirCuadre()
     if (cuadreCtl.cuadre.value?.estado !== 'abierto') {
       toast.add({ title: 'No se pudo reabrir', description: 'El cuadre ya no está cerrado.', color: 'error' })
@@ -56,7 +64,10 @@ async function confirmarReabrir() {
     }
     reabrirOpen.value = false
     reabrirTarget.value = null
+    await tableRef.value?.refresh()
     await entrarACuadre(row.id)
+  } catch (err) {
+    toast.add({ title: 'No se pudo reabrir', description: err?.message || 'Error inesperado.', color: 'error' })
   } finally {
     reabriendo.value = false
   }
@@ -87,6 +98,14 @@ async function confirmarReabrir() {
             : ''"
         >
           {{ row.original.diferencia != null ? fmtPrecio(row.original.diferencia) : '—' }}
+        </span>
+      </template>
+      <template #costoTotal-cell="{ row }">
+        {{ row.original.costoTotal != null ? fmtPrecio(row.original.costoTotal) : '—' }}
+      </template>
+      <template #ganancia-cell="{ row }">
+        <span :class="row.original.ganancia != null ? 'text-success font-medium' : ''">
+          {{ row.original.ganancia != null ? fmtPrecio(row.original.ganancia) : '—' }}
         </span>
       </template>
       <template #row-actions-extra="{ rowData }">

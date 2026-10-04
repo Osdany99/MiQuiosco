@@ -2,11 +2,12 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, cuentasFiadoItems, cuadres, productos } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { exigirPuesto } from '../../utils/puesto'
 import { validarTopeFiado } from '../../utils/fiadoTope'
 import { updateCuentaFiadoSchema } from '#shared/schemas/updateCuentaFiado'
 
 export default defineEventHandler(async (event) => {
-  await requireRole(event, 'jefe')
+  const auth = await requireRole(event, 'jefe')
   const id = event.context.params?.id
   if (!id) throw createError({ statusCode: 400, statusMessage: 'ID requerido.' })
 
@@ -17,15 +18,8 @@ export default defineEventHandler(async (event) => {
   }
   const { items } = parsed.data
 
-  const [cuenta] = await db
-    .select()
-    .from(cuentasFiado)
-    .where(eq(cuentasFiado.id, id))
-    .limit(1)
-
-  if (!cuenta) {
-    throw createError({ statusCode: 404, statusMessage: 'Cuenta de fiado no encontrada.' })
-  }
+  // 404 si no existe O si es de otro puesto (misma respuesta).
+  const cuenta = await exigirPuesto(auth, 'cuentas_fiado', id, 'Cuenta de fiado')
   if (cuenta.estado === 'pagada') {
     throw createError({ statusCode: 400, statusMessage: 'La cuenta ya está pagada y no se puede editar.' })
   }
@@ -65,7 +59,11 @@ export default defineEventHandler(async (event) => {
   const pendienteAnterior = cuenta.montoTotal - cuenta.montoPagado
   const pendienteNuevo = nuevoTotal - cuenta.montoPagado
 
-  await validarTopeFiado(cuenta.cuadreOrigenId, items, [id])
+  // Una deuda directa no tiene cuadre de origen y sus líneas no pasan por el
+  // tope: se edita como cualquier otra, sin tocar ningún cuadre.
+  if (cuenta.cuadreOrigenId) {
+    await validarTopeFiado(cuenta.cuadreOrigenId, items, [id])
+  }
 
   await db.transaction(async (tx) => {
     await tx.delete(cuentasFiadoItems).where(eq(cuentasFiadoItems.cuentaFiadoId, id))
@@ -90,7 +88,7 @@ export default defineEventHandler(async (event) => {
 
     // Ajustar el fiado pendiente del cuadre de origen en el delta (piso 0).
     const delta = pendienteNuevo - pendienteAnterior
-    if (delta !== 0) {
+    if (delta !== 0 && cuenta.cuadreOrigenId) {
       await tx
         .update(cuadres)
         .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} + ${delta}, 0)` })

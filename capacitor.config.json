@@ -1,6 +1,6 @@
 {
-  "appId": "com.miquiosco.app",
-  "appName": "MiQuiosco",
+  "appId": "com.myquiosco.app",
+  "appName": "MyQuiosco",
   "webDir": ".output/public",
   "android": {
     "allowMixedContent": true,

@@ -8,5 +8,6 @@ export const cuadreItemSchema = z.object({
   subtotal: z.number().min(0, 'El subtotal no puede ser negativo').default(0),
   tipoLinea: z.enum(['normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar'], { message: 'Tipo de línea inválido' }).default('normal'),
   nota: z.string().nullable().optional(),
-  esExtra: z.boolean().default(false)
+  esExtra: z.boolean().default(false),
+  secuencia: z.number().int().min(0).default(0)
 })

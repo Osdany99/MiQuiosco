@@ -3,7 +3,6 @@ import { $api } from '../utils/api'
 import { validarTopeGeneralLocal } from '../utils/topeGeneral'
 
 const ajusteConfig = TABLES.ajustes
-const usuarioConfig = TABLES.usuarios
 const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
@@ -23,7 +22,6 @@ export function useAjustes() {
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
 
-  const usuariosRepo = computed(() => esOnline.value ? useRemoteRepo(usuarioConfig) : useLocalRepo(usuarioConfig))
   const productosRepo = computed(() => esOnline.value ? useRemoteRepo(productoConfig) : useLocalRepo(productoConfig))
   const ajustesRepo = computed(() => esOnline.value ? useRemoteRepo(ajusteConfig) : useLocalRepo(ajusteConfig))
   const cuadresRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreConfig) : useLocalRepo(cuadreConfig))
@@ -37,7 +35,7 @@ export function useAjustes() {
     return repo.value
   }
 
-  const clientes = ref([])
+  const { clientes, cargarClientes, crearCliente } = useClientes()
   const productos = ref([])
   const ajustesDelCuadre = ref([])
   const cargando = ref(false)
@@ -49,20 +47,6 @@ export function useAjustes() {
   const montoDescuentoCalculado = computed(() =>
     ajustesDelCuadre.value.filter(a => a.tipo === 'descuento').reduce((sum, a) => sum + Number(a.monto || 0), 0)
   )
-
-  async function cargarClientes(puestoId) {
-    const todos = await r(usuariosRepo).readAll()
-    clientes.value = todos.filter(c => c.puestoId === puestoId && c.activo)
-  }
-
-  async function crearCliente(data, puestoId) {
-    const pin = data.pin || String(crypto.getRandomValues(new Uint16Array(1))[0] % 9000 + 1000)
-    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-    const { pin: _unused, ...rest } = data
-    const nuevo = await r(usuariosRepo).create({ ...rest, puestoId, rol: 'cliente', pin })
-    clientes.value.push(nuevo)
-    return nuevo
-  }
 
   async function cargarProductos(puestoId) {
     const todos = await r(productosRepo).readAll()
@@ -103,7 +87,7 @@ export function useAjustes() {
       const topeMsg = await validarTopeLocal(cuadreId, [{ productoId, cantidad }])
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         await $api('/api/ajustes', {
@@ -116,8 +100,10 @@ export function useAjustes() {
         await acumularAjusteEnCuadre(cuadreId, tipo, monto)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
@@ -136,7 +122,7 @@ export function useAjustes() {
       const topeMsg = await validarTopeLocal(cuadreId, [{ productoId: nuevoProductoId, cantidad: nuevaCantidad }], ajusteId)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
 
       if (esOnline.value) {
@@ -162,8 +148,10 @@ export function useAjustes() {
         }
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }

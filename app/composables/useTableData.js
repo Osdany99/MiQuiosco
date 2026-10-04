@@ -5,7 +5,7 @@ import { refDebounced } from '@vueuse/core'
  *
  * @param {Object} props
  * @param {Object} [props.config] — { tabla, endpoints }
- * @param {number} [props.defaultLimit=20]
+ * @param {number} [props.defaultLimit=25]
  * @param {Object} [props.query={}]
  * @param {boolean} [props.pagination=true]
  * @param {Ref|ComputedRef} [props.search]
@@ -15,7 +15,7 @@ export function useTableData(props, filters = ref({})) {
   if (!props.config) {
     return {
       page: ref(1),
-      pageCount: ref(props.defaultLimit),
+      pageCount: ref(props.defaultLimit ?? 25),
       data: ref([]),
       total: ref(0),
       pending: ref(false),
@@ -27,7 +27,7 @@ export function useTableData(props, filters = ref({})) {
   const repo = useRepo(props.config)
 
   const page = ref(1)
-  const pageCount = ref(props.defaultLimit)
+  const pageCount = ref(props.defaultLimit ?? 25)
   const debouncedSearch = refDebounced(computed(() => props.search), 500)
 
   const allData = ref([])

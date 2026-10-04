@@ -70,9 +70,29 @@ const links = computed(() => {
         to: '/cuadres'
       },
       {
+        label: 'Deudas',
+        icon: 'i-lucide-hand-coins',
+        to: '/deudas'
+      },
+      {
         label: 'Productos',
         icon: 'i-lucide-package',
         to: '/productos'
+      },
+      {
+        label: 'Proveedores',
+        icon: 'i-lucide-truck',
+        to: '/proveedores'
+      },
+      {
+        label: 'Quiosco',
+        icon: 'i-lucide-store',
+        to: '/quiosco'
+      },
+      {
+        label: 'Almacén',
+        icon: 'i-lucide-warehouse',
+        to: '/almacen'
       },
       {
         label: 'Usuarios',
@@ -80,9 +100,29 @@ const links = computed(() => {
         to: '/usuarios'
       },
       {
+        label: 'Clientes',
+        icon: 'i-lucide-users',
+        to: '/clientes'
+      },
+      {
+        label: 'Ficha cliente',
+        icon: 'i-lucide-user-search',
+        to: '/ficha-cliente'
+      },
+      {
         label: 'Gráficas',
         icon: 'i-lucide-bar-chart-2',
         to: '/graficas'
+      },
+      {
+        label: 'Recargas',
+        icon: 'i-lucide-smartphone-charging',
+        to: '/recargas'
+      },
+      {
+        label: 'Por confirmar',
+        icon: 'i-lucide-message-square-text',
+        to: '/recargas/sms'
       }
     )
   } else if (auth.esTrabajador.value) {

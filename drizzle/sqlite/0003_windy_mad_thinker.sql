@@ -1,0 +1,1 @@
+ALTER TABLE `productos` ADD `activo_quiosco` integer DEFAULT true NOT NULL;

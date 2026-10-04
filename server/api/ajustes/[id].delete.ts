@@ -18,12 +18,21 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Ajuste no encontrado.' })
   }
 
+  // OJO: .set() espera claves JS ('montoRegalo'), no nombres SQL. La version
+  // anterior usaba [campo.name] ('monto_regalo') y drizzle lo ignoraba EN
+  // SILENCIO: el ajuste se borraba pero el acumulado del cuadre no se revertia.
   await db.transaction(async (tx) => {
-    const campo = ajuste.tipo === 'regalo' ? cuadres.montoRegalo : cuadres.montoDescuento
-    await tx
-      .update(cuadres)
-      .set({ [campo.name]: sql`GREATEST(${campo} - ${ajuste.monto}, 0)` })
-      .where(eq(cuadres.id, ajuste.cuadreId))
+    if (ajuste.tipo === 'regalo') {
+      await tx
+        .update(cuadres)
+        .set({ montoRegalo: sql`GREATEST(${cuadres.montoRegalo} - ${ajuste.monto}, 0)` })
+        .where(eq(cuadres.id, ajuste.cuadreId))
+    } else {
+      await tx
+        .update(cuadres)
+        .set({ montoDescuento: sql`GREATEST(${cuadres.montoDescuento} - ${ajuste.monto}, 0)` })
+        .where(eq(cuadres.id, ajuste.cuadreId))
+    }
 
     await tx.delete(ajustes).where(eq(ajustes.id, id))
   })

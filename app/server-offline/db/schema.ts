@@ -17,11 +17,25 @@ export const ROLES = ['jefe', 'trabajador', 'cliente'] as const
 export const ESTADOS_CUADRE = ['abierto', 'cerrado'] as const
 export const TIPOS_LINEA = ['normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar'] as const
 export const TIPOS_AJUSTE = ['regalo', 'descuento'] as const
+export const TIPOS_MOVIMIENTO = [
+  'entrada',
+  'traspaso',
+  'venta',
+  'merma',
+  'devolucion',
+  'anulacion'
+] as const
+export const TIPOS_RECARGA = ['saldo', 'voz', 'sms', 'datos'] as const
+export const ESTADOS_PAGO_RECARGA = ['pagada', 'pendiente'] as const
+export const PLATAFORMAS_RECARGA = ['monedero', 'banco'] as const
+export const ESTADOS_SMS_ETECSA = ['pendiente', 'guardada', 'descartada'] as const
+export const FORMAS_PAGO_FIADO = ['efectivo', 'transferencia'] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
 export type TipoLinea = (typeof TIPOS_LINEA)[number]
 export type TipoAjuste = (typeof TIPOS_AJUSTE)[number]
+export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number]
 
 /**
  * Puestos: espejo de la tabla del servidor para uso offline.
@@ -81,9 +95,14 @@ export const productos = sqliteTable(
     nombre: text('nombre').notNull(),
     descripcion: text('descripcion'),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    activoQuiosco: integer('activo_quiosco', { mode: 'boolean' }).notNull().default(true),
     orden: integer('orden').notNull().default(0),
     precioCompraActual: real('precio_compra_actual').notNull().default(0),
     precioVentaActual: real('precio_venta_actual').notNull().default(0),
+    stockMinimoQuiosco: real('stock_minimo_quiosco').notNull().default(0),
+    stockRecomendadoQuiosco: real('stock_recomendado_quiosco').notNull().default(0),
+    stockMinimoAlmacen: real('stock_minimo_almacen').notNull().default(0),
+    unidad: text('unidad'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -151,6 +170,8 @@ export const cuadres = sqliteTable(
     montoRegalo: real('monto_regalo').notNull().default(0),
     montoDescuento: real('monto_descuento').notNull().default(0),
     diferencia: real('diferencia'),
+    costoTotal: real('costo_total'),
+    ganancia: real('ganancia'),
     estado: text('estado', { enum: ESTADOS_CUADRE }).notNull().default('abierto'),
     notas: text('notas'),
     cerradoEn: integer('cerrado_en', { mode: 'timestamp_ms' }),
@@ -194,6 +215,7 @@ export const cuadreItems = sqliteTable(
       .default('normal'),
     nota: text('nota'),
     esExtra: integer('es_extra', { mode: 'boolean' }).notNull().default(false),
+    secuencia: integer('secuencia').notNull().default(0),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -235,9 +257,12 @@ export const cuentasFiado = sqliteTable(
     id: text('id').primaryKey(),
     puestoId: text('puesto_id').notNull(),
     clienteId: text('cliente_id').notNull(),
-    cuadreOrigenId: text('cuadre_origen_id').notNull(),
+    cuadreOrigenId: text('cuadre_origen_id'),
     montoTotal: real('monto_total').notNull(),
     montoPagado: real('monto_pagado').notNull().default(0),
+    // Solo en deudas directas: FIFO congelado al crearse.
+    costoTotal: real('costo_total'),
+    ganancia: real('ganancia'),
     estado: text('estado', { enum: ['pendiente', 'parcial', 'pagada'] })
       .notNull()
       .default('pendiente'),
@@ -294,7 +319,8 @@ export const pagosFiado = sqliteTable(
   {
     id: text('id').primaryKey(),
     cuentaFiadoId: text('cuenta_fiado_id').notNull(),
-    cuadreId: text('cuadre_id').notNull(),
+    // NULL = cobro directo: el efectivo nunca paso por la gaveta de un cuadre.
+    cuadreId: text('cuadre_id'),
     monto: real('monto').notNull(),
     formaPago: text('forma_pago').notNull(),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
@@ -402,6 +428,442 @@ export const ajustes = sqliteTable(
 )
 
 /**
+ * Proveedores: catálogo opcional de lugares de compra.
+ */
+export const proveedores = sqliteTable(
+  'proveedores',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    nombre: text('nombre').notNull(),
+    telefono: text('telefono'),
+    // Lugar donde está la tienda del proveedor. Llega al lote como lugar_compra.
+    lugar: text('lugar'),
+    notas: text('notas'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('proveedores_puesto_idx').on(table.puestoId),
+    nombreUk: uniqueIndex('proveedores_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('proveedores_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Lotes de compra: INMUTABLES una vez que tienen consumo.
+ */
+export const lotes = sqliteTable(
+  'lotes',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    proveedorId: text('proveedor_id'),
+    lugarCompra: text('lugar_compra'),
+    fechaEntrada: text('fecha_entrada').notNull(),
+    cantidadInicial: integer('cantidad_inicial').notNull(),
+    precioUnitario: real('precio_unitario').notNull(),
+    detalleCompra: text('detalle_compra'),
+    entradaRef: text('entrada_ref'),
+    anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
+    notas: text('notas'),
+    creadoPor: text('creado_por'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    productoIdx: index('lotes_producto_idx').on(table.productoId),
+    fifoIdx: index('lotes_fifo_idx').on(table.productoId, table.fechaEntrada, table.creadoEn),
+    puestoIdx: index('lotes_puesto_idx').on(table.puestoId),
+    entradaRefIdx: index('lotes_entrada_ref_idx').on(table.entradaRef),
+    actualizadoEnIdx: index('lotes_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Traspasos almacén → quiosco.
+ */
+export const traspasos = sqliteTable(
+  'traspasos',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    fecha: text('fecha').notNull(),
+    desde: text('desde').notNull().default('almacen'),
+    hasta: text('hasta').notNull().default('quiosco'),
+    notas: text('notas'),
+    usuarioId: text('usuario_id'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('traspasos_puesto_idx').on(table.puestoId),
+    fechaIdx: index('traspasos_fecha_idx').on(table.fecha),
+    actualizadoEnIdx: index('traspasos_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Movimientos de inventario: libro append-only.
+ */
+export const movimientosInventario = sqliteTable(
+  'movimientos_inventario',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    loteId: text('lote_id'),
+    cuadreId: text('cuadre_id'),
+    lineaCuadreId: text('linea_cuadre_id'),
+    traspasoId: text('traspaso_id'),
+    ventaDirectaId: text('venta_directa_id'),
+    tipo: text('tipo', { enum: TIPOS_MOVIMIENTO }).notNull(),
+    cantidad: integer('cantidad').notNull(),
+    deltaAlmacen: integer('delta_almacen').notNull().default(0),
+    deltaQuiosco: integer('delta_quiosco').notNull().default(0),
+    precioUnitario: real('precio_unitario').notNull(),
+    importe: real('importe').notNull(),
+    motivo: text('motivo'),
+    nota: text('nota'),
+    usuarioId: text('usuario_id'),
+    anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
+    anuladoPor: text('anulado_por'),
+    anuladoEn: integer('anulado_en', { mode: 'timestamp_ms' }),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    productoQuioscoIdx: index('mov_producto_quiosco_idx').on(table.productoId, table.anulado),
+    productoAlmacenIdx: index('mov_producto_almacen_idx').on(
+      table.productoId,
+      table.anulado,
+      table.deltaAlmacen
+    ),
+    cuadreIdx: index('mov_cuadre_idx').on(table.cuadreId),
+    loteIdx: index('mov_lote_idx').on(table.loteId),
+    puestoFechaIdx: index('mov_puesto_fecha_idx').on(table.puestoId, table.creadoEn),
+    tipoCheck: check(
+      'movimientos_tipo_check',
+      sql`${table.tipo} IN ('entrada','traspaso','venta','merma','devolucion','anulacion')`
+    )
+  })
+)
+
+/**
+ * Ventas directas: ventas en efectivo hechas por el jefe fuera del cuadre
+ * (quiosco cerrado, cliente que llega a la casa, etc.).
+ *
+ * No pertenecen a ningún cuadre, así que no entran a la gaveta ni al corte del
+ * día: el efectivo se queda en el bolsillo de quien cobra. Son su propio
+ * registro para poder verlos en la gráfica de ingresos directos.
+ *
+ * costoTotal/ganancia se calculan por FIFO al vender y quedan congelados,
+ * igual que al cerrar un cuadre: cambiar después el precio de compra no debe
+ * alterar lo ya vendido.
+ */
+export const ventasDirectas = sqliteTable(
+  'ventas_directas',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    ubicacionVenta: text('ubicacion_venta', { enum: ['almacen', 'quiosco'] })
+      .notNull()
+      .default('almacen'),
+    montoTotal: real('monto_total').notNull(),
+    costoTotal: real('costo_total').notNull(),
+    ganancia: real('ganancia').notNull(),
+    notas: text('notas'),
+    usuarioId: text('usuario_id').notNull(),
+    anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoFechaIdx: index('ventas_directas_puesto_fecha_idx').on(table.puestoId, table.creadoEn),
+    creadoEnIdx: index('ventas_directas_creado_en_idx').on(table.creadoEn),
+    ubicacionCheck: check(
+      'ventas_directas_ubicacion_check',
+      sql`${table.ubicacionVenta} IN ('almacen','quiosco')`
+    )
+  })
+)
+
+/**
+ * Líneas de una venta directa: producto, cantidad, precio de venta y el costo
+ * FIFO que consumió. El costo va por línea para poder auditar la ganancia.
+ */
+export const ventasDirectasItems = sqliteTable(
+  'ventas_directas_items',
+  {
+    id: text('id').primaryKey(),
+    ventaDirectaId: text('venta_directa_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    cantidad: integer('cantidad').notNull(),
+    precioVentaUsado: real('precio_venta_usado').notNull(),
+    subtotal: real('subtotal').notNull(),
+    costoUnitario: real('costo_unitario').notNull(),
+    costoTotal: real('costo_total').notNull(),
+    secuencia: integer('secuencia').notNull().default(0),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    ventaIdx: index('ventas_directas_items_venta_idx').on(table.ventaDirectaId),
+    productoIdx: index('ventas_directas_items_producto_idx').on(table.productoId)
+  })
+)
+
+/**
+ * Bandeja de confirmaciones de Etecsa (SMS crudo + datos extraídos).
+ * Local al teléfono: no entra en SYNC_TABLES.
+ */
+export const smsEtecsa = sqliteTable(
+  'sms_etecsa',
+  {
+    id: text('id').primaryKey(),
+    remitente: text('remitente').notNull(),
+    cuerpo: text('cuerpo').notNull(),
+    recibidoEn: integer('recibido_en', { mode: 'timestamp_ms' }).notNull(),
+    hash: text('hash').notNull().unique(),
+    telefonoDestino: text('telefono_destino'),
+    telefonoRaw: text('telefono_raw'),
+    plataforma: text('plataforma', { enum: PLATAFORMAS_RECARGA }),
+    tipo: text('tipo', { enum: TIPOS_RECARGA }),
+    descripcion: text('descripcion'),
+    unidades: integer('unidades'),
+    montoNominal: real('monto_nominal'),
+    costo: real('costo'),
+    ganancia: real('ganancia'),
+    idTransaccion: text('id_transaccion'),
+    saldoCarteraCup: real('saldo_cartera_cup'),
+    saldoCarteraUsd: real('saldo_cartera_usd'),
+    estado: text('estado', { enum: ESTADOS_SMS_ETECSA }).notNull().default('pendiente'),
+    clienteId: text('cliente_id'),
+    recargaId: text('recarga_id'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    hashUk: uniqueIndex('sms_etecsa_hash_uk').on(table.hash),
+    estadoIdx: index('sms_etecsa_estado_idx').on(table.estado),
+    idTransaccionIdx: index('sms_etecsa_id_transaccion_idx').on(table.idTransaccion),
+    creadoEnIdx: index('sms_etecsa_creado_en_idx').on(table.creadoEn),
+    estadoCheck: check('sms_etecsa_estado_check', sql`${table.estado} IN ('pendiente', 'guardada', 'descartada')`)
+  })
+)
+
+/**
+ * Recargas Etecsa confirmadas desde la bandeja.
+ */
+export const recargas = sqliteTable(
+  'recargas',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    clienteId: text('cliente_id'),
+    telefonoDestino: text('telefono_destino').notNull(),
+    telefonoRaw: text('telefono_raw'),
+    plataforma: text('plataforma', { enum: PLATAFORMAS_RECARGA }).notNull(),
+    tipo: text('tipo', { enum: TIPOS_RECARGA }).notNull().default('saldo'),
+    descripcion: text('descripcion'),
+    unidades: integer('unidades'),
+    montoNominal: real('monto_nominal').notNull(),
+    costo: real('costo').notNull(),
+    ganancia: real('ganancia').notNull(),
+    idTransaccion: text('id_transaccion').unique(),
+    saldoCarteraCup: real('saldo_cartera_cup'),
+    saldoCarteraUsd: real('saldo_cartera_usd'),
+    estadoPago: text('estado_pago', { enum: ESTADOS_PAGO_RECARGA }).notNull().default('pendiente'),
+    montoCobrado: real('monto_cobrado').notNull().default(0),
+    smsId: text('sms_id'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    telefonoFechaIdx: index('recargas_telefono_fecha_idx').on(table.telefonoDestino, table.creadoEn),
+    estadoPagoIdx: index('recargas_estado_pago_idx').on(table.estadoPago),
+    clienteIdx: index('recargas_cliente_idx').on(table.clienteId),
+    idTransaccionUk: uniqueIndex('recargas_id_transaccion_uk').on(table.idTransaccion),
+    actualizadoEnIdx: index('recargas_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('recargas_sincronizado_idx').on(table.sincronizado),
+    plataformaCheck: check('recargas_plataforma_check', sql`${table.plataforma} IN ('monedero', 'banco')`),
+    tipoCheck: check('recargas_tipo_check', sql`${table.tipo} IN ('saldo', 'voz', 'sms', 'datos')`),
+    estadoPagoCheck: check('recargas_estado_pago_check', sql`${table.estadoPago} IN ('pagada', 'pendiente')`)
+  })
+)
+
+/**
+ * Clientes: lista única del negocio (recargas + fiado). Espejo de Postgres.
+ */
+export const clientes = sqliteTable(
+  'clientes',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    nombre: text('nombre').notNull(),
+    notas: text('notas'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
+    puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
+    actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('clientes_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Teléfonos de clientes (1:N), en forma canónica de 10 dígitos.
+ */
+export const clientesTelefonos = sqliteTable(
+  'clientes_telefonos',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    clienteId: text('cliente_id').notNull(),
+    telefono: text('telefono').notNull().unique(),
+    telefonoRaw: text('telefono_raw'),
+    etiqueta: text('etiqueta'),
+    activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    telefonoUk: uniqueIndex('clientes_telefonos_telefono_uk').on(table.telefono),
+    clienteIdx: index('clientes_telefonos_cliente_idx').on(table.clienteId),
+    actualizadoEnIdx: index('clientes_telefonos_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('clientes_telefonos_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Cobros contra recargas fiadas (append-only).
+ */
+export const cobrosRecarga = sqliteTable(
+  'cobros_recarga',
+  {
+    id: text('id').primaryKey(),
+    recargaId: text('recarga_id').notNull(),
+    monto: real('monto').notNull(),
+    formaPago: text('forma_pago').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    recargaIdx: index('cobros_recarga_recarga_idx').on(table.recargaId),
+    creadoEnIdx: index('cobros_recarga_creado_en_idx').on(table.creadoEn),
+    sincIdx: index('cobros_recarga_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Cierre diario del módulo de recargas (la UI llega en Fase 3).
+ */
+export const cuadresRecarga = sqliteTable(
+  'cuadres_recarga',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    fecha: text('fecha').notNull(),
+    estado: text('estado').notNull().default('abierto'),
+    totalNominal: real('total_nominal').notNull().default(0),
+    totalCosto: real('total_costo').notNull().default(0),
+    totalGanancia: real('total_ganancia').notNull().default(0),
+    saldoCarteraInicial: real('saldo_cartera_inicial'),
+    saldoCarteraFinal: real('saldo_cartera_final'),
+    efectivoReal: real('efectivo_real'),
+    diferencia: real('diferencia'),
+    notas: text('notas'),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    puestoFechaUk: uniqueIndex('cuadres_recarga_puesto_fecha_uk').on(table.puestoId, table.fecha),
+    actualizadoEnIdx: index('cuadres_recarga_actualizado_en_idx').on(table.actualizadoEn),
+    sincIdx: index('cuadres_recarga_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect
@@ -416,3 +878,15 @@ export type PagoFiadoSQLite = typeof pagosFiado.$inferSelect
 export type TransferenciaSQLite = typeof transferencias.$inferSelect
 export type TransferenciaItemSQLite = typeof transferenciaItems.$inferSelect
 export type AjusteSQLite = typeof ajustes.$inferSelect
+export type ProveedorSQLite = typeof proveedores.$inferSelect
+export type LoteSQLite = typeof lotes.$inferSelect
+export type TraspasoSQLite = typeof traspasos.$inferSelect
+export type MovimientoInventarioSQLite = typeof movimientosInventario.$inferSelect
+export type VentaDirectaSQLite = typeof ventasDirectas.$inferSelect
+export type VentaDirectaItemSQLite = typeof ventasDirectasItems.$inferSelect
+export type SmsEtecsaSQLite = typeof smsEtecsa.$inferSelect
+export type RecargaSQLite = typeof recargas.$inferSelect
+export type ClienteTelefonoSQLite = typeof clientesTelefonos.$inferSelect
+export type ClienteSQLite = typeof clientes.$inferSelect
+export type CobroRecargaSQLite = typeof cobrosRecarga.$inferSelect
+export type CuadreRecargaSQLite = typeof cuadresRecarga.$inferSelect

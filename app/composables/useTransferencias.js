@@ -4,7 +4,6 @@ import { validarTopeGeneralLocal } from '../utils/topeGeneral'
 
 const transferenciaConfig = TABLES.transferencias
 const transferenciaItemConfig = TABLES.transferencia_items
-const usuarioConfig = TABLES.usuarios
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
 const cuentaFiadoConfig = TABLES.cuentas_fiado
@@ -22,7 +21,6 @@ export function useTransferencias() {
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
 
-  const usuariosRepo = computed(() => esOnline.value ? useRemoteRepo(usuarioConfig) : useLocalRepo(usuarioConfig))
   const transferenciasRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaConfig) : useLocalRepo(transferenciaConfig))
   const itemsRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaItemConfig) : useLocalRepo(transferenciaItemConfig))
   const cuadresRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreConfig) : useLocalRepo(cuadreConfig))
@@ -35,27 +33,13 @@ export function useTransferencias() {
     return repo.value
   }
 
-  const clientes = ref([])
+  const { clientes, cargarClientes, crearCliente } = useClientes()
   const transferenciasDelCuadre = ref([])
   const cargando = ref(false)
 
   const montoTransferenciaCalculado = computed(() =>
     transferenciasDelCuadre.value.reduce((sum, t) => sum + Number(t.montoTotal || 0), 0)
   )
-
-  async function cargarClientes(puestoId) {
-    const todos = await r(usuariosRepo).readAll()
-    clientes.value = todos.filter(c => c.puestoId === puestoId && c.activo)
-  }
-
-  async function crearCliente(data, puestoId) {
-    const pin = data.pin || String(crypto.getRandomValues(new Uint16Array(1))[0] % 9000 + 1000)
-    // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-    const { pin: _unused, ...rest } = data
-    const nuevo = await r(usuariosRepo).create({ ...rest, puestoId, rol: 'cliente', pin })
-    clientes.value.push(nuevo)
-    return nuevo
-  }
 
   async function cargarActividadDelCuadre(cuadreId) {
     const { data: todas } = await r(transferenciasRepo).readAll({ query: { cuadreId } })
@@ -90,7 +74,7 @@ export function useTransferencias() {
       const topeMsg = await validarTopeLocal(cuadreId, items)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         await $api('/api/transferencias', {
@@ -119,8 +103,10 @@ export function useTransferencias() {
         await acumularTransferenciaEnCuadre(cuadreId, montoTotal)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }
@@ -132,7 +118,7 @@ export function useTransferencias() {
       const topeMsg = await validarTopeLocal(cuadreId, items, transferenciaId)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return
+        return { ok: false, error: new Error(topeMsg) }
       }
       if (esOnline.value) {
         await $api(`/api/transferencias/${transferenciaId}`, {
@@ -190,8 +176,10 @@ export function useTransferencias() {
         if (delta !== 0) await acumularTransferenciaEnCuadre(cuadreId, delta)
       }
       await cargarActividadDelCuadre(cuadreId)
+      return { ok: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      return { ok: false, error: err }
     } finally {
       cargando.value = false
     }

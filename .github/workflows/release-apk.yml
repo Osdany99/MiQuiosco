@@ -55,16 +55,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verificar schema al día (drizzle/ generado)
-        shell: bash
-        run: |
-          pnpm db:generate
-          if [[ -n "$(git status --porcelain -- drizzle/)" ]]; then
-            echo "::error::server/database/schema.ts cambió sin regenerar drizzle/. Corre 'pnpm db:generate' en tu PC y commitea la migración."
-            git status --porcelain -- drizzle/
-            exit 1
-          fi
-          echo "drizzle/ al día con el schema OK."
+      - name: Verificar que las migraciones estén commiteadas
+        uses: ./.github/actions/check-migraciones
+
+      # Gate antes de tocar producción: si los tests o el typecheck fallan, el
+      # release se aborta aquí y Neon no se migra. Publicar con el árbol en rojo
+      # es justo lo que el workflow debe impedir.
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Tests
+        run: pnpm run test
 
       - name: Migrar producción
         shell: bash

@@ -92,6 +92,8 @@
             :default-value="row.original[col.accessorKey]"
             :config="config"
             :table-ref="selfTableRef"
+            :field="col.accessorKey"
+            :cascade-off="col.cascadeOff ?? null"
           />
           <BaseBadgeTrueOrFalse
             v-else-if="col.cell === 'boolean'"
@@ -109,8 +111,8 @@
       <template #footer>
         <TablePagination
           v-model="page"
+          v-model:page-count="pageCount"
           :pagination="pagination"
-          :page-count="pageCount"
           :total="total"
         />
       </template>
@@ -158,10 +160,17 @@ const props = defineProps({
   query: { type: Object, default: () => ({}) },
   filterFields: { type: Array, default: () => [] },
   pagination: { type: Boolean, default: true },
-  defaultLimit: { type: Number, default: 10 },
+  // 25 filas: con 10 había que paginar cada dos screen en la lista de clientes.
+  defaultLimit: { type: Number, default: 25 },
   formRef: { type: Object, default: null },
   loadingProp: { type: Boolean, default: false },
-  disableFilters: { type: Boolean, default: false }
+  disableFilters: { type: Boolean, default: false },
+  /**
+   * Filtros con los que arranca la tabla. Útil cuando el listado debe venir ya
+   * filtrado (p. ej. "solo lo pendiente") sin que el usuario toque nada: se ven
+   * igual en el popover y se quitan desde ahí.
+   */
+  initialFilters: { type: Object, default: () => ({}) }
 })
 
 const emit = defineEmits(['edit', 'delete', 'reload', 'details'])
@@ -204,7 +213,14 @@ onMounted(() => {
   }
 })
 
-const activeFilters = ref({})
+const activeFilters = ref({ ...props.initialFilters })
+
+// Si la vista cambia los filtros iniciales (por ejemplo al cambiar de pestaña),
+// se aplican y se vuelve a la primera página.
+watch(() => props.initialFilters, (nuevos) => {
+  activeFilters.value = { ...nuevos }
+  page.value = 1
+}, { deep: true })
 
 const isExternalData = computed(() => props.data !== null)
 

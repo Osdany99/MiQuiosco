@@ -85,6 +85,55 @@
       "when": 1790696422763,
       "tag": "0011_mature_jazinda",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790875844029,
+      "tag": "0012_colossal_xorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790879252806,
+      "tag": "0013_chief_justin_hammer",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790885264409,
+      "tag": "0014_abnormal_lord_tyger",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790892773517,
+      "tag": "0015_cool_tempest",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790892966285,
+      "tag": "0016_foamy_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790976222849,
+      "tag": "0017_needy_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791012683951,
+      "tag": "0018_aberrant_gressill",
+      "breakpoints": true
     }
   ]
 }

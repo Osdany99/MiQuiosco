@@ -26,8 +26,8 @@
               v-if="field.type === 'select'"
               v-model="draft[field.key]"
               :items="field.options"
-              value-attribute="value"
-              text-attribute="label"
+              value-key="value"
+              label-key="label"
               class="w-40"
               clearable
               :search-input="false"

@@ -1,6 +1,6 @@
 import { Preferences } from '@capacitor/preferences'
 import { Capacitor } from '@capacitor/core'
-import { serverAlcanzable } from '../utils/api'
+import { fallosRed } from '../utils/api'
 
 const PREF_MODO = 'modo_conexion'
 
@@ -56,19 +56,18 @@ export function useModoConexion() {
 
   if (!_watcherInstalled) {
     _watcherInstalled = true
-    let fallosConsecutivos = 0
 
-    watch(serverAlcanzable, (alcanzable) => {
-      if (alcanzable) {
-        fallosConsecutivos = 0
+    // Se observa el CONTADOR (dispara con cada fallo), no el booleano
+    // (solo dispara en la transicion true->false y la degradacion nunca
+    // llegaba con el servidor caido de forma sostenida).
+    watch(fallosRed, (fallos) => {
+      if (fallos === 0) {
         if (modo.value === 'local') {
           cambiarAOnline().catch(() => {})
         }
         return
       }
-      fallosConsecutivos++
-      if (fallosConsecutivos >= 2 && modo.value === 'online') {
-        fallosConsecutivos = 0
+      if (fallos >= 2 && modo.value === 'online') {
         modo.value = 'local'
         writePref(PREF_MODO, 'local')
       }
