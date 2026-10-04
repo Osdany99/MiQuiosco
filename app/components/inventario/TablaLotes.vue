@@ -107,13 +107,20 @@ async function recargar() {
   try {
     await inv.cargarProveedores()
     const provPorId = new Map((inv.proveedores.value ?? []).map(p => [p.id, p.nombre]))
-    const { data } = await inv.lotesRepo.value.readAll({ query: { productoId: props.producto.id } })
-    let filas = (data ?? []).map(l => ({ ...l, nombreProveedor: l.proveedorId ? provPorId.get(l.proveedorId) : null }))
-    // En local el repo devuelve filas crudas: se derivan los saldos aquí.
-    if (filas.length > 0 && filas[0].saldoAlmacen == null) {
-      const { data: movs } = await inv.movimientosRepo.value.readAll()
+    const crudo = await inv.lotesRepo.value.readAll({ query: { productoId: props.producto.id } })
+    const lista = Array.isArray(crudo) ? crudo : (crudo?.data ?? [])
+    let filas = lista
+      .filter(l => !props.producto?.id || l.productoId === props.producto.id)
+      .map(l => ({ ...l, nombreProveedor: l.proveedorId ? provPorId.get(l.proveedorId) : null }))
+    // El repo puede devolver filas crudas (sin saldos): se derivan por lote
+    // de los movimientos. Se revisa fila por fila (no solo la primera), porque
+    // el servidor puede mezclar filas con y sin saldos calculados.
+    if (filas.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null)) {
+      const movsCrudo = await inv.movimientosRepo.value.readAll()
+      const movs = Array.isArray(movsCrudo) ? movsCrudo : (movsCrudo?.data ?? [])
       const delLote = (movs ?? []).filter(m => !m.anulado)
       filas = filas.map((l) => {
+        if (l.saldoAlmacen != null && l.saldoQuiosco != null) return l
         const propios = delLote.filter(m => m.loteId === l.id)
         const saldoAlmacen = propios.reduce((s, m) => s + Math.trunc(Number(m.deltaAlmacen) || 0), 0)
         const saldoQuiosco = propios.reduce((s, m) => s + Math.trunc(Number(m.deltaQuiosco) || 0), 0)

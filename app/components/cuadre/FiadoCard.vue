@@ -239,6 +239,7 @@ const cobrarFormRef = ref(null)
 const editarFormRef = ref(null)
 
 const emit = defineEmits(['actualizado'])
+const toast = useToast()
 
 const deudasActivas = computed(() =>
   cuentasDelCuadre.value.filter(c => c.estado !== 'pagada')
@@ -274,6 +275,10 @@ async function abrirEdicion(deuda) {
 
 async function confirmarNuevaDeuda() {
   const form = fiadoForm.value
+  if (!form.clienteId) {
+    toast.add({ title: 'Error', description: 'Elige el cliente que debe.', color: 'error' })
+    return
+  }
   const lineas = form.items
     .filter(i => i.productoId && Number(i.cantidad) > 0)
     .map((i, idx) => ({
@@ -282,6 +287,10 @@ async function confirmarNuevaDeuda() {
       precioVentaUsado: Number(i.precioVentaUsado) || 0,
       secuencia: idx
     }))
+  if (lineas.length === 0) {
+    toast.add({ title: 'Error', description: 'Agrega al menos un producto.', color: 'error' })
+    return
+  }
 
   if (form.directa) {
     // Fuera del cuadre: no toca el tope ni el corte del día, pero sí el stock.
