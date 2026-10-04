@@ -9,7 +9,7 @@
  * Uso:
  *   node scripts/pruebas/dispositivo.mjs <comando> [args]
  *
- * Comandos (serie 4d82ea9c, pkg com.miquiosco.app por defecto):
+ * Comandos (serie 4d82ea9c, pkg com.myquiosco.app por defecto):
  *   devices                    lista dispositivos
  *   reverse [puerto]           adb reverse tcp:puerto tcp:puerto (def. 3000)
  *   instalar [apk]             install -r del APK debug
@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url'
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SERIAL = process.env.ANDROID_SERIAL || '4d82ea9c'
-const PKG = process.env.APP_ID || 'com.miquiosco.app'
+const PKG = process.env.APP_ID || 'com.myquiosco.app'
 const DB = 'miquioscoSQLite.db'
 const APK_DEF = join(RAIZ, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
 

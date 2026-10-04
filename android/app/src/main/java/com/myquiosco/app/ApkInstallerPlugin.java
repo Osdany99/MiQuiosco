@@ -1,4 +1,4 @@
-package com.miquiosco.app;
+package com.myquiosco.app;
 
 import android.content.Intent;
 import android.content.pm.PackageManager;

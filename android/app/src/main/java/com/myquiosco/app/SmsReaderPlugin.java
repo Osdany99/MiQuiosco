@@ -1,4 +1,4 @@
-package com.miquiosco.app;
+package com.myquiosco.app;
 
 import android.Manifest;
 import android.content.ContentResolver;

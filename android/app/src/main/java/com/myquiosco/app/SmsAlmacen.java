@@ -1,4 +1,4 @@
-package com.miquiosco.app;
+package com.myquiosco.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
