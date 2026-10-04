@@ -63,6 +63,15 @@ export default defineEventHandler(async (event) => {
 
         if (!existing) {
           // INSERT: la fila debe pertenecer al puesto del JWT.
+          if (tableName === 'usuarios' && (row.pinHash == null || row.pinHash === '')) {
+            // Fail-fast con 422 en vez del 500 opaco por NOT NULL: el cliente
+            // debe mandar pinHash (bcrypt) al crear usuarios desde el
+            // dispositivo. Sin esto, un solo usuario nuevo aborta todo el push.
+            throw createError({
+              statusCode: 422,
+              statusMessage: 'Falta pinHash en la fila de usuarios.'
+            })
+          }
           if (syncConfig.puestoScoped) {
             if (row.puestoId && row.puestoId !== puestoId) {
               throw createError({

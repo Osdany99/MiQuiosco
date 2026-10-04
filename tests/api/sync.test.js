@@ -347,3 +347,60 @@ async function filaJefeS() {
   const rows = await filas('usuarios', `puesto_id = '${puestoS}'`)
   return rows[0].id
 }
+
+describe('push usuarios: pinHash del dispositivo (Fase 3)', () => {
+  function filaUsuario(nombre, conHash) {
+    const ahora = new Date().toISOString()
+    const row = {
+      id: randomUUID(), puestoId: puestoA, nombre, rol: 'trabajador',
+      creadoEn: ahora, actualizadoEn: ahora
+    }
+    if (conHash) row.pinHash = 'hash-falso-f3'
+    return row
+  }
+
+  it('usuario nuevo CON pinHash se acepta y guarda el hash', async () => {
+    const row = filaUsuario(nombreUnico('push_uhash'), true)
+    const r = await raw('POST', '/api/sync/push', {
+      body: { usuarios: [row], deletes: [] }, token: tokenA
+    })
+    assert.equal(r.status, 200)
+    assert.ok(r.body.aceptados.includes(row.id))
+    const enBd = await filas('usuarios', `id = '${row.id}'`)
+    assert.equal(enBd.length, 1)
+    assert.equal(enBd[0].pin_hash, 'hash-falso-f3')
+  })
+
+  it('usuario nuevo SIN pinHash da 422 (no 500) y no escribe nada', async () => {
+    const mala = filaUsuario(nombreUnico('push_unohash'), false)
+    const buena = filaProducto(puestoA, nombreUnico('push_unohash_ok'))
+    const r = await raw('POST', '/api/sync/push', {
+      body: { usuarios: [mala], productos: [buena], deletes: [] }, token: tokenA
+    })
+    assert.equal(r.status, 422)
+    assert.equal((await filas('usuarios', `id = '${mala.id}'`)).length, 0)
+    assert.equal((await filas('productos', `id = '${buena.id}'`)).length, 0)
+  })
+})
+
+describe('push orden topologico padres-antes-que-hijos (Fase 3)', () => {
+  it('cliente nuevo + cuenta que lo referencia en el mismo push da 200', async () => {
+    const ahora = new Date().toISOString()
+    const cli = {
+      id: randomUUID(), puestoId: puestoA, nombre: nombreUnico('push_topocli'),
+      creadoEn: ahora, actualizadoEn: ahora
+    }
+    const cue = {
+      id: randomUUID(), puestoId: puestoA, clienteId: cli.id,
+      montoTotal: 100, estado: 'pendiente',
+      creadoEn: ahora, actualizadoEn: ahora
+    }
+    const r = await raw('POST', '/api/sync/push', {
+      body: { clientes: [cli], cuentas_fiado: [cue], deletes: [] }, token: tokenA
+    })
+    assert.equal(r.status, 200)
+    assert.ok(r.body.aceptados.includes(cli.id))
+    assert.ok(r.body.aceptados.includes(cue.id))
+    assert.equal((await filas('cuentas_fiado', `id = '${cue.id}'`)).length, 1)
+  })
+})

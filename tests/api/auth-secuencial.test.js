@@ -22,9 +22,9 @@ let token
 before(async () => {
   token = await tokenJefe()
   if (!token) {
-    // Una corrida anterior pudo dejar al jefe del seed como 'trabajador', y un
-    // trabajador no recibe token: sin esto, todos los tests fallarian en cascada
-    // con "No autenticado" sin llegar a probar nada.
+    // Una corrida anterior pudo dejar al jefe del seed como 'trabajador', y el
+    // trabajador no puede iniciar sesion: sin esto, todos los tests fallarian
+    // en cascada con "No autenticado" sin llegar a probar nada.
     await restaurarJefe('00000000-0000-0000-0000-000000000001')
     token = await tokenJefe()
   }

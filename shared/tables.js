@@ -200,19 +200,23 @@ export const cobros_recarga = {
 // teléfono. Sincronizar 1 por 1 cada SMS crudo no aporta nada al negocio.
 
 export const TABLES = {
-  productos, usuarios, cuadres, cuadre_items,
+  productos, clientes, usuarios, cuadres, proveedores,
+  lotes, traspasos, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
   transferencias, transferencia_items, ajustes,
-  proveedores, lotes, traspasos, movimientos_inventario,
-  ventas_directas, ventas_directas_items,
-  recargas, clientes, clientes_telefonos, cobros_recarga
+  ventas_directas, ventas_directas_items, movimientos_inventario,
+  recargas, clientes_telefonos, cobros_recarga
 }
 
+// Orden topologico: los padres siempre antes que los hijos, porque el push se
+// aplica en una unica transaccion y Postgres valida las FK por fila. (Fase 3:
+// clientes iba despues de cuentas_fiado/transferencias/recargas y un cliente
+// nuevo en el telefono abortaba todo el push con 500 por FK.)
 export const SYNC_TABLES = [
-  productos, usuarios, cuadres, cuadre_items,
+  productos, clientes, usuarios, cuadres, proveedores,
+  lotes, traspasos, cuadre_items,
   cuentas_fiado, cuentas_fiado_items, pagos_fiado, historial_precios,
   transferencias, transferencia_items, ajustes,
-  proveedores, lotes, traspasos, movimientos_inventario,
-  ventas_directas, ventas_directas_items,
-  recargas, clientes, clientes_telefonos, cobros_recarga
+  ventas_directas, ventas_directas_items, movimientos_inventario,
+  recargas, clientes_telefonos, cobros_recarga
 ]

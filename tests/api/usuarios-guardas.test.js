@@ -83,8 +83,9 @@ describe('guardas del ultimo jefe activo', () => {
       assert.equal(r.body.rol, 'trabajador')
     } finally {
       // restaurarUsuarios solo reactiva `activo`; este test ademas cambio el ROL
-      // del seed a 'trabajador', y un trabajador no recibe token. Sin restaurarlo
-      // aqui, las corridas siguientes fallan con "no autenticado" en cascada.
+      // del seed a 'trabajador', y el trabajador no puede iniciar sesion. Sin
+      // restaurarlo aqui, las corridas siguientes fallan con "no autenticado"
+      // en cascada.
       await restaurarJefe(jefe.id)
     }
   }))

@@ -159,8 +159,8 @@ export async function crearJefe(nombre, pin = '1234', rol = 'jefe') {
  * Token del jefe del seed (jefe / 1234), o null si no se pudo.
  *
  * Devuelve null en vez de lanzar para que los tests puedan intentar reparar el
- * estado (un jefe en rol 'trabajador' no recibe token, y una corrida previa
- * puede haberlo dejado asi). Usar tokenJefeOError() cuando no haya repairs.
+ * estado (un jefe en rol 'trabajador' no puede iniciar sesion, y una corrida
+ * previa puede haberlo dejado asi). Usar tokenJefeOError() cuando no haya repairs.
  */
 export async function tokenJefe() {
   const r = await loginConReintento('jefe', '1234')
@@ -202,7 +202,7 @@ export async function loginConReintento(nombre_usuario, pin, intentos = 3) {
 }
 
 /**
- * Contexto completo de pruebas: tokens de jefe y trabajador, y el puesto.
+ * Contexto completo de pruebas: token de jefe y el puesto.
  * Se llama una vez por archivo de test con node:test.
  */
 export async function crearContexto() {
@@ -211,20 +211,15 @@ export async function crearContexto() {
   const jefe = me.find(u => u.nombre === 'jefe')
   if (!jefe) throw new Error('El seed no creó el usuario jefe.')
 
-  // El trabajador es opcional: si no existe, sus tests se saltan solos.
-  let trabajador = null
-  const existe = me.find(u => u.rol === 'trabajador')
-  if (existe) {
-    const r = await login(existe.nombre, '1234')
-    trabajador = { usuario: existe, ...r.body }
-  }
+  // El trabajador no inicia sesion (solo el jefe, ver login.post.ts), asi que
+  // no hay token ni contexto de trabajador: se expone el usuario si existe.
+  const trabajador = me.find(u => u.rol === 'trabajador') ?? null
 
   return {
     api: { get, post, patch, del, call, raw },
     token,
     jefe,
-    // El trabajador nunca recibe token (ver login.post.ts): solo sesión local.
-    trabajadorToken: trabajador?.token ?? null,
+    trabajadorToken: null,
     trabajador,
     puestoId: jefe.puestoId
   }

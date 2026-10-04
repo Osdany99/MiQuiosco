@@ -49,14 +49,12 @@ describe('POST /api/auth/login', () => {
     assert.ok(r.body.expiraEn > 1e12, 'expiraEn deberia estar en ms, no en s')
   })
 
-  it('el trabajador NO recibe token (solo sesion local)', async () => {
+  it('el trabajador no puede iniciar sesion (solo el jefe)', async () => {
     const nombre = nombreUnico('trabajador')
     await crearJefe(nombre, '1234', 'trabajador')
     const r = await login(nombre, '1234')
-    assert.equal(r.status, 200)
-    assert.equal(r.body.token, undefined, 'el trabajador no debe recibir token')
-    assert.equal(r.body.usuario.rol, 'trabajador')
-    assert.ok(r.body.expiraEn > Date.now())
+    assert.equal(r.status, 403)
+    assert.match(mensajeDe(r.body), /solo el jefe/i)
   })
 
   it('un usuario con rol cliente recibe 403', async () => {

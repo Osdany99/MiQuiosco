@@ -163,54 +163,40 @@ export function useAuth() {
     }
     usuarioActual.value = response.usuario
 
+    // Sin token no hay sesion: el servidor solo emite JWT para el jefe y el
+    // login offline tambien rechaza al trabajador (decision de producto).
+    if (!response.token) {
+      throw new Error('Respuesta del servidor sin token.')
+    }
+
     const ahora = Date.now()
-    const horasExp = Number(config.public.sessionExpirationTrabajadorHoras)
 
-    if (response.token) {
-      await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
-      jwtSync.value = response.token
-      const sesion = {
-        usuario_id: response.usuario.id,
-        usuario_nombre: response.usuario.nombre,
-        rol: response.usuario.rol,
-        puesto_id: response.usuario.puestoId ?? '',
-        pin_hash_local: '',
-        expira_en: null,
-        ultima_actividad_en: ahora
-      }
-      await Preferences.set({
-        key: PREF_SESION_LOCAL,
-        value: JSON.stringify(sesion)
-      })
-      sesionLocal.value = sesion
+    await Preferences.set({ key: PREF_JWT_SYNC, value: response.token })
+    jwtSync.value = response.token
+    const sesion = {
+      usuario_id: response.usuario.id,
+      usuario_nombre: response.usuario.nombre,
+      rol: response.usuario.rol,
+      puesto_id: response.usuario.puestoId ?? '',
+      pin_hash_local: '',
+      expira_en: null,
+      ultima_actividad_en: ahora
+    }
+    await Preferences.set({
+      key: PREF_SESION_LOCAL,
+      value: JSON.stringify(sesion)
+    })
+    sesionLocal.value = sesion
 
-      // Hidratar caché local con datos del servidor (pinHash incluido)
-      // No bloqueante — si falla (sin red, etc.), el login igual es exitoso.
-      // Llamamos directamente: procesarRespuestaLogin se invoca desde login() que está en setup context.
-      if (import.meta.client) {
-        try {
-          const { pullServidor } = useSync()
-          pullServidor({ silent: true }).catch(() => {})
-        } catch {
-          // noop
-        }
-      }
-    } else {
-      if (response.usuario.rol === 'trabajador') {
-        const sesion = {
-          usuario_id: response.usuario.id,
-          usuario_nombre: response.usuario.nombre,
-          rol: 'trabajador',
-          puesto_id: response.usuario.puestoId ?? '',
-          pin_hash_local: '',
-          expira_en: ahora + horasExp * 60 * 60 * 1000,
-          ultima_actividad_en: ahora
-        }
-        await Preferences.set({
-          key: PREF_SESION_LOCAL,
-          value: JSON.stringify(sesion)
-        })
-        sesionLocal.value = sesion
+    // Hidratar caché local con datos del servidor (pinHash incluido)
+    // No bloqueante — si falla (sin red, etc.), el login igual es exitoso.
+    // Llamamos directamente: procesarRespuestaLogin se invoca desde login() que está en setup context.
+    if (import.meta.client) {
+      try {
+        const { pullServidor } = useSync()
+        pullServidor({ silent: true }).catch(() => {})
+      } catch {
+        // noop
       }
     }
   }
@@ -224,8 +210,8 @@ export function useAuth() {
       if (resultado.motivo === 'usuario_inactivo') {
         throw new Error('Usuario no activo. Contacta al jefe.')
       }
-      if (resultado.motivo === 'cliente_no_puede_loguearse') {
-        throw new Error('Los clientes no pueden iniciar sesión aún. Próximamente habilitado.')
+      if (resultado.motivo === 'cliente_no_puede_loguearse' || resultado.motivo === 'solo_jefe') {
+        throw new Error('Solo el jefe puede iniciar sesión.')
       }
       throw new Error('Credenciales inválidas.')
     }

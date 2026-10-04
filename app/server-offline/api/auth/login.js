@@ -21,8 +21,10 @@ export async function login(nombreUsuario, pin) {
     if (!usuario) return { ok: false, motivo: 'usuario_no_existe' }
     if (!usuario.activo) return { ok: false, motivo: 'usuario_inactivo' }
 
-    if (usuario.rol === 'cliente') {
-      return { ok: false, motivo: 'cliente_no_puede_loguearse' }
+    // Solo el jefe entra a la app (decision de producto, Fase 3): el
+    // trabajador se gestiona (turno, salario) pero no inicia sesion.
+    if (usuario.rol !== 'jefe') {
+      return { ok: false, motivo: 'solo_jefe' }
     }
 
     const pinOk = await verifyPin(pin, usuario.pinHash)

@@ -64,8 +64,8 @@ export async function restaurarUsuarios(ids) {
 
 /**
  * Devuelve a un usuario a jefe activo. Necesario porque un test que degrada al
- * seed lo deja con rol 'trabajador', y un trabajador no recibe token: sin esto
- * las corridas siguientes fallan con "no autenticado" en cascada.
+ * seed lo deja con rol 'trabajador', y el trabajador no puede iniciar sesion:
+ * sin esto las corridas siguientes fallan con "no autenticado" en cascada.
  */
 export async function restaurarJefe(id) {
   await conDb(async (c) => {
