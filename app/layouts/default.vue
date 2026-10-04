@@ -105,6 +105,11 @@ const links = computed(() => {
         to: '/clientes'
       },
       {
+        label: 'Ficha cliente',
+        icon: 'i-lucide-user-search',
+        to: '/ficha-cliente'
+      },
+      {
         label: 'Gráficas',
         icon: 'i-lucide-bar-chart-2',
         to: '/graficas'
