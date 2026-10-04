@@ -55,7 +55,7 @@ function fecha(ms) {
 function tipoLegible(p) {
   if (p.tipo === 'saldo') return 'Saldo'
   const u = p.tipo === 'voz' ? 'min' : (p.tipo === 'sms' ? 'SMS' : 'und')
-  return `${p.tipo} ${p.unidades ?? ''}${u}`.trim()
+  return `${p.unidades ?? ''} ${u}`.trim()
 }
 
 async function recargar() {

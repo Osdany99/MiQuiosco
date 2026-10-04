@@ -129,20 +129,28 @@ async function reordenar(evt) {
 
   const objetivo = mover(actuales, from, to)
   const porId = new Map(filas().map(r => [String(r.id), r]))
+  const previos = new Map(filas().map(r => [String(r.id), Number(r.orden ?? 0)]))
+  const cambios = objetivo.filter(({ id, orden }) => porId.has(String(id)) && Number(porId.get(String(id)).orden) !== orden)
   reordenando.value = true
   try {
-    // useRepo.patch devuelve { data, error }: hay que inspeccionar cada
-    // resultado porque Promise.all no rechaza (los errores van en error).
-    const resultados = await Promise.all(objetivo.map(({ id, orden }) => {
-      const row = porId.get(id)
-      if (!row || Number(row.orden) === orden) return null
-      return patch(row.id, { orden })
-    }))
-    const fallos = resultados.filter(r => r && r.error).length
-    if (fallos > 0) {
+    // Secuencial con rollback: en paralelo un fallo parcial dejaba el orden
+    // a medias (valores 1..n duplicados). Al primer error se paran los envíos
+    // y se devuelven los ya aplicados a su valor anterior (best-effort).
+    const aplicados = []
+    let fallo = null
+    for (const { id, orden } of cambios) {
+      const r = await patch(id, { orden })
+      if (r?.error) {
+        fallo = r.error
+        break
+      }
+      aplicados.push(id)
+    }
+    if (fallo) {
+      await Promise.all(aplicados.map(id => patch(id, { orden: previos.get(String(id)) ?? 0 })))
       useToast().add({
         title: 'No se pudo guardar el orden',
-        description: `Fallaron ${fallos} producto(s). Reintenta el arrastre.`,
+        description: 'Se restauró el orden anterior. Reintenta el arrastre.',
         color: 'error'
       })
     }

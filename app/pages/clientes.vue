@@ -216,6 +216,11 @@ const ocupados = computed(() => cli.telefonos.value.filter(t => t.activo !== fal
  * hacerlo de un tirón deja la app varios segundos sin pintar nada y parece
  * colgada. Procesar en lotes de 8 y soltar el hilo con `nextTick` + un tick de
  * temporizador hace que la barra del diálogo avance de verdad.
+ *
+ * Cada contacto es todo o nada: si se crea el cliente pero fallan sus números,
+ * se elimina el recién creado (compensa) para no dejar clientes huérfanos sin
+ * números. Y si el contacto ya existe por nombre (reintento tras un corte a
+ * mitad), se reutiliza en vez de duplicarlo.
  */
 async function importarContactos(lista) {
   importando.value = true
@@ -225,8 +230,15 @@ async function importarContactos(lista) {
   for (let i = 0; i < lista.length; i += TANDAS) {
     for (const c of lista.slice(i, i + TANDAS)) {
       try {
-        const cliente = await cli.crearCliente({ nombre: c.nombre }, pid.value)
-        progreso.value.clientes++
+        const nombreNorm = String(c.nombre ?? '').trim().toLowerCase()
+        let cliente = cli.clientes.value.find(x => String(x.nombre ?? '').trim().toLowerCase() === nombreNorm) ?? null
+        let creado = false
+        if (!cliente) {
+          cliente = await cli.crearCliente({ nombre: c.nombre }, pid.value)
+          creado = true
+        }
+        const numerosAntes = cli.telefonosDe(cliente.id).length
+        let numerosNuevos = 0
         for (const t of c.telefonos) {
           if (ocupados.value.includes(t)) {
             progreso.value.omitidos++
@@ -234,6 +246,19 @@ async function importarContactos(lista) {
           }
           await cli.agregarTelefono(cliente.id, t, pid.value)
           progreso.value.numeros++
+          numerosNuevos++
+        }
+        if (creado) {
+          if (numerosAntes + numerosNuevos === 0) {
+            // Compensación: el cliente quedó huérfano (todos sus números
+            // fallaron u ocupados). Se elimina para no dejar basura.
+            await cli.clientesRepo.value.remove(cliente.id)
+            const idx = cli.clientes.value.findIndex(x => x.id === cliente.id)
+            if (idx >= 0) cli.clientes.value.splice(idx, 1)
+            progreso.value.omitidos++
+          } else {
+            progreso.value.clientes++
+          }
         }
       } catch {
         progreso.value.omitidos++
