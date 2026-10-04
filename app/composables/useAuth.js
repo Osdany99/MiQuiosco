@@ -217,15 +217,17 @@ export function useAuth() {
     }
     const usuario = resultado.usuario
 
+    // Solo el jefe llega aquí: el trabajador se rechaza arriba (solo_jefe,
+    // decisión B6). No hay rama de sesión de 24 h porque no existen sesiones
+    // de trabajador nuevas.
     const ahora = Date.now()
     const sesion = {
       usuario_id: usuario.id,
       usuario_nombre: usuario.nombre,
-      rol: usuario.rol === 'jefe' ? 'jefe' : 'trabajador',
+      rol: 'jefe',
       puesto_id: usuario.puestoId,
       pin_hash_local: usuario.pinHash,
-      expira_en:
-        usuario.rol === 'trabajador' ? ahora + 24 * 60 * 60 * 1000 : null,
+      expira_en: null,
       ultima_actividad_en: ahora
     }
 
@@ -249,6 +251,8 @@ export function useAuth() {
     const ahora = Date.now()
     const sesion = sesionLocal.value
 
+    // Sesiones heredadas de APKs anteriores a B6: se respetan hasta su
+    // expiración; no se crean nuevas (loginOffline rechaza al trabajador).
     if (sesion.rol === 'trabajador') {
       if (sesion.expira_en && ahora > sesion.expira_en) return false
       return true
