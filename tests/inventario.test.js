@@ -12,7 +12,8 @@ import {
   construirAnulacionCuadre,
   construirAjuste,
   saldosPorProducto,
-  lotesConSaldo
+  lotesConSaldo,
+  rotarPrecioCompra
 } from '../shared/inventario/operaciones.js'
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
@@ -946,5 +947,51 @@ describe('analitica: valor y estado del stock', () => {
     // En almacén "Refresco" (12 de 20) es una pieza más de plata parada:
     // no aparece como "no se vende", que es un estado del quiosco.
     assert.deepEqual(conteoEstadoStock(filas, 'almacen').map(c => c.cantidad), [2, 0, 2, 0])
+  })
+})
+
+describe('rotarPrecioCompra', () => {
+  const producto = { id: PAN, precioCompraActual: 10, precioVentaActual: 15 }
+  const vigente = { id: 'vigente-1', vigenteDesde: meta.ahora - 86400000 }
+
+  it('mismo precio con vigente no rota', () => {
+    assert.equal(rotarPrecioCompra({ producto, vigente, nuevoPrecio: 10, ahora: meta.ahora, usuarioId: JEFE }), null)
+  })
+
+  it('precio distinto cierra el vigente y abre uno nuevo con espejo', () => {
+    const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
+    assert.equal(r.cerrarId, 'vigente-1')
+    assert.equal(r.nuevoHistorial.productoId, PAN)
+    assert.equal(r.nuevoHistorial.precioCompra, 12)
+    assert.equal(r.nuevoHistorial.precioVenta, 15)
+    assert.equal(r.nuevoHistorial.vigenteHasta, null)
+    assert.equal(r.espejo, 12)
+    assert.ok(r.nuevoHistorial.vigenteDesde >= meta.ahora)
+  })
+
+  it('sin vigente crea historial sin cerrar nada', () => {
+    const r = rotarPrecioCompra({ producto, vigente: null, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
+    assert.equal(r.cerrarId, null)
+    assert.equal(r.cerrarHasta, null)
+    assert.equal(r.nuevoHistorial.vigenteDesde, meta.ahora)
+    assert.equal(r.espejo, 12)
+  })
+
+  it('sin vigente y mismo precio también crea (no hay nada que comparar)', () => {
+    const r = rotarPrecioCompra({ producto, vigente: null, nuevoPrecio: 10, ahora: meta.ahora, usuarioId: JEFE })
+    assert.equal(r.cerrarId, null)
+    assert.equal(r.nuevoHistorial.precioCompra, 10)
+  })
+
+  it('tolera precio como texto y redondea la comparación', () => {
+    assert.equal(rotarPrecioCompra({ producto, vigente, nuevoPrecio: '10', ahora: meta.ahora, usuarioId: JEFE }), null)
+    const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: '12.5', ahora: meta.ahora, usuarioId: JEFE })
+    assert.equal(r.nuevoHistorial.precioCompra, 12.5)
+  })
+
+  it('el nuevo rango no pisa al vigente: empieza al menos 1 ms después', () => {
+    const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
+    assert.ok(r.nuevoHistorial.vigenteDesde > vigente.vigenteDesde)
+    assert.equal(r.cerrarHasta, r.nuevoHistorial.vigenteDesde - 1)
   })
 })

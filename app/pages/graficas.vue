@@ -145,10 +145,9 @@ function verUltimosDias(dias) {
 }
 
 onMounted(async () => {
-  // Rango por defecto: solo el día de hoy en los dos extremos. Es lo que se
-  // mira casi siempre (el cuadre del día); el mes se elige a mano cuando hace
-  // falta revisar una tendencia.
-  verUltimosDias(1)
+  // Rango por defecto: últimos 7 días. Con solo hoy, las gráficas de período
+  // salían vacías o con una sola barra al entrar.
+  verUltimosDias(7)
 
   await conexion.cargar().catch(() => {})
 

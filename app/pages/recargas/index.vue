@@ -31,6 +31,9 @@ const FILTRO_INICIAL = { estadoPago: 'pendiente' }
  * Opciones del filtro de fecha. El valor es directamente el `desde` que
  * entienden el endpoint y el SQLite local, así que no hay nada que traducir.
  * Sin valor = todas las fechas, que es el estado por defecto.
+ *
+ * Se recalculan al volver a primer plano: con valores fijos del arranque, si
+ * la app cruzaba la medianoche "Hoy" quedaba con la fecha anterior.
  */
 function inicioDia(diasAtras = 0) {
   const d = new Date()
@@ -39,11 +42,21 @@ function inicioDia(diasAtras = 0) {
   return d.toISOString()
 }
 
-const OPCIONES_FECHA = [
-  { label: 'Hoy', value: inicioDia() },
-  { label: '7 días', value: inicioDia(6) },
-  { label: '30 días', value: inicioDia(29) }
-]
+const diaActual = ref(new Date().toDateString())
+function alVolverAPrimerPlano() {
+  if (!document.hidden) diaActual.value = new Date().toDateString()
+}
+onMounted(() => document.addEventListener('visibilitychange', alVolverAPrimerPlano))
+onUnmounted(() => document.removeEventListener('visibilitychange', alVolverAPrimerPlano))
+
+const OPCIONES_FECHA = computed(() => {
+  void diaActual.value
+  return [
+    { label: 'Hoy', value: inicioDia() },
+    { label: '7 días', value: inicioDia(6) },
+    { label: '30 días', value: inicioDia(29) }
+  ]
+})
 
 const columns = [
   { accessorKey: 'id', header: 'ID', visible: false },
@@ -67,7 +80,7 @@ const filterFields = computed(() => [
     key: 'desde',
     label: 'Fecha',
     type: 'select',
-    options: OPCIONES_FECHA
+    options: OPCIONES_FECHA.value
   },
   {
     key: 'clienteId',
