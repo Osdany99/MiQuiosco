@@ -51,6 +51,12 @@ async function confirmarReabrir() {
   reabriendo.value = true
   try {
     await cuadreCtl.cargarDatos(pid, row.id)
+    // cargarDatos avisa con toast y sale sin lanzar si no pudo cargar: no
+    // actuar sobre un cuadre ajeno que quede en el estado compartido.
+    if (cuadreCtl.cuadre.value?.id !== row.id) {
+      toast.add({ title: 'No se pudo reabrir', description: 'No se pudo cargar el cuadre. Inténtalo de nuevo.', color: 'error' })
+      return
+    }
     await cuadreCtl.reabrirCuadre()
     if (cuadreCtl.cuadre.value?.estado !== 'abierto') {
       toast.add({ title: 'No se pudo reabrir', description: 'El cuadre ya no está cerrado.', color: 'error' })
@@ -58,7 +64,10 @@ async function confirmarReabrir() {
     }
     reabrirOpen.value = false
     reabrirTarget.value = null
+    await tableRef.value?.refresh()
     await entrarACuadre(row.id)
+  } catch (err) {
+    toast.add({ title: 'No se pudo reabrir', description: err?.message || 'Error inesperado.', color: 'error' })
   } finally {
     reabriendo.value = false
   }

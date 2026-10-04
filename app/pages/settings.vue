@@ -102,6 +102,16 @@ async function ejecutarPermiso(clave) {
   }
 }
 
+// La URL del servidor y las actualizaciones in-app solo aplican en Android:
+// en web el navegador ya habla con su mismo origen.
+const esNativo = computed(() => {
+  try {
+    return Capacitor.isNativePlatform()
+  } catch {
+    return false
+  }
+})
+
 // El paso del candado solo se resuelve FUERA de la app, en Ajustes del sistema.
 // Al volver hay que volver a preguntar, o la lista seguiría pidiendo
 // "Desbloquear" a alguien que ya lo desbloqueó.
@@ -117,16 +127,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', alVolverDeAjustes)
-})
-
-// La URL del servidor y las actualizaciones in-app solo aplican en Android:
-// en web el navegador ya habla con su mismo origen.
-const esNativo = computed(() => {
-  try {
-    return Capacitor.isNativePlatform()
-  } catch {
-    return false
-  }
 })
 
 const serverUrl = ref('')
