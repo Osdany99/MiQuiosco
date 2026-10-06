@@ -112,11 +112,11 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
@@ -187,6 +187,12 @@ jobs:
         shell: bash
         run: |
           chmod +x android/gradlew
+          # gradle-daemon-jvm.properties fija el daemon a JBR 21 vía foojay
+          # con ids que pueden caducar (400 el 2026-10-06 y tumbó el release
+          # v2.0.8). En CI se usa el JDK 21 ya instalado (JAVA_HOME): sin ese
+          # archivo Gradle no intenta descargar nada. El archivo local no se
+          # toca (solo existe en el runner).
+          rm -f android/gradle/gradle-daemon-jvm.properties
           cd android && ./gradlew assembleRelease --console=plain
 
       - name: Verificar firma (apksigner)
