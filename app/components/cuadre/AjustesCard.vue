@@ -37,6 +37,9 @@
                 <UBadge :label="a.tipo" :color="a.tipo === 'regalo' ? 'success' : 'warning'" size="xs" />
                 {{ nombreProducto(a.productoId) }}
               </p>
+              <p v-if="descripcionProducto(a.productoId)" class="truncate text-xs text-muted">
+                {{ descripcionProducto(a.productoId) }}
+              </p>
               <p class="text-xs text-gray-500">
                 {{ a.cantidad }} un. · <span class="font-mono">{{ fmtPrecio(a.monto) }}</span>
                 <span v-if="a.clienteId"> · {{ nombreCliente(a.clienteId) }}</span>
@@ -126,7 +129,7 @@ const {
   montoRegaloCalculado, montoDescuentoCalculado,
   cargarClientes, cargarProductos, cargarActividadDelCuadre, crearCliente,
   registrarAjuste, editarAjuste, eliminarAjuste,
-  nombreProducto, nombreCliente
+  nombreProducto, descripcionProducto, nombreCliente
 } = useAjustes()
 
 const nuevaOpen = ref(false)

@@ -44,6 +44,7 @@ export function vistaSaldos({ productos, lotes, movimientos }) {
     .map(p => ({
       productoId: p.id,
       nombre: p.nombre,
+      descripcion: p.descripcion ?? null,
       unidad: p.unidad ?? null,
       seVende: p.activoQuiosco !== false,
       almacen: saldos.get(p.id)?.almacen ?? 0,

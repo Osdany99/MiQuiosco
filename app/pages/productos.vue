@@ -230,6 +230,20 @@ onBeforeUnmount(() => destruirSortable())
         </span>
       </template>
 
+      <template #nombre-cell="{ row }">
+        <div class="min-w-0">
+          <div class="font-medium truncate">
+            {{ row.original.nombre }}
+          </div>
+          <div
+            v-if="row.original.descripcion?.trim()"
+            class="text-xs text-muted truncate"
+          >
+            {{ row.original.descripcion }}
+          </div>
+        </div>
+      </template>
+
       <template #row-actions-extra="{ rowData }">
         <UTooltip text="Ver historial de precios" :delay-duration="0">
           <UButton

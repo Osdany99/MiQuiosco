@@ -45,6 +45,7 @@
             :items="productos"
             value-key="id"
             label-key="nombre"
+            description-key="descripcion"
             placeholder="Producto..."
             class="w-full"
             @update:model-value="onProducto(linea)"

@@ -175,7 +175,7 @@ onMounted(async () => {
 
   const prods = await productoRepo.readAll({ query: { orderBy: 'nombre' } })
   const lista = Array.isArray(prods) ? prods : (prods?.data ?? [])
-  productosParaSelector.value = lista.map(p => ({ label: p.nombre, value: p.id }))
+  productosParaSelector.value = lista.map(p => ({ label: p.nombre, value: p.id, descripcion: p.descripcion ?? null }))
 
   await cargarKpis()
 
@@ -396,6 +396,7 @@ function getChartConfig(g) {
             :items="productosParaSelector"
             value-key="value"
             label-key="label"
+            description-key="descripcion"
             placeholder="Seleccionar..."
             @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
           />

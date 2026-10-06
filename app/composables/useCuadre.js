@@ -341,6 +341,7 @@ export function useCuadre() {
           .map(p => ({
             id: p.id,
             nombre: p.nombre,
+            descripcion: p.descripcion ?? null,
             precioVentaActual: Number(p.precioVentaActual),
             orden: Number(p.orden ?? 0)
           }))
@@ -351,6 +352,7 @@ export function useCuadre() {
           .map(p => ({
             id: p.id,
             nombre: p.nombre,
+            descripcion: p.descripcion ?? null,
             precioVentaActual: p.precioVentaActual,
             orden: p.orden
           }))
@@ -942,6 +944,12 @@ export function useCuadre() {
     return productosActivos.value.find(p => p.id === productoId)?.nombre || '—'
   }
 
+  // Subtítulo del producto: null/vacío cuando no tiene, para no pintar nada.
+  function getProductoDescripcion(productoId) {
+    const d = productosActivos.value.find(p => p.id === productoId)?.descripcion
+    return d?.trim() ? d : null
+  }
+
   return {
     cuadre, lineas, productosActivos, cargando,
     expandida,
@@ -952,7 +960,7 @@ export function useCuadre() {
     cargarDatos, recalcularSubtotal,
     toggleExpandir, cerrarCuadre, reabrirCuadre,
     duplicarLinea, eliminarLinea, expandirConNotas,
-    getProductoNombre,
+    getProductoNombre, getProductoDescripcion,
     marcarPagoManual, flushAutosave,
     hoy
   }

@@ -58,6 +58,19 @@
       :columns="columns"
       empty="Sin productos"
     >
+      <template #nombre-cell="{ row }">
+        <div class="min-w-0">
+          <div class="font-medium truncate">
+            {{ row.original.nombre }}
+          </div>
+          <div
+            v-if="row.original.descripcion?.trim()"
+            class="text-xs text-muted truncate"
+          >
+            {{ row.original.descripcion }}
+          </div>
+        </div>
+      </template>
       <template #estado-cell="{ row }">
         <UBadge :color="colorEstado(row.original)" variant="soft">
           {{ textoEstado(row.original) }}
@@ -108,6 +121,19 @@
       :columns="columnsHistorial"
       empty="Sin entradas registradas"
     >
+      <template #nombreProducto-cell="{ row }">
+        <div class="min-w-0">
+          <div class="font-medium truncate">
+            {{ row.original.nombreProducto }}
+          </div>
+          <div
+            v-if="row.original.descripcionProducto?.trim()"
+            class="text-xs text-muted truncate"
+          >
+            {{ row.original.descripcionProducto }}
+          </div>
+        </div>
+      </template>
       <template #fechaEntrada-cell="{ row }">
         {{ row.original.fechaEntrada }}
       </template>

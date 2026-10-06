@@ -61,6 +61,19 @@
       :columns="columns"
       empty="Sin productos"
     >
+      <template #nombre-cell="{ row }">
+        <div class="min-w-0">
+          <div class="font-medium truncate">
+            {{ row.original.nombre }}
+          </div>
+          <div
+            v-if="row.original.descripcion?.trim()"
+            class="text-xs text-muted truncate"
+          >
+            {{ row.original.descripcion }}
+          </div>
+        </div>
+      </template>
       <template #estado-cell="{ row }">
         <UBadge :color="colorEstado(row.original)" variant="soft">
           {{ textoEstado(row.original) }}

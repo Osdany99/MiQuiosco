@@ -41,6 +41,7 @@
               :items="productosParaLinea(idx)"
               value-key="id"
               label-key="nombre"
+              description-key="descripcion"
               placeholder="Producto..."
               class="w-full"
             />
@@ -65,8 +66,9 @@
           :items="productosDisponibles"
           value-key="id"
           label-key="nombre"
+          description-key="descripcion"
           multiple
-          placeholder="Buscar productos para agregar..."
+          placeholder="Seleccionar productos para agregar..."
           class="w-full"
           @update:model-value="agregarProductos"
         />

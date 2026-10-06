@@ -53,6 +53,14 @@
               @click.stop="aEliminar = row.original; eliminarOpen = true"
             />
           </div>
+          <!-- Descripción del producto como subtítulo. Solo si tiene: vive
+               dentro del ancho de la columna, igual que la nota. -->
+          <div
+            v-if="getProductoDescripcion(row.original.productoId)"
+            class="text-xs text-muted truncate max-w-44"
+          >
+            {{ getProductoDescripcion(row.original.productoId) }}
+          </div>
           <!-- La nota vive dentro del ancho de la columna, no la estira.
                Textarea con autoresize: una nota corta ocupa 1 línea (igual que
                un input) y una "un poco larga" crece y se lee completa con wrap,
@@ -134,7 +142,7 @@ const emit = defineEmits(['reload'])
 const {
   lineas, expandida, cargando,
   recalcularSubtotal, toggleExpandir,
-  getProductoNombre,
+  getProductoNombre, getProductoDescripcion,
   flushAutosave, duplicarLinea, eliminarLinea
 } = useCuadre()
 

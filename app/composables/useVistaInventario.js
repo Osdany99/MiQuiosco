@@ -77,7 +77,7 @@ export function useVistaInventario(ubicacion) {
   }
 
   function abrirLotes(fila) {
-    productoLotes.value = { id: fila.productoId, nombre: fila.nombre }
+    productoLotes.value = { id: fila.productoId, nombre: fila.nombre, descripcion: fila.descripcion ?? null }
     showLotes.value = true
   }
 
@@ -96,6 +96,7 @@ export function useVistaInventario(ubicacion) {
         inv.cargarProveedores().catch(() => [])
       ])
       const nombreProd = new Map((prods ?? []).map(p => [p.id, p.nombre]))
+      const descripcionProd = new Map((prods ?? []).map(p => [p.id, p.descripcion ?? null]))
       const nombreProv = new Map((provs ?? []).map(p => [p.id, p.nombre]))
       lotesHistorial.value = (lotesRows ?? [])
         .slice()
@@ -103,6 +104,7 @@ export function useVistaInventario(ubicacion) {
         .map(l => ({
           ...l,
           nombreProducto: nombreProd.get(l.productoId) ?? '—',
+          descripcionProducto: descripcionProd.get(l.productoId) ?? null,
           origen: l.proveedorId ? (nombreProv.get(l.proveedorId) ?? '—') : (l.lugarCompra || '—')
         }))
       productosActivos.value = prods ?? []

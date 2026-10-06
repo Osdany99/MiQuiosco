@@ -9,7 +9,6 @@
           label-key="nombre"
           placeholder="Sin cliente..."
           class="w-full"
-          :search-input="true"
         />
       </UFormField>
       <UButton
@@ -55,6 +54,7 @@
           :items="productos"
           value-key="id"
           label-key="nombre"
+          description-key="descripcion"
           placeholder="Seleccionar producto..."
           class="w-full"
           @update:model-value="onProductoChange"

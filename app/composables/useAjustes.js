@@ -195,6 +195,12 @@ export function useAjustes() {
     return productos.value.find(p => p.id === productoId)?.nombre || '—'
   }
 
+  // Subtítulo del producto: null/vacío cuando no tiene, para no pintar nada.
+  function descripcionProducto(productoId) {
+    const d = productos.value.find(p => p.id === productoId)?.descripcion
+    return d?.trim() ? d : null
+  }
+
   function nombreCliente(clienteId) {
     return clientes.value.find(c => c.id === clienteId)?.nombre || '—'
   }
@@ -204,6 +210,6 @@ export function useAjustes() {
     montoRegaloCalculado, montoDescuentoCalculado,
     cargarClientes, crearCliente, cargarProductos, cargarActividadDelCuadre,
     registrarAjuste, editarAjuste, eliminarAjuste,
-    nombreProducto, nombreCliente
+    nombreProducto, descripcionProducto, nombreCliente
   }
 }

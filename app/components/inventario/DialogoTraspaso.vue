@@ -32,6 +32,7 @@
                 :items="productos"
                 value-key="id"
                 label-key="nombre"
+                description-key="descripcion"
                 placeholder="Producto..."
                 class="w-full"
               />

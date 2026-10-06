@@ -10,6 +10,12 @@
     <div v-if="cargando" class="flex justify-center py-8">
       <UIcon name="i-lucide-loader-circle" class="animate-spin size-8 text-muted-foreground" />
     </div>
+    <p
+      v-else-if="producto?.descripcion?.trim()"
+      class="text-xs text-muted truncate mb-2"
+    >
+      {{ producto.descripcion }}
+    </p>
     <UTable
       v-else
       :data="lotes"
