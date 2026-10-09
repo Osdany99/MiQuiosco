@@ -12,6 +12,18 @@ const inv = useInventario()
 
 const showSugerencia = ref(false)
 const sugerencias = ref([])
+const fiadoCardRef = ref(null)
+
+function recargar() {
+  cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)
+}
+
+// Fiar desde la fila: la tabla no conoce el formulario de deuda (clientes,
+// pago inicial, confirmación), así que solo avisa de qué línea se trata y la
+// tarjeta "Fiado del día" abre su propio diálogo con ese producto fijo.
+function abrirDeudaDesdeLinea(linea) {
+  fiadoCardRef.value?.abrirNuevaDeuda(linea)
+}
 
 async function alCerrar() {
   const { faltantes } = await cerrarCuadre()
@@ -65,7 +77,12 @@ onMounted(() => {
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 space-y-4">
-        <CuadreLineaTable :readonly="cuadre?.estado !== 'abierto'" @reload="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)" />
+        <CuadreLineaTable
+          :readonly="cuadre?.estado !== 'abierto'"
+          :puede-fiar="!esTrabajador"
+          @fiar="abrirDeudaDesdeLinea"
+          @reload="recargar"
+        />
       </div>
 
       <div class="space-y-4">
@@ -103,26 +120,19 @@ onMounted(() => {
 
         <CuadreFiadoCard
           v-if="!esTrabajador"
+          ref="fiadoCardRef"
           :cuadre-id="cuadre?.id ?? ''"
           :productos-activos="productosActivos"
           :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
           :readonly="cuadre?.estado !== 'abierto'"
-          @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)"
+          @actualizado="recargar"
         />
         <CuadreTransferenciaCard
           v-if="!esTrabajador"
           :cuadre-id="cuadre?.id ?? ''"
-          :productos-activos="productosActivos"
           :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
           :readonly="cuadre?.estado !== 'abierto'"
-          @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)"
-        />
-        <CuadreAjustesCard
-          v-if="!esTrabajador"
-          :cuadre-id="cuadre?.id ?? ''"
-          :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
-          :readonly="cuadre?.estado !== 'abierto'"
-          @actualizado="cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)"
+          @actualizado="recargar"
         />
         <CuadreCierreForm v-if="cuadre?.estado === 'abierto' && !esTrabajador" />
         <CuadreResumenCerrado v-if="cuadre?.estado === 'cerrado'" :cuadre="cuadre" />

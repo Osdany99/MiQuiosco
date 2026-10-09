@@ -9,9 +9,13 @@ import { createTransferenciaSchema } from '../shared/schemas/createTransferencia
 import { createAjusteSchema } from '../shared/schemas/createAjuste.js'
 import { updateAjusteSchema } from '../shared/schemas/updateAjuste.js'
 import { mergeFields } from '../app/utils/syncMerge.js'
+import { etiquetaFaseSync } from '../app/utils/syncFases.js'
 import { fmtPrecio, calcularSalario, normalizarNumero, calcularSubtotalLinea } from '../app/utils/index.js'
 import { sumarPorProducto, calcularExcesoTope } from '../shared/fiadoTope.js'
 import { consumoPorProductoEnCuadreLocal, validarTopeGeneralLocal } from '../app/utils/topeGeneral.js'
+import { aEpoch, aEpochOpcional, normalizarFechas } from '../shared/fechas.js'
+import { deriveColumnTypes, coerceRow, deriveTimestampCols } from '../app/server-offline/utils/schemaTypes.js'
+import { updateProductoMut } from '../shared/mutations/producto.ts'
 import {
   separarSentencias,
   tablaExiste,
@@ -19,9 +23,29 @@ import {
   añadirColumnasFaltantes,
   crearIndicesFaltantes,
   ejecutarTransaccionSql,
-  crearColaTransacciones
+  crearColaTransacciones,
+  aplicarBaseline
 } from '../app/server-offline/db/esquema.js'
 
+// --- etiquetaFaseSync (banner de sincronización) ---
+describe('etiquetaFaseSync', () => {
+  it('inactiva y desconocida devuelven vacío', () => {
+    assert.equal(etiquetaFaseSync('inactiva'), '')
+    assert.equal(etiquetaFaseSync('otra'), '')
+  })
+  it('subiendo muestra el total de pendientes', () => {
+    assert.equal(etiquetaFaseSync('subiendo', { actual: 0, total: 40 }), 'Subiendo 40 cambios…')
+    assert.equal(etiquetaFaseSync('subiendo', { actual: 0, total: 1 }), 'Subiendo 1 cambio…')
+    assert.equal(etiquetaFaseSync('subiendo'), 'Subiendo cambios…')
+  })
+  it('aplicando muestra actual/total', () => {
+    assert.equal(etiquetaFaseSync('aplicando', { actual: 3, total: 10 }), 'Aplicando 3/10…')
+  })
+  it('preparando y bajando tienen texto fijo', () => {
+    assert.equal(etiquetaFaseSync('preparando'), 'Preparando cambios…')
+    assert.equal(etiquetaFaseSync('bajando'), 'Bajando cambios…')
+  })
+})
 // --- usuarioSchema ---
 describe('usuarioSchema', () => {
   it('acepta usuario válido sin pinHash', () => {
@@ -397,25 +421,21 @@ describe('validarTopeGeneralLocal', () => {
 // --- schemas de transferencias y ajustes ---
 describe('createTransferenciaSchema', () => {
   const uuid = '550e8400-e29b-41d4-a716-446655440001'
-  it('acepta transferencia válida', () => {
+  it('acepta transferencia válida (cliente + monto)', () => {
     const r = createTransferenciaSchema.safeParse({
       clienteId: uuid,
       cuadreId: uuid,
-      items: [{ productoId: uuid, cantidad: 2, precioVentaUsado: 50 }]
+      monto: 400
     })
     assert.equal(r.success, true)
   })
-  it('rechaza sin items', () => {
-    const r = createTransferenciaSchema.safeParse({ clienteId: uuid, cuadreId: uuid, items: [] })
+  it('rechaza sin monto', () => {
+    const r = createTransferenciaSchema.safeParse({ clienteId: uuid, cuadreId: uuid })
     assert.equal(r.success, false)
   })
-  it('rechaza cantidad negativa', () => {
-    const r = createTransferenciaSchema.safeParse({
-      clienteId: uuid,
-      cuadreId: uuid,
-      items: [{ productoId: uuid, cantidad: -1, precioVentaUsado: 50 }]
-    })
-    assert.equal(r.success, false)
+  it('rechaza monto cero o negativo', () => {
+    assert.equal(createTransferenciaSchema.safeParse({ clienteId: uuid, cuadreId: uuid, monto: 0 }).success, false)
+    assert.equal(createTransferenciaSchema.safeParse({ clienteId: uuid, cuadreId: uuid, monto: -5 }).success, false)
   })
 })
 
@@ -543,6 +563,32 @@ describe('journal sqlite (instalación fresca)', () => {
     assert.equal(await tablaExiste(conn, 'usuarios'), true)
     assert.equal(await tablaExiste(conn, 'transferencias'), true)
     assert.equal(await tablaExiste(conn, 'ajustes'), true)
+  })
+
+  it('aplicarBaseline sentencia por sentencia crea el esquema y es idempotente', async () => {
+    const conn = memoDb()
+    await conn.run('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, aplicada_en INTEGER NOT NULL)', [])
+    await aplicarBaseline(conn, baseline)
+
+    assert.equal(await tablaExiste(conn, 'usuarios'), true)
+    assert.equal(await tablaExiste(conn, 'movimientos_inventario'), true)
+    const colsMov = await conn.query('PRAGMA table_info(movimientos_inventario)', [])
+    const nombresMov = colsMov.values.map(c => c.name)
+    assert.ok(nombresMov.includes('actualizado_en'), 'movimientos debe tener actualizado_en (0002)')
+    assert.ok(nombresMov.includes('venta_directa_id'), 'movimientos debe tener venta_directa_id (0005)')
+
+    // Reintento tras éxito (o tras fallo parcial con CREATEs ya aplicados):
+    // converge sin romper.
+    await aplicarBaseline(conn, baseline)
+    assert.equal(await tablaExiste(conn, 'cuadres'), true)
+  })
+
+  it('aplicarBaseline señala la sentencia que falla', async () => {
+    const conn = memoDb()
+    await assert.rejects(
+      aplicarBaseline(conn, 'CREATE TABLE t1 (id text);--> statement-breakpoint\nESTO NO ES SQL VALIDO'),
+      /ESTO NO ES SQL VALIDO/
+    )
   })
 })
 
@@ -692,5 +738,203 @@ describe('crearColaTransacciones (serialización)', () => {
     const r = await cola.ejecutar(connFalsaSql(eventos), async () => 'ok', {})
     assert.equal(r, 'ok')
     assert.deepEqual(soloSql(eventos), ['BEGIN IMMEDIATE', 'ROLLBACK', 'BEGIN IMMEDIATE', 'COMMIT'])
+  })
+})
+
+// --- Fechas: ISO del servidor ↔ epoch ms de SQLite ---
+// El bug de origen: el pull entrega las marcas de tiempo como ISO-8601 y la BD
+// local las guarda en columnas integer. Con Number(iso) === NaN, el valor llega
+// a SQLite como NULL y el cambio de precio revienta con el error 1299.
+describe('aEpoch', () => {
+  it('deja intacto un epoch ms', () => {
+    assert.equal(aEpoch(1770000000000), 1770000000000)
+  })
+  it('convierte un ISO-8601 a epoch ms', () => {
+    assert.equal(aEpoch('2026-07-11T19:13:55.004Z'), Date.parse('2026-07-11T19:13:55.004Z'))
+  })
+  it('sin fecha interpretable devuelve 0, nunca NaN', () => {
+    assert.equal(aEpoch(null), 0)
+    assert.equal(aEpoch(undefined), 0)
+    assert.equal(aEpoch('no-es-fecha'), 0)
+    assert.equal(aEpoch(Number.NaN), 0)
+    assert.equal(aEpoch(Number.POSITIVE_INFINITY), 0)
+  })
+  it('aEpochOpcional distingue "no hay fecha" (null) del origen epoch (0)', () => {
+    assert.equal(aEpochOpcional(null), null)
+    assert.equal(aEpochOpcional('no-es-fecha'), null)
+    assert.equal(aEpochOpcional(0), 0)
+    assert.equal(aEpochOpcional('2026-07-11T19:13:55.004Z'), Date.parse('2026-07-11T19:13:55.004Z'))
+  })
+})
+
+describe('normalizarFechas', () => {
+  it('convierte solo las claves indicadas y respeta los null', () => {
+    const fila = { id: 'x', creadoEn: '2026-07-11T19:13:55.004Z', vigenteHasta: null, nombre: '2026-07-11T19:13:55.004Z' }
+    const out = normalizarFechas(fila, ['creadoEn', 'vigenteHasta', 'vigenteDesde'])
+    assert.equal(out.creadoEn, Date.parse('2026-07-11T19:13:55.004Z'))
+    assert.equal(out.vigenteHasta, null, 'vigenteHasta null significa "sigue vigente"')
+    assert.equal(out.nombre, '2026-07-11T19:13:55.004Z', 'una columna que no es fecha no se toca')
+    assert.equal(fila.creadoEn, '2026-07-11T19:13:55.004Z', 'no muta la entrada')
+  })
+  it('una fecha ilegible se deja como estaba en vez de inventar un 0', () => {
+    const out = normalizarFechas({ creadoEn: 'basura' }, ['creadoEn'])
+    assert.equal(out.creadoEn, 'basura')
+  })
+})
+
+describe('coerceRow con columnas timestamp', () => {
+  // Schema mínimo con la forma de las columnas Drizzle reales.
+  const NAME = Symbol.for('drizzle:Name')
+  const COLS = Symbol.for('drizzle:Columns')
+  const schema = {
+    historial_precios: {
+      [NAME]: 'historial_precios',
+      [COLS]: {
+        id: { dataType: 'string', notNull: true },
+        productoId: { dataType: 'string', notNull: true },
+        vigenteDesde: { dataType: 'date', mode: 'timestamp_ms', notNull: true },
+        vigenteHasta: { dataType: 'date', mode: 'timestamp_ms', notNull: false }
+      }
+    },
+    productos: {
+      [NAME]: 'productos',
+      [COLS]: {
+        id: { dataType: 'string', notNull: true },
+        precioVentaActual: { dataType: 'number', notNull: true },
+        notas: { dataType: 'string', notNull: false }
+      }
+    }
+  }
+  const types = deriveColumnTypes(schema).historial_precios
+
+  it('las columnas integer de fecha se clasifican como timestamp, no como passthrough', () => {
+    assert.equal(types.vigenteDesde, 'timestamp')
+    assert.equal(types.vigenteHasta, 'timestamp')
+    assert.equal(deriveColumnTypes(schema).productos.notas, 'passthrough')
+  })
+
+  it('deriveTimestampCols da las claves que hay que normalizar al escribir', () => {
+    const cols = deriveTimestampCols(schema)
+    assert.deepEqual(cols.historial_precios, ['vigenteDesde', 'vigenteHasta'])
+    assert.equal(cols.productos, undefined)
+  })
+
+  it('al leer, un ISO guardado en la columna integer vuelve a ser epoch ms', () => {
+    const fila = coerceRow(
+      { id: 'h1', productoId: 'p1', vigenteDesde: '2026-07-11T19:13:55.004Z', vigenteHasta: null },
+      types
+    )
+    assert.equal(fila.vigenteDesde, Date.parse('2026-07-11T19:13:55.004Z'))
+    assert.equal(fila.vigenteHasta, null)
+  })
+
+  it('al leer, un epoch ms normal no se toca', () => {
+    const fila = coerceRow({ id: 'h1', productoId: 'p1', vigenteDesde: 1770000000000, vigenteHasta: 1770000000001 }, types)
+    assert.equal(fila.vigenteDesde, 1770000000000)
+    assert.equal(fila.vigenteHasta, 1770000000001)
+  })
+
+  it('un ISO ilegible sobrevive la lectura (no se convierte en NaN)', () => {
+    const fila = coerceRow({ id: 'h1', productoId: 'p1', vigenteDesde: 'basura', vigenteHasta: null }, types)
+    assert.equal(fila.vigenteDesde, 'basura')
+  })
+
+  it('el caso 1299 contra SQLite real: sin normalizar revienta, normalizado no', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('CREATE TABLE historial_precios (id TEXT PRIMARY KEY, vigente_desde INTEGER NOT NULL, vigente_hasta INTEGER)')
+    const iso = '2026-07-11T19:13:55.004Z'
+
+    // Lo que pasaba: la fecha se aritmética con Number() y sale NaN → NULL.
+    assert.throws(
+      () => db.prepare('INSERT INTO historial_precios (id, vigente_desde) VALUES (?, ?)').run('roto', Number(iso)),
+      /NOT NULL constraint failed/
+    )
+
+    // Lo de ahora: la capa de escritura normaliza antes de tocar la columna.
+    const fila = normalizarFechas({ id: 'ok', vigenteDesde: iso, vigenteHasta: null }, ['vigenteDesde', 'vigenteHasta'])
+    db.prepare('INSERT INTO historial_precios (id, vigente_desde, vigente_hasta) VALUES (?, ?, ?)')
+      .run(fila.id, fila.vigenteDesde, fila.vigenteHasta)
+    const guardada = db.prepare('SELECT * FROM historial_precios WHERE id = ?').get('ok')
+    assert.equal(typeof guardada.vigente_desde, 'number')
+    assert.equal(guardada.vigente_desde, Date.parse(iso))
+    assert.equal(guardada.vigente_hasta, null)
+  })
+})
+
+// --- Mutación de productos: el precio que se revierte tras el push ---
+describe('updateProductoMut', () => {
+  const auth = { usuarioActual: { value: { id: 'u1' } } }
+
+  function ctxFalso(producto, historial = []) {
+    const tablas = { productos: [producto], historial_precios: historial }
+    return {
+      tablas,
+      ctx: {
+        async insert(t, data) {
+          const row = { id: data.id ?? `${t}-nuevo`, ...data }
+          tablas[t].push(row)
+          return row
+        },
+        async update(t, id, cambios) {
+          const row = tablas[t].find(r => r.id === id)
+          if (row) Object.assign(row, cambios)
+          return row
+        },
+        async get(t, id) {
+          return tablas[t].find(r => r.id === id) ?? null
+        },
+        async queryAll(t) {
+          return [...tablas[t]]
+        },
+        async findHistorialAbiertos(productoId) {
+          return tablas.historial_precios.filter(h => h.productoId === productoId && h.vigenteHasta == null)
+        }
+      }
+    }
+  }
+
+  it('cierra TODAS las filas abiertas del producto, no solo la primera', async () => {
+    const { ctx, tablas } = ctxFalso({ id: 'p1', precioVentaActual: 10, precioCompraActual: 5 }, [
+      { id: 'h1', productoId: 'p1', vigenteDesde: 1000, vigenteHasta: null },
+      { id: 'h2', productoId: 'p1', vigenteDesde: 2000, vigenteHasta: null },
+      { id: 'h3', productoId: 'p1', vigenteDesde: 3000, vigenteHasta: null }
+    ])
+    await updateProductoMut(ctx, 'p1', { precioVentaActual: 12 }, auth)
+    const abiertos = tablas.historial_precios.filter(h => h.vigenteHasta == null)
+    assert.equal(abiertos.length, 1, 'solo la fila nueva queda vigente')
+    assert.equal(abiertos[0].precioVenta, 12)
+    for (const cerrada of ['h1', 'h2', 'h3']) {
+      const fila = tablas.historial_precios.find(h => h.id === cerrada)
+      assert.ok(fila.vigenteHasta != null, `${cerrada} debería quedar cerrada`)
+      assert.ok(fila.vigenteHasta >= fila.vigenteDesde, `${cerrada} con rango invertido`)
+    }
+  })
+
+  it('un vigenteDesde ISO no se convierte en NaN (el error 1299)', async () => {
+    const iso = '2026-07-11T19:13:55.004Z'
+    const { ctx, tablas } = ctxFalso({ id: 'p1', precioVentaActual: 10, precioCompraActual: 5 }, [
+      { id: 'h1', productoId: 'p1', vigenteDesde: iso, vigenteHasta: null }
+    ])
+    await updateProductoMut(ctx, 'p1', { precioVentaActual: 12 }, auth)
+    const nueva = tablas.historial_precios.at(-1)
+    assert.equal(Number.isFinite(nueva.vigenteDesde), true, 'vigenteDesde debe ser un número, no NaN')
+    assert.ok(nueva.vigenteDesde > Date.parse(iso), 'el rango nuevo empieza después de la abierta')
+  })
+
+  it('sin cambio de precio no toca el historial', async () => {
+    const { ctx, tablas } = ctxFalso({ id: 'p1', precioVentaActual: 10, precioCompraActual: 5 }, [
+      { id: 'h1', productoId: 'p1', vigenteDesde: 1000, vigenteHasta: null }
+    ])
+    await updateProductoMut(ctx, 'p1', { precioVentaActual: 10, notas: 'otra cosa' }, auth)
+    assert.equal(tablas.historial_precios.length, 1)
+    assert.equal(tablas.historial_precios[0].vigenteHasta, null)
+    assert.equal(tablas.productos[0].notas, 'otra cosa')
+  })
+
+  it('el precio de compra lo siguen gobernando los lotes', async () => {
+    const { ctx, tablas } = ctxFalso({ id: 'p1', precioVentaActual: 10, precioCompraActual: 5 })
+    await updateProductoMut(ctx, 'p1', { precioCompraActual: 99 }, auth)
+    assert.equal(tablas.productos[0].precioCompraActual, 5)
+    assert.equal(tablas.historial_precios.length, 0, 'no hay rotación por precio de compra')
   })
 })

@@ -137,7 +137,7 @@ export default defineEventHandler(async (event) => {
     const costo = redondear2(costoTotal)
     const ganancia = redondear2(datos.totalEsperado - costo)
     const diferencia = redondear2(
-      (datos.totalRealCaja + datos.montoTransferencia + datos.montoCobradoFiado) - datos.totalEsperado
+      (datos.totalRealCaja + datos.montoTransferencia + datos.montoFiado) - datos.totalEsperado
     )
     await tx.update(cuadres).set({
       estado: 'cerrado',

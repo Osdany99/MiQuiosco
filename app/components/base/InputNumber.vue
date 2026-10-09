@@ -11,8 +11,8 @@ defineProps({
   locale: { type: String, default: 'es-ES' },
   stepSnapping: { type: Boolean, default: false },
   placeholder: { type: String, default: undefined },
-  increment: { type: Boolean, default: true },
-  decrement: { type: Boolean, default: true }
+  increment: { type: Boolean, default: false },
+  decrement: { type: Boolean, default: false }
 })
 
 const modelValue = defineModel({ type: Number, default: 0 })

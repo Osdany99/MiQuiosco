@@ -10,6 +10,22 @@
       :disable-filters="true"
       @reload="reload"
     >
+      <template #actions="{ row }">
+        <UTooltip
+          v-if="puedeFiar && !readonly"
+          text="Fiar este producto"
+          :delay-duration="0"
+        >
+          <UButton
+            icon="i-lucide-hand-coins"
+            size="sm"
+            color="warning"
+            variant="ghost"
+            @click.stop="solicitarFiado(row.original)"
+          />
+        </UTooltip>
+      </template>
+
       <template #producto-cell="{ row }">
         <div>
           <!-- Columna estrecha a propósito: en el móvil tiene que caber
@@ -26,13 +42,6 @@
             >
               {{ getProductoNombre(row.original.productoId) }}
             </button>
-            <UButton
-              v-if="row.original.esExtra"
-              color="warning"
-              size="xs"
-              class="font-mono"
-              :label="`${fmtPrecio(row.original.precioVentaUsado)}`"
-            />
             <!-- Solo las líneas de catálogo se duplican: duplicar una
                  duplicada solo crearía cadenas de copias sin sentido. -->
             <UButton
@@ -53,13 +62,16 @@
               @click.stop="aEliminar = row.original; eliminarOpen = true"
             />
           </div>
-          <!-- Descripción del producto como subtítulo. Solo si tiene: vive
-               dentro del ancho de la columna, igual que la nota. -->
-          <div
-            v-if="getProductoDescripcion(row.original.productoId)"
-            class="text-xs text-muted truncate max-w-44"
-          >
-            {{ getProductoDescripcion(row.original.productoId) }}
+          <!-- Subtítulo del producto: descripción (si tiene) y el precio que
+               se cobra en ESTA línea — el de la duplicada si la hay. El precio
+               no depende de que exista descripción: antes solo se veía en la
+               columna "Precio venta" (oculta por defecto) y en una etiqueta
+               amarilla que salía únicamente en las duplicadas. -->
+          <div class="text-xs text-muted truncate max-w-44">
+            <span v-if="getProductoDescripcion(row.original.productoId)">
+              {{ getProductoDescripcion(row.original.productoId) }} ·
+            </span>
+            <span class="font-mono">{{ fmtPrecio(row.original.precioVentaUsado) }}</span>
           </div>
           <!-- La nota vive dentro del ancho de la columna, no la estira.
                Textarea con autoresize: una nota corta ocupa 1 línea (igual que
@@ -111,7 +123,7 @@
           />
           <div
             v-if="stockQuiosco.has(row.original.productoId)"
-            class="text-[11px] leading-tight mt-0.5"
+            class="text-sm leading-tight mt-0.5"
             :class="Number(row.original.cantidad) > (stockQuiosco.get(row.original.productoId) ?? 0) ? 'text-error font-medium' : 'text-muted'"
           >
             Q: {{ stockQuiosco.get(row.original.productoId) }}
@@ -137,7 +149,7 @@
 </template>
 
 <script setup>
-const emit = defineEmits(['reload'])
+const emit = defineEmits(['reload', 'fiar'])
 
 const {
   lineas, expandida, cargando,
@@ -175,8 +187,18 @@ function confirmarEliminar() {
 }
 
 defineProps({
-  readonly: { type: Boolean, default: false }
+  readonly: { type: Boolean, default: false },
+  /**
+   * Solo el jefe fía. La tabla no lo sabe: lo dice la página, que ya oculta
+   * la tarjeta de fiado, el formulario de cierre y el stock para el trabajador.
+   */
+  puedeFiar: { type: Boolean, default: false }
 })
+
+/** Pide declarar deuda sobre la línea. El diálogo lo abre la tarjeta de fiado. */
+function solicitarFiado(linea) {
+  emit('fiar', linea)
+}
 
 // Edición por toque: en móvil los campos viven bloqueados para que el
 // scroll nunca los altere; solo se desbloquea la fila tocada explícitamente.
@@ -215,11 +237,16 @@ function soltarFoco() {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
 }
 
+// Subtotal oculto por defecto: el total del día ya está en el resumen de la
+// derecha y por línea solo estorba en el móvil. Sigue a un toque desde el
+// selector de columnas de la barra. La columna de acciones se declara aquí
+// (no la añade BaseTable) porque esta tabla va sin edit/delete.
 const columnDefs = [
   { id: 'producto', header: 'Producto' },
   { accessorKey: 'precioVentaUsado', header: 'Precio venta', visible: false },
-  { accessorKey: 'cantidad', header: 'Cant.' },
-  { accessorKey: 'subtotal', header: 'Subtotal', cell: 'currency' }
+  { accessorKey: 'cantidad', header: 'Cant. V' },
+  { accessorKey: 'subtotal', header: 'Subtotal', cell: 'currency', visible: false },
+  { id: 'action', header: 'Acciones' }
 ]
 
 function reload() {

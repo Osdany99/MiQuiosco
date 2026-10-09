@@ -5,9 +5,12 @@ const auth = useAuth()
 const isCollapsed = ref(true)
 const mobileOpen = ref(false)
 
-const { hayRed, cargarEstado } = useSync()
+const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
 const config = useRuntimeConfig()
+
+const etiquetaSync = computed(() => etiquetaFaseSync(faseSync.value, progresoSync.value))
+const mostrarBannerSync = computed(() => conexion.transicionando.value || faseSync.value !== 'inactiva')
 
 // El cambio Online/Local solo existe en Android nativo: en web el modo es
 // forzosamente online y el sqlite es in-memory (se pierde al recargar).
@@ -79,11 +82,15 @@ const links = computed(() => {
         icon: 'i-lucide-package',
         to: '/productos'
       },
-      {
-        label: 'Proveedores',
-        icon: 'i-lucide-truck',
-        to: '/proveedores'
-      },
+      // Los proveedores se administran aparte; el enlace del menú se oculta con
+      // la bandera (la página /proveedores sigue viva por URL directa).
+      ...(MOSTRAR_PROVEEDOR
+        ? [{
+            label: 'Proveedores',
+            icon: 'i-lucide-truck',
+            to: '/proveedores'
+          }]
+        : []),
       {
         label: 'Quiosco',
         icon: 'i-lucide-store',
@@ -150,14 +157,24 @@ const userMenuItems = computed(() => {
   ]
 
   if (auth.esJefe.value && esNativo.value) {
+    const enTransicion = conexion.transicionando.value
     const modoItems = [
       {
-        label: conexion.modo.value === 'online' ? 'Modo: Online' : 'Modo: Local',
-        icon: conexion.modo.value === 'online' ? 'i-lucide-globe' : 'i-lucide-database',
-        onSelect: () => { conexion.toggle() },
-        disabled: conexion.transicionando.value
+        label: enTransicion && etiquetaSync.value
+          ? etiquetaSync.value
+          : (conexion.modo.value === 'online' ? 'Modo: Online' : 'Modo: Local'),
+        icon: enTransicion ? 'i-lucide-loader-circle' : (conexion.modo.value === 'online' ? 'i-lucide-globe' : 'i-lucide-database'),
+        onSelect: () => { if (!enTransicion) conexion.toggle() },
+        disabled: enTransicion
       }
     ]
+    if (enTransicion) {
+      modoItems.push({
+        label: 'Cancelar sincronización',
+        icon: 'i-lucide-x',
+        onSelect: () => { cancelarSincronizacion() }
+      })
+    }
     items.push(modoItems)
   }
 
@@ -269,6 +286,24 @@ const userMenuItems = computed(() => {
         @click="mobileOpen = true"
       />
       <slot />
+    </div>
+
+    <!-- Progreso visible del cambio Local/Online: el toggle cierra el menú al
+         tocarlo, así que el estado vive aquí para que se vea sin reabrir nada. -->
+    <div
+      v-if="mostrarBannerSync"
+      class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-full border border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-4 py-2 shadow-lg"
+    >
+      <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary shrink-0" />
+      <span class="text-sm font-medium whitespace-nowrap">{{ etiquetaSync || 'Sincronizando…' }}</span>
+      <UButton
+        size="xs"
+        variant="ghost"
+        color="neutral"
+        icon="i-lucide-x"
+        aria-label="Cancelar sincronización"
+        @click="cancelarSincronizacion()"
+      />
     </div>
   </UDashboardGroup>
 </template>

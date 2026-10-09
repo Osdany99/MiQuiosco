@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { calcularRotacionHistorial } from '../inventario/operaciones.js'
+import { aEpoch } from '../fechas.js'
 
 export async function createProductoMut(ctx: any, data: any, auth: any) {
   const p = await ctx.insert('productos', data)
@@ -6,7 +8,9 @@ export async function createProductoMut(ctx: any, data: any, auth: any) {
     productoId: p.id,
     precioCompra: Number(data.precioCompraActual ?? 0),
     precioVenta: Number(data.precioVentaActual ?? 0),
-    vigenteDesde: p.creadoEn,
+    // aEpoch y no Number(): el creadoEn puede venir como ISO del servidor y
+    // Number(iso) es NaN → INSERT con vigente_desde NULL → error 1299.
+    vigenteDesde: aEpoch(p.creadoEn) || Date.now(),
     vigenteHasta: null,
     cambiadoPor: auth?.usuarioActual?.value?.id
   })
@@ -27,18 +31,20 @@ export async function updateProductoMut(ctx: any, id: string, cambios: any, auth
 
   if (cambioCompra || cambioVenta) {
     const ahora = Date.now()
-    const vigente = ctx.findHistorialVigente
-      ? await ctx.findHistorialVigente(id)
-      : (await ctx.queryAll('historial_precios')).find((h: any) => h.productoId === id && !h.vigenteHasta)
+    // Todas las abiertas, no solo la primera: cerrar una y dejar el resto
+    // abierta produce productos con varias filas vigentes, que es como se
+    // corrompió el historial. Con varias, calcularRotacionHistorial coloca la
+    // nueva fila después de la última y cierra todas.
+    const abiertos = ctx.findHistorialAbiertos
+      ? await ctx.findHistorialAbiertos(id)
+      : (await ctx.queryAll('historial_precios'))
+          .filter((h: any) => h.productoId === id && h.vigenteHasta == null)
 
-    let vigenteDesde = ahora
-    if (vigente) {
-      const vDesde = Number(vigente.vigenteDesde)
-      vigenteDesde = Math.max(ahora, vDesde + 1)
-      await ctx.update('historial_precios', vigente.id, {
-        vigenteHasta: Math.max(vigenteDesde - 1, vDesde)
-      })
+    const { vigenteDesde, cierres } = calcularRotacionHistorial({ abiertos, ahora })
+    for (const cierre of cierres) {
+      await ctx.update('historial_precios', cierre.id, { vigenteHasta: cierre.hasta })
     }
+
     await ctx.insert('historial_precios', {
       productoId: id,
       precioCompra: Number(cambios.precioCompraActual ?? previo?.precioCompraActual ?? 0),

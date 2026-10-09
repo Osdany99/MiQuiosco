@@ -33,6 +33,12 @@ export function useVistaInventario(ubicacion) {
   const productoAjuste = ref(null)
   const productoLotes = ref(null)
 
+  // Venta fuera de cuadre: efectivo o fiado del producto de la fila tocada.
+  // El estado vive aquí porque /quiosco y /almacen comparten este composable.
+  const showVenta = ref(false)
+  const modoVenta = ref('venta')
+  const productoVenta = ref(null)
+
   const columns = computed(() => [
     { accessorKey: 'nombre', header: 'Producto' },
     { accessorKey: esQuiosco.value ? 'quiosco' : 'almacen', header: 'Stock' },
@@ -44,6 +50,23 @@ export function useVistaInventario(ubicacion) {
     { accessorKey: 'acciones', header: '' }
   ])
 
+  /**
+   * Selector de columnas. Producto y Stock son las que se ven de entrada;
+   * 'acciones' es estructural (header vacío) y por eso nunca entra al selector
+   * ni se puede apagar. Misma regla que usa BaseTable (esColumnaEstructural).
+   */
+  const COLUMNAS_POR_DEFECTO = ['Producto', 'Stock']
+
+  const visibleHeaders = ref(COLUMNAS_POR_DEFECTO)
+
+  const columnHeaders = computed(() =>
+    columns.value.filter(c => c.header).map(c => c.header)
+  )
+
+  const visibleColumns = computed(() =>
+    columns.value.filter(c => !c.header || visibleHeaders.value.includes(c.header))
+  )
+
   const columnsHistorial = [
     { accessorKey: 'fechaEntrada', header: 'Fecha' },
     { accessorKey: 'nombreProducto', header: 'Producto' },
@@ -52,13 +75,23 @@ export function useVistaInventario(ubicacion) {
     { accessorKey: 'valor', header: 'Valor' },
     { accessorKey: 'origen', header: 'Origen' },
     { accessorKey: 'detalleCompra', header: 'Detalle' }
-  ]
+    // 'origen' muestra el proveedor (o el lugar de compra). El dato se sigue
+    // calculando en cada fila; solo se oculta la columna. Ver app/utils/flags.js
+  ].filter(c => MOSTRAR_PROVEEDOR || c.accessorKey !== 'origen')
 
-  const filas = computed(() => saldos.value)
+  /**
+   * En /quiosco sale lo mismo que en el cuadre: un producto con 'Vende' apagado
+   * no se lista, tenga stock o no. /almacen sí lo muestra completo, porque allí
+   * sigue siendo mercancía del puesto y hay que poder devolverlo o ajustarlo.
+   */
+  const filas = computed(() =>
+    esQuiosco.value ? saldos.value.filter(f => f.seVende !== false) : saldos.value
+  )
 
-  // Un producto desactivado solo del quiosco conserva stock: se muestra, pero
-  // marcado "No se vende" para que el jefe lo devuelva o lo ajuste en vez de
-  // perderlo de vista. Del resto decide la regla compartida de estadoDeFila.
+  // Del estado de cada fila decide la regla compartida de estadoDeFila (la
+  // misma que usan /graficas). Su rama 'no-se-vende' ya no aparece en la tabla
+  // de /quiosco porque esas filas se filtran arriba, pero sigue viva en las
+  // gráficas.
   function estado(fila) {
     return estadoDeFila(fila, esQuiosco.value ? 'quiosco' : 'almacen')
   }
@@ -79,6 +112,13 @@ export function useVistaInventario(ubicacion) {
   function abrirLotes(fila) {
     productoLotes.value = { id: fila.productoId, nombre: fila.nombre, descripcion: fila.descripcion ?? null }
     showLotes.value = true
+  }
+
+  /** Venta directa (efectivo) o deuda directa (fiado) del producto de la fila. */
+  function abrirVenta(fila, modo = 'venta') {
+    productoVenta.value = fila
+    modoVenta.value = modo
+    showVenta.value = true
   }
 
   const sinMovimientos = computed(() => !cargando.value && lotesHistorial.value.length === 0)
@@ -124,16 +164,23 @@ export function useVistaInventario(ubicacion) {
     lotesHistorial,
     columns,
     columnsHistorial,
+    visibleHeaders,
+    columnHeaders,
+    visibleColumns,
     colorEstado,
     textoEstado,
     abrirAjuste,
     abrirLotes,
+    abrirVenta,
     recargar,
     sinMovimientos,
     hayProductos,
     showAjuste,
     showLotes,
     productoAjuste,
-    productoLotes
+    productoLotes,
+    showVenta,
+    modoVenta,
+    productoVenta
   }
 }

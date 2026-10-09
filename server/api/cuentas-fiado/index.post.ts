@@ -47,16 +47,16 @@ export default defineEventHandler(async (event) => {
     }
 
     if (montoPagadoInicial > 0) {
+      // Opción B: el abono en el momento entra a la caja del día por vía
+      // normal (el jefe lo cuenta en Dinero real / transferencia). Se guarda
+      // como pago directo para el historial, sin inflar montoCobradoFiado
+      // (antes se sumaba y la nueva fórmula lo habría contado doble).
       await tx.insert(pagosFiado).values({
         cuentaFiadoId: c.id,
-        cuadreId: cuadreOrigenId,
+        cuadreId: null,
         monto: montoPagadoInicial,
         formaPago: formaPagoInicial
       })
-      await tx
-        .update(cuadres)
-        .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${montoPagadoInicial}` })
-        .where(eq(cuadres.id, cuadreOrigenId))
     }
 
     // Fiado neto generado hoy (total menos pago inicial): mantiene al día el

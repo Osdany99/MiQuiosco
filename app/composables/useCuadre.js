@@ -1,6 +1,7 @@
 import { getCurrentScope, onScopeDispose } from 'vue'
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
+import { aEpochOpcional as tsToEpoch } from '../../shared/fechas'
 import { generateId } from '~/utils/id'
 import { $api } from '../utils/api'
 import { calcularSubtotalLinea } from '../utils'
@@ -9,12 +10,6 @@ const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
 const productoConfig = TABLES.productos
 const usuarioConfig = TABLES.usuarios
-
-function tsToEpoch(v) {
-  if (v == null) return null
-  const n = typeof v === 'number' ? v : Date.parse(v)
-  return Number.isNaN(n) ? null : n
-}
 
 function normalizarCuadre(c) {
   if (!c) return c
@@ -272,7 +267,10 @@ export function useCuadre() {
 
   const diferencia = computed(() => {
     if (totalRealCaja.value === null) return null
-    return (totalRealCaja.value + montoTransferencia.value + montoCobradoFiado.value) - totalEsperado.value
+    // El fiado es venta justificada (no es faltante): el jefe lo cuenta como
+    // parte del esperado. Los cobros posteriores son directos (fuera del
+    // cuadre) y no entran aquí.
+    return (totalRealCaja.value + montoTransferencia.value + montoFiado.value) - totalEsperado.value
   })
 
   const tipoDiferencia = computed(() => {

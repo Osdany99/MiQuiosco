@@ -210,9 +210,15 @@ export async function crudCreate(config: CrudCreateConfig, opts: CrudCreateOpts)
   const values = coerceForPg(config.dbSchema, data)
 
   if (config.customMutations?.create) {
-    const ctx = makePgCtx(db, schemaByTabla)
+    const mutation = config.customMutations.create
     try {
-      const row = await config.customMutations.create(ctx, data, { usuarioActual: { value: auth?.usuario } })
+      // Mutación de varias tablas (productos → historial_precios): sin
+      // transacción, un fallo al escribir el historial deja el producto
+      // guardado y el usuario ve un precio cambiado del que no hay registro.
+      const row = await db.transaction(async (tx) => {
+        const ctx = makePgCtx(tx, schemaByTabla)
+        return mutation(ctx, data, { usuarioActual: { value: auth?.usuario } })
+      })
       return serialize ? serialize(row) : row
     } catch (e: any) {
       if (e?.code === '23505' || e?.cause?.code === '23505') {
@@ -265,8 +271,11 @@ export async function crudPatch(config: CrudPatchConfig, opts: CrudPatchOpts) {
   const setValues = { ...coerceForPg(config.dbSchema, cambios), actualizadoEn: new Date() }
 
   if (config.customMutations?.update) {
-    const ctx = makePgCtx(db, schemaByTabla)
-    const row = await config.customMutations.update(ctx, id, cambios, { usuarioActual: { value: auth?.usuario } })
+    const mutation = config.customMutations.update
+    const row = await db.transaction(async (tx) => {
+      const ctx = makePgCtx(tx, schemaByTabla)
+      return mutation(ctx, id, cambios, { usuarioActual: { value: auth?.usuario } })
+    })
     if (!row) throw createError({ statusCode: 404, statusMessage: `${config.label} no encontrado.` })
     return serialize ? serialize(row) : row
   }

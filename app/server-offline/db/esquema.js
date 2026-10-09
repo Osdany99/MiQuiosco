@@ -19,6 +19,57 @@ export function separarSentencias(sql) {
     .filter(Boolean)
 }
 
+/**
+ * Vuelve idempotente una sentencia del journal para reintentos: los CREATE
+ * llevan IF NOT EXISTS. Los ALTER ... ADD COLUMN se saltean si la columna ya
+ * existe (ver aplicarBaseline); el resto depende de la atomicidad de la
+ * transacción (si algo falla, todo revierte y el reintento parte limpio).
+ */
+export function hacerIdempotente(sentencia) {
+  return sentencia
+    .replace(/^CREATE\s+TABLE\s+/, 'CREATE TABLE IF NOT EXISTS ')
+    .replace(/^CREATE\s+UNIQUE\s+INDEX\s+/, 'CREATE UNIQUE INDEX IF NOT EXISTS ')
+    .replace(/^CREATE\s+INDEX\s+/, 'CREATE INDEX IF NOT EXISTS ')
+}
+
+/**
+ * Aplica el journal completo sobre una BD vacía (instalación nueva),
+ * sentencia por sentencia y en orden, dentro de una transacción explícita.
+ *
+ * Por qué no un solo `conn.execute()` con todo el lote: en el plugin nativo
+ * (@capacitor-community/sqlite) el lote gigante falla de forma determinista
+ * a mitad del journal ("no such table" en un ALTER cuya tabla se crea antes
+ * en el mismo lote), dejando la app sin base y el login con error_interno.
+ * El SQL es válido (los tests lo aplican de corrido en node:sqlite), así que
+ * el problema está en el transporte del lote, no en el contenido.
+ *
+ * Si una sentencia falla, el error incluye su inicio para diagnosticar y la
+ * transacción revierte todo: el reintento parte de BD vacía otra vez.
+ */
+export async function aplicarBaseline(conn, sql) {
+  const sentencias = separarSentencias(sql)
+  await ejecutarTransaccionSql(conn, async () => {
+    let actual = ''
+    try {
+      for (const s of sentencias) {
+        actual = s
+        // Reintento convergente: si la columna ya existe (reintento tras un
+        // fallo parcial sin transacción), se salta en vez de romper.
+        const addCol = s.match(/^ALTER\s+TABLE\s+(\S+)\s+ADD\s+(?:COLUMN\s+)?(\S+)/i)
+        if (addCol) {
+          const tabla = addCol[1].replace(/[`"]/g, '')
+          const col = addCol[2].replace(/[`"]/g, '')
+          if ((await columnasDeTabla(conn, tabla)).has(col)) continue
+        }
+        await txRun(conn, hacerIdempotente(s))
+      }
+    } catch (err) {
+      const inicio = actual.slice(0, 160).replace(/\s+/g, ' ')
+      throw new Error(`Baseline SQLite falló en [${inicio}…]: ${err?.message ?? err}`)
+    }
+  })
+}
+
 export async function tablaExiste(conn, tabla) {
   const result = await conn.query(`SELECT name FROM sqlite_master WHERE type='table' AND name='${tabla}'`, [])
   return (result.values?.length ?? 0) > 0

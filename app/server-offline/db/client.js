@@ -8,10 +8,10 @@
  * Las funciones de server-offline/* consumen esta capa.
  */
 import { Capacitor } from '@capacitor/core'
-import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs } from '../utils/schemaTypes'
+import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs, deriveTimestampCols } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
-import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun } from './esquema'
+import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
 
@@ -253,8 +253,10 @@ async function initializeSchema(conn) {
   const esInstalacionExistente = await tablaExiste(conn, 'usuarios')
 
   if (!esInstalacionExistente) {
-    // Instalación nueva: crear todo el esquema desde el baseline.
-    await conn.execute(BASELINE_SQL.replace(/--> statement-breakpoint/g, ''))
+    // Instalación nueva: journal completo, sentencia por sentencia en
+    // transacción (un solo conn.execute() con todo el lote falla en el
+    // plugin nativo a mitad del journal y deja la app sin base).
+    await aplicarBaseline(conn, BASELINE_SQL)
     await marcarMigracion(conn, NOMBRE_BASELINE)
     return
   }
@@ -290,8 +292,10 @@ function initializeSchemaMemory(mem) {
 const COLUMN_TYPES = deriveColumnTypes(schemaSqlite)
 const COLUMN_MAP = deriveColumnMap(schemaSqlite)
 const COLUMN_DEFS = deriveColumnDefs(schemaSqlite)
+/** Columnas que guardan epoch ms, por tabla. La capa de escritura normaliza aquí. */
+const TIMESTAMP_COLS = deriveTimestampCols(schemaSqlite)
 
-export { COLUMN_TYPES, COLUMN_MAP }
+export { COLUMN_TYPES, COLUMN_MAP, TIMESTAMP_COLS }
 
 // =====================================================================
 // API pública
@@ -385,14 +389,28 @@ export function useDb() {
     await runEscritura(conn, `DELETE FROM ${tabla} WHERE id = ?`, [id])
   }
 
-  async function findHistorialVigente(productoId) {
+  /**
+   * Todas las filas de historial sin cerrar de un producto, de la más antigua a
+   * la más reciente. La regla del dominio es "una sola vigente por producto",
+   * pero una instalación puede tener varias (dispositivo que dormía, push que
+   * corrió dos veces). Quien rota un precio cierra TODAS las abiertas: si solo
+   * cerrara la primera, las demás seguirían vigentes para siempre.
+   */
+  async function findHistorialAbiertos(productoId) {
     const conn = await getConnection()
     if (conn instanceof InMemoryDb) {
       const rows = conn.where('historial_precios', r => (r.producto_id ?? r.productoId) === productoId && (r.vigente_hasta ?? r.vigenteHasta) == null)
-      return rows.length ? coerceRow(snakeToCamelRow(rows[0]), COLUMN_TYPES.historial_precios) : null
+      rows.sort((a, b) => (a.vigente_desde ?? a.vigenteDesde ?? 0) - (b.vigente_desde ?? b.vigenteDesde ?? 0))
+      return rows.map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES.historial_precios))
     }
-    const result = await conn.query('SELECT * FROM historial_precios WHERE producto_id = ? AND vigente_hasta IS NULL LIMIT 1', [productoId])
-    return result.values && result.values[0] ? coerceRow(snakeToCamelRow(result.values[0]), COLUMN_TYPES.historial_precios) : null
+    const result = await conn.query('SELECT * FROM historial_precios WHERE producto_id = ? AND vigente_hasta IS NULL ORDER BY vigente_desde', [productoId])
+    return (result.values ?? []).map(r => coerceRow(snakeToCamelRow(r), COLUMN_TYPES.historial_precios))
+  }
+
+  /** La vigente más reciente. Con varias abiertas, devuelve la última. */
+  async function findHistorialVigente(productoId) {
+    const abiertos = await findHistorialAbiertos(productoId)
+    return abiertos.length ? abiertos[abiertos.length - 1] : null
   }
 
   async function queryAll(tabla) {
@@ -437,23 +455,32 @@ export function useDb() {
   // para serializar transacciones entre consumidores distintos.
   async function transaction(fn) {
     const conn = await getConnection()
+    const ops = { insert, update, remove }
     if (conn instanceof InMemoryDb) {
+      // Sin cola que serialice: la protección es el snapshot. Las transacciones
+      // anidadas se anidan también (cada una restaura su propio punto), que en
+      // un fallback en memoria de un solo usuario es más que suficiente.
       const snap = conn.snapshot()
       try {
-        return await fn({ insert, update, remove })
+        return await fn(ops)
       } catch (err) {
         conn.restore(snap)
         throw err
       }
     }
-    return colaTransacciones.ejecutar(conn, async (ops) => {
+    // Transacción anidada: ya estamos dentro de otra y las escrituras se están
+    // haciendo con transaction:false para no auto-confirmarse (ver txRun).
+    // Abrir una segunda aquí no solo es inútil, es un deadlock: la cola está
+    // esperando a que termine la de arriba, que está esperando a esta.
+    if (transaccionActiva) return fn(ops)
+    return colaTransacciones.ejecutar(conn, async (innerOps) => {
       transaccionActiva = true
       try {
-        return await fn(ops)
+        return await fn(innerOps)
       } finally {
         transaccionActiva = false
       }
-    }, { insert, update, remove })
+    }, ops)
   }
 
   return {
@@ -462,6 +489,7 @@ export function useDb() {
     getCuadrePorFecha,
     getItemsDeCuadre,
     findHistorialVigente,
+    findHistorialAbiertos,
     insert,
     update,
     remove,

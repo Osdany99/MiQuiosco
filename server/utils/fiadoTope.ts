@@ -127,7 +127,7 @@ export async function validarTopeCuadre(cuadreId: string, items: TopeItem[], opc
   const concepto = opciones.concepto ?? 'venta'
   throw createError({
     statusCode: 400,
-    statusMessage: `Tope excedido: de ${nombre} solo quedan ${exceso.disponible} unidades disponibles para ${concepto} (vendido ${exceso.disponible + yaConsumido}, incluye fiado/transferencia/ajustes).`
+    statusMessage: `Tope excedido: de ${nombre} solo quedan ${exceso.disponible} unidades disponibles para ${concepto} (vendido ${exceso.disponible + yaConsumido}, incluye fiado).`
   })
 }
 

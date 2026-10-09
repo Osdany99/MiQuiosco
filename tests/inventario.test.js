@@ -13,7 +13,8 @@ import {
   construirAjuste,
   saldosPorProducto,
   lotesConSaldo,
-  rotarPrecioCompra
+  rotarPrecioCompra,
+  calcularRotacionHistorial
 } from '../shared/inventario/operaciones.js'
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
@@ -993,5 +994,74 @@ describe('rotarPrecioCompra', () => {
     const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
     assert.ok(r.nuevoHistorial.vigenteDesde > vigente.vigenteDesde)
     assert.equal(r.cerrarHasta, r.nuevoHistorial.vigenteDesde - 1)
+  })
+
+  it('con varias abiertas las cierra todas y arranca después de la última', () => {
+    const abiertos = [
+      { id: 'v-1', vigenteDesde: meta.ahora - 86400000 },
+      { id: 'v-2', vigenteDesde: meta.ahora - 3600000 },
+      { id: 'v-3', vigenteDesde: meta.ahora - 1000 }
+    ]
+    const r = rotarPrecioCompra({ producto, abiertos, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
+    assert.deepEqual(r.cierres.map(c => c.id), ['v-1', 'v-2', 'v-3'])
+    // El rango nuevo arranca después de la última abierta: sin esto, el
+    // producto queda con dos filas vigentes a la vez.
+    assert.equal(r.nuevoHistorial.vigenteDesde, meta.ahora)
+    for (const c of r.cierres) assert.equal(c.hasta, r.nuevoHistorial.vigenteDesde - 1)
+    // El contrato de siempre sigue siendo la primera abierta.
+    assert.equal(r.cerrarId, 'v-1')
+    assert.equal(r.cerrarHasta, r.cierres[0].hasta)
+  })
+
+  it('una abierta con vigenteDesde ISO no produce NaN', () => {
+    const iso = '2026-07-11T19:13:55.004Z'
+    const r = rotarPrecioCompra({
+      producto,
+      abiertos: [{ id: 'v-iso', vigenteDesde: iso }],
+      nuevoPrecio: 12,
+      ahora: meta.ahora,
+      usuarioId: JEFE
+    })
+    assert.equal(Number.isFinite(r.nuevoHistorial.vigenteDesde), true)
+    assert.ok(r.nuevoHistorial.vigenteDesde > Date.parse(iso))
+    assert.ok(r.cierres[0].hasta >= Date.parse(iso))
+  })
+
+  it('precio igual no rota, aunque haya duplicados abiertos', () => {
+    // Una entrada al mismo precio no genera historial (contrato de siempre).
+    // Los duplicados que quedaran abiertos se cierran en el siguiente cambio
+    // de precio, que es el camino que usan producto y entrada.
+    const abiertos = [
+      { id: 'v-1', vigenteDesde: meta.ahora - 2000 },
+      { id: 'v-2', vigenteDesde: meta.ahora - 1000 }
+    ]
+    assert.equal(rotarPrecioCompra({ producto, abiertos, nuevoPrecio: 10, ahora: meta.ahora, usuarioId: JEFE }), null)
+  })
+})
+
+describe('calcularRotacionHistorial', () => {
+  it('sin abiertas arranca en ahora', () => {
+    const { vigenteDesde, cierres } = calcularRotacionHistorial({ abiertos: [], ahora: 5000 })
+    assert.equal(vigenteDesde, 5000)
+    assert.deepEqual(cierres, [])
+  })
+
+  it('arranca un ms después de la última abierta', () => {
+    const { vigenteDesde, cierres } = calcularRotacionHistorial({
+      abiertos: [{ id: 'a', vigenteDesde: 1000 }, { id: 'b', vigenteDesde: 9000 }],
+      ahora: 5000
+    })
+    assert.equal(vigenteDesde, 9001)
+    assert.deepEqual(cierres, [{ id: 'a', hasta: 9000 }, { id: 'b', hasta: 9000 }])
+  })
+
+  it('nunca invierte un rango (hasta >= desde)', () => {
+    const { vigenteDesde, cierres } = calcularRotacionHistorial({
+      abiertos: [{ id: 'futura', vigenteDesde: 999999999 }],
+      ahora: 1000
+    })
+    assert.equal(vigenteDesde, 1000000000)
+    assert.equal(cierres[0].hasta, 999999999)
+    assert.ok(cierres[0].hasta >= 999999999)
   })
 })

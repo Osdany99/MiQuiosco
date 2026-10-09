@@ -119,6 +119,21 @@ export async function $api(path, opts = {}) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
+  // Cancelación del usuario (p. ej. botón "Cancelar sincronización"): se
+  // propaga la señal externa al controlador del timeout. En el catch se
+  // marca el error para no contarlo como fallo de red.
+  const externa = opts.signal
+  let quitarOyente = null
+  if (externa) {
+    if (externa.aborted) {
+      controller.abort()
+    } else {
+      const alAbortar = () => controller.abort()
+      externa.addEventListener('abort', alAbortar, { once: true })
+      quitarOyente = () => externa.removeEventListener('abort', alAbortar)
+    }
+  }
+
   try {
     const result = await $fetch(url, {
       ...opts,
@@ -129,6 +144,10 @@ export async function $api(path, opts = {}) {
     _fallosRed.value = 0
     return result
   } catch (err) {
+    if (externa?.aborted) {
+      err.cancelacionUsuario = true
+      throw err
+    }
     if (esErrorDeRed(err)) {
       _serverAlcanzable.value = false
       _fallosRed.value += 1
@@ -136,5 +155,6 @@ export async function $api(path, opts = {}) {
     throw err
   } finally {
     clearTimeout(timeoutId)
+    quitarOyente?.()
   }
 }

@@ -110,15 +110,30 @@ export function useModoConexion() {
     const sync = useSync()
     transicionando.value = true
     try {
-      const desde = sync.ultimaSync.value ?? 0
-      const pullResult = await sync.fetchPull(desde)
-      await sync.aplicarPull(pullResult)
-      modo.value = 'local'
-      writePref(PREF_MODO, 'local')
-      return true
-    } catch (err) {
-      toast.add({ title: 'Error al volver a local', description: err.message || 'No se pudo descargar datos del servidor.', color: 'error' })
-      return false
+      return await sync.conSenalSync(async (signal) => {
+        try {
+          const desde = sync.ultimaSync.value ?? 0
+          sync.informarFase('bajando')
+          const pullResult = await sync.fetchPull(desde, signal)
+          if (signal.aborted) throw new Error('Sincronización cancelada.')
+          sync.informarFase('aplicando')
+          await sync.aplicarPull(pullResult, { signal })
+          modo.value = 'local'
+          writePref(PREF_MODO, 'local')
+          return true
+        } catch (err) {
+          if (signal.aborted || err?.cancelacionUsuario) {
+            toast.add({
+              title: 'Sincronización cancelada',
+              description: 'Puedes reintentarlo cuando quieras: no se perdió ningún cambio.',
+              color: 'info'
+            })
+            return false
+          }
+          toast.add({ title: 'Error al volver a local', description: err.message || 'No se pudo descargar datos del servidor.', color: 'error' })
+          return false
+        }
+      })
     } finally {
       transicionando.value = false
     }

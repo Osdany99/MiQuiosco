@@ -1,4 +1,4 @@
-import { eq, and, isNull, getTableName, getTableColumns } from 'drizzle-orm'
+import { eq, and, isNull, getTableName, getTableColumns, asc } from 'drizzle-orm'
 
 /**
  * makePgCtx(db, schema) → { insert, update, get, queryAll }
@@ -65,6 +65,20 @@ export function makePgCtx(db, schema) {
     return out
   }
 
+  /**
+   * Todas las filas de historial sin cerrar del producto, de la más antigua a
+   * la más reciente. La regla del dominio es una sola vigente por producto,
+   * pero quien rota un precio debe cerrar todas las que encuentre: cerrar
+   * solo la primera deja el resto vigente para siempre.
+   */
+  async function findHistorialAbiertos(productoId) {
+    const table = tbl('historial_precios')
+    const cols = getTableColumns(table)
+    return await db.select().from(table)
+      .where(and(eq(cols.productoId, productoId), isNull(cols.vigenteHasta)))
+      .orderBy(asc(cols.vigenteDesde))
+  }
+
   return {
     async insert(t, data) {
       const [row] = await db.insert(tbl(t)).values(coerceTimestamps(tbl(t), data)).returning()
@@ -84,11 +98,12 @@ export function makePgCtx(db, schema) {
       return await db.select().from(tbl(t))
     },
 
+    findHistorialAbiertos,
+
+    /** La vigente más reciente. Con varias abiertas, devuelve la última. */
     async findHistorialVigente(productoId) {
-      const table = tbl('historial_precios')
-      const cols = getTableColumns(table)
-      const [row] = await db.select().from(table).where(and(eq(cols.productoId, productoId), isNull(cols.vigenteHasta))).limit(1)
-      return row ?? null
+      const abiertos = await findHistorialAbiertos(productoId)
+      return abiertos.length ? abiertos[abiertos.length - 1] : null
     }
   }
 }

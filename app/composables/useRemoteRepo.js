@@ -1,16 +1,11 @@
 import { $api } from '../utils/api'
+import { aEpochOpcional as isoToEpoch } from '../../shared/fechas'
 
 /**
  * useRemoteRepo(config) — Repositorio contra REST API.
  *
  * @param {Object} config — { endpoints: { list, byId } }
  */
-function isoToEpoch(v) {
-  if (v == null) return null
-  const n = typeof v === 'number' ? v : Date.parse(v)
-  return Number.isNaN(n) ? null : n
-}
-
 export function useRemoteRepo(config) {
   if (!config?.endpoints) {
     throw new Error('useRemoteRepo: se requiere config.endpoints')

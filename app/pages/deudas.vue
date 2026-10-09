@@ -3,18 +3,8 @@
     title="Deudas"
     description="Cuentas por cobrar, cobros y ventas fuera de cuadre"
     leading-icon="i-lucide-hand-coins"
-    title-button="Nueva deuda"
-    @new="abrirNuevaDeuda"
+    :show-button="false"
   >
-    <template #trailing>
-      <UButton
-        icon="i-lucide-receipt"
-        variant="outline"
-        label="Venta directa"
-        @click="abrirVentaDirecta"
-      />
-    </template>
-
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
       <UCard>
         <p class="text-xs text-muted">
@@ -249,7 +239,6 @@
       <DeudasDialogoCobrar
         v-model="cobrarForm"
         :deuda="deudaACobrar"
-        :cuadre-abierto="cuadreAbierto"
       />
     </BaseDialog>
 
@@ -263,49 +252,6 @@
       @cancel="showCobroRecarga = false"
     >
       <RecargasDialogoCobrarRecarga v-model="cobroRecargaForm" :recarga="deudaACobrar" />
-    </BaseDialog>
-
-    <BaseDialog
-      v-model="showNuevaDeuda"
-      title="Nueva deuda directa"
-      confirm-text="Registrar"
-      :loading="guardando"
-      @confirm="confirmarNuevaDeuda"
-      @cancel="showNuevaDeuda = false"
-    >
-      <UAlert
-        color="info"
-        variant="soft"
-        icon="i-lucide-info"
-        title="Fuera del cuadre"
-        description="Esta deuda no pertenece a ningún cuadre: no pasa por el tope y el producto sale del inventario."
-        class="mb-4"
-      />
-      <DeudasFormularioDirecto
-        v-model="nuevaDeuda"
-        :productos="productos"
-        :clientes="clientes"
-        con-cliente
-      />
-    </BaseDialog>
-
-    <BaseDialog
-      v-model="showVentaDirecta"
-      title="Venta directa (efectivo)"
-      confirm-text="Registrar"
-      :loading="guardando"
-      @confirm="confirmarVentaDirecta"
-      @cancel="showVentaDirecta = false"
-    >
-      <UAlert
-        color="warning"
-        variant="soft"
-        icon="i-lucide-pocket"
-        title="El efectivo no entra al cuadre"
-        description="El producto sale del inventario y la ganancia queda registrada, pero el dinero no se suma a ninguna gaveta ni al corte del día."
-        class="mb-4"
-      />
-      <DeudasFormularioDirecto v-model="ventaDirecta" :productos="productos" />
     </BaseDialog>
 
     <BaseDialog
@@ -345,30 +291,21 @@
 </template>
 
 <script setup>
-import { cuadres as cuadresConfig } from '../../shared/tables'
-
 definePageMeta({
   middleware: ['jefe']
 })
 
 const toast = useToast()
 const auth = useAuth()
-const conexion = useModoConexion()
-const esOnline = computed(() => conexion.modo.value === 'online')
 
 const {
   cargarDeudas,
   cargarClientes,
   cobrarDeuda,
-  registrarDeudaDirecta,
   pagosDeCuenta
 } = useCuentasFiado()
 const rec = useRecargas()
 const inv = useInventario()
-
-const cuadresRepo = computed(() => (esOnline.value
-  ? useRemoteRepo(cuadresConfig)
-  : useLocalRepo(cuadresConfig)))
 
 const tab = ref('deudas')
 const tabs = [
@@ -381,25 +318,18 @@ const cargando = ref(true)
 const deudas = ref([])
 const pagadas = ref([])
 const clientes = ref([])
-const productos = ref([])
 const ventas = ref([])
 const pagos = ref([])
-const cuadreAbierto = ref(null)
 
 const showCobro = ref(false)
 const showCobroRecarga = ref(false)
-const showNuevaDeuda = ref(false)
-const showVentaDirecta = ref(false)
 const showHistorial = ref(false)
-const guardando = ref(false)
 const cobrando = ref(false)
 const cobrandoRecarga = ref(false)
 const deudaACobrar = ref(null)
 
-const cobrarForm = ref({ monto: 0, formaPago: 'efectivo', destino: 'directo' })
+const cobrarForm = ref({ monto: 0, formaPago: 'efectivo' })
 const cobroRecargaForm = ref({ monto: 0, formaPago: 'efectivo' })
-const nuevaDeuda = ref({ clienteId: null, ubicacion: 'almacen', lineas: [] })
-const ventaDirecta = ref({ ubicacion: 'almacen', lineas: [] })
 
 const uiTabla = { td: 'px-3 py-2' }
 
@@ -424,10 +354,10 @@ const columnasVenta = [
   { accessorKey: 'nombreUsuario', header: 'Quién' }
 ]
 
-// La vía "caja" exige un cuadre abierto: sin él no hay gaveta a la que sumarle.
+// El cobro es siempre directo: el jefe cobra en físico y ningún cuadre
+// registra el dinero.
 const puedeCobrar = computed(() => {
   if (!deudaACobrar.value) return false
-  if (cobrarForm.value.destino === 'caja') return !!cuadreAbierto.value
   return true
 })
 
@@ -515,13 +445,11 @@ async function recargar() {
   cargando.value = true
   try {
     const puestoId = auth.usuarioActual.value?.puestoId
-    const [pendientes, todas, listaClientes, prods, vDirectas, filasCuadres, filasRecargas] = await Promise.all([
+    const [pendientes, todas, listaClientes, vDirectas, filasRecargas] = await Promise.all([
       cargarDeudas({ conSaldo: true }),
       cargarDeudas({ conSaldo: false }),
       cargarClientes(puestoId),
-      inv.cargarProductos(),
       inv.cargarVentasDirectas(),
-      cuadresRepo.value.readAll(),
       rec.cargarRecargas()
     ])
 
@@ -536,14 +464,11 @@ async function recargar() {
     deudas.value = [...quioscoPend, ...recPend].sort(porFecha)
     pagadas.value = [...quioscoSald, ...recSald].sort(porFecha)
     clientes.value = listaClientes
-    productos.value = prods
     ventas.value = vDirectas
-    const mio = puestoId ? filasCuadres.filter(c => c.puestoId === puestoId) : filasCuadres
-    cuadreAbierto.value = mio.find(c => c.estado === 'abierto') ?? null
 
-    // Reparte lo cobrado de cada deuda de quiosco entre caja y directo para
-    // los totales de la cabecera. Las recargas no entran a gaveta: su cobro
-    // es siempre directo y no lleva ese reparto.
+    // Reparte lo cobrado de cada deuda de quiosco entre caja (histórico) y
+    // directo para los totales de la cabecera. Los cobros nuevos son siempre
+    // directos; la parte de caja viene de pagos antiguos.
     for (const d of [...quioscoPend, ...quioscoSald]) {
       const ps = await pagosDeCuenta(d.id)
       d.totalEnCaja = ps.filter(p => p.cuadreId).reduce((s, p) => s + (Number(p.monto) || 0), 0)
@@ -566,8 +491,7 @@ function abrirCobro(deuda) {
   }
   cobrarForm.value = {
     monto: deuda.saldoPendiente,
-    formaPago: 'efectivo',
-    destino: 'directo'
+    formaPago: 'efectivo'
   }
   showCobro.value = true
 }
@@ -579,10 +503,9 @@ async function confirmarCobro() {
     return
   }
   cobrando.value = true
-  const destino = cobrarForm.value.destino
   const r = await cobrarDeuda({
     cuentaFiadoId: deudaACobrar.value.id,
-    cuadreId: destino === 'caja' ? cuadreAbierto.value?.id ?? null : null,
+    cuadreId: null,
     monto,
     formaPago: cobrarForm.value.formaPago
   })
@@ -590,7 +513,7 @@ async function confirmarCobro() {
   if (r?.ok) {
     showCobro.value = false
     toast.add({
-      title: destino === 'caja' ? 'Cobro registrado en caja' : 'Cobro directo registrado',
+      title: 'Cobro directo registrado',
       color: 'success'
     })
     await recargar()
@@ -620,74 +543,6 @@ async function confirmarCobroRecarga() {
     toast.add({ title: 'No se pudo cobrar', description: e?.message, color: 'error' })
   } finally {
     cobrandoRecarga.value = false
-  }
-}
-
-function abrirNuevaDeuda() {
-  nuevaDeuda.value = { clienteId: null, ubicacion: 'almacen', lineas: [] }
-  showNuevaDeuda.value = true
-}
-
-function abrirVentaDirecta() {
-  ventaDirecta.value = { ubicacion: 'almacen', lineas: [] }
-  showVentaDirecta.value = true
-}
-
-function aLineas(lineas) {
-  return lineas
-    .filter(l => l.productoId && Number(l.cantidad) > 0)
-    .map((l, i) => ({
-      productoId: l.productoId,
-      cantidad: Math.trunc(Number(l.cantidad) || 0),
-      precioVentaUsado: Number(l.precioVentaUsado) || 0,
-      secuencia: i
-    }))
-}
-
-async function confirmarNuevaDeuda() {
-  const form = nuevaDeuda.value
-  if (!form.clienteId) {
-    toast.add({ title: 'Error', description: 'Elige el cliente que debe.', color: 'error' })
-    return
-  }
-  const lineas = aLineas(form.lineas)
-  if (lineas.length === 0) {
-    toast.add({ title: 'Error', description: 'Agrega al menos un producto.', color: 'error' })
-    return
-  }
-  guardando.value = true
-  try {
-    const r = await registrarDeudaDirecta({
-      clienteId: form.clienteId,
-      ubicacion: form.ubicacion,
-      lineas
-    })
-    // Sin éxito no se cierra: el composable ya avisó el error.
-    if (!r?.ok) return
-    showNuevaDeuda.value = false
-    toast.add({ title: 'Deuda registrada', color: 'success' })
-    await recargar()
-  } finally {
-    guardando.value = false
-  }
-}
-
-async function confirmarVentaDirecta() {
-  const lineas = aLineas(ventaDirecta.value.lineas)
-  if (lineas.length === 0) {
-    toast.add({ title: 'Error', description: 'Agrega al menos un producto.', color: 'error' })
-    return
-  }
-  guardando.value = true
-  try {
-    await inv.registrarVentaDirecta({ ubicacion: ventaDirecta.value.ubicacion, lineas })
-    showVentaDirecta.value = false
-    toast.add({ title: 'Venta registrada', color: 'success' })
-    await recargar()
-  } catch {
-    // El composable ya avisó el error.
-  } finally {
-    guardando.value = false
   }
 }
 

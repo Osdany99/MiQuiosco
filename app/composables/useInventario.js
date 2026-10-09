@@ -147,11 +147,13 @@ export function useInventario() {
         for (const m of movimientos) await r(movimientosRepo).create(m)
         for (const linea of parsed.data.lineas) {
           const producto = porProd.get(linea.productoId)
-          const vigente = await db.findHistorialVigente(linea.productoId)
-          const rot = rotarPrecioCompra({ producto, vigente, nuevoPrecio: linea.precioUnitario, ahora, usuarioId })
+          // Todas las filas sin cerrar: rotar cierra la historia entera del
+          // producto, no solo la primera que encuentre.
+          const abiertos = await db.findHistorialAbiertos(linea.productoId)
+          const rot = rotarPrecioCompra({ producto, abiertos, nuevoPrecio: linea.precioUnitario, ahora, usuarioId })
           if (!rot) continue
-          if (rot.cerrarId) {
-            await r(historialRepo).update(rot.cerrarId, { vigenteHasta: rot.cerrarHasta })
+          for (const cierre of rot.cierres) {
+            await r(historialRepo).update(cierre.id, { vigenteHasta: cierre.hasta })
           }
           await r(historialRepo).create(rot.nuevoHistorial)
           await r(productosRepo).update(linea.productoId, { precioCompraActual: rot.espejo })
@@ -415,9 +417,13 @@ export function useInventario() {
           })
         if (delProd[delProd.length - 1]?.id === loteId) {
           await r(productosRepo).update(lote.productoId, { precioCompraActual: precioUnitario })
-          const vigente = await db.findHistorialVigente(lote.productoId)
-          if (vigente && Number(vigente.precioCompra) !== Number(precioUnitario)) {
-            await r(historialRepo).update(vigente.id, { precioCompra: precioUnitario })
+          // Todas las abiertas, no solo la última: si el producto arrastra
+          // filas duplicadas, corregirlas todas deja el historial coherente.
+          const abiertos = await db.findHistorialAbiertos(lote.productoId)
+          for (const abierta of abiertos) {
+            if (Number(abierta.precioCompra) !== Number(precioUnitario)) {
+              await r(historialRepo).update(abierta.id, { precioCompra: precioUnitario })
+            }
           }
         }
       })

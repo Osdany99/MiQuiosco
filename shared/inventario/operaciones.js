@@ -13,6 +13,7 @@
  */
 
 import { consumirFIFO } from './fifo.js'
+import { aEpoch } from '../fechas.js'
 
 export function generarId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -26,13 +27,6 @@ export function generarId() {
 
 function redondear2(n) {
   return Math.round(Number(n) * 100) / 100
-}
-
-function aEpoch(v) {
-  if (v == null) return 0
-  if (typeof v === 'number') return v
-  const n = v instanceof Date ? v.getTime() : Date.parse(v)
-  return Number.isNaN(n) ? 0 : n
 }
 
 /**
@@ -157,26 +151,54 @@ export function construirEntrada(datos, meta) {
 }
 
 /**
+ * Cálculo del rango temporal al rotar un precio de un producto.
+ *
+ * La regla del dominio es "una sola fila vigente por producto", así que se
+ * cierra TODAS las abiertas, no solo la primera que se encuentre: si un
+ * dispositivo arrastró duplicados, cerrarlos todos es lo que deja el historial
+ * sano, y el nuevo rango arranca después de la última de todas.
+ *
+ * `vigenteDesde` de las abiertas puede venir como ISO del servidor (columna
+ * integer en SQLite): por eso aEpoch y nunca Number() a pelo, que daría NaN,
+ * se propagaría por Math.max y el INSERT se iría con
+ * NOT NULL constraint failed: historial_precios.vigente_desde.
+ *
+ * @param {{ abiertos?: Array<{ id, vigenteDesde }>, ahora: number }} params
+ * @returns {{ vigenteDesde: number, cierres: Array<{ id, hasta }> }}
+ */
+export function calcularRotacionHistorial({ abiertos = [], ahora }) {
+  const lista = Array.isArray(abiertos) ? abiertos : []
+  let vigenteDesde = aEpoch(ahora)
+  for (const abierta of lista) {
+    vigenteDesde = Math.max(vigenteDesde, aEpoch(abierta.vigenteDesde) + 1)
+  }
+  const cierres = lista.map(abierta => ({
+    id: abierta.id,
+    hasta: Math.max(vigenteDesde - 1, aEpoch(abierta.vigenteDesde))
+  }))
+  return { vigenteDesde, cierres }
+}
+
+/**
  * Rotación del precio de compra tras una entrada.
  * Si el precio difiere del vigente: cerrar vigente + abrir nuevo + espejo.
- * @returns {null | { cerrarId: string|null, nuevoHistorial: object, espejo: number }}
+ * Acepta `vigente` (uno) o `abiertos` (todas las filas sin cerrar).
+ * @returns {null | { cerrarId: string|null, cierres: Array, nuevoHistorial: object, espejo: number }}
  */
-export function rotarPrecioCompra({ producto, vigente, nuevoPrecio, ahora, usuarioId }) {
+export function rotarPrecioCompra({ producto, vigente = null, abiertos, nuevoPrecio, ahora, usuarioId }) {
   const precio = Number(nuevoPrecio) || 0
   const previoCompra = Number(producto?.precioCompraActual ?? 0)
   const previoVenta = Number(producto?.precioVentaActual ?? 0)
-  if (Math.abs(precio - previoCompra) < 0.0001 && vigente) return null
+  const lista = Array.isArray(abiertos) ? abiertos : (Array.isArray(vigente) ? vigente : vigente ? [vigente] : [])
+  if (Math.abs(precio - previoCompra) < 0.0001 && lista.length) return null
 
-  let vigenteDesde = ahora
-  let cerrarId = null
-  if (vigente) {
-    const vDesde = aEpoch(vigente.vigenteDesde)
-    vigenteDesde = Math.max(ahora, vDesde + 1)
-    cerrarId = vigente.id
-  }
+  const { vigenteDesde, cierres } = calcularRotacionHistorial({ abiertos: lista, ahora })
   return {
-    cerrarId,
-    cerrarHasta: cerrarId ? Math.max(vigenteDesde - 1, aEpoch(vigente.vigenteDesde)) : null,
+    // cerrarId/cerrarHasta son el contrato de siempre (la primera abierta);
+    // `cierres` las cubre todas.
+    cerrarId: cierres[0]?.id ?? null,
+    cerrarHasta: cierres[0]?.hasta ?? null,
+    cierres,
     nuevoHistorial: {
       id: generarId(),
       productoId: producto.id,

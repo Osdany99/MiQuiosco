@@ -69,7 +69,6 @@
       <CuadreTransferenciaForm
         ref="nuevaFormRef"
         v-model="nuevaForm"
-        :productos-activos="productosActivos"
         :clientes="clientes"
         @crear-cliente="onCrearCliente"
       />
@@ -86,7 +85,6 @@
       <CuadreTransferenciaForm
         ref="editarFormRef"
         v-model="editarForm"
-        :productos-activos="productosActivos"
         :clientes="clientes"
         editar
       />
@@ -112,7 +110,6 @@
 <script setup>
 const props = defineProps({
   cuadreId: { type: String, required: true },
-  productosActivos: { type: Array, default: () => [] },
   puestoId: { type: String, required: true },
   readonly: { type: Boolean, default: false }
 })
@@ -121,15 +118,15 @@ const {
   clientes, cargando, transferenciasDelCuadre,
   montoTransferenciaCalculado,
   cargarClientes, cargarActividadDelCuadre, crearCliente,
-  registrarTransferencia, editarTransferencia, eliminarTransferencia,
-  itemsDeTransferencia
+  registrarTransferencia, editarTransferencia, eliminarTransferencia
 } = useTransferencias()
 
+const toast = useToast()
 const nuevaOpen = ref(false)
 const editarOpen = ref(false)
 const eliminarOpen = ref(false)
-const nuevaForm = ref({ clienteId: null, items: [] })
-const editarForm = ref({ clienteId: null, items: [] })
+const nuevaForm = ref({ clienteId: null, monto: 0 })
+const editarForm = ref({ clienteId: null, monto: 0 })
 const editarTransferenciaId = ref(null)
 const transferenciaAEliminar = ref(null)
 const nuevaFormRef = ref(null)
@@ -151,46 +148,38 @@ async function onCrearCliente(data) {
   nuevaForm.value.clienteId = nuevo.id
 }
 
-async function abrirEdicion(t) {
+function abrirEdicion(t) {
   editarTransferenciaId.value = t.id
-  const items = await itemsDeTransferencia(t.id)
   editarForm.value = {
     clienteId: t.clienteId,
-    items: items.map(i => ({
-      productoId: i.productoId,
-      cantidad: Number(i.cantidad) || 0,
-      precioVentaUsado: Number(i.precioVentaUsado) || 0
-    }))
+    monto: Number(t.montoTotal) || 0
   }
   editarOpen.value = true
 }
 
-function armarItems(form) {
-  return form.items
-    .filter(i => i.productoId && Number(i.cantidad) > 0)
-    .map(i => ({
-      productoId: i.productoId,
-      cantidad: Number(i.cantidad) || 0,
-      precioVentaUsado: Number(i.precioVentaUsado) || 0
-    }))
-}
-
 async function confirmarNueva() {
-  const items = armarItems(nuevaForm.value)
-  if (items.length === 0) return
-  if (!nuevaForm.value.clienteId) return
-  const r = await registrarTransferencia({ ...nuevaForm.value, items, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  if (!nuevaForm.value.clienteId) {
+    toast.add({ title: 'Error', description: 'Elige el cliente que transfirió.', color: 'error' })
+    return
+  }
+  if (!((Number(nuevaForm.value.monto) || 0) > 0)) {
+    toast.add({ title: 'Error', description: 'El monto debe ser mayor que cero.', color: 'error' })
+    return
+  }
+  const r = await registrarTransferencia({ clienteId: nuevaForm.value.clienteId, monto: nuevaForm.value.monto, cuadreId: props.cuadreId, puestoId: props.puestoId })
   // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
   if (!r?.ok) return
   nuevaOpen.value = false
-  nuevaForm.value = { clienteId: null, items: [] }
+  nuevaForm.value = { clienteId: null, monto: 0 }
   emit('actualizado')
 }
 
 async function confirmarEdicion() {
-  const items = armarItems(editarForm.value)
-  if (items.length === 0) return
-  const r = await editarTransferencia({ transferenciaId: editarTransferenciaId.value, items, cuadreId: props.cuadreId })
+  if (!((Number(editarForm.value.monto) || 0) > 0)) {
+    toast.add({ title: 'Error', description: 'El monto debe ser mayor que cero.', color: 'error' })
+    return
+  }
+  const r = await editarTransferencia({ transferenciaId: editarTransferenciaId.value, monto: editarForm.value.monto, cuadreId: props.cuadreId })
   if (!r?.ok) return
   editarOpen.value = false
   emit('actualizado')

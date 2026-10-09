@@ -1,4 +1,4 @@
-import { eq, and, isNull, inArray } from 'drizzle-orm'
+import { eq, and, isNull, inArray, asc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { lotes, movimientosInventario, productos, historialPrecios, proveedores } from '../../database/schema'
 import { entradaAlmacenSchema } from '#shared/schemas/entradaAlmacen'
@@ -68,26 +68,28 @@ export default defineEventHandler(async (event) => {
     // Rotación del precio de compra por producto (solo cambia si difiere).
     for (const linea of datos.lineas) {
       const producto = porId.get(linea.productoId)!
-      const [vigente] = await tx
+      // Todas las filas sin cerrar, no solo una: si el producto arrastra
+      // duplicados, cerrar solo el primero deja el resto vigente para siempre.
+      const abiertos = await tx
         .select()
         .from(historialPrecios)
         .where(and(eq(historialPrecios.productoId, linea.productoId), isNull(historialPrecios.vigenteHasta)))
-        .limit(1)
+        .orderBy(asc(historialPrecios.vigenteDesde))
       const rot = comoRotacionPrecio(
         rotarPrecioCompra({
           producto,
-          vigente: vigente ?? null,
+          abiertos,
           nuevoPrecio: linea.precioUnitario,
           ahora: ahoraMs,
           usuarioId
         })
       )
       if (!rot) continue
-      if (rot.cerrarId) {
+      for (const cierre of rot.cierres) {
         await tx
           .update(historialPrecios)
-          .set({ vigenteHasta: new Date(rot.cerrarHasta ?? ahoraMs) })
-          .where(eq(historialPrecios.id, rot.cerrarId))
+          .set({ vigenteHasta: new Date(cierre.hasta) })
+          .where(eq(historialPrecios.id, cierre.id))
       }
       await tx.insert(historialPrecios).values({
         productoId: linea.productoId,

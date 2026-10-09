@@ -10,26 +10,13 @@
         <span>Fiado nuevo generado:</span>
         <span class="font-mono">{{ fmtPrecio(montoFiadoCalculado) }}</span>
       </div>
-      <div class="flex justify-between">
-        <span>Cobrado hoy (deudas viejas):</span>
-        <span class="font-mono">{{ fmtPrecio(montoCobradoFiadoCalculado) }}</span>
-      </div>
 
-      <div v-if="!readonly" class="flex gap-2 pt-2">
-        <UButton
-          size="sm"
-          icon="i-lucide-user-plus"
-          label="Nueva deuda"
-          @click="nuevaDeudaOpen = true"
-        />
-        <UButton
-          size="sm"
-          variant="outline"
-          icon="i-lucide-hand-coins"
-          label="Cobrar deuda"
-          @click="cobrarOpen = true"
-        />
-      </div>
+      <p
+        v-if="deudasActivas.length === 0"
+        class="text-xs text-muted"
+      >
+        Para fiar, usa el botón de la fila del producto en la tabla de líneas.
+      </p>
 
       <template v-if="deudasActivas.length > 0">
         <UDivider label="Deudas del día" />
@@ -83,83 +70,20 @@
 
     <BaseDialog
       v-model="nuevaDeudaOpen"
-      :title="fiadoForm.directa ? 'Nueva deuda (fuera del cuadre)' : 'Nueva deuda'"
+      :title="productoFijo ? `Fiar ${productoFijo.nombre}` : 'Nueva deuda'"
       confirm-text="Registrar"
       :loading="cargando"
       @confirm="confirmarNuevaDeuda"
-      @cancel="nuevaDeudaOpen = false"
+      @cancel="cerrarNuevaDeuda"
     >
-      <div v-if="!readonly" class="mb-4">
-        <UFormField label="¿Dónde nace esta deuda?">
-          <div class="flex gap-2 w-full">
-            <UButton
-              size="sm"
-              class="flex-1"
-              :variant="!fiadoForm.directa ? 'solid' : 'outline'"
-              :color="!fiadoForm.directa ? 'primary' : 'neutral'"
-              icon="i-lucide-clipboard-check"
-              @click="fiadoForm.directa = false"
-            >
-              Del cuadre de hoy
-            </UButton>
-            <UButton
-              size="sm"
-              class="flex-1"
-              :variant="fiadoForm.directa ? 'solid' : 'outline'"
-              :color="fiadoForm.directa ? 'primary' : 'neutral'"
-              icon="i-lucide-pocket"
-              @click="fiadoForm.directa = true"
-            >
-              Fuera del cuadre
-            </UButton>
-          </div>
-        </UFormField>
-        <UAlert
-          v-if="fiadoForm.directa"
-          color="info"
-          variant="soft"
-          icon="i-lucide-info"
-          title="Deuda directa"
-          description="No pertenece a ningún cuadre: no pasa por el tope ni suma al corte del día, y el producto sale del inventario."
-          class="mt-2"
-        />
-      </div>
-
-      <UFormField v-if="fiadoForm.directa" label="Sale del" class="mb-4">
-        <div class="flex gap-2 w-full">
-          <UButton
-            v-for="op in opcionesUbicacion"
-            :key="op.value"
-            size="sm"
-            class="flex-1"
-            :variant="fiadoForm.ubicacion === op.value ? 'solid' : 'outline'"
-            :color="fiadoForm.ubicacion === op.value ? 'primary' : 'neutral'"
-            :icon="op.icon"
-            @click="fiadoForm.ubicacion = op.value"
-          >
-            {{ op.label }}
-          </UButton>
-        </div>
-      </UFormField>
-
       <CuadreFiadoForm
         ref="fiadoFormRef"
         v-model="fiadoForm"
         :productos-activos="productosActivos"
         :clientes="clientes"
+        :producto-fijo="productoFijo"
         @crear-cliente="onCrearCliente"
       />
-    </BaseDialog>
-
-    <BaseDialog
-      v-model="cobrarOpen"
-      title="Cobrar deuda"
-      confirm-text="Registrar pago"
-      :loading="cargando"
-      @confirm="confirmarCobro"
-      @cancel="cobrarOpen = false"
-    >
-      <CuadreCobrarDeudaForm ref="cobrarFormRef" v-model="cobrarForm" />
     </BaseDialog>
 
     <BaseDialog
@@ -206,36 +130,32 @@ const props = defineProps({
 
 const {
   clientes, cargando, cuentasDelCuadre,
-  montoFiadoCalculado, montoCobradoFiadoCalculado,
+  montoFiadoCalculado,
   cargarClientes, cargarActividadDelCuadre, crearCliente,
-  registrarNuevaDeuda, registrarDeudaDirecta, editarDeuda, eliminarDeuda, cobrarDeuda,
+  registrarNuevaDeuda, editarDeuda, eliminarDeuda,
   itemsDeCuenta
 } = useCuentasFiado()
 
 const nuevaDeudaOpen = ref(false)
-const cobrarOpen = ref(false)
 const editarOpen = ref(false)
 const eliminarOpen = ref(false)
 const FIADO_VACIO = () => ({
   clienteId: null,
   items: [],
   montoPagadoInicial: 0,
-  formaPagoInicial: 'efectivo',
-  // directa = la deuda nace fuera del cuadre: sin tope, sin tocar el corte.
-  directa: false,
-  ubicacion: 'almacen'
+  formaPagoInicial: 'efectivo'
 })
-const opcionesUbicacion = [
-  { value: 'almacen', label: 'Almacén', icon: 'i-lucide-warehouse' },
-  { value: 'quiosco', label: 'Quiosco', icon: 'i-lucide-store' }
-]
 const fiadoForm = ref(FIADO_VACIO())
-const cobrarForm = ref({ cuentaFiadoId: null, monto: 0, formaPago: 'efectivo' })
+/**
+ * Producto cerrado de la deuda que se va a registrar. La fija la fila de la
+ * tabla de líneas (ver abrirNuevaDeuda): sin esto, el fiado se declaraba
+ * desde aquí con un selector libre de producto y cualquier cantidad.
+ */
+const productoFijo = ref(null)
 const editarForm = ref({ clienteId: null, items: [] })
 const editarCuentaId = ref(null)
 const deudaAEliminar = ref(null)
 const fiadoFormRef = ref(null)
-const cobrarFormRef = ref(null)
 const editarFormRef = ref(null)
 
 const emit = defineEmits(['actualizado'])
@@ -273,6 +193,35 @@ async function abrirEdicion(deuda) {
   editarOpen.value = true
 }
 
+/**
+ * Abre el formulario de deuda con el producto YA decidido por la fila del
+ * cuadre. El precio es el de esa línea (lo que se cobró), no el del catálogo:
+ * en una duplicada son distintos y el fiado tiene que ir a lo que el cliente
+ * vio. La página (cuadre.vue) es quien llama a esto desde la tabla de líneas.
+ */
+function abrirNuevaDeuda(linea) {
+  const prod = props.productosActivos.find(p => p.id === linea.productoId)
+  const precio = Number(linea.precioVentaUsado) || Number(prod?.precioVentaActual) || 0
+  productoFijo.value = {
+    productoId: linea.productoId,
+    nombre: prod?.nombre ?? 'Producto',
+    descripcion: prod?.descripcion ?? '',
+    precio
+  }
+  // Un único ítem, ya fijado: el formulario no deja cambiarlo ni añadir más.
+  fiadoForm.value = {
+    ...FIADO_VACIO(),
+    items: [{ productoId: linea.productoId, cantidad: 0, precioVentaUsado: precio }]
+  }
+  nuevaDeudaOpen.value = true
+}
+
+function cerrarNuevaDeuda() {
+  nuevaDeudaOpen.value = false
+  productoFijo.value = null
+  fiadoForm.value = FIADO_VACIO()
+}
+
 async function confirmarNuevaDeuda() {
   const form = fiadoForm.value
   if (!form.clienteId) {
@@ -288,32 +237,21 @@ async function confirmarNuevaDeuda() {
       secuencia: idx
     }))
   if (lineas.length === 0) {
-    toast.add({ title: 'Error', description: 'Agrega al menos un producto.', color: 'error' })
+    toast.add({
+      title: 'Error',
+      description: productoFijo.value
+        ? 'Indica la cantidad a fiar.'
+        : 'Agrega al menos un producto.',
+      color: 'error'
+    })
     return
   }
 
-  if (form.directa) {
-    // Fuera del cuadre: no toca el tope ni el corte del día, pero sí el stock.
-    const r = await registrarDeudaDirecta({
-      clienteId: form.clienteId,
-      ubicacion: form.ubicacion,
-      lineas
-    })
-    // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
-    if (!r?.ok) return
-  } else {
-    const r = await registrarNuevaDeuda({ ...form, cuadreId: props.cuadreId, puestoId: props.puestoId })
-    if (!r?.ok) return
-  }
-  nuevaDeudaOpen.value = false
-  fiadoForm.value = FIADO_VACIO()
-  emit('actualizado')
-}
-
-async function confirmarCobro() {
-  await cobrarDeuda({ ...cobrarForm.value, cuadreId: props.cuadreId })
-  cobrarOpen.value = false
-  cobrarForm.value = { cuentaFiadoId: null, monto: 0, formaPago: 'efectivo' }
+  // Toda deuda creada aquí nace del cuadre del día (las directas, fuera del
+  // cuadre, se crean desde la vista de Deudas).
+  const r = await registrarNuevaDeuda({ ...form, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  if (!r?.ok) return
+  cerrarNuevaDeuda()
   emit('actualizado')
 }
 
@@ -337,7 +275,11 @@ async function confirmarEliminar() {
   deudaAEliminar.value = null
   eliminarOpen.value = false
   if (!id) return
-  await eliminarDeuda(id, props.cuadreId)
+  if (id) await eliminarDeuda(id, props.cuadreId)
   emit('actualizado')
 }
+
+// La tabla de líneas no puede abrir el formulario por su cuenta (el formulario,
+// los clientes y la confirmación viven aquí): la página le pasa la fila pulsada.
+defineExpose({ abrirNuevaDeuda })
 </script>

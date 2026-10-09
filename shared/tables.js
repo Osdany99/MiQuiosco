@@ -103,7 +103,12 @@ export const historial_precios = {
   endpoints: endpoint('historial_precios'),
   label: { singular: 'Precio', plural: 'Precios', gender: 'm' },
   syncNumeric: ['precioCompra', 'precioVenta'],
-  insertOnly: true
+  // NO insertOnly: rotar un precio cierra la fila vigente (UPDATE de
+  // vigente_hasta). Con insertOnly, todo push de esta tabla acababa en
+  // conflicto, el cliente absorbía la versión del servidor y el cierre se
+  // quedaba en el dispositivo: el historial del servidor nunca veía el
+  // cambio y las filas se acumulaban abiertas.
+  insertOnly: false
 }
 
 export const proveedores = {

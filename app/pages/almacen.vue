@@ -3,18 +3,8 @@
     title="Almacén"
     description="Compras y stock guardado"
     leading-icon="i-lucide-warehouse"
-    title-button="Nueva entrada"
-    @new="showEntrada = true"
+    :show-button="false"
   >
-    <template #trailing>
-      <UButton
-        icon="i-lucide-arrow-right-left"
-        variant="outline"
-        label="Traspasar"
-        @click="showTraspaso = true"
-      />
-    </template>
-
     <UAlert
       v-if="sinMovimientos"
       icon="i-lucide-info"
@@ -22,21 +12,13 @@
       variant="soft"
       :title="hayProductos ? 'Todavía no hay entradas' : 'Todavía no hay productos'"
       :description="hayProductos
-        ? 'Registra la mercadería que ya tienes guardada como entrada al almacén.'
+        ? 'Usa la acción de cada producto para registrar la mercadería que ya tienes guardada.'
         : 'Primero crea tus productos, después registra la mercadería que ya tienes guardada.'"
       class="mb-4"
     >
       <template #actions>
         <UButton
-          v-if="hayProductos"
-          label="Registrar entrada"
-          size="sm"
-          color="warning"
-          variant="soft"
-          @click="showEntrada = true"
-        />
-        <UButton
-          v-else
+          v-if="!hayProductos"
           to="/productos"
           label="Crear productos"
           size="sm"
@@ -52,68 +34,124 @@
       <UIcon name="i-lucide-loader-circle" class="animate-spin size-8 text-muted-foreground" />
     </div>
 
-    <UTable
-      v-else-if="tab === 'stock'"
-      :data="filas"
-      :columns="columns"
-      empty="Sin productos"
-    >
-      <template #nombre-cell="{ row }">
-        <div class="min-w-0">
-          <div class="font-medium truncate">
-            {{ row.original.nombre }}
+    <template v-else-if="tab === 'stock'">
+      <div class="flex justify-end mb-2">
+        <TableToolbar
+          v-model:visible-headers="visibleHeaders"
+          :column-headers="columnHeaders"
+        />
+      </div>
+
+      <UTable
+        :data="filas"
+        :columns="visibleColumns"
+        empty="Sin productos"
+      >
+        <template #nombre-cell="{ row }">
+          <div class="min-w-0">
+            <div class="font-medium truncate">
+              {{ row.original.nombre }}
+            </div>
+            <div
+              v-if="row.original.descripcion?.trim()"
+              class="text-xs text-muted truncate"
+            >
+              {{ row.original.descripcion }}
+            </div>
           </div>
-          <div
-            v-if="row.original.descripcion?.trim()"
-            class="text-xs text-muted truncate"
-          >
-            {{ row.original.descripcion }}
+        </template>
+        <template #estado-cell="{ row }">
+          <UBadge :color="colorEstado(row.original)" variant="soft">
+            {{ textoEstado(row.original) }}
+          </UBadge>
+        </template>
+        <template #costoActual-cell="{ row }">
+          {{ fmtPrecio(row.original.costoActual) }}
+        </template>
+        <template #valorizadoAlmacen-cell="{ row }">
+          {{ fmtPrecio(row.original.valorizadoAlmacen) }}
+        </template>
+        <template #acciones-cell="{ row }">
+          <div class="flex gap-1 justify-end">
+            <UTooltip text="Traspasar al quiosco" :delay-duration="0">
+              <UButton
+                icon="i-lucide-arrow-right-left"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                @click="abrirTraspasoDe(row.original.productoId)"
+              />
+            </UTooltip>
+            <UTooltip text="Merma" :delay-duration="0">
+              <UButton
+                icon="i-lucide-wrench"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                @click="abrirAjuste(row.original.productoId)"
+              />
+            </UTooltip>
+            <UTooltip text="Añadir lote (entrada)" :delay-duration="0">
+              <UButton
+                icon="i-lucide-package-plus"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                @click="abrirEntradaDe(row.original.productoId)"
+              />
+            </UTooltip>
+            <UTooltip text="Ver lotes" :delay-duration="0">
+              <UButton
+                icon="i-lucide-package"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                @click="abrirLotes(row.original)"
+              />
+            </UTooltip>
+            <!-- Vender es un solo botón con submenú: la fila ya trae 3 acciones y
+                 en móvil la columna no puede crecer más. -->
+            <UPopover
+              :open="menuVentaId === row.original.productoId"
+              @update:open="(v) => { if (!v) menuVentaId = null }"
+            >
+              <UTooltip text="Vender" :delay-duration="0">
+                <UButton
+                  icon="i-lucide-receipt"
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  aria-label="Vender"
+                  @click="menuVentaId = row.original.productoId"
+                />
+              </UTooltip>
+              <template #content>
+                <div class="p-1 min-w-44">
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-pocket"
+                    label="Venta directa (efectivo)"
+                    class="justify-start"
+                    @click="vender(row.original, 'venta')"
+                  />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-hand-coins"
+                    label="Deuda directa (fiado)"
+                    class="justify-start"
+                    @click="vender(row.original, 'deuda')"
+                  />
+                </div>
+              </template>
+            </UPopover>
           </div>
-        </div>
-      </template>
-      <template #estado-cell="{ row }">
-        <UBadge :color="colorEstado(row.original)" variant="soft">
-          {{ textoEstado(row.original) }}
-        </UBadge>
-      </template>
-      <template #costoActual-cell="{ row }">
-        {{ fmtPrecio(row.original.costoActual) }}
-      </template>
-      <template #valorizadoAlmacen-cell="{ row }">
-        {{ fmtPrecio(row.original.valorizadoAlmacen) }}
-      </template>
-      <template #acciones-cell="{ row }">
-        <div class="flex gap-1 justify-end">
-          <UTooltip text="Traspasar al quiosco" :delay-duration="0">
-            <UButton
-              icon="i-lucide-arrow-right-left"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              @click="abrirTraspasoDe(row.original.productoId)"
-            />
-          </UTooltip>
-          <UTooltip text="Merma" :delay-duration="0">
-            <UButton
-              icon="i-lucide-wrench"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              @click="abrirAjuste(row.original.productoId)"
-            />
-          </UTooltip>
-          <UTooltip text="Ver lotes" :delay-duration="0">
-            <UButton
-              icon="i-lucide-package"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              @click="abrirLotes(row.original)"
-            />
-          </UTooltip>
-        </div>
-      </template>
-    </UTable>
+        </template>
+      </UTable>
+    </template>
 
     <UTable
       v-else
@@ -145,10 +183,22 @@
       </template>
     </UTable>
 
-    <InventarioDialogoEntrada v-model="showEntrada" @guardado="recargar" />
-    <InventarioDialogoTraspaso v-model="showTraspaso" :preseleccion="preseleccion" @guardado="recargar" />
-    <InventarioDialogoAjuste v-model="showAjuste" :producto-id="productoAjuste" @guardado="recargar" />
+    <InventarioDialogoEntrada v-model="showEntrada" :producto-id="productoEntrada" @guardado="recargar" />
+    <InventarioDialogoTraspaso v-model="showTraspaso" :producto-id="productoTraspaso" @guardado="recargar" />
+    <InventarioDialogoAjuste
+      v-model="showAjuste"
+      :producto-id="productoAjuste"
+      ubicacion="almacen"
+      @guardado="recargar"
+    />
     <InventarioTablaLotes v-model="showLotes" :producto="productoLotes" @guardado="recargar" />
+    <InventarioDialogoVenta
+      v-model="showVenta"
+      :producto="productoVenta"
+      ubicacion="almacen"
+      :modo="modoVenta"
+      @guardado="recargar"
+    />
   </BaseHeaderPage>
 </template>
 
@@ -158,9 +208,11 @@ definePageMeta({
 })
 
 const {
-  cargando, filas, lotesHistorial, columns, columnsHistorial,
+  cargando, filas, lotesHistorial, columnsHistorial,
+  visibleHeaders, columnHeaders, visibleColumns,
   colorEstado, textoEstado, abrirAjuste, abrirLotes, recargar, sinMovimientos, hayProductos,
-  showAjuste, showLotes, productoAjuste, productoLotes
+  showAjuste, showLotes, productoAjuste, productoLotes,
+  abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
 
 const tab = ref('stock')
@@ -171,21 +223,25 @@ const tabs = [
 
 const showEntrada = ref(false)
 const showTraspaso = ref(false)
-const preseleccion = ref([])
+const productoEntrada = ref(null)
+const productoTraspaso = ref(null)
 
-const route = useRoute()
-const router = useRouter()
+// Solo un popover de venta abierto a la vez: guarda el id del producto cuyo
+// menú está visible (null = ninguno).
+const menuVentaId = ref(null)
 
-// /almacen?nueva=entrada abre el diálogo directo (enlace desde el estado vacío de /quiosco).
-onMounted(() => {
-  if (route.query.nueva === 'entrada') {
-    showEntrada.value = true
-    router.replace({ query: { ...route.query, nueva: undefined } })
-  }
-})
+function vender(fila, modo) {
+  menuVentaId.value = null
+  abrirVenta(fila, modo)
+}
+
+function abrirEntradaDe(productoId) {
+  productoEntrada.value = productoId
+  showEntrada.value = true
+}
 
 function abrirTraspasoDe(productoId) {
-  preseleccion.value = [{ productoId, cantidad: 0 }]
+  productoTraspaso.value = productoId
   showTraspaso.value = true
 }
 </script>

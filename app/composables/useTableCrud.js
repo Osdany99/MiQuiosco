@@ -84,8 +84,14 @@ export function useTableCrud(props, emit, form, refresh) {
       }
     }
 
+    // El formulario se hidrata con la fila entera, así que al guardar volvería a
+    // mandar `sincronizado` y `actualizadoEn` de cuando se leyó. Con esos dos
+    // valores reenviados, la fila se guardaba "ya sincronizada" y con el
+    // timestamp viejo: el push la filtraba y el siguiente pull le devolvía el
+    // valor del servidor. Son de la sincronización, no de la edición.
+    const CAMPOS_DE_SYNC = new Set(['id', 'creadoEn', 'actualizadoEn', 'sincronizado'])
     const body = Object.fromEntries(
-      Object.entries(form.value).filter(([k]) => k !== 'id')
+      Object.entries(form.value).filter(([k]) => !CAMPOS_DE_SYNC.has(k))
     )
     await updateOrAdd(body)
   }

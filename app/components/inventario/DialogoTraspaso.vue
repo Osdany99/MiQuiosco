@@ -10,68 +10,34 @@
     @cancel="isOpen = false"
   >
     <div class="space-y-4">
-      <div class="grid grid-cols-2 gap-2">
-        <UFormField label="Fecha">
-          <UInput v-model="form.fecha" type="date" class="w-full" />
-        </UFormField>
-        <UFormField label="Nota">
-          <UInput v-model="form.notas" placeholder="Reposición del día..." class="w-full" />
-        </UFormField>
+      <!-- Producto y fecha vienen de la fila y del día: no se cambian aquí. -->
+      <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
+        <span class="font-medium truncate">{{ nombreProducto || '—' }}</span>
+        <UBadge
+          size="sm"
+          variant="soft"
+          color="neutral"
+          icon="i-lucide-warehouse"
+          label="Almacén"
+        />
       </div>
 
-      <div class="space-y-2">
-        <div
-          v-for="(linea, idx) in form.lineas"
-          :key="idx"
-          class="border rounded p-2 space-y-1"
-        >
-          <div class="flex gap-2 items-start">
-            <UFormField label="Producto" class="flex-1">
-              <USelectMenu
-                v-model="linea.productoId"
-                :items="productos"
-                value-key="id"
-                label-key="nombre"
-                description-key="descripcion"
-                placeholder="Producto..."
-                class="w-full"
-              />
-            </UFormField>
-            <UFormField label="Cant." class="w-20">
-              <BaseInputNumber v-model="linea.cantidad" :step="1" :min="1" />
-            </UFormField>
-            <UButton
-              icon="i-lucide-x"
-              size="xs"
-              color="error"
-              variant="ghost"
-              class="mt-6"
-              @click="form.lineas.splice(idx, 1)"
-            />
-          </div>
-          <p v-if="linea.productoId" class="text-xs text-muted">
-            Disponible en almacén: {{ disponible(linea.productoId) }}
-            <span v-if="Number(linea.cantidad) > disponible(linea.productoId)" class="text-error font-medium">
-              — supera lo disponible
-            </span>
-          </p>
-        </div>
-        <UButton
-          icon="i-lucide-plus"
-          size="sm"
-          variant="outline"
-          @click="agregarLinea"
-        >
-          Agregar producto
-        </UButton>
-      </div>
+      <UFormField label="Cantidad">
+        <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
+      </UFormField>
+      <p class="text-xs text-muted">
+        Disponible en almacén: {{ disponible }}
+        <span v-if="superaDisponible" class="text-error font-medium">
+          — supera lo disponible
+        </span>
+      </p>
     </div>
   </BaseDialog>
 </template>
 
 <script setup>
 const props = defineProps({
-  preseleccion: { type: Array, default: () => [] }
+  productoId: { type: String, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -79,50 +45,40 @@ const emit = defineEmits(['guardado'])
 const inv = useInventario()
 const toast = useToast()
 
-const productos = ref([])
+const nombreProducto = ref('')
 const saldosMap = ref(new Map())
 const guardando = ref(false)
 
-const form = ref({ fecha: hoyLocal(), notas: '', lineas: [] })
+const form = ref({ cantidad: 0 })
 
-function agregarLinea(productoId = null, cantidad = 0) {
-  form.value.lineas.push({ productoId, cantidad })
-}
-
-function disponible(productoId) {
-  return saldosMap.value.get(productoId)?.almacen ?? 0
-}
+const disponible = computed(() => saldosMap.value.get(props.productoId)?.almacen ?? 0)
+const superaDisponible = computed(() => Number(form.value.cantidad) > disponible.value)
 
 const valida = computed(() =>
-  form.value.lineas.length > 0
-  && form.value.lineas.every(l =>
-    l.productoId && Number(l.cantidad) >= 1 && Number(l.cantidad) <= disponible(l.productoId)
-  )
+  Boolean(props.productoId)
+  && Number(form.value.cantidad) >= 1
+  && !superaDisponible.value
 )
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { fecha: hoyLocal(), notas: '', lineas: [] }
+  form.value = { cantidad: 0 }
   const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
-  productos.value = prods
+  nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
   saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
-  if (props.preseleccion.length > 0) {
-    for (const p of props.preseleccion) agregarLinea(p.productoId, p.cantidad)
-  } else {
-    agregarLinea()
-  }
 })
 
 async function confirmar() {
   guardando.value = true
   try {
     await inv.registrarTraspaso({
-      fecha: form.value.fecha,
-      notas: form.value.notas || null,
-      lineas: form.value.lineas.map(l => ({
-        productoId: l.productoId,
-        cantidad: Math.trunc(Number(l.cantidad))
-      }))
+      // El traspaso se fecha solo: hoy es el día en que se repone.
+      fecha: hoyLocal(),
+      notas: null,
+      lineas: [{
+        productoId: props.productoId,
+        cantidad: Math.trunc(Number(form.value.cantidad))
+      }]
     })
     toast.add({ title: 'Traspaso listo', description: 'El quiosco quedó repuesto.', color: 'success' })
     isOpen.value = false

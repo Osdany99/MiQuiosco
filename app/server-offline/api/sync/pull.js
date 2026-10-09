@@ -5,7 +5,7 @@
  * Incluye aplicación de deletes recibidos del servidor.
  */
 import { SYNC_TABLES } from '../../../../shared/tables'
-import { removePendingDeletesAccepted, enrichForInsert, enrichForUpdate } from '../_factory'
+import { removePendingDeletesAccepted, enrichForInsert, enrichForSync } from '../_factory'
 import { useDb } from '../../db/client'
 
 const SYNC_TABLAS = SYNC_TABLES
@@ -18,7 +18,9 @@ async function upsertRegistro(cfg, reg) {
     // se resuelven vía push / conflicto, donde el timestamp decide.
     // Sin esto, un pull tras el login borra cambios locales pendientes.
     if (!existing.sincronizado) return false
-    await db.update(cfg.tabla, reg.id, enrichForUpdate(cfg.tabla, { ...reg, sincronizado: 1 }))
+    // enrichForSync, no enrichForUpdate: lo que llega es del servidor, así que
+    // se respetan su actualizadoEn y queda marcada como sincronizada.
+    await db.update(cfg.tabla, reg.id, enrichForSync(cfg.tabla, { ...reg, sincronizado: 1 }))
     return true
   }
   await db.insert(cfg.tabla, enrichForInsert(cfg.tabla, { ...reg, sincronizado: 1 }))
@@ -26,21 +28,24 @@ async function upsertRegistro(cfg, reg) {
 }
 
 export async function pull(pullResult, _opts, _auth) {
-  void _opts
+  const signal = _opts?.signal
   void _auth
   let aplicados = 0
   let deletesAplicados = 0
+  let vistos = 0
 
   for (const cfg of SYNC_TABLAS) {
     const registros = pullResult[cfg.tabla]
     if (!registros?.length) continue
     for (const reg of registros) {
+      if (++vistos % 50 === 0) signal?.throwIfAborted?.()
       if (await upsertRegistro(cfg, reg)) aplicados++
     }
   }
 
   const deletes = pullResult.deletes ?? []
   for (const del of deletes) {
+    signal?.throwIfAborted?.()
     const cfg = SYNC_TABLAS.find(t => t.tabla === del.tabla)
     if (!cfg) continue
     const repo = useLocalRepo(cfg)

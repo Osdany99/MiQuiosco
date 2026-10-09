@@ -108,7 +108,7 @@ export function useCuentasFiado() {
     const exceso = calcularExcesoTope(vendidos, consumidos, items)
     if (!exceso) return null
     const yaFiado = Number(consumidos.get(exceso.productoId) ?? 0)
-    return `Tope excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}, incluye fiado/transferencia/ajustes).`
+    return `Tope excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}, incluye fiado).`
   }
 
   async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoPagadoInicial, formaPagoInicial, puestoId }) {
@@ -128,6 +128,14 @@ export function useCuentasFiado() {
         })
       } else {
         const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+        // El servidor rechaza esto con 400; en local se guardaba una deuda
+        // 'pagada' con un abono mayor que la deuda. Con el formulario de fiado
+        // por fila (cantidad + pago inicial juntos) el despiste es de un clic.
+        if ((montoPagadoInicial || 0) > montoTotal) {
+          const msg = 'El pago inicial no puede superar el monto total.'
+          toast.add({ title: 'Error', description: msg, color: 'error' })
+          return { ok: false, error: new Error(msg) }
+        }
         const nueva = await r(cuentasRepo).create({
           clienteId,
           cuadreOrigenId: cuadreId,
@@ -146,13 +154,14 @@ export function useCuentasFiado() {
           })
         }
         if (montoPagadoInicial > 0) {
+          // Opción B: el abono entra a caja por vía normal (conteo manual).
+          // Pago directo en historial, sin tocar montoCobradoFiado.
           await r(pagosRepo).create({
             cuentaFiadoId: nueva.id,
-            cuadreId,
+            cuadreId: null,
             monto: montoPagadoInicial,
             formaPago: formaPagoInicial || 'efectivo'
           })
-          await acumularCobroEnCuadre(cuadreId, montoPagadoInicial)
         }
         await acumularFiadoEnCuadre(cuadreId, montoTotal - (montoPagadoInicial || 0))
       }
@@ -296,12 +305,11 @@ export function useCuentasFiado() {
   }
 
   /**
-   * Cobra una deuda, total o parcialmente.
-   *
-   * cuadreId = null significa cobro directo: el jefe cobró por fuera y el
-   * efectivo no entró a la gaveta de ningún cuadre, así que ninguno suma
-   * montoCobradoFiado. El saldo de la cuenta baja igual, y el cuadre de origen
-   * (si lo hay) ve bajar su montoFiado.
+   * Cobra una deuda, total o parcialmente. Siempre directo (fuera del
+   * cuadre): el jefe cobra en físico y ningún cuadre registra el dinero
+   * (montoCobradoFiado queda congelado como histórico). Solo baja el saldo
+   * de la cuenta; el fiado pendiente del origen baja únicamente si ese
+   * cuadre sigue abierto (un cerrado no se reescribe).
    */
   async function cobrarDeuda({ cuentaFiadoId, cuadreId = null, monto, formaPago }) {
     cargando.value = true
@@ -309,7 +317,7 @@ export function useCuentasFiado() {
       if (esOnline.value) {
         await $api('/api/pagos-fiado', {
           method: 'POST',
-          body: { cuentaFiadoId, cuadreId, monto, formaPago },
+          body: { cuentaFiadoId, cuadreId: null, monto, formaPago },
           headers: apiHeaders()
         })
       } else {
@@ -320,17 +328,21 @@ export function useCuentasFiado() {
         const saldo = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
         if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
 
-        await r(pagosRepo).create({ cuentaFiadoId, cuadreId, monto, formaPago })
+        await r(pagosRepo).create({ cuentaFiadoId, cuadreId: null, monto, formaPago })
         const nuevoPagado = Number(cuenta.montoPagado) + monto
         await r(cuentasRepo).update(cuentaFiadoId, {
           montoPagado: nuevoPagado,
           estado: nuevoPagado >= Number(cuenta.montoTotal) ? 'pagada' : 'parcial'
         })
-        if (cuadreId) await acumularCobroEnCuadre(cuadreId, monto)
-        await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -monto)
+        if (cuenta.cuadreOrigenId) {
+          const origen = await r(cuadresRepo).read(cuenta.cuadreOrigenId)
+          if (origen && origen.estado === 'abierto') {
+            await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -monto)
+          }
+        }
       }
       if (cuadreId) await cargarActividadDelCuadre(cuadreId)
-      return { ok: true, directo: !cuadreId }
+      return { ok: true, directo: true }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
       return { ok: false, error: err }

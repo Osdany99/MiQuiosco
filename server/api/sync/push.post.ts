@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { eq, inArray, getTableName, getTableColumns } from 'drizzle-orm'
+import { eq, inArray, getTableName, getTableColumns, and, isNull, ne, sql } from 'drizzle-orm'
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
@@ -9,6 +9,53 @@ import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
 const TABLAS_SYNC_SET = new Set(SYNC_TABLES.map(t => t.tabla))
+
+/**
+ * Regla del dominio aplicada en la frontera: un producto tiene UNA sola fila de
+ * historial vigente.
+ *
+ * La aplica shared/mutations/producto.ts, pero el push no ejecuta esa
+ * mutación: se limita a escribir lo que le manda el dispositivo. Si un cliente
+ * viejo (o uno con el bug de NaN) inserta una fila abierta sin cerrar la
+ * anterior, el servidor acabaría con varias vigentes. Aquí se cierra el resto
+ * en la misma transacción del push, que es el único sitio donde se puede
+ * hacer sin cambiar el esquema de ninguna de las dos bases de datos.
+ *
+ * `vigente_hasta = greatest(vigente_desde, nuevoDesde - 1)`: con el mínimo
+ * intermedio, una fila abierta con fecha futura no quedaría con un rango
+ * invertido (desde > hasta).
+ */
+async function cerrarVigentesPrevias(
+  tx: any,
+  table: Table,
+  tableName: string,
+  columns: Record<string, Column>,
+  row: any,
+  values: Record<string, any>
+): Promise<void> {
+  if (tableName !== 'historial_precios') return
+  if (values.vigenteHasta != null) return
+  const productoId = values.productoId
+  if (!productoId) return
+  const { productoId: colProducto, vigenteDesde: colDesde, vigenteHasta: colHasta, id: colId } = columns
+  if (!colProducto || !colDesde || !colHasta || !colId) return
+
+  const nuevoDesdeMs = values.vigenteDesde instanceof Date
+    ? values.vigenteDesde.getTime()
+    : (Date.parse(String(values.vigenteDesde)) || Date.now())
+  const cerradoEn = new Date(Math.max(0, nuevoDesdeMs - 1))
+
+  await tx.update(table)
+    .set({
+      vigenteHasta: sql`greatest(${colDesde}, ${cerradoEn})`,
+      actualizadoEn: new Date()
+    })
+    .where(and(
+      eq(colProducto, productoId),
+      isNull(colHasta),
+      ne(colId, row.id)
+    ))
+}
 
 export default defineEventHandler(async (event) => {
   const auth = await requireAuth(event, 'sync')
@@ -86,7 +133,11 @@ export default defineEventHandler(async (event) => {
             // Se lee en la tx para ver tambien padres del mismo push.
             await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId)
           }
-          await tx.insert(table).values(coerceRow(row, syncConfig, columns))
+          // Coercionado aquí y no en el insert: el guard necesita los valores ya
+          // convertidos (el vigenteDesde llega como ISO y la columna es timestamp).
+          const valores = coerceRow(row, syncConfig, columns)
+          await cerrarVigentesPrevias(tx, table, tableName, columns, row, valores)
+          await tx.insert(table).values(valores)
           aceptados.push(row.id)
           continue
         }

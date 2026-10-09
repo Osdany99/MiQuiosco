@@ -1,14 +1,9 @@
 import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
-import { validarTopeGeneralLocal } from '../utils/topeGeneral'
 
 const transferenciaConfig = TABLES.transferencias
 const transferenciaItemConfig = TABLES.transferencia_items
 const cuadreConfig = TABLES.cuadres
-const cuadreItemConfig = TABLES.cuadre_items
-const cuentaFiadoConfig = TABLES.cuentas_fiado
-const cuentaFiadoItemConfig = TABLES.cuentas_fiado_items
-const ajusteConfig = TABLES.ajustes
 
 export function useTransferencias() {
   const toast = useToast()
@@ -24,10 +19,6 @@ export function useTransferencias() {
   const transferenciasRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaConfig) : useLocalRepo(transferenciaConfig))
   const itemsRepo = computed(() => esOnline.value ? useRemoteRepo(transferenciaItemConfig) : useLocalRepo(transferenciaItemConfig))
   const cuadresRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreConfig) : useLocalRepo(cuadreConfig))
-  const cuadreItemsRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreItemConfig) : useLocalRepo(cuadreItemConfig))
-  const cuentasRepo = computed(() => esOnline.value ? useRemoteRepo(cuentaFiadoConfig) : useLocalRepo(cuentaFiadoConfig))
-  const cuentasItemsRepo = computed(() => esOnline.value ? useRemoteRepo(cuentaFiadoItemConfig) : useLocalRepo(cuentaFiadoItemConfig))
-  const ajustesRepo = computed(() => esOnline.value ? useRemoteRepo(ajusteConfig) : useLocalRepo(ajusteConfig))
 
   function r(repo) {
     return repo.value
@@ -42,64 +33,35 @@ export function useTransferencias() {
   )
 
   async function cargarActividadDelCuadre(cuadreId) {
-    const { data: todas } = await r(transferenciasRepo).readAll({ query: { cuadreId } })
-    transferenciasDelCuadre.value = Array.isArray(todas) ? todas.filter(t => t.cuadreId === cuadreId) : []
+    const rpta = await r(transferenciasRepo).readAll({ query: { cuadreId } })
+    // useRemoteRepo devuelve el array directo y useLocalRepo { data }: se
+    // aceptan ambas formas (antes solo { data } y en online la lista salía
+    // vacía aunque el monto sí subía).
+    const todas = Array.isArray(rpta) ? rpta : (rpta?.data ?? [])
+    transferenciasDelCuadre.value = todas.filter(t => t.cuadreId === cuadreId)
   }
 
-  function reposTopeLocal() {
-    return {
-      cuadreItemsRepo: r(cuadreItemsRepo),
-      cuentasRepo: r(cuentasRepo),
-      cuentasItemsRepo: r(cuentasItemsRepo),
-      transferenciasRepo: r(transferenciasRepo),
-      transferenciaItemsRepo: r(itemsRepo),
-      ajustesRepo: r(ajustesRepo)
-    }
-  }
-
-  async function validarTopeLocal(cuadreId, items, excluirTransferenciaId = null) {
-    if (esOnline.value) return null
-    return validarTopeGeneralLocal({
-      cuadreId,
-      items,
-      repos: reposTopeLocal(),
-      excluir: { transferenciaIds: excluirTransferenciaId ? [excluirTransferenciaId] : [] },
-      concepto: 'transferencia'
-    })
-  }
-
-  async function registrarTransferencia({ clienteId, cuadreId, items, puestoId }) {
+  // Monto directo, sin productos ni tope: "el cliente X transfirió N pesos".
+  async function registrarTransferencia({ clienteId, cuadreId, monto, puestoId }) {
     cargando.value = true
     try {
-      const topeMsg = await validarTopeLocal(cuadreId, items)
-      if (topeMsg) {
-        toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return { ok: false, error: new Error(topeMsg) }
-      }
+      const montoTotal = Math.round((Number(monto) || 0) * 100) / 100
+      if (!clienteId) throw new Error('Elige el cliente que transfirió.')
+      if (!(montoTotal > 0)) throw new Error('El monto debe ser mayor que cero.')
       if (esOnline.value) {
         await $api('/api/transferencias', {
           method: 'POST',
-          body: { clienteId, cuadreId, items },
+          body: { clienteId, cuadreId, monto: montoTotal },
           headers: apiHeaders()
         })
       } else {
-        const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
-        if (montoTotal <= 0) throw new Error('El monto de la transferencia debe ser mayor que cero.')
         const nueva = await r(transferenciasRepo).create({
           clienteId,
           cuadreId,
           puestoId,
           montoTotal
         })
-        for (const it of items) {
-          await r(itemsRepo).create({
-            transferenciaId: nueva.id,
-            productoId: it.productoId,
-            cantidad: it.cantidad,
-            precioVentaUsado: it.precioVentaUsado,
-            subtotal: it.cantidad * it.precioVentaUsado
-          })
-        }
+        void nueva
         await acumularTransferenciaEnCuadre(cuadreId, montoTotal)
       }
       await cargarActividadDelCuadre(cuadreId)
@@ -112,18 +74,15 @@ export function useTransferencias() {
     }
   }
 
-  async function editarTransferencia({ transferenciaId, items, cuadreId }) {
+  async function editarTransferencia({ transferenciaId, monto, cuadreId }) {
     cargando.value = true
     try {
-      const topeMsg = await validarTopeLocal(cuadreId, items, transferenciaId)
-      if (topeMsg) {
-        toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return { ok: false, error: new Error(topeMsg) }
-      }
+      const nuevoTotal = Math.round((Number(monto) || 0) * 100) / 100
+      if (!(nuevoTotal > 0)) throw new Error('El monto debe ser mayor que cero.')
       if (esOnline.value) {
         await $api(`/api/transferencias/${transferenciaId}`, {
           method: 'PATCH',
-          body: { items },
+          body: { monto: nuevoTotal },
           headers: apiHeaders()
         })
       } else {
@@ -131,43 +90,11 @@ export function useTransferencias() {
         const transferencia = todas.find(t => t.id === transferenciaId)
         if (!transferencia) throw new Error('Transferencia no encontrada')
 
+        // Las líneas históricas por producto (modelo anterior) se retiran.
         const existentes = await r(itemsRepo).readAll()
         const itemsActuales = existentes.filter(i => i.transferenciaId === transferenciaId)
-        const preciosAnteriores = new Map(itemsActuales.map(i => [i.productoId, Number(i.precioVentaUsado)]))
-        const itemsFinales = items.map((it) => {
-          const congelado = preciosAnteriores.get(it.productoId)
-          const precio = congelado != null ? congelado : Number(it.precioVentaUsado)
-          return { ...it, precioVentaUsado: precio, subtotal: Number(it.cantidad) * precio }
-        })
-
-        const nuevoTotal = itemsFinales.reduce((s, it) => s + it.subtotal, 0)
-        if (nuevoTotal <= 0) throw new Error('El monto de la transferencia debe ser mayor que cero.')
-
-        const anterioresMap = new Map(itemsActuales.map(i => [i.productoId, i]))
-        const nuevosSet = new Set(itemsFinales.map(i => i.productoId))
         for (const antiguo of itemsActuales) {
-          if (!nuevosSet.has(antiguo.productoId)) {
-            await r(itemsRepo).remove(antiguo.id)
-          }
-        }
-        for (const it of itemsFinales) {
-          const anterior = anterioresMap.get(it.productoId)
-          if (anterior) {
-            if (Number(anterior.cantidad) !== Number(it.cantidad)) {
-              await r(itemsRepo).update(anterior.id, {
-                cantidad: it.cantidad,
-                subtotal: it.subtotal
-              })
-            }
-          } else {
-            await r(itemsRepo).create({
-              transferenciaId,
-              productoId: it.productoId,
-              cantidad: it.cantidad,
-              precioVentaUsado: it.precioVentaUsado,
-              subtotal: it.subtotal
-            })
-          }
+          await r(itemsRepo).remove(antiguo.id)
         }
 
         await r(transferenciasRepo).update(transferenciaId, { montoTotal: nuevoTotal })

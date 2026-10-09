@@ -82,5 +82,5 @@ export async function validarTopeGeneralLocal({ cuadreId, items, repos, excluir 
   const exceso = calcularExcesoTope(vendidos, consumidos, items)
   if (!exceso) return null
   const yaConsumido = Number(consumidos.get(exceso.productoId) ?? 0)
-  return `Tope excedido: quedan ${exceso.disponible} unidades disponibles para ${concepto} (vendido ${exceso.disponible + yaConsumido}, incluye fiado/transferencia/ajustes).`
+  return `Tope excedido: quedan ${exceso.disponible} unidades disponibles para ${concepto} (vendido ${exceso.disponible + yaConsumido}, incluye fiado).`
 }

@@ -65,25 +65,26 @@ export default defineEventHandler(async (event) => {
       })
       .where(eq(cuentasFiado.id, cuentaFiadoId))
 
-    // Cobro directo: el efectivo no entró a ninguna gaveta, así que ningún
-    // cuadre suma montoCobradoFiado.
-    if (cuadreId) {
-      await tx
-        .update(cuadres)
-        .set({ montoCobradoFiado: sql`${cuadres.montoCobradoFiado} + ${monto}` })
-        .where(eq(cuadres.id, cuadreId))
-    }
+    // Los cobros son directos (fuera del cuadre): ningún cuadre suma
+    // montoCobradoFiado (columna congelada como histórico). Solo baja el
+    // saldo de la cuenta, que ya se escribió arriba.
 
-    // La deuda pendiente baja en el cuadre de ORIGEN (no necesariamente el
-    // mismo donde se cobra: puede ser una deuda vieja). Piso 0 por cuadres
+    // La deuda pendiente baja en el cuadre de ORIGEN solo si sigue abierto:
+    // un cuadre cerrado no se reescribe retroactivamente. Piso 0 por cuadres
     // creados antes de este ajuste, cuyo montoFiado quedó en 0.
-    // Las deudas directas no tienen cuadre de origen: solo bajan su propio
-    // montoPagado, que ya se escribió arriba.
+    // Las deudas directas no tienen cuadre de origen.
     if (cuenta.cuadreOrigenId) {
-      await tx
-        .update(cuadres)
-        .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${monto}, 0)` })
+      const [origen] = await tx
+        .select({ id: cuadres.id, estado: cuadres.estado })
+        .from(cuadres)
         .where(eq(cuadres.id, cuenta.cuadreOrigenId))
+        .limit(1)
+      if (origen && origen.estado === 'abierto') {
+        await tx
+          .update(cuadres)
+          .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${monto}, 0)` })
+          .where(eq(cuadres.id, cuenta.cuadreOrigenId))
+      }
     }
 
     return p

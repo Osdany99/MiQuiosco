@@ -29,8 +29,11 @@ export function comoMovimiento(mov: Record<string, unknown>): InsertMovimiento {
 }
 
 export interface RotacionPrecio {
+  /** La primera fila abierta que se cierra (contrato de siempre). */
   cerrarId: string | null
   cerrarHasta: number | null
+  /** Todas las filas abiertas que se cierran: la regla es una sola vigente. */
+  cierres: Array<{ id: string, hasta: number }>
   nuevoHistorial: {
     productoId: string
     precioCompra: number

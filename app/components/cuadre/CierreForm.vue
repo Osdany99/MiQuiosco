@@ -17,7 +17,7 @@
         </UFormField>
       </div>
       <p class="text-xs text-gray-500 -mt-3">
-        El monto en transferencia se ve en su propio apartado y los ajustes (regalos/descuentos) se suman automáticamente al cierre.
+        El monto en transferencia y el fiado se ven en sus propios apartados y cuentan como justificados al cerrar. Si un cliente abonó al momento, cuenta ese dinero aquí o en transferencia.
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

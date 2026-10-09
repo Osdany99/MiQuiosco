@@ -95,7 +95,9 @@ const columns = [
   { accessorKey: 'saldo', header: 'Saldo' },
   { accessorKey: 'proveedor', header: 'Proveedor' },
   { accessorKey: 'acciones', header: '' }
-]
+  // La columna de proveedor se oculta con la bandera; nombreProveedor() y el
+  // slot #proveedor-cell siguen vivos para reactivarla. Ver app/utils/flags.js
+].filter(c => MOSTRAR_PROVEEDOR || c.accessorKey !== 'proveedor')
 
 function nombreProveedor(lote) {
   if (lote.nombreProveedor) return lote.nombreProveedor

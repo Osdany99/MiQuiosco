@@ -8,10 +8,11 @@
  * @returns {Object} módulo { list, get, create, update, patch, remove, ...actions }
  */
 import { Preferences } from '@capacitor/preferences'
-import { useDb, COLUMN_MAP } from '../db/client'
+import { useDb, COLUMN_MAP, TIMESTAMP_COLS } from '../db/client'
 import { requireJefe } from '../utils/auth'
 import { inyectarPuestoId } from '../utils/inyectarPuestoId'
 import { generateId } from '../../utils/id'
+import { normalizarFechas, aEpochOpcional } from '../../../shared/fechas'
 
 const PREF_PENDING_DELETES = 'pending_deletes'
 let _pendingDeletesCache = null
@@ -62,22 +63,56 @@ function pruneToColumns(tabla, obj) {
   return out
 }
 
+/**
+ * Deja la fila lista para SQLite: solo columnas conocidas, marca de tiempo en
+ * epoch ms y `sincronizado` por defecto en 0 (lo local nace pendiente de subir).
+ *
+ * La normalización de fechas es el punto donde el ISO del servidor se vuelve
+ * número. Sin ella el ISO acaba en una columna `integer` (ver shared/fechas.js).
+ */
 export function enrichForInsert(tabla, data) {
-  return pruneToColumns(tabla, {
+  return normalizarFechas(pruneToColumns(tabla, {
     id: data.id ?? generateId(),
     ...data,
     creadoEn: data.creadoEn ?? ahora(),
     actualizadoEn: data.actualizadoEn ?? ahora(),
     sincronizado: data.sincronizado ?? 0
-  })
+  }), TIMESTAMP_COLS[tabla] ?? [])
 }
 
+/** Campos que pertenecen al canal de sincronización, no a la edición del usuario. */
+const CAMPOS_DE_SYNC = ['id', 'creadoEn', 'actualizadoEn', 'sincronizado']
+
+/**
+ * Edición local: la fila queda SIEMPRE pendiente de subir y con la fecha de
+ * ahora. Sin esto, un formulario que reenvía la fila entera (trae
+ * `sincronizado: 1` y el `actualizadoEn` viejo) nace marcada como ya
+ * sincronizada: el push la descarta por timestamp y el siguiente pull le
+ * devuelve el valor del servidor. El cambio se pierde sin error visible —
+ * precio guardado en pantalla y revertido al cerrar.
+ */
 export function enrichForUpdate(tabla, cambios) {
-  return pruneToColumns(tabla, {
+  const limpios = { ...cambios }
+  for (const campo of CAMPOS_DE_SYNC) delete limpios[campo]
+  return normalizarFechas(pruneToColumns(tabla, {
+    ...limpios,
+    actualizadoEn: ahora(),
+    sincronizado: 0
+  }), TIMESTAMP_COLS[tabla] ?? [])
+}
+
+/**
+ * Aplicar lo que YA VIENE del servidor (pull, marcar aceptados, absorber
+ * conflictos): aquí sí se respeta su marca de tiempo y la fila queda
+ * sincronizada. Es el contrapunto de enrichForUpdate — usar uno donde tocaría
+ * el otro es exactamente el bug del precio que se revierte.
+ */
+export function enrichForSync(tabla, cambios) {
+  return normalizarFechas(pruneToColumns(tabla, {
     ...cambios,
     actualizadoEn: cambios.actualizadoEn ?? ahora(),
-    sincronizado: cambios.sincronizado ?? 0
-  })
+    sincronizado: cambios.sincronizado ?? 1
+  }), TIMESTAMP_COLS[tabla] ?? [])
 }
 
 export function makeCtx() {
@@ -91,7 +126,8 @@ export function makeCtx() {
     update: (t, id, cambios) => db.update(t, id, enrichForUpdate(t, cambios)),
     get: (t, id) => db.getById(t, id),
     queryAll: t => db.queryAll(t),
-    findHistorialVigente: productoId => db.findHistorialVigente(productoId)
+    findHistorialVigente: productoId => db.findHistorialVigente(productoId),
+    findHistorialAbiertos: productoId => db.findHistorialAbiertos(productoId)
   }
 }
 
@@ -111,12 +147,7 @@ const COLUMNAS_RANGO = { desde: 'creadoEn', hasta: 'creadoEn', fechaDesde: 'crea
 const RESERVADAS = new Set(['orderBy', 'orderDir', ...Object.keys(COLUMNAS_RANGO)])
 
 /** Acepta epoch ms (SQLite) o una fecha ISO (remoto) y devuelve milisegundos. */
-function aMilisegundos(valor) {
-  if (valor == null) return null
-  if (typeof valor === 'number') return valor
-  const t = Date.parse(String(valor))
-  return Number.isNaN(t) ? null : t
-}
+const aMilisegundos = aEpochOpcional
 
 export async function queryFromDb(tabla, opts, auth, config) {
   const db = useDb()
@@ -195,7 +226,10 @@ export function createOfflineModule(config, overrides = {}) {
     payload = await beforeCreate(payload, auth)
 
     if (config.customMutations?.create) {
-      const row = await config.customMutations.create(makeCtx(), payload, auth)
+      // Una mutación de varias tablas (productos → historial_precios) sin
+      // transacción deja la primera guardada aunque la segunda reviente: el
+      // usuario ve el precio cambiado y no existe registro del cambio.
+      const row = await useDb().transaction(() => config.customMutations.create(makeCtx(), payload, auth))
       return serialize(row)
     }
 
@@ -212,7 +246,7 @@ export function createOfflineModule(config, overrides = {}) {
     const payload = await beforeUpdate({ ...cambios }, auth, id)
 
     if (config.customMutations?.update) {
-      const row = await config.customMutations.update(makeCtx(), id, payload, auth)
+      const row = await useDb().transaction(() => config.customMutations.update(makeCtx(), id, payload, auth))
       return serialize(row)
     }
 

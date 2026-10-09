@@ -54,43 +54,12 @@
         />
       </UFormField>
 
-      <!-- El destino del dinero es la decisión que más conviene tomar a mano:
-           el jefe sabe si el billete entró a la gaveta o se lo llevó. -->
-      <UFormField label="¿Dónde quedó el dinero?">
-        <div class="space-y-2 w-full">
-          <label
-            v-for="opcion in opciones"
-            :key="opcion.value"
-            class="flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors"
-            :class="model.destino === opcion.value
-              ? 'border-primary bg-primary/5'
-              : 'border-gray-200 dark:border-gray-800 hover:bg-elevated/50'"
-          >
-            <input
-              v-model="model.destino"
-              type="radio"
-              :value="opcion.value"
-              class="mt-1 accent-primary"
-            >
-            <div class="min-w-0">
-              <p class="text-sm font-medium">
-                {{ opcion.label }}
-              </p>
-              <p class="text-xs text-muted">
-                {{ opcion.ayuda }}
-              </p>
-            </div>
-          </label>
-        </div>
-      </UFormField>
-
       <UAlert
-        v-if="model.destino === 'caja' && !cuadreAbierto"
-        color="warning"
+        color="info"
         variant="soft"
-        icon="i-lucide-triangle-alert"
-        title="No hay cuadre abierto"
-        description="Abre el cuadre del día para poder registrar el cobro en la gaveta. Si el jefe cobró por fuera, elige cobro directo."
+        icon="i-lucide-info"
+        title="Cobro directo"
+        description="El jefe cobra en físico y ningún cuadre registra el dinero. Solo baja el saldo de la deuda."
       />
     </template>
   </div>
@@ -98,8 +67,7 @@
 
 <script setup>
 const props = defineProps({
-  deuda: { type: Object, default: null },
-  cuadreAbierto: { type: Object, default: null }
+  deuda: { type: Object, default: null }
 })
 
 const model = defineModel({ type: Object, required: true })
@@ -111,25 +79,9 @@ const saldo = computed(() => {
   return Math.round((total - pagado) * 100) / 100
 })
 
-const opciones = computed(() => [
-  {
-    value: 'directo',
-    label: 'Cobro directo — no entró a caja',
-    ayuda: 'El jefe lo cobró por fuera. El saldo baja igual, pero ningún cuadre registra el dinero.'
-  },
-  {
-    value: 'caja',
-    label: 'Entró a la gaveta del cuadre de hoy',
-    ayuda: props.cuadreAbierto
-      ? `Se suma al cobrado de "${props.cuadreAbierto.fecha}".`
-      : 'Requiere un cuadre abierto.'
-  }
-])
-
 // Al cambiar de deuda, el monto arranca en el saldo completo (lo habitual es
 // saldar) pero se puede bajar a un abono parcial.
 watch(() => props.deuda?.id, () => {
-  if (!model.value.destino) model.value.destino = 'directo'
   model.value.monto = saldo.value
 }, { immediate: true })
 

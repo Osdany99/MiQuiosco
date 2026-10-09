@@ -2,7 +2,7 @@
   <BaseDialog
     v-model="isOpen"
     title="Entrada al almacén"
-    description="Registra una compra: qué entró y a qué precio."
+    :description="nombreProducto ? `Lote de ${nombreProducto} al almacén. Se conserva el costo del lote.` : 'Registra una compra: qué entró y a qué precio.'"
     confirm-text="Guardar entrada"
     :loading="guardando"
     :disabled-guardar="!valida"
@@ -10,11 +10,14 @@
     @cancel="isOpen = false"
   >
     <div class="space-y-4">
-      <div class="grid grid-cols-2 gap-2">
+      <!-- El proveedor se administra aparte (/proveedores): con la bandera
+           apagada el campo no se pinta y la entrada se guarda sin él. El código
+           de abajo sigue vivo para reactivarlo. -->
+      <div class="grid gap-2" :class="MOSTRAR_PROVEEDOR ? 'grid-cols-2' : 'grid-cols-1'">
         <UFormField label="Fecha">
           <UInput v-model="form.fechaEntrada" type="date" class="w-full" />
         </UFormField>
-        <UFormField label="Proveedor (opcional)">
+        <UFormField v-if="MOSTRAR_PROVEEDOR" label="Proveedor (opcional)">
           <USelectMenu
             v-model="form.proveedorId"
             :items="proveedoresItems"
@@ -25,61 +28,38 @@
           />
         </UFormField>
       </div>
-      <p v-if="proveedorActual?.lugar" class="text-xs text-muted -mt-2">
+      <p v-if="MOSTRAR_PROVEEDOR && proveedorActual?.lugar" class="text-xs text-muted -mt-2">
         Lugar: {{ proveedorActual.lugar }}
       </p>
 
-      <div class="space-y-2">
-        <div
-          v-for="(linea, idx) in form.lineas"
-          :key="idx"
-          class="flex gap-2 items-start border rounded p-2"
-        >
-          <UFormField label="Producto" class="flex-1">
-            <USelectMenu
-              v-model="linea.productoId"
-              :items="productosParaLinea(idx)"
-              value-key="id"
-              label-key="nombre"
-              description-key="descripcion"
-              placeholder="Producto..."
-              class="w-full"
-            />
-          </UFormField>
-          <UFormField label="Cant." class="w-20">
-            <BaseInputNumber v-model="linea.cantidad" :step="1" :min="1" />
-          </UFormField>
-          <UFormField label="P. compra" class="w-28" :error="faltaPrecio(linea)">
-            <BaseInputNumber v-model="linea.precioUnitario" :min="0" />
-          </UFormField>
-          <UButton
-            icon="i-lucide-x"
-            size="xs"
-            color="error"
-            variant="ghost"
-            class="mt-6"
-            @click="form.lineas.splice(idx, 1)"
-          />
-        </div>
-        <USelectMenu
-          v-model="seleccion"
-          :items="productosDisponibles"
-          value-key="id"
-          label-key="nombre"
-          description-key="descripcion"
-          multiple
-          placeholder="Seleccionar productos para agregar..."
-          class="w-full"
-          @update:model-value="agregarProductos"
+      <!-- El producto viene de la fila desde la que se abrió: los lotes se
+           registran de uno en uno y aquí no se cambia. -->
+      <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
+        <span class="font-medium truncate">{{ nombreProducto || '—' }}</span>
+        <UBadge
+          size="sm"
+          variant="soft"
+          color="neutral"
+          icon="i-lucide-warehouse"
+          label="Almacén"
         />
+      </div>
+
+      <div class="flex gap-2 items-start">
+        <UFormField label="Cant." class="w-20">
+          <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
+        </UFormField>
+        <UFormField label="P. compra" class="w-28" :error="faltaPrecio">
+          <BaseInputNumber v-model="form.precioUnitario" :min="0" />
+        </UFormField>
       </div>
 
       <div class="space-y-1 text-right">
         <p v-if="totalEntrada > 0" class="text-sm text-muted">
           Total compra: {{ fmtPrecio(totalEntrada) }}
         </p>
-        <p v-if="lineasSinPrecio > 0" class="text-sm text-error">
-          {{ lineasSinPrecio }} producto(s) sin precio de compra
+        <p v-if="faltaPrecio" class="text-sm text-error">
+          Falta el precio de compra
         </p>
       </div>
     </div>
@@ -87,23 +67,27 @@
 </template>
 
 <script setup>
+const props = defineProps({
+  productoId: { type: String, default: null }
+})
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
 
 const inv = useInventario()
 const toast = useToast()
 
-const productos = ref([])
+const nombreProducto = ref('')
 const proveedoresItems = ref([])
-const seleccion = ref([])
 /** Productos que ya entraron alguna vez: su precio de compra ya es conocido. */
 const productosConLotes = ref(new Set())
 const guardando = ref(false)
 
 const form = ref({
+  productoId: null,
   fechaEntrada: hoyLocal(),
   proveedorId: null,
-  lineas: []
+  cantidad: 0,
+  precioUnitario: 0
 })
 
 /** El lugar de la tienda vive en el proveedor: el lote lo hereda al guardarse. */
@@ -111,66 +95,45 @@ const proveedorActual = computed(
   () => proveedoresItems.value.find(p => p.id === form.value.proveedorId) ?? null
 )
 
-/** Solo lo que todavía no está en el formulario: evita líneas duplicadas. */
-const productosDisponibles = computed(() => {
-  const usados = new Set(form.value.lineas.map(l => l.productoId).filter(Boolean))
-  return productos.value.filter(p => !usados.has(p.id))
-})
-
-/** Para una línea concreta, excluye los productos ya usados en las otras. */
-function productosParaLinea(idx) {
-  const otros = new Set(
-    form.value.lineas.filter((_, i) => i !== idx).map(l => l.productoId).filter(Boolean)
-  )
-  return productos.value.filter(p => !otros.has(p.id))
-}
-
-/** Agrega de una vez varios productos a la entrada (carga inicial o compra grande). */
-function agregarProductos(ids) {
-  seleccion.value = []
-  for (const id of ids ?? []) {
-    const p = productos.value.find(x => x.id === id)
-    if (!p) continue
-    form.value.lineas.push({
-      productoId: p.id,
-      cantidad: 0,
-      precioUnitario: Number(p.precioCompraActual) || 0
-    })
-  }
-}
-
 /**
  * El precio de compra solo se captura en la entrada al almacén, no en /productos.
  * Un producto que nunca ha entrado sí necesita precio aquí: dejarlo en 0 crea un
  * lote a costo cero y deja el valorizado y los márgenes falseados.
  */
-function faltaPrecio(linea) {
-  if (!linea.productoId) return false
-  if (Number(linea.precioUnitario) > 0) return false
-  return !productosConLotes.value.has(linea.productoId)
-}
-
-const lineasSinPrecio = computed(() => form.value.lineas.filter(faltaPrecio).length)
+const faltaPrecio = computed(() => {
+  if (!form.value.productoId) return false
+  if (Number(form.value.precioUnitario) > 0) return false
+  return !productosConLotes.value.has(form.value.productoId)
+})
 
 const valida = computed(() =>
-  form.value.lineas.length > 0
-  && form.value.lineas.every(l => l.productoId && Number(l.cantidad) >= 1 && !faltaPrecio(l))
+  Boolean(form.value.productoId)
+  && Number(form.value.cantidad) >= 1
+  && !faltaPrecio.value
 )
 
 const totalEntrada = computed(() =>
-  form.value.lineas.reduce((s, l) => s + Number(l.cantidad || 0) * Number(l.precioUnitario || 0), 0)
+  (Number(form.value.cantidad) || 0) * (Number(form.value.precioUnitario) || 0)
 )
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { fechaEntrada: hoyLocal(), proveedorId: null, lineas: [] }
-  seleccion.value = []
   const [prods, provs, loteRows] = await Promise.all([
     inv.cargarProductos(),
     inv.cargarProveedores(),
     inv.cargarLotes().catch(() => [])
   ])
-  productos.value = prods
+  const producto = (prods ?? []).find(p => p.id === props.productoId)
+  nombreProducto.value = producto?.nombre ?? ''
+  form.value = {
+    productoId: props.productoId,
+    fechaEntrada: hoyLocal(),
+    proveedorId: null,
+    // Se precarga el último precio de compra conocido: es lo que el jefe
+    // quiere confirmar en la mayoría de las compras.
+    cantidad: 0,
+    precioUnitario: Number(producto?.precioCompraActual) || 0
+  }
   proveedoresItems.value = (provs ?? []).filter(p => p.activo !== false)
   productosConLotes.value = new Set((loteRows ?? []).filter(l => !l.anulado).map(l => l.productoId))
 })
@@ -184,11 +147,11 @@ async function confirmar() {
       // El detalle no se pide: la compra se describe con el proveedor y el precio.
       lugarCompra: proveedorActual.value?.lugar || null,
       detalleCompra: null,
-      lineas: form.value.lineas.map(l => ({
-        productoId: l.productoId,
-        cantidad: Math.trunc(Number(l.cantidad)),
-        precioUnitario: Number(l.precioUnitario) || 0
-      }))
+      lineas: [{
+        productoId: form.value.productoId,
+        cantidad: Math.trunc(Number(form.value.cantidad)),
+        precioUnitario: Number(form.value.precioUnitario) || 0
+      }]
     })
     toast.add({ title: 'Entrada guardada', description: 'El stock del almacén se actualizó.', color: 'success' })
     isOpen.value = false
