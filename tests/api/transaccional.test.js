@@ -363,24 +363,21 @@ describe('transferencias y ajustes del dia', () => {
     })
     await raw('POST', `/api/cuadres/${cuadre.id}/reabrir`, { body: {}, token, status: 200 })
     const cli = await crearCliente('transf')
+    // Monto directo, sin productos: la transferencia ya no consume unidades ni
+    // valida tope; el unico rechazo es que el monto sea mayor que cero.
     const t = await post('/api/transferencias', {
       clienteId: cli.id,
       cuadreId: cuadre.id,
-      items: [{ productoId, cantidad: 4, precioVentaUsado: 10 }]
+      monto: 40
     }, { token, status: 200 })
     assert.ok(t.id)
     assert.equal(Number((await filas('cuadres', `id = '${cuadre.id}'`))[0].monto_transferencia), 40)
 
-    // Sobre el tope se rechaza.
-    const exceso = await raw('POST', '/api/transferencias', {
-      body: {
-        clienteId: cli.id,
-        cuadreId: cuadre.id,
-        items: [{ productoId, cantidad: 8, precioVentaUsado: 10 }]
-      },
+    const invalido = await raw('POST', '/api/transferencias', {
+      body: { clienteId: cli.id, cuadreId: cuadre.id, monto: 0 },
       token
     })
-    assert.equal(exceso.status, 400)
+    assert.equal(invalido.status, 400)
 
     // Borrar revierte el acumulado.
     const del = await raw('DELETE', `/api/transferencias/${t.id}`, { token })
@@ -499,11 +496,10 @@ describe('edicion con reversion de acumulados', () => {
     await raw('POST', `/api/cuadres/${cuadre.id}/reabrir`, { body: {}, token, status: 200 })
     const cli = await crearCliente('edittrans')
     const t = await post('/api/transferencias', {
-      clienteId: cli.id, cuadreId: cuadre.id,
-      items: [{ productoId, cantidad: 4, precioVentaUsado: 10 }]
+      clienteId: cli.id, cuadreId: cuadre.id, monto: 40
     }, { token, status: 200 })
     const edit = await raw('PATCH', `/api/transferencias/${t.id}`, {
-      body: { items: [{ productoId, cantidad: 2, precioVentaUsado: 10 }] },
+      body: { monto: 20 },
       token
     })
     assert.equal(edit.status, 200)

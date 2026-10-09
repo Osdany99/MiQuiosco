@@ -15,7 +15,7 @@ import { sumarPorProducto, calcularExcesoTope } from '../shared/fiadoTope.js'
 import { consumoPorProductoEnCuadreLocal, validarTopeGeneralLocal } from '../app/utils/topeGeneral.js'
 import { aEpoch, aEpochOpcional, normalizarFechas } from '../shared/fechas.js'
 import { deriveColumnTypes, coerceRow, deriveTimestampCols } from '../app/server-offline/utils/schemaTypes.js'
-import { updateProductoMut } from '../shared/mutations/producto.ts'
+import { updateProductoMut } from '../shared/mutations/producto.js'
 import {
   separarSentencias,
   tablaExiste,

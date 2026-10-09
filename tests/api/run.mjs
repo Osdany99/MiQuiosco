@@ -104,7 +104,14 @@ if (!process.env.API_BASE_URL && process.env.KEEP_DB !== '1') {
   }
 }
 
-async function esperarServidor(intentos = 60) {
+/**
+ * Espera a que el server responda /api/health.
+ *
+ * 180 intentos y no 60: en frío, `nuxt dev` tarda 25-60 s solo en construir el
+ * bundle de Nitro. Con 60 el runner de CI (más lento que un PC) se quedaba sin
+ * margen y daba "El server no levanto" cuando en realidad iba por la mitad.
+ */
+async function esperarServidor(intentos = 180) {
   for (let i = 0; i < intentos; i++) {
     try {
       const r = await fetch(`${API}/api/health`)

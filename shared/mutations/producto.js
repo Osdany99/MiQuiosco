@@ -1,8 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * shared/mutations/producto.js — Reglas de negocio de productos, en JS a
+ * propósito.
+ *
+ * POR QUÉ NO ES .ts
+ * Lo importan el cliente (`app/server-offline/index.js`), los endpoints
+ * (`#shared/mutations/producto`) y los tests de node. En dev, Nitro solo puede
+ * dejar un módulo de `shared/` como import externo si es .js; un .ts lo
+ * inlinea en el bundle y sus imports relativos salen rebasados contra la raíz
+ * del disco (`../../../../../shared/fechas.js`), así que TODO /api/* devolvía
+ * 500 con "Cannot find module". Con .js se comporta como el resto de `shared/`
+ * (schemas, tables, inventario) y todo eso deja de importar.
+ *
+ * Sin anotaciones de tipo a propósito: `ctx` es la interfaz de la capa de
+ * datos (offline u pg según quién llame) y sus params no tienen un tipo único.
+ */
+
 import { calcularRotacionHistorial } from '../inventario/operaciones.js'
 import { aEpoch } from '../fechas.js'
 
-export async function createProductoMut(ctx: any, data: any, auth: any) {
+/**
+ * Crea el producto y su primera fila de historial (el rango vigente inicial
+ * arranca en el creado del producto).
+ */
+export async function createProductoMut(ctx, data, auth) {
   const p = await ctx.insert('productos', data)
   await ctx.insert('historial_precios', {
     productoId: p.id,
@@ -17,7 +37,10 @@ export async function createProductoMut(ctx: any, data: any, auth: any) {
   return p
 }
 
-export async function updateProductoMut(ctx: any, id: string, cambios: any, auth: any) {
+/**
+ * Aplica la edición del producto y, si cambió un precio, rota su historial.
+ */
+export async function updateProductoMut(ctx, id, cambios, auth) {
   // El precio de compra lo gobiernan los lotes (entradas al almacén): aquí se
   // ignora para no desincronizar el espejo. La corrección vive en el lote.
   delete cambios.precioCompraActual
@@ -38,7 +61,7 @@ export async function updateProductoMut(ctx: any, id: string, cambios: any, auth
     const abiertos = ctx.findHistorialAbiertos
       ? await ctx.findHistorialAbiertos(id)
       : (await ctx.queryAll('historial_precios'))
-          .filter((h: any) => h.productoId === id && h.vigenteHasta == null)
+          .filter(h => h.productoId === id && h.vigenteHasta == null)
 
     const { vigenteDesde, cierres } = calcularRotacionHistorial({ abiertos, ahora })
     for (const cierre of cierres) {

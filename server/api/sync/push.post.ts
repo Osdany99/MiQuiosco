@@ -14,7 +14,7 @@ const TABLAS_SYNC_SET = new Set(SYNC_TABLES.map(t => t.tabla))
  * Regla del dominio aplicada en la frontera: un producto tiene UNA sola fila de
  * historial vigente.
  *
- * La aplica shared/mutations/producto.ts, pero el push no ejecuta esa
+ * La aplica shared/mutations/producto.js, pero el push no ejecuta esa
  * mutación: se limita a escribir lo que le manda el dispositivo. Si un cliente
  * viejo (o uno con el bug de NaN) inserta una fila abierta sin cerrar la
  * anterior, el servidor acabaría con varias vigentes. Aquí se cierra el resto
