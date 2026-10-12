@@ -534,3 +534,173 @@ export function construirAjuste({ productoId, tipo, ubicacion, cantidad, motivo,
   }
   return { movimientos, faltante: null }
 }
+
+// --------------------------------------------- corrección de lotes ----
+
+/**
+ * Saldos de cada lote según el libro (movimientos no anulados).
+ *
+ * Es la única forma de calcular "cuánto queda de este lote" en los tres sitios
+ * que lo necesitan —el GET /api/lotes, el diálogo de corrección y el respaldo
+ * offline del sqlite— para que no puedan discrepar entre sí.
+ *
+ * @returns {Map<string, { almacen:number, quiosco:number, consumido:boolean }>}
+ */
+export function saldosPorLote(movimientos) {
+  const porLote = new Map()
+  for (const m of movimientos ?? []) {
+    if (!m?.loteId || m.anulado) continue
+    let s = porLote.get(m.loteId)
+    if (!s) {
+      s = { almacen: 0, quiosco: 0, consumido: false }
+      porLote.set(m.loteId, s)
+    }
+    const da = Math.trunc(Number(m.deltaAlmacen) || 0)
+    const dq = Math.trunc(Number(m.deltaQuiosco) || 0)
+    s.almacen += da
+    s.quiosco += dq
+    if (da < 0 || dq < 0) s.consumido = true
+  }
+  return porLote
+}
+
+/**
+ * Estado de un lote y las dos cifras que gobiernan su corrección.
+ *
+ * `salidasAlmacen` son las unidades que YA dejaron el almacén de este lote
+ * (traspasos, ventas directas de almacén, mermas; las devoluciones suman
+ * porque vuelven, por eso es una suma neta y no un recuento).
+ *
+ * `piso` es el mínimo que puede declarar la cantidad corregida: no se puede
+ * decir que el lote traía menos unidades de las que ya se fueron, porque el
+ * almacén quedaría en negativo. Solo mira el almacén, así que lo que hay en el
+ * quiosco no restringe nada: corregir un lote nunca puede tocar el quiosco.
+ */
+export function saldosDeLote(lote, movimientos) {
+  const lista = (movimientos ?? []).filter(m => m && !m.anulado && m.loteId === lote?.id)
+  const entradas = lista.filter(m => m.tipo === 'entrada')
+  const suma = (clave, filas) => filas.reduce((s, m) => s + Math.trunc(Number(m[clave]) || 0), 0)
+
+  const almacen = suma('deltaAlmacen', lista)
+  const quiosco = suma('deltaQuiosco', lista)
+  // Suma neta de lo que salió del almacén SIN contar la entrada. Puede salir
+  // negativa si hubo devoluciones (quiosco → almacén), que es justo lo que hace
+  // que `piso` sea un máximo y no un recorte: solo importa que no seDeclare
+  // menos de lo que ya se fue.
+  const salidas = suma('deltaAlmacen', lista.filter(m => m.tipo !== 'entrada'))
+  const salidasAlmacen = Math.max(0, -salidas)
+
+  return {
+    almacen,
+    quiosco,
+    consumido: lista.some(m => (Math.trunc(Number(m.deltaAlmacen) || 0) < 0 || Math.trunc(Number(m.deltaQuiosco) || 0) < 0)),
+    entradas,
+    entrada: entradas[0] ?? null,
+    salidas,
+    salidasAlmacen,
+    piso: salidasAlmacen
+  }
+}
+
+/**
+ * Corrección de una entrada ya registrada: cantidad y/o precio.
+ *
+ * El precio de compra vive en el lote (es su único origen) y la cantidad
+ * vive en el libro: `lotes.cantidadInicial` es una cabecera, pero el stock lo
+ * dan los `deltaAlmacen` del libro. Por eso corregir la cantidad es corregir
+ * el movimiento de entrada y no solo la cabecera —si setocara solo la
+ * cabecera, el stock no se movería y el historial quedaría mintiendo.
+ *
+ * Qué se reescribe, y qué no:
+ * - La fila tipo 'entrada' del lote: es la compra. Pasa a valer la cantidad y
+ *   el precio correctos, con su importe recalculado. Su `creadoEn` NO se
+ *   toca, así que la compra sigue fechada el día que ocurrió y la gráfica de
+ *   compras de ese día muestra la cifra buena en vez de recibir un movimiento
+ *   con la fecha de hoy.
+ * - Nada más. Los traspasos, ventas, mermas y devoluciones quedan congelados:
+ *   un cuadre cerrado y una venta directa ya guardaron su costo, y reescribir
+ *   sus movimientos movería la historia que ya se dio por buena. El libro
+ *   sigue siendo append-only para todo lo que ya pasó; aquí solo se corrige
+ *   el registro de lo que entró.
+ *
+ * El inventario del quiosco no se toca nunca: el delta de la entrada en esa
+ * ubicación es 0 y no se escribe ninguno. Si del lote ya hay mercadería en el
+ * quiosco, esa mercadería conserva su saldo y sus valuaciones.
+ *
+ * @param {object} params — { lote, movimientos, datos, meta }
+ *   `datos`: { cantidadInicial?, precioUnitario?, motivo } (ya validados por
+ *   correccionLoteSchema). `null`/ausente = ese campo no se toca.
+ * @returns {{
+ *   cambiosLote: object,
+ *   movimientosActualizados: Array<object>,
+ *   almacen: number, quiosco: number,
+ *   piso: number, salidasAlmacen: number, consumido: boolean,
+ *   cambiaCantidad: boolean, cambiaPrecio: boolean
+ * }}
+ * @throws {Error} con el mensaje en español, listo para mostrar al jefe.
+ */
+export function construirCorreccionLote({ lote, movimientos, datos, meta = {} }) {
+  const ahora = meta.ahora ?? Date.now()
+  if (!lote) throw new Error('Lote no encontrado.')
+  if (lote.anulado) throw new Error('El lote está anulado.')
+
+  const s = saldosDeLote(lote, movimientos)
+
+  const cantidad = datos.cantidadInicial == null ? null : Math.trunc(Number(datos.cantidadInicial))
+  const precio = datos.precioUnitario == null ? null : Number(datos.precioUnitario)
+
+  if (cantidad != null && !Number.isFinite(cantidad)) throw new Error('La cantidad no es válida.')
+  if (cantidad != null && cantidad < s.piso) {
+    throw new Error(
+      `No se puede bajar a ${cantidad}: de este lote ya salieron ${s.salidasAlmacen} `
+      + `unidades del almacén. El mínimo es ${s.piso}.`
+    )
+  }
+
+  const cambiaCantidad = cantidad != null && cantidad !== Math.trunc(Number(lote.cantidadInicial))
+  const cambiaPrecio = precio != null && precio !== Number(lote.precioUnitario)
+  if (!cambiaCantidad && !cambiaPrecio) {
+    throw new Error('No hay nada que corregir: esos ya son los valores del lote.')
+  }
+
+  const cambiosLote = { actualizadoEn: ahora }
+  if (cambiaCantidad) cambiosLote.cantidadInicial = cantidad
+  if (cambiaPrecio) cambiosLote.precioUnitario = precio
+
+  const movimientosActualizados = []
+  if (s.entradas.length > 1) {
+    throw new Error('Este lote tiene varias entradas en el libro y no se puede corregir solo. Revísalo con el jefe.')
+  }
+  if (cambiaCantidad && !s.entrada) {
+    throw new Error('Este lote no tiene su movimiento de entrada en el libro. Corrige el stock con una merma.')
+  }
+  if (s.entrada && (cambiaCantidad || cambiaPrecio)) {
+    // La entrada ES la compra: su deltaAlmacen es su propia cantidad (nunca
+    // `-salidas`), así que dejándola en la cantidad corregida el almacén queda
+    // en `cantidad - salidas` y el quiosco se queda como estaba.
+    const cantFinal = cambiaCantidad ? cantidad : Math.trunc(Number(s.entrada.cantidad) || 0)
+    const precioFinal = cambiaPrecio ? precio : (Number(lote.precioUnitario) || 0)
+    // Sin `actualizadoEn`: la marca de tiempo es del que escribe (el endpoint
+    // la traduce a Date; el sqlite la pone enrichForUpdate).
+    movimientosActualizados.push({
+      id: s.entrada.id,
+      ...(cambiaCantidad ? { cantidad: cantFinal, deltaAlmacen: cantFinal, deltaQuiosco: 0 } : {}),
+      precioUnitario: precioFinal,
+      importe: redondear2(cantFinal * precioFinal)
+    })
+  }
+
+  return {
+    cambiosLote,
+    movimientosActualizados,
+    // El almacén queda en `cantidad corregida - lo que ya había salido`, porque
+    // la entrada corregida sigue siendo la cantidad y lo que sale no cambia.
+    almacen: cambiaCantidad ? cantidad + s.salidas : s.almacen,
+    quiosco: s.quiosco,
+    piso: s.piso,
+    salidasAlmacen: s.salidasAlmacen,
+    consumido: s.consumido,
+    cambiaCantidad,
+    cambiaPrecio
+  }
+}

@@ -6,7 +6,6 @@ import { push as pushOffline, pull as pullOffline } from '../server-offline/api/
 import { removePendingDeletesAccepted, enrichForSync } from '../server-offline/api/_factory'
 import { useDb } from '../server-offline/db/client'
 import { mergeFields } from '../utils/syncMerge.js'
-import { etiquetaFaseSync } from '../utils/syncFases.js'
 import { SYNC_TABLES } from '../../shared/tables'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
@@ -35,9 +34,6 @@ export function cancelarSincronizacion() {
 export function haySyncEnCurso() {
   return controlesSync.size > 0
 }
-
-// Etiqueta para el banner/menú (re-export del helper puro testeable).
-export { etiquetaFaseSync }
 
 export function useSync() {
   const auth = useAuth()

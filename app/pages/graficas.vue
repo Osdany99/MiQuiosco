@@ -15,8 +15,9 @@
  * - ignoraRango:  true → es una foto del estado actual, no depende de las fechas
  */
 import {
-  calcularGrafica, limpiarCacheGraficas, ventanaDeCobertura, resumenNegocio
+  calcularGrafica, ventanaDeCobertura, resumenNegocio
 } from '~/utils/graficas'
+import { limpiarCacheLibro } from '~/utils/libro'
 import { TABLES } from '../../shared/tables'
 import { CalendarDate } from '@internationalized/date'
 import { markRaw } from 'vue'
@@ -124,6 +125,9 @@ const agrupacion = ref('dia')
 const productoSeleccionado = ref('')
 const ventanaCoberturaActiva = ref(null)
 const kpis = ref(null)
+// Detalle de una barra: qué productos dejaron la ganancia de ese período.
+const detalleOpen = ref(false)
+const periodoDetalle = ref('')
 
 const conexion = useModoConexion()
 
@@ -198,6 +202,9 @@ async function cargarKpis() {
 async function cargarGrafica(g) {
   graficaActiva.value = g
   seccionActiva.value = g.seccion
+  // El detalle pertenece a la barra que se tocó: si cambian los filtros, ese
+  // período puede ya no existir en la gráfica nueva.
+  detalleOpen.value = false
   if (g.requiereProducto && !productoSeleccionado.value) {
     datosGrafica.value = []
     return
@@ -245,6 +252,13 @@ function getChartComponent(g) {
   return markRaw(comp)
 }
 
+/** El botón "Ver detalle" del tooltip entrega el período que se tocó. */
+function abrirDetalle(periodo) {
+  if (!periodo) return
+  periodoDetalle.value = periodo
+  detalleOpen.value = true
+}
+
 function getChartConfig(g) {
   const horizontal = g.componente === 'bar-horizontal'
   const barra = (xKey, yKeys, labels, extra = {}) => ({
@@ -252,11 +266,14 @@ function getChartConfig(g) {
   })
   const configs = {
     // Ganancia y caja
-    'ganancia-por-periodo': barra('periodo', ['ganancia'], { periodo: 'Período', ganancia: 'Ganancia' }),
+    // `detalle` pone el botón "Ver detalle" en el tooltip: abre el desglose por
+    // producto de esa barra. Solo tiene sentido donde la barra es dinero de
+    // cuadre, que es lo que el desglose reproduce.
+    'ganancia-por-periodo': barra('periodo', ['ganancia'], { periodo: 'Período', ganancia: 'Ganancia' }, { detalle: true }),
     'ganancia-real-fifo': barra('nombre', ['valor'], { nombre: 'Producto', valor: 'Ganancia real' }),
     'margen-porcentaje-producto': barra('nombre', ['valor'], { nombre: 'Producto', valor: 'Margen' }),
     'diferencia-estimada-real': barra('nombre', ['diferencia'], { nombre: 'Producto', diferencia: 'Diferencia' }),
-    'ingresos-por-periodo': barra('periodo', ['ingresoTotal'], { periodo: 'Período', ingresoTotal: 'Ingreso total' }),
+    'ingresos-por-periodo': barra('periodo', ['ingresoTotal'], { periodo: 'Período', ingresoTotal: 'Ingreso total' }, { detalle: true }),
     'ingresos-fuera-de-cuadre': { xKey: 'periodo', yKeys: ['ingresoDirecto', 'gananciaDirecta'], labels: { periodo: 'Período', ingresoDirecto: 'Venta directa', gananciaDirecta: 'Ganancia directa' } },
     'regalos-descuentos-por-periodo': barra('periodo', ['valorRegalado', 'valorDescontado'], { periodo: 'Período', valorRegalado: 'Valor regalado', valorDescontado: 'Valor descontado' }),
     'faltantes-sobrantes-acumulados': barra('periodo', ['diferencia'], { periodo: 'Período', diferencia: 'Diferencia' }),
@@ -418,7 +435,7 @@ function getChartConfig(g) {
           icon="i-lucide-refresh-cw"
           label="Actualizar"
           :loading="cargando"
-          @click="limpiarCacheGraficas(); cargarKpis(); cargarGrafica(graficaActiva)"
+          @click="limpiarCacheLibro(); cargarKpis(); cargarGrafica(graficaActiva)"
         />
       </div>
     </UCard>
@@ -526,8 +543,17 @@ function getChartConfig(g) {
           :is="getChartComponent(graficaActiva)"
           :data="datosGrafica"
           :config="getChartConfig(graficaActiva)"
+          @detalle="abrirDetalle"
         />
       </div>
     </UCard>
+
+    <GraficasDialogoDetallePeriodo
+      v-model="detalleOpen"
+      :periodo="periodoDetalle"
+      :agrupacion="agrupacion"
+      :desde="fechaDesde?.toString() ?? ''"
+      :hasta="fechaHasta?.toString() ?? ''"
+    />
   </div>
 </template>

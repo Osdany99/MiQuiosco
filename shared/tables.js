@@ -126,7 +126,12 @@ export const lotes = {
   puestoScoped: true,
   label: { singular: 'Lote', plural: 'Lotes', gender: 'm' },
   syncNumeric: ['cantidadInicial', 'precioUnitario'],
-  insertOnly: true
+  // NO insertOnly: corregir la cantidad o el precio de una entrada es un UPDATE
+  // legítimo de la cabecera (PATCH /api/lotes/:id). Con insertOnly, el push de
+  // esa tabla acababa en conflicto, el cliente absorbía la versión del servidor
+  // y la corrección hecha sin conexión se perdía en el siguiente pull. Mismo
+  // motivo que en historial_precios.
+  insertOnly: false
 }
 
 export const traspasos = {

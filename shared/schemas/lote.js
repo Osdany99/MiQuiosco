@@ -21,6 +21,34 @@ export const loteSchema = z.object({
   notas: z.string().nullable().optional()
 })
 
+/**
+ * Corrección de una entrada ya registrada.
+ *
+ * Los dos campos son opcionales a propósito: se puede corregir solo el precio,
+ * solo la cantidad, o los dos. `null` significa "no lo toques", que es
+ * distinto de `0` (un precio de 0 sí es un valor válido que se guarda).
+ *
+ * El motivo es obligatorio en las dos: sin él no queda rastro de por qué se
+ * reescribió una compra ya anotada.
+ *
+ * Las reglas de fondo (hasta dónde puede bajar la cantidad, qué movimientos
+ * se tocan) NO están aquí: viven en shared/inventario/operaciones.js, que es
+ * donde ya se comparten servidor y sqlite.
+ */
+export const correccionLoteSchema = z
+  .object({
+    cantidadInicial: z
+      .number()
+      .int('La cantidad debe ser un número entero')
+      .min(1, 'La cantidad debe ser al menos 1')
+      .nullish(),
+    precioUnitario: z.number().min(0, 'El precio no puede ser negativo').nullish(),
+    motivo: z.string().min(1, 'El motivo es obligatorio').max(200)
+  })
+  .refine(d => d.cantidadInicial != null || d.precioUnitario != null, {
+    message: 'Escribe la cantidad o el precio correctos.'
+  })
+
 export const movimientoInventarioSchema = z.object({
   productoId: z.string().uuid('ID de producto inválido'),
   loteId: z.string().uuid().nullable().optional(),

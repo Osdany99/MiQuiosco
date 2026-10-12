@@ -84,8 +84,8 @@ async function confirmarReabrir() {
 
 <template>
   <BaseHeaderPage
-    :title="config.label.plural"
-    description="Historial de cuadres del puesto"
+    :title="`Historial de ${config.label.plural.toLowerCase()}`"
+    description="Cuadres cerrados del puesto, con su diferencia y su ganancia."
     :show-button="false"
   >
     <BaseTable

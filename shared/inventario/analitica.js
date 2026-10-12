@@ -74,6 +74,34 @@ export function diasEntre(desde, hasta) {
   return b - a
 }
 
+/** Días del rango, ambos extremos incluidos, en orden ascendente. */
+export function diasDelRango(desde, hasta) {
+  const a = numeroDia(desde)
+  const b = numeroDia(hasta)
+  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return []
+  const out = []
+  for (let n = a; n <= b; n++) out.push(diaDesdeNumero(n))
+  return out
+}
+
+/**
+ * Cuántos días tiene un mes 'YYYY-MM'. Va por UTC a propósito: con el mes en
+ * la mano, sumar un mes con la zona local puede devolver el día 1 del mes
+ * siguiente (y con daylight saving, un día de más o de menos).
+ */
+export function diasEnMes(mes) {
+  const [y, m] = String(mes ?? '').split('-').map(Number)
+  if (!y || !m || m < 1 || m > 12) return 0
+  return new Date(Date.UTC(y, m, 0)).getUTCDate()
+}
+
+/** Todos los días de un mes 'YYYY-MM', del 1 al último. */
+export function diasDelMes(mes) {
+  const n = diasEnMes(mes)
+  if (!n) return []
+  return diasDelRango(`${mes}-01`, `${mes}-${String(n).padStart(2, '0')}`)
+}
+
 /** ¿La fecha cae dentro del rango? Ambos extremos son INCLUSIVOS. Rango vacío = todo. */
 export function enRango(dia, desde, hasta) {
   const d = aDia(dia)

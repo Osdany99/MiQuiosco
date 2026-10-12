@@ -68,9 +68,14 @@ const links = computed(() => {
         to: '/cuadre'
       },
       {
-        label: 'Historial',
+        label: 'Historial de cuadres',
         icon: 'i-lucide-clock',
         to: '/cuadres'
+      },
+      {
+        label: 'Historial del quiosco',
+        icon: 'i-lucide-store',
+        to: '/historial-quiosco'
       },
       {
         label: 'Deudas',

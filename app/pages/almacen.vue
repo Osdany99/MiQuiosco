@@ -178,8 +178,26 @@
       <template #precioUnitario-cell="{ row }">
         {{ fmtPrecio(row.original.precioUnitario) }}
       </template>
+      <template #saldo-cell="{ row }">
+        <span class="whitespace-nowrap">
+          Alm: {{ row.original.saldoAlmacen }} · Quiosco: {{ row.original.saldoQuiosco }}
+        </span>
+      </template>
       <template #valor-cell="{ row }">
         {{ fmtPrecio(Number(row.original.cantidadInicial || 0) * Number(row.original.precioUnitario || 0)) }}
+      </template>
+      <template #acciones-cell="{ row }">
+        <UTooltip text="Corregir cantidad o precio" :delay-duration="0">
+          <UButton
+            v-if="!row.original.anulado"
+            icon="i-lucide-pencil"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            aria-label="Corregir entrada"
+            @click="abrirCorreccion(row.original)"
+          />
+        </UTooltip>
       </template>
     </UTable>
 
@@ -192,6 +210,11 @@
       @guardado="recargar"
     />
     <InventarioTablaLotes v-model="showLotes" :producto="productoLotes" @guardado="recargar" />
+    <InventarioDialogoCorreccionLote
+      v-model="showCorreccion"
+      :lote="loteCorreccion"
+      @guardado="recargar"
+    />
     <InventarioDialogoVenta
       v-model="showVenta"
       :producto="productoVenta"
@@ -210,8 +233,9 @@ definePageMeta({
 const {
   cargando, filas, lotesHistorial, columnsHistorial,
   visibleHeaders, columnHeaders, visibleColumns,
-  colorEstado, textoEstado, abrirAjuste, abrirLotes, recargar, sinMovimientos, hayProductos,
+  colorEstado, textoEstado, abrirAjuste, abrirLotes, abrirCorreccion, recargar, sinMovimientos, hayProductos,
   showAjuste, showLotes, productoAjuste, productoLotes,
+  showCorreccion, loteCorreccion,
   abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
 

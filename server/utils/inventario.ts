@@ -81,3 +81,35 @@ export interface ResultadoVentaDirecta {
 export function comoVentaDirecta(v: unknown): ResultadoVentaDirecta {
   return v as ResultadoVentaDirecta
 }
+
+/** Una corrección de entrada: qué cambia en la cabecera y qué filas del libro. */
+export interface CorreccionLote {
+  cambiosLote: {
+    cantidadInicial?: number
+    precioUnitario?: number
+    actualizadoEn: number
+  }
+  movimientosActualizados: Array<{
+    id: string
+    cantidad?: number
+    deltaAlmacen?: number
+    deltaQuiosco?: number
+    precioUnitario: number
+    importe: number
+  }>
+  almacen: number
+  quiosco: number
+  piso: number
+  salidasAlmacen: number
+  consumido: boolean
+  cambiaCantidad: boolean
+  cambiaPrecio: boolean
+}
+
+/**
+ * `construirCorreccionLote` es JS sin tipos y él mismo lanza si la corrección
+ * no se puede hacer, así que aquí solo se estrecha la forma.
+ */
+export function comoCorreccionLote(plan: unknown): CorreccionLote {
+  return plan as CorreccionLote
+}

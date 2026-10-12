@@ -1,8 +1,8 @@
 <template>
   <BaseDialog
     v-model="isOpen"
-    :title="producto?.nombre ?? 'Capacidad del día'"
-    description="De dónde sale el número bajo la cantidad."
+    :title="titulo"
+    :description="subtitulo"
     cancel-text="Cerrar"
     :hide-confirm="true"
     @cancel="isOpen = false"
@@ -73,13 +73,14 @@
         <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0 mt-0.5" />
         <span>
           Se vendió <strong>{{ -queda }}</strong> más de lo que había en el quiosco.
-          Corrige la cantidad antes de cerrar el cuadre.
+          <template v-if="cerrable">Corrige la cantidad antes de cerrar el cuadre.</template>
+          <template v-else>Ese día quedó descuadrado en el quiosco.</template>
         </span>
       </p>
     </div>
 
     <p v-else class="text-sm text-muted">
-      No hay datos de este producto para el día del cuadre.
+      No hay datos de este producto para ese día.
     </p>
   </BaseDialog>
 </template>
@@ -90,15 +91,37 @@ import { TABLES } from '../../../shared/tables'
 const props = defineProps({
   // Entrada del mapa de capacidadPorProducto(): { inicial, capacidad, pasos }.
   datos: { type: Object, default: null },
+  /** Solo el nombre: el diálogo muestra nombre y descripción si están. */
   producto: { type: Object, default: null },
   /**
    * Vendido de este producto en el cuadre, con TODAS sus líneas sumadas: lo que
    * resta la capacidad es lo que queda en el quiosco, y un producto puede
    * tener varias líneas el mismo día por el duplicado de precio.
    */
-  vendido: { type: Number, default: 0 }
+  vendido: { type: Number, default: 0 },
+  /**
+   * Contexto de la vista que abre el diálogo. Desde /historial-quiosco el
+   * desglose es de un día ya cerrado: los rótulos cambian ("Había al empezar el
+   * día" sigue valiendo, pero "Corrige la cantidad antes de cerrar el cuadre"
+   * sería una instrucción imposible de seguir).
+   */
+  dia: { type: String, default: null },
+  historico: { type: Boolean, default: false }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
+
+const titulo = computed(() => {
+  const nombre = props.producto?.nombre
+  if (!props.dia) return nombre ?? 'Capacidad del día'
+  return `${nombre ?? 'Producto'} · ${fmtDate(props.dia)}`
+})
+
+const subtitulo = computed(() => (props.dia
+  ? 'De dónde sale el número de ese día.'
+  : 'De dónde sale el número bajo la cantidad.'))
+
+// Desde el historial el día ya pasó: no hay nada que corregir en este momento.
+const cerrable = computed(() => !props.historico)
 
 // Lo que queda en el quiosco cuando este cuadre se cierre. Negativo = el jefe
 // escribió más de lo que había, que es justo lo que el rojo de la fila señala.

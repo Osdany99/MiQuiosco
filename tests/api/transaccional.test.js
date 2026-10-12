@@ -689,21 +689,30 @@ describe('inventario: traspasos, mermas y lotes', () => {
     assert.equal(fila.almacen, 2)
   })
 
-  it('corregir lote sin consumo actualiza el libro; con consumo da 409', async () => {
+  it('corregir lote: sin motivo da 400; con consumo el precio entra y la cantidad tiene piso', async () => {
     const p = await post('/api/productos', {
       nombre: nombreUnico('lote_prod'), precioVentaActual: 20
     }, { token, status: 200 })
     await post('/api/inventario/entradas', {
       fechaEntrada: '2026-05-06',
-      lineas: [{ productoId: p.id, cantidad: 10, precioUnitario: 8 }]
+      lineas: [{ productoId: p.id, cantidad: 100, precioUnitario: 8 }]
     }, { token, status: 200 })
     const lotes = await get(`/api/lotes?productoId=${p.id}`, { token, status: 200 })
     assert.ok(lotes.length > 0)
     const lote = lotes[0]
+    // Sin consumo: el piso es 0 y el lote trae los saldos resueltos.
+    assert.equal(lote.saldoAlmacen, 100)
+    assert.equal(lote.saldoQuiosco, 0)
+    assert.equal(lote.piso, 0)
+
     const sinMotivo = await raw('PATCH', `/api/lotes/${lote.id}`, {
       body: { precioUnitario: 9, motivo: '' }, token
     })
     assert.equal(sinMotivo.status, 400)
+    const sinNada = await raw('PATCH', `/api/lotes/${lote.id}`, {
+      body: { motivo: 'nada' }, token
+    })
+    assert.equal(sinNada.status, 400)
     const ok = await raw('PATCH', `/api/lotes/${lote.id}`, {
       body: { precioUnitario: 9, motivo: 'factura mal' }, token
     })
@@ -726,10 +735,10 @@ describe('inventario: traspasos, mermas y lotes', () => {
       assert.equal(Number(m.precio_unitario), 9)
     }
 
-    // Con consumo ya no se puede corregir.
+    // Parte al quiosco: el lote ya tiene consumo, pero eso ya NO bloquea.
     await post('/api/inventario/traspasos', {
       fecha: '2026-05-06',
-      lineas: [{ productoId: p.id, cantidad: 10 }]
+      lineas: [{ productoId: p.id, cantidad: 40 }]
     }, { token, status: 200 })
     const cuadre = await crearCuadre()
     await raw('POST', `/api/cuadres/${cuadre.id}/cerrar`, {
@@ -742,10 +751,45 @@ describe('inventario: traspasos, mermas y lotes', () => {
       },
       token, status: 200
     })
-    const conConsumo = await raw('PATCH', `/api/lotes/${lote.id}`, {
+
+    // 40 de este lote salieron del almacen: ese es el piso de la cantidad.
+    const conConsumo = await get(`/api/lotes?productoId=${p.id}`, { token, status: 200 })
+    assert.equal(conConsumo[0].saldoAlmacen, 60)
+    assert.equal(conConsumo[0].saldoQuiosco, 39)
+    assert.equal(conConsumo[0].conConsumo, true)
+    assert.equal(conConsumo[0].piso, 40)
+
+    const bajoElPiso = await raw('PATCH', `/api/lotes/${lote.id}`, {
+      body: { cantidadInicial: 39, motivo: 'baje de mas' }, token
+    })
+    assert.equal(bajoElPiso.status, 409)
+    assert.match(mensajeDe(bajoElPiso.body), /No se puede bajar a 39/)
+
+    // Precio con consumo: entra. La venta ya cerrada conserva su costo.
+    const cambioPrecio = await raw('PATCH', `/api/lotes/${lote.id}`, {
       body: { precioUnitario: 10, motivo: 'tarde' }, token
     })
-    assert.equal(conConsumo.status, 409)
+    assert.equal(cambioPrecio.status, 200)
+    const venta = (await filas(
+      'movimientos_inventario',
+      `lote_id = '${lote.id}' AND tipo = 'venta'`
+    ))[0]
+    assert.equal(Number(venta.precio_unitario), 9, 'la venta cerrada no se reescribe')
+
+    // Cantidad por encima del piso: el almacen baja, el quiosco no se mueve.
+    const cambioCantidad = await raw('PATCH', `/api/lotes/${lote.id}`, {
+      body: { cantidadInicial: 90, motivo: 'faltaron 10' }, token
+    })
+    assert.equal(cambioCantidad.status, 200)
+    assert.equal(cambioCantidad.body.saldoAlmacen, 50)
+    assert.equal(cambioCantidad.body.saldoQuiosco, 39)
+    assert.equal(Number((await filas('lotes', `id = '${lote.id}'`))[0].cantidad_inicial), 90)
+
+    // El libro sigue cuadrando con la cantidad corregida.
+    const saldos = await get('/api/inventario/saldos', { token, status: 200 })
+    const fila = saldos.find(s => s.productoId === p.id)
+    assert.equal(fila.almacen, 50)
+    assert.equal(fila.quiosco, 39)
   })
 })
 

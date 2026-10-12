@@ -10,6 +10,7 @@
  * distintas del mismo producto.
  */
 import { estadoDeFila } from '../../shared/inventario/analitica'
+import { saldosDeLote } from '../../shared/inventario/operaciones'
 
 const COLOR_POR_ESTADO = {
   'ok': 'success',
@@ -32,6 +33,10 @@ export function useVistaInventario(ubicacion) {
   const showLotes = ref(false)
   const productoAjuste = ref(null)
   const productoLotes = ref(null)
+
+  // Corrección de una entrada del historial de compras (cantidad y/o precio).
+  const showCorreccion = ref(false)
+  const loteCorreccion = ref(null)
 
   // Venta fuera de cuadre: efectivo o fiado del producto de la fila tocada.
   // El estado vive aquí porque /quiosco y /almacen comparten este composable.
@@ -73,8 +78,12 @@ export function useVistaInventario(ubicacion) {
     { accessorKey: 'cantidadInicial', header: 'Cant.' },
     { accessorKey: 'precioUnitario', header: 'P. compra' },
     { accessorKey: 'valor', header: 'Valor' },
+    { accessorKey: 'saldo', header: 'Saldo' },
     { accessorKey: 'origen', header: 'Origen' },
-    { accessorKey: 'detalleCompra', header: 'Detalle' }
+    { accessorKey: 'detalleCompra', header: 'Detalle' },
+    // Estructural: el lápiz de corregir la entrada. No entra al selector de
+    // columnas ni se puede apagar (misma regla que 'acciones' en `columns`).
+    { accessorKey: 'acciones', header: '' }
     // 'origen' muestra el proveedor (o el lugar de compra). El dato se sigue
     // calculando en cada fila; solo se oculta la columna. Ver app/utils/flags.js
   ].filter(c => MOSTRAR_PROVEEDOR || c.accessorKey !== 'origen')
@@ -114,6 +123,12 @@ export function useVistaInventario(ubicacion) {
     showLotes.value = true
   }
 
+  /** Corregir la cantidad o el precio con que una entrada llegó al almacén. */
+  function abrirCorreccion(fila) {
+    loteCorreccion.value = fila
+    showCorreccion.value = true
+  }
+
   /** Venta directa (efectivo) o deuda directa (fiado) del producto de la fila. */
   function abrirVenta(fila, modo = 'venta') {
     productoVenta.value = fila
@@ -135,10 +150,11 @@ export function useVistaInventario(ubicacion) {
         inv.cargarProductos().catch(() => []),
         inv.cargarProveedores().catch(() => [])
       ])
+      const filas = await conSaldosDeLote(lotesRows ?? [])
       const nombreProd = new Map((prods ?? []).map(p => [p.id, p.nombre]))
       const descripcionProd = new Map((prods ?? []).map(p => [p.id, p.descripcion ?? null]))
       const nombreProv = new Map((provs ?? []).map(p => [p.id, p.nombre]))
-      lotesHistorial.value = (lotesRows ?? [])
+      lotesHistorial.value = filas
         .slice()
         .sort((a, b) => String(b.fechaEntrada ?? '').localeCompare(String(a.fechaEntrada ?? '')))
         .map(l => ({
@@ -151,6 +167,30 @@ export function useVistaInventario(ubicacion) {
     } finally {
       cargando.value = false
     }
+  }
+
+  /**
+   * El endpoint /api/lotes ya viene con los saldos del libro, pero el sqlite
+   * devuelve la fila cruda. Sin este paso el diálogo de corrección abriría con
+   * piso 0 en modo offline y dejaría bajar la cantidad por debajo de lo que ya
+   * salió. Se usa el MISMO cálculo del servidor (saldosDeLote).
+   */
+  async function conSaldosDeLote(lotes) {
+    if (!lotes.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null)) return lotes
+    const crudos = await inv.movimientosRepo.value.readAll()
+    const movs = Array.isArray(crudos) ? crudos : (crudos?.data ?? [])
+    return lotes.map((l) => {
+      if (l.saldoAlmacen != null && l.saldoQuiosco != null) return l
+      const s = saldosDeLote(l, movs)
+      return {
+        ...l,
+        saldoAlmacen: s.almacen,
+        saldoQuiosco: s.quiosco,
+        conConsumo: s.consumido,
+        salidasAlmacen: s.salidasAlmacen,
+        piso: s.piso
+      }
+    })
   }
 
   onMounted(recargar)
@@ -171,6 +211,7 @@ export function useVistaInventario(ubicacion) {
     textoEstado,
     abrirAjuste,
     abrirLotes,
+    abrirCorreccion,
     abrirVenta,
     recargar,
     sinMovimientos,
@@ -179,6 +220,8 @@ export function useVistaInventario(ubicacion) {
     showLotes,
     productoAjuste,
     productoLotes,
+    showCorreccion,
+    loteCorreccion,
     showVenta,
     modoVenta,
     productoVenta

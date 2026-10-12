@@ -1,28 +1,21 @@
 import { TABLES } from '../../shared/tables'
 import {
-  aDia, enRango, indiceFechasNegocio, resumenVentas, magnitudesPorTipo,
+  aDia, enRango, magnitudesPorTipo,
   diasCobertura, antiguedadLotes, antiguedadMediaPonderada,
   totalesValorInventario, conteoEstadoStock, ventanaCobertura
 } from '../../shared/inventario/analitica'
-import { saldosPorProducto } from '../../shared/inventario/operaciones'
-import { saldosDesdeMovimientos } from '../../shared/inventario/fifo'
-import { vistaSaldos } from '../../shared/inventario/vista'
+import { leerLibro, reposLibro } from './libro'
 
 const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
 const ventasDirectasConfig = TABLES.ventas_directas
-const ventasDirectasItemsConfig = TABLES.ventas_directas_items
 const cuentaFiadoConfig = TABLES.cuentas_fiado
 const pagoFiadoConfig = TABLES.pagos_fiado
 const recargaConfig = TABLES.recargas
 const cobroRecargaConfig = TABLES.cobros_recarga
 const clienteConfig = TABLES.clientes
 const usuarioConfig = TABLES.usuarios
-const proveedorConfig = TABLES.proveedores
-const loteConfig = TABLES.lotes
-const traspasoConfig = TABLES.traspasos
-const movimientoConfig = TABLES.movimientos_inventario
 
 /**
  * calcularGrafica(key, opts) — Cálculo de todas las gráficas del negocio.
@@ -44,7 +37,7 @@ const movimientoConfig = TABLES.movimientos_inventario
  * Sus reglas, que están en shared/inventario/analitica.js y se respetan
  * siempre: se suma en NETO (una reapertura inserta su contramovimiento, no
  * borra la venta) y el costo es el del lote FIFO, no el precio de compra de
- * hoy. El libro se carga una vez y se cachea (ver limpiarCacheGraficas).
+ * hoy. El libro se carga una vez y se cachea (ver limpiarCacheLibro).
  *
  * @param {string} key — identificador de la gráfica
  * @param {Object} opts — { desde, hasta, agrupacion, productoId }
@@ -130,35 +123,7 @@ export async function calcularGrafica(key, opts) {
  * repos que no va a usar.
  */
 function reposInventario() {
-  return {
-    cuadres: useRepo(cuadreConfig, { toast: false }),
-    items: useRepo(cuadreItemConfig, { toast: false }),
-    productos: useRepo(productoConfig, { toast: false }),
-    usuarios: useRepo(usuarioConfig, { toast: false }),
-    proveedores: useRepo(proveedorConfig, { toast: false }),
-    lotes: useRepo(loteConfig, { toast: false }),
-    traspasos: useRepo(traspasoConfig, { toast: false }),
-    movimientos: useRepo(movimientoConfig, { toast: false }),
-    ventasDirectas: useRepo(ventasDirectasConfig, { toast: false }),
-    ventasDirectasItems: useRepo(ventasDirectasItemsConfig, { toast: false })
-  }
-}
-
-/**
- * Cache del libro en memoria de módulo.
- *
- * El libro es append-only y el CRUD no admite rangos (solo igualdad por
- * columna), así que no hay forma de traer "solo este mes": o se trae el libro
- * entero o nada. Traerlo entero en cada gráfica y en cada clic de Actualizar
- * sería absurdo, así que se lee una vez por puesto+modo y se reutiliza.
- *
- * Se invalida a mano (botón Actualizar, o tras sincronizar) con
- * limpiarCacheGraficas().
- */
-let cacheLibro = null
-
-export function limpiarCacheGraficas() {
-  cacheLibro = null
+  return reposLibro()
 }
 
 /**
@@ -169,7 +134,7 @@ export function limpiarCacheGraficas() {
  * Salen del libro ya cargado, así que no cuestan una segunda lectura.
  */
 export async function resumenNegocio() {
-  const lib = await cargarLibro(reposInventario())
+  const lib = await leerLibro(reposInventario())
   const totales = totalesValorInventario(lib.vista)
 
   // El mínimo depende de la ubicación que se mira: el quiosco es el que se
@@ -214,6 +179,36 @@ function ts(v) {
   return Number.isNaN(n) ? 0 : n
 }
 
+/**
+ * Cuadres cerrados dentro del rango de fechas, sin duplicados.
+ *
+ * Solo CERRADOS: el abierto es un borrador con autoguardado (líneas en cero,
+ * montos parciales) y no debe contaminar ventas, ganancias ni formas de pago.
+ * El dedupe es por puesto+fecha (el duplicado sale del modo offline, que no
+ * tiene el índice único de Postgres) y gana el registro más reciente.
+ *
+ * @param {string} desde - 'YYYY-MM-DD' inclusivo, '' para no acotar por abajo
+ * @param {string} hasta - 'YYYY-MM-DD' inclusivo, '' para no acotar por arriba
+ */
+function cuadresCerradosEnRango(cuadres, desde, hasta) {
+  const cerrados = cuadres.filter((c) => {
+    if (c.estado !== 'cerrado') return false
+    const f = c.fecha || ''
+    if (!f) return false
+    if (desde && f < desde) return false
+    if (hasta && f > hasta) return false
+    return true
+  })
+
+  const porPuestoFecha = new Map()
+  for (const c of cerrados) {
+    const k = `${c.puestoId ?? ''}||${c.fecha}`
+    const prev = porPuestoFecha.get(k)
+    if (!prev || ts(c.actualizadoEn) >= ts(prev.actualizadoEn)) porPuestoFecha.set(k, c)
+  }
+  return [...porPuestoFecha.values()]
+}
+
 async function cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo, usuariosRepo) {
   const [todosCuadres, todosItems, todosProductos, todosUsuarios] = await Promise.all([
     cuadreRepo.readAll(),
@@ -235,26 +230,7 @@ async function cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo, usuariosRe
   const desdeStr = opts.desde || ''
   const hastaStr = opts.hasta || ''
 
-  // Solo cuadres CERRADOS en rango: el abierto es un borrador con
-  // autoguardado (líneas en cero, montos parciales) y no debe contaminar
-  // ventas, ganancias ni formas de pago.
-  const cerradosEnRango = todosCuadres.filter((c) => {
-    if (c.estado !== 'cerrado') return false
-    const f = c.fecha || ''
-    if (!f) return false
-    if (desdeStr && f < desdeStr) return false
-    if (hastaStr && f > hastaStr) return false
-    return true
-  })
-
-  // Defensa ante duplicados locales (mismo puesto+fecha): gana el más reciente.
-  const porPuestoFecha = new Map()
-  for (const c of cerradosEnRango) {
-    const k = `${c.puestoId ?? ''}||${c.fecha}`
-    const prev = porPuestoFecha.get(k)
-    if (!prev || ts(c.actualizadoEn) >= ts(prev.actualizadoEn)) porPuestoFecha.set(k, c)
-  }
-  const cuadres = [...porPuestoFecha.values()]
+  const cuadres = cuadresCerradosEnRango(todosCuadres, desdeStr, hastaStr)
 
   const cuadreIds = new Set(cuadres.map(c => c.id))
   // Día de negocio de cada línea: la fecha del cuadre padre.
@@ -352,12 +328,12 @@ async function _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo) 
  * desincronizaba y daba números inflados. Sirve de contrapunto a la gráfica
  * 'ganancia-real-fifo' para ver cuánto se desvía la estimación.
  *
- * @param {object} repos — juego completo de repos (usa cargarLibro, que además
+ * @param {object} repos — juego completo de repos (usa leerLibro, que ademásás
  *   trae los lotes). La única llamante es _diferenciaEstimadaReal, que ya paga
  *   esa carga por _gananciaRealFifo, así que no añade coste.
  */
 async function _productosMayorGanancia(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -455,6 +431,139 @@ async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
   return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
     ganancia: Math.round(g.reduce((s, x) => s + x.ganancia, 0))
   }))
+}
+
+/**
+ * Detalle de UNA barra de las gráficas por período (ganancia, ingresos): qué
+ * productos se vendieron, cuánto dejó cada uno y su subtotal.
+ *
+ * Solo cuadres cerrados del período, igual que la barra. Las ventas y deudas
+ * directas quedan fuera a propósito: si el detalle las sumara, la cuenta no
+ * cerraría con el número que se ve arriba.
+ *
+ * La ganancia de cada producto es la REAL — subtotal menos el costo FIFO del
+ * lote que se consumió — y no la estimada con el precio de compra de hoy. El
+ * costo vive en los movimientos de tipo 'venta', que guardan el importe del
+ * lote en `importe` y la línea de cuadre en `lineaCuadreId` (ver
+ * construirVentaCuadre). Los cuadres anteriores al libro no tienen movimientos:
+ * ahí el costo congelado del cuadre se reparte entre sus líneas en proporción a
+ * su subtotal, en vez de inventar un costo unitario.
+ *
+ * Los totales cierran con la barra porque cuadre.ganancia = totalEsperado −
+ * costoTotal, y totalEsperado = Σ subtotales − regalos − descuentos. De ahí el
+ * desglose: ganancia de productos, menos descuentos, menos el pago al
+ * trabajador, da la ganancia neta que dibuja la gráfica.
+ *
+ * @param {Object} opts — { periodo, agrupacion, desde, hasta }
+ * @returns {Promise<{ periodo: string, lineas: Array, totales: Object }>}
+ */
+export async function detalleGananciaPeriodo(opts) {
+  const vacio = { periodo: String(opts?.periodo ?? ''), lineas: [], totales: null }
+  if (!opts?.periodo) return vacio
+
+  const lib = await leerLibro(reposLibro())
+  const agrupacion = opts.agrupacion || 'dia'
+
+  // Los cuadres que caen en ESA barra, con el mismo criterio que la gráfica.
+  const cuadres = cuadresCerradosEnRango(lib.cuadres, opts.desde || '', opts.hasta || '')
+    .filter(c => clavePeriodo(c.fecha, agrupacion) === opts.periodo)
+  if (cuadres.length === 0) return vacio
+
+  const cuadrePorId = new Map(cuadres.map(c => [c.id, c]))
+
+  // Costo FIFO por línea: el importe de un movimiento de venta ES el costo del
+  // lote que se consumió, así que se suma tal cual, sin promediar.
+  const costoPorLinea = new Map()
+  for (const m of lib.movimientos) {
+    if (m.anulado || m.tipo !== 'venta' || !m.lineaCuadreId) continue
+    const previo = costoPorLinea.get(m.lineaCuadreId) ?? 0
+    costoPorLinea.set(m.lineaCuadreId, previo + (Number(m.importe) || 0))
+  }
+
+  const lineasPorCuadre = new Map()
+  for (const i of lib.items) {
+    if (!cuadrePorId.has(i.cuadreId)) continue
+    if ((Number(i.cantidad) || 0) <= 0) continue
+    if (!lineasPorCuadre.has(i.cuadreId)) lineasPorCuadre.set(i.cuadreId, [])
+    lineasPorCuadre.get(i.cuadreId).push(i)
+  }
+
+  const nombrePorProducto = new Map()
+  for (const p of lib.productos) {
+    nombrePorProducto.set(p.id, { nombre: p.nombre, descripcion: p.descripcion ?? '' })
+  }
+
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100
+  const porProducto = new Map()
+  let ingreso = 0
+  let costo = 0
+  let descuentos = 0
+  let pago = 0
+
+  for (const cuadre of cuadres) {
+    const lineas = lineasPorCuadre.get(cuadre.id) ?? []
+    const ingresoCuadre = lineas.reduce((s, i) => s + (Number(i.subtotal) || 0), 0)
+    // Costo del cuadre: el congelado al cerrar. Si un cuadre viejo no lo tiene,
+    // se usa lo que el libro sí registra de sus líneas.
+    const costoCuadre = cuadre.costoTotal != null
+      ? Number(cuadre.costoTotal)
+      : lineas.reduce((s, i) => s + (costoPorLinea.get(i.id) ?? 0), 0)
+
+    // Las líneas con movimiento tienen su costo exacto; el resto (cuadres sin
+    // libro) se reparten el costo que sobra, en proporción a su subtotal.
+    const sinCosto = lineas.filter(i => !costoPorLinea.has(i.id))
+    const baseSinCosto = sinCosto.reduce((s, i) => s + (Number(i.subtotal) || 0), 0)
+    const costoRepartir = Math.max(0, costoCuadre - lineas.reduce((s, i) => s + (costoPorLinea.get(i.id) ?? 0), 0))
+
+    for (const i of lineas) {
+      const subtotal = Number(i.subtotal) || 0
+      const exacto = costoPorLinea.get(i.id)
+      const costoLinea = exacto ?? (baseSinCosto > 0 ? (costoRepartir * subtotal) / baseSinCosto : 0)
+
+      let acc = porProducto.get(i.productoId)
+      if (!acc) {
+        acc = { productoId: i.productoId, cantidad: 0, subtotal: 0, costo: 0 }
+        porProducto.set(i.productoId, acc)
+      }
+      acc.cantidad += Number(i.cantidad) || 0
+      acc.subtotal += subtotal
+      acc.costo += costoLinea
+    }
+
+    ingreso += ingresoCuadre
+    costo += costoCuadre
+    descuentos += (Number(cuadre.montoRegalo) || 0) + (Number(cuadre.montoDescuento) || 0)
+    pago += Number(cuadre.pagoTrabajador) || 0
+  }
+
+  const lineas = [...porProducto.values()]
+    .map((acc) => {
+      const info = nombrePorProducto.get(acc.productoId)
+      return {
+        productoId: acc.productoId,
+        nombre: info?.nombre ?? '—',
+        descripcion: info?.descripcion ?? '',
+        cantidad: r2(acc.cantidad),
+        subtotal: r2(acc.subtotal),
+        costo: r2(acc.costo),
+        ganancia: r2(acc.subtotal - acc.costo)
+      }
+    })
+    .sort((a, b) => b.ganancia - a.ganancia)
+
+  const gananciaProductos = ingreso - costo
+  return {
+    periodo: String(opts.periodo),
+    lineas,
+    totales: {
+      ingreso: r2(ingreso),
+      costo: r2(costo),
+      gananciaProductos: r2(gananciaProductos),
+      descuentos: r2(descuentos),
+      pagoTrabajador: r2(pago),
+      gananciaNeta: r2(gananciaProductos - descuentos - pago)
+    }
+  }
 }
 
 async function _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
@@ -668,88 +777,6 @@ async function _comparativaTrabajador(opts, productoRepo, cuadreRepo, itemsRepo)
 
 // ═══════════════════════════════ Inventario ════════════════════════════════
 
-/**
- * Carga el libro completo una vez y devuelve todo lo derivado que las gráficas
- * de inventario necesitan: saldos por producto y por lote, fechas de negocio,
- * nombres y la vista valorizada (la misma de /almacen y /quiosco).
- *
- * Cacheada por puesto y modo de conexión: ver la nota de cacheLibro.
- */
-async function cargarLibro(repos) {
-  const auth = useAuth()
-  const conexion = useModoConexion()
-  const puestoId = auth.usuarioActual.value?.puestoId ?? ''
-  const modo = conexion.modo.value
-  if (cacheLibro && cacheLibro.puestoId === puestoId && cacheLibro.modo === modo) {
-    return cacheLibro.datos
-  }
-
-  const [cuadres, items, productos, usuarios, proveedores, lotes, traspasos, movimientos, ventas, ventasItems]
-    = await Promise.all([
-      repos.cuadres.readAll(),
-      repos.items.readAll(),
-      repos.productos.readAll(),
-      repos.usuarios.readAll(),
-      repos.proveedores.readAll(),
-      repos.lotes.readAll(),
-      repos.traspasos.readAll(),
-      repos.movimientos.readAll(),
-      repos.ventasDirectas.readAll(),
-      repos.ventasDirectasItems.readAll()
-    ]).then(rs => rs.map(fila))
-
-  // El endpoint de saldos ya filtra por puesto; los repos también, pero el
-  // libro se puede filtrar por puestoId cuando el modo no lo hace.
-  const delPuesto = rows => (puestoId ? rows.filter(r => !r.puestoId || r.puestoId === puestoId) : rows)
-
-  const movs = delPuesto(movimientos)
-  const lotesFilas = delPuesto(lotes)
-  const cuadresFilas = delPuesto(cuadres)
-
-  const fechas = indiceFechasNegocio({
-    movimientos: movs,
-    cuadres: cuadresFilas,
-    lotes: lotesFilas,
-    traspasos: delPuesto(traspasos)
-  })
-
-  const saldos = saldosPorProducto(movs)
-  const saldosDetalle = saldosDesdeMovimientos(movs)
-  const nombrePorProducto = new Map(productos.map(p => [p.id, p.nombre]))
-  const nombrePorUsuario = new Map(usuarios.map(u => [u.id, u.nombre]))
-  const nombrePorProveedor = new Map(proveedores.map(p => [p.id, p.nombre]))
-  const lotePorId = new Map(lotesFilas.map(l => [l.id, l]))
-  const cuadrePorId = new Map(cuadresFilas.map(c => [c.id, c]))
-
-  const datos = {
-    puestoId,
-    modo,
-    cuadres: cuadresFilas,
-    items: delPuesto(items),
-    productos,
-    usuarios,
-    proveedores,
-    lotes: lotesFilas,
-    traspasos: delPuesto(traspasos),
-    movimientos: movs,
-    ventasDirectas: delPuesto(ventas),
-    ventasDirectasItems: delPuesto(ventasItems),
-    fechas,
-    saldos,
-    saldosDetalle,
-    nombrePorProducto,
-    nombrePorUsuario,
-    nombrePorProveedor,
-    lotePorId,
-    cuadrePorId,
-    vista: vistaSaldos({ productos, lotes: lotesFilas, movimientos: movs }),
-    resumenVentas: resumenVentas(movs, fechas)
-  }
-
-  cacheLibro = { puestoId, modo, datos }
-  return datos
-}
-
 /** Hoy en 'YYYY-MM-DD', para las fotos de inventario (no dependen del rango). */
 function hoy() {
   return aDia(Date.now())
@@ -778,7 +805,7 @@ function diasHasta(hasta, desde) {
  * Responde "¿qué compro hoy?", que es la pregunta del día.
  */
 async function _diasCobertura(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   if (lib.resumenVentas.size === 0) return []
 
   // La ventana del filtro arranca en hoy y para promediar hacen falta días:
@@ -805,7 +832,7 @@ async function _diasCobertura(opts, repos) {
 
 /** Dónde está la plata: valor del stock por producto y por ubicación. */
 async function _valorInventarioProducto(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   return [...lib.vista]
     .filter(f => (f.valorizadoAlmacen || 0) > 0 || (f.valorizadoQuiosco || 0) > 0)
     .sort((a, b) =>
@@ -821,7 +848,7 @@ async function _valorInventarioProducto(opts, repos) {
 
 /** Unidades por ubicación: qué está atrás y qué falta adelante. */
 async function _stockAlmacenVsQuiosco(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   return [...lib.vista]
     .filter(f => (f.almacen || 0) > 0 || (f.quiosco || 0) > 0)
     .sort((a, b) => ((b.almacen || 0) + (b.quiosco || 0)) - ((a.almacen || 0) + (a.quiosco || 0)))
@@ -831,7 +858,7 @@ async function _stockAlmacenVsQuiosco(opts, repos) {
 
 /** Foto de salud del stock. Se muestra el quiosco: es donde se nota la falta. */
 async function _estadoStock(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const ubicacion = opts.ubicacion === 'almacen' ? 'almacen' : 'quiosco'
   return conteoEstadoStock(lib.vista, ubicacion).filter(c => c.cantidad > 0)
 }
@@ -842,7 +869,7 @@ async function _estadoStock(opts, repos) {
  * cuánto tiempo lleva parada la plata.
  */
 async function _capitalDormido(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const r = antiguedadLotes({
     lotes: lib.lotes,
     saldos: lib.saldosDetalle,
@@ -862,7 +889,7 @@ async function _capitalDormido(opts, repos) {
 
 /** Qué se pierde: mermas por producto, con su motivo en el rótulo. */
 async function _mermasPorProducto(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -896,7 +923,7 @@ async function _mermasPorProducto(opts, repos) {
 
 /** Dinero que entra por compras contra el que se pierde por mermas. */
 async function _comprasVsMermas(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -925,7 +952,7 @@ async function _comprasVsMermas(opts, repos) {
 
 /** Reposición del quiosco: cuánto se movió y cada cuánto se repone. */
 async function _traspasosPorPeriodo(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -952,7 +979,7 @@ async function _traspasosPorPeriodo(opts, repos) {
  * repuesto" es el peor caso, no cero días.
  */
 async function _diasSinReponer(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const h = hoy()
   const ultimoTraspaso = new Map()
   const ultimaEntrada = new Map()
@@ -984,7 +1011,7 @@ async function _diasSinReponer(opts, repos) {
 
 /** ¿El quiosco se surtió con traspasos o se está vendiendo de más? */
 async function _coberturaTraspasos(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -1018,7 +1045,7 @@ async function _coberturaTraspasos(opts, repos) {
 
 /** Curva de capital: qué se compró contra lo que salió del almacén. */
 async function _inversionAcumulada(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -1060,7 +1087,7 @@ async function _inversionAcumulada(opts, repos) {
 
 /** Reaperturas: cuánto se anuló y se rehízo al cerrar. Señal de calidad. */
 async function _anulacionesPeriodo(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -1087,7 +1114,7 @@ async function _anulacionesPeriodo(opts, repos) {
  */
 async function _fifoAntiguedadVendida(opts, repos) {
   if (!opts.productoId) return []
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -1122,7 +1149,7 @@ async function _fifoAntiguedadVendida(opts, repos) {
 /** Precio de compra de un producto a lo largo del tiempo. */
 async function _evolucionPrecioCompra(opts, repos) {
   if (!opts.productoId) return []
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
   const producto = lib.productos.find(p => p.id === opts.productoId)
@@ -1156,7 +1183,7 @@ async function _evolucionPrecioCompra(opts, repos) {
 
 /** A quién se le compra y cuánto: sirve para saber con quién negociar. */
 async function _gastoPorProveedor(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -1192,7 +1219,7 @@ async function _gastoPorProveedor(opts, repos) {
 /** Precio medio pagado a cada proveedor por un producto: para negociar. */
 async function _precioMedioProveedor(opts, repos) {
   if (!opts.productoId) return []
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 
@@ -1226,7 +1253,7 @@ async function _precioMedioProveedor(opts, repos) {
 
 /** Producto × día/semana: qué se vende cuando. */
 async function _heatmapProductoDia(opts, repos) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
   const agrupacion = opts.agrupacion || 'dia'
@@ -1261,7 +1288,7 @@ async function _heatmapProductoDia(opts, repos) {
  * @param {boolean} comoMargen — devuelve el porcentaje en vez del monto
  */
 async function _gananciaRealFifo(opts, repos, comoMargen) {
-  const lib = await cargarLibro(repos)
+  const lib = await leerLibro(repos)
   const desde = opts.desde || ''
   const hasta = opts.hasta || ''
 

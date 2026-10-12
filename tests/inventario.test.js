@@ -12,10 +12,14 @@ import {
   construirAnulacionCuadre,
   auditarAnulacionesCuadre,
   construirAjuste,
+  construirCorreccionLote,
   saldosPorProducto,
+  saldosPorLote,
+  saldosDeLote,
   lotesConSaldo
 } from '../shared/inventario/operaciones.js'
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
+import { correccionLoteSchema } from '../shared/schemas/lote.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
 import { productoSchema } from '../shared/schemas/producto.js'
 import { ventaDirectaSchema, deudaDirectaSchema, pagoFiadoDirectoSchema } from '../shared/schemas/directas.js'
@@ -1015,6 +1019,207 @@ describe('analitica: antigüedad del stock', () => {
     assert.equal(r.porTramo.find(t => t.clave === '31-60').valor, 1000)
     // Los tres tramos vacíos valen 0, no NaN.
     assert.equal(r.porTramo.find(t => t.clave === '0-7').valor, 0)
+  })
+})
+
+describe('corrección de una entrada: cantidad y precio', () => {
+  /**
+   * Libro real: entra al almacén, sale parte al quiosco y se vende ahí.
+   *  - intacto: 100 uds a 8, todo en almacén
+   *  - con consumo: 40 al quiosco, 10 de esas vendidas
+   */
+  function escenario({ cantidad = 100, precio = 8, traspaso = 0, ventaQuiosco = 0 } = {}) {
+    const e = entrada(cantidad, precio)
+    const lote = e.lotes[0]
+    const movs = [...e.movimientos]
+    if (traspaso > 0) {
+      const tr = construirTraspaso({
+        lineas: [{ productoId: PAN, cantidad: traspaso }],
+        lotesPorProducto: new Map([[PAN, lotesEn(movs, 'almacen')]]),
+        meta: { ...meta, fecha: '2026-01-02' }
+      })
+      movs.push(...tr.movimientos)
+    }
+    if (ventaQuiosco > 0) {
+      const v = construirVentaCuadre({
+        lineas: [{ id: 'linea-1', productoId: PAN, cantidad: ventaQuiosco }],
+        lotesPorProducto: new Map([[PAN, lotesEn(movs, 'quiosco')]]),
+        cuadreId: 'c1',
+        meta
+      })
+      movs.push(...v.movimientos)
+    }
+    return { lote, movs }
+  }
+
+  /**
+   * Aplica el plan al libro igual que lo hacen el endpoint y el camino offline:
+   * la cabecera del lote y las filas que el plan dice tocar. Devolver el libro
+   * ya aplicado es lo que permite comprobar el saldo sin recalcular a mano.
+   */
+  function aplicar(lote, movs, datos) {
+    const plan = construirCorreccionLote({ lote, movimientos: movs, datos, meta })
+    const cambios = new Map(plan.movimientosActualizados.map(m => [m.id, m]))
+    return {
+      plan,
+      lote: { ...lote, ...plan.cambiosLote },
+      libro: movs.map(m => ({ ...m, ...(cambios.get(m.id) ?? {}) }))
+    }
+  }
+
+  it('un lote intacto admite cualquier cantidad y cualquier precio', () => {
+    const { lote, movs } = escenario()
+    const r = aplicar(lote, movs, { cantidadInicial: 60, precioUnitario: 9, motivo: 'conté mal' })
+    assert.equal(r.lote.cantidadInicial, 60)
+    assert.equal(r.lote.precioUnitario, 9)
+    const entrada = r.libro.find(m => m.tipo === 'entrada')
+    assert.equal(entrada.cantidad, 60)
+    assert.equal(entrada.deltaAlmacen, 60)
+    assert.equal(entrada.importe, 540)
+    assert.equal(r.plan.almacen, 60)
+    assert.equal(r.plan.quiosco, 0)
+  })
+
+  it('el piso son las unidades que ya salieron del almacén', () => {
+    const { lote, movs } = escenario({ traspaso: 40 })
+    const s = saldosDeLote(lote, movs)
+    assert.equal(s.almacen, 60)
+    assert.equal(s.quiosco, 40)
+    assert.equal(s.salidasAlmacen, 40)
+    assert.equal(s.piso, 40)
+    assert.equal(s.consumido, true)
+
+    // Bajar de lo que ya salió dejaría el almacén en negativo.
+    assert.throws(
+      () => aplicar(lote, movs, { cantidadInicial: 39, motivo: 'x' }),
+      /No se puede bajar a 39/
+    )
+    // Justo en el piso sí se puede: el almacén queda en cero.
+    const r = aplicar(lote, movs, { cantidadInicial: 40, motivo: 'x' })
+    assert.equal(r.plan.almacen, 0)
+    assert.equal(r.plan.quiosco, 40)
+  })
+
+  it('la corrección no toca lo que ya hay en el quiosco', () => {
+    const { lote, movs } = escenario({ traspaso: 40, ventaQuiosco: 10 })
+    const antes = saldosDeLote(lote, movs)
+    assert.equal(antes.quiosco, 30)
+
+    const r = aplicar(lote, movs, { cantidadInicial: 90, motivo: 'faltaron 10' })
+    // La compra era de 90: el almacén baja a 50 (90 - las 40 que salieron)...
+    assert.equal(r.lote.cantidadInicial, 90)
+    assert.equal(r.plan.almacen, 50)
+    // ...y el quiosco sigue con las 30 que tenía, sin un cambio.
+    assert.equal(r.plan.quiosco, 30)
+    const despues = saldosDeLote(r.lote, r.libro)
+    assert.equal(despues.quiosco, 30)
+    assert.equal(despues.almacen, 50)
+  })
+
+  it('el precio se corrige con consumo, pero las ventas quedan congeladas', () => {
+    const { lote, movs } = escenario({ traspaso: 40, ventaQuiosco: 10 })
+    const r = aplicar(lote, movs, { precioUnitario: 9, motivo: 'factura mal' })
+    assert.equal(r.lote.precioUnitario, 9)
+
+    // La entrada (la compra) sí refleja el precio bueno.
+    const e = r.libro.find(m => m.tipo === 'entrada')
+    assert.equal(e.precioUnitario, 9)
+    assert.equal(e.importe, 900)
+
+    // La venta ya cerrada NO se reescribe: su costo se dio por bueno.
+    const venta = r.libro.find(m => m.tipo === 'venta')
+    assert.equal(venta.precioUnitario, 8)
+    assert.equal(venta.importe, 80)
+    assert.equal(venta.deltaQuiosco, -10)
+  })
+
+  it('corregir dos veces no descuadra el libro', () => {
+    const uno = escenario({ traspaso: 40 })
+    const a = aplicar(uno.lote, uno.movs, { cantidadInicial: 80, motivo: 'x' })
+    assert.equal(a.plan.almacen, 40)
+    const b = aplicar(a.lote, a.libro, { cantidadInicial: 70, motivo: 'otra vez' })
+    assert.equal(b.plan.almacen, 30)
+    assert.equal(saldosDeLote(b.lote, b.libro).almacen, 30)
+    // La suma del libro es la cantidad corregida: ni una unidad de más.
+    const total = b.libro.reduce((s, m) => s + m.deltaAlmacen, 0)
+    assert.equal(total, 30)
+  })
+
+  it('corregir solo el precio no mueve la cantidad', () => {
+    const { lote, movs } = escenario({ traspaso: 40 })
+    const r = aplicar(lote, movs, { precioUnitario: 7, motivo: 'x' })
+    assert.equal(r.lote.cantidadInicial, 100)
+    assert.equal(r.lote.precioUnitario, 7)
+    assert.equal(r.plan.cambiaCantidad, false)
+    assert.equal(r.plan.almacen, 60)
+    const e = r.libro.find(m => m.tipo === 'entrada')
+    assert.equal(e.cantidad, 100)
+    assert.equal(e.importe, 700)
+  })
+
+  it('rechaza corregir nada, tocar un lote anulado o una cantidad imposible', () => {
+    const { lote, movs } = escenario()
+    assert.throws(
+      () => aplicar(lote, movs, { cantidadInicial: 100, precioUnitario: 8, motivo: 'x' }),
+      /No hay nada que corregir/
+    )
+    assert.throws(
+      () => aplicar({ ...lote, anulado: true }, movs, { precioUnitario: 9, motivo: 'x' }),
+      /El lote está anulado/
+    )
+    // Sin movimiento de entrada no hay libro que corregir: el stock se arregla
+    // con una merma, no inventando una compra.
+    assert.throws(
+      () => aplicar(lote, [], { cantidadInicial: 50, motivo: 'x' }),
+      /no tiene su movimiento de entrada/
+    )
+  })
+
+  it('una devolución del quiosco reduce el piso del almacén', () => {
+    // Devolución quiosco → almacén: devuelve 5 al almacén y las saca del
+    // quiosco. Para el almacén es una ENTRADA, así que lo que realmente salió
+    // de él fueron 35, no 40: ese es el nuevo piso.
+    const { lote, movs } = escenario({ traspaso: 40 })
+    const conDevolucion = [...movs, {
+      id: 'dev-1', loteId: lote.id, productoId: PAN, tipo: 'devolucion',
+      cantidad: 5, deltaAlmacen: 5, deltaQuiosco: -5,
+      precioUnitario: 8, importe: 40, anulado: false
+    }]
+    const s = saldosDeLote(lote, conDevolucion)
+    assert.equal(s.almacen, 65)
+    assert.equal(s.quiosco, 35)
+    assert.equal(s.salidasAlmacen, 35)
+    assert.equal(s.piso, 35)
+
+    // Bajar de 35 dejaría el almacén en negativo; a 35 quedan 0, que es legal.
+    assert.throws(() => aplicar(lote, conDevolucion, { cantidadInicial: 34, motivo: 'x' }), /No se puede bajar a 34/)
+    const r = aplicar(lote, conDevolucion, { cantidadInicial: 35, motivo: 'x' })
+    assert.equal(r.plan.almacen, 0)
+    assert.equal(r.plan.quiosco, 35)
+  })
+
+  it('el esquema exige motivo y al menos uno de los dos valores', () => {
+    assert.equal(correccionLoteSchema.safeParse({ precioUnitario: 9, motivo: 'x' }).success, true)
+    assert.equal(correccionLoteSchema.safeParse({ cantidadInicial: 5, motivo: 'x' }).success, true)
+    // null significa "no lo toques", no "ponlo a cero".
+    assert.equal(correccionLoteSchema.safeParse({ cantidadInicial: null, precioUnitario: 9, motivo: 'x' }).success, true)
+    assert.equal(correccionLoteSchema.safeParse({ cantidadInicial: 5, motivo: '' }).success, false)
+    assert.equal(correccionLoteSchema.safeParse({ cantidadInicial: 5 }).success, false)
+    assert.equal(correccionLoteSchema.safeParse({ motivo: 'x' }).success, false)
+    assert.equal(correccionLoteSchema.safeParse({ cantidadInicial: 0, motivo: 'x' }).success, false)
+    assert.equal(correccionLoteSchema.safeParse({ cantidadInicial: 1.5, motivo: 'x' }).success, false)
+    assert.equal(correccionLoteSchema.safeParse({ precioUnitario: -1, motivo: 'x' }).success, false)
+    // Un precio de 0 es un valor real, no una ausencia.
+    assert.equal(correccionLoteSchema.safeParse({ precioUnitario: 0, motivo: 'x' }).success, true)
+  })
+
+  it('saldosPorLote resume el libro por lote', () => {
+    const { lote, movs } = escenario({ traspaso: 40, ventaQuiosco: 10 })
+    const porLote = saldosPorLote(movs)
+    const s = porLote.get(lote.id)
+    assert.equal(s.almacen, 60)
+    assert.equal(s.quiosco, 30)
+    assert.equal(s.consumido, true)
   })
 })
 

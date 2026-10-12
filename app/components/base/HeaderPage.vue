@@ -16,7 +16,7 @@
           </p>
         </div>
       </div>
-      <div class="flex items-center gap-2 flex-shrink-0">
+      <div class="flex items-center gap-2 flex-wrap flex-shrink-0 justify-end">
         <slot name="trailing" />
         <UButton
           v-if="showButton"

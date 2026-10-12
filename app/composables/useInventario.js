@@ -15,6 +15,7 @@ import {
   construirTraspaso,
   construirAjuste,
   construirVentaDirecta,
+  construirCorreccionLote,
   generarId,
   lotesConSaldo
 } from '../../shared/inventario/operaciones'
@@ -419,42 +420,54 @@ export function useInventario() {
       .sort((a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0))
   }
 
-  // ---------- Corrección de precio de lote ----------
+  // ---------- Corrección de cantidad y precio de un lote ----------
 
-  async function corregirPrecioLote(loteId, precioUnitario, motivo) {
+  /**
+   * Corrige una entrada ya registrada (cantidad, precio o los dos).
+   *
+   * Online delega en el endpoint; offline corre el MISMO constructor de
+   * shared/inventario/operaciones.js sobre el sqlite, dentro de una
+   * transacción. Las reglas no se duplican en ningún sitio.
+   *
+   * @param {string} loteId
+   * @param {{ cantidadInicial?: number|null, precioUnitario?: number|null, motivo: string }} cambios
+   */
+  async function corregirLote(loteId, cambios) {
     exigirJefe()
-    if (!motivo?.trim()) throw new Error('El motivo es obligatorio.')
+    if (!cambios?.motivo?.trim()) throw new Error('El motivo es obligatorio.')
     cargando.value = true
     try {
+      const datos = {
+        cantidadInicial: cambios.cantidadInicial ?? null,
+        precioUnitario: cambios.precioUnitario ?? null,
+        motivo: cambios.motivo.trim()
+      }
+      if (datos.cantidadInicial == null && datos.precioUnitario == null) {
+        throw new Error('Escribe la cantidad o el precio correctos.')
+      }
       if (esOnline.value) {
         return await $api(`/api/lotes/${loteId}`, {
           method: 'PATCH',
-          body: { precioUnitario, motivo },
+          body: datos,
           headers: apiHeaders()
         })
       }
       const pid = puestoIdActual()
       const lote = await r(lotesRepo).read(loteId)
       if (!lote || (pid && lote.puestoId !== pid)) throw new Error('Lote no encontrado.')
-      if (lote.anulado) throw new Error('El lote está anulado.')
       const movs = await filasPuesto(movimientosRepo, pid)
-      const delLote = movs.filter(m => m.loteId === loteId && !m.anulado)
-      if (delLote.some(m => (Number(m.deltaAlmacen) || 0) < 0 || (Number(m.deltaQuiosco) || 0) < 0)) {
-        throw new Error('El lote ya tiene movimientos de salida. Anúlalo y crea uno correcto en su lugar.')
-      }
+      const plan = construirCorreccionLote({ lote, movimientos: movs, datos })
       await db.transaction(async () => {
-        // El lote es el único sitio donde vive el precio de compra: corregirlo
-        // aquí corrige el valorizado y el costo de todo lo que salga de él.
-        await r(lotesRepo).update(loteId, { precioUnitario })
-        for (const m of delLote) {
-          await r(movimientosRepo).update(m.id, {
-            precioUnitario,
-            importe: Math.round(Number(m.cantidad) * precioUnitario * 100) / 100
-          })
+        // La marca de tiempo la pone enrichForUpdate: la fila nace pendiente de
+        // subir y con la hora de ahora, que es lo que hace que el push la
+        // ganarle al servidor en vez de revertirse.
+        await r(lotesRepo).update(loteId, plan.cambiosLote)
+        for (const m of plan.movimientosActualizados) {
+          await r(movimientosRepo).update(m.id, m)
         }
       })
       await cargarSaldos().catch(() => {})
-      return true
+      return { ...lote, ...plan.cambiosLote, saldoAlmacen: plan.almacen, saldoQuiosco: plan.quiosco }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
       throw err
@@ -507,7 +520,7 @@ export function useInventario() {
     registrarAjuste,
     registrarVentaDirecta,
     cargarVentasDirectas,
-    corregirPrecioLote,
+    corregirLote,
     sugerenciaParaManana
   }
 }

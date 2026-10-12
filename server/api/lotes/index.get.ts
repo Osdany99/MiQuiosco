@@ -1,6 +1,7 @@
 import { eq, and, desc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { lotes, movimientosInventario } from '../../database/schema'
+import { saldosDeLote } from '#shared/inventario/operaciones'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -17,11 +18,7 @@ export default defineEventHandler(async (event) => {
     .orderBy(desc(lotes.fechaEntrada), desc(lotes.creadoEn))
 
   const movs = await db
-    .select({
-      loteId: movimientosInventario.loteId,
-      deltaAlmacen: movimientosInventario.deltaAlmacen,
-      deltaQuiosco: movimientosInventario.deltaQuiosco
-    })
+    .select()
     .from(movimientosInventario)
     .where(
       and(
@@ -30,26 +27,23 @@ export default defineEventHandler(async (event) => {
       )
     )
 
-  const porLote = new Map<string, { almacen: number, quiosco: number, consumido: boolean }>()
-  for (const m of movs) {
-    if (!m.loteId) continue
-    let s = porLote.get(m.loteId)
-    if (!s) {
-      s = { almacen: 0, quiosco: 0, consumido: false }
-      porLote.set(m.loteId, s)
+  return filas.map((l) => {
+    // Misma regla que el camino offline (saldosDeLote), para que el diálogo de
+    // corrección muestre el mismo piso en los dos modos.
+    const s = saldosDeLote(l, movs)
+    return {
+      ...l,
+      fechaEntrada: l.fechaEntrada,
+      creadoEn: l.creadoEn.toISOString(),
+      actualizadoEn: l.actualizadoEn.toISOString(),
+      // Lote sin ningún movimiento (datos importados a mano): se muestra lo que
+      // dice la cabecera, como siempre. Para corregirlo el diálogo avisa de que
+      // el libro no tiene su entrada.
+      saldoAlmacen: movs.some(m => m.loteId === l.id) ? s.almacen : l.cantidadInicial,
+      saldoQuiosco: s.quiosco,
+      conConsumo: s.consumido,
+      salidasAlmacen: s.salidasAlmacen,
+      piso: s.piso
     }
-    s.almacen += m.deltaAlmacen ?? 0
-    s.quiosco += m.deltaQuiosco ?? 0
-    if ((m.deltaAlmacen ?? 0) < 0 || (m.deltaQuiosco ?? 0) < 0) s.consumido = true
-  }
-
-  return filas.map(l => ({
-    ...l,
-    fechaEntrada: l.fechaEntrada,
-    creadoEn: l.creadoEn.toISOString(),
-    actualizadoEn: l.actualizadoEn.toISOString(),
-    saldoAlmacen: porLote.get(l.id)?.almacen ?? l.cantidadInicial,
-    saldoQuiosco: porLote.get(l.id)?.quiosco ?? 0,
-    conConsumo: porLote.get(l.id)?.consumido ?? false
-  }))
+  })
 })

@@ -2,7 +2,7 @@
   <BaseDialog
     v-model="isOpen"
     :title="`Lotes - ${producto?.nombre}`"
-    description="Cada lote conserva su precio de compra. Solo se corrige el precio de un lote sin consumo."
+    description="Cada lote conserva su precio de compra. Se corrige mientras no se toque lo que ya salió."
     cancel-text="Cerrar"
     :hide-confirm="true"
     @cancel="isOpen = false"
@@ -36,42 +36,24 @@
       </template>
       <template #acciones-cell="{ row }">
         <UButton
-          v-if="!row.original.conConsumo && !row.original.anulado"
+          v-if="!row.original.anulado"
           icon="i-lucide-pencil"
           size="xs"
           color="neutral"
           variant="ghost"
-          title="Corregir precio"
+          title="Corregir cantidad o precio"
           @click="abrirCorreccion(row.original)"
         />
       </template>
     </UTable>
-
-    <div v-if="corrigiendo" class="mt-4 border-t pt-4 space-y-3">
-      <p class="text-sm font-medium">
-        Corregir precio del lote del {{ corrigiendo.fechaEntrada }} (actual: {{ fmtPrecio(corrigiendo.precioUnitario) }})
-      </p>
-      <div class="flex gap-2 items-end">
-        <UFormField label="Precio correcto" class="w-32">
-          <BaseInputNumber v-model="precioNuevo" :min="0" />
-        </UFormField>
-        <UFormField label="Motivo" class="flex-1">
-          <UInput v-model="motivo" placeholder="Error al registrar..." class="w-full" />
-        </UFormField>
-        <UButton
-          size="sm"
-          :loading="guardando"
-          :disabled="!(motivo.trim())"
-          @click="confirmarCorreccion"
-        >
-          Guardar
-        </UButton>
-      </div>
-    </div>
   </BaseDialog>
+
+  <InventarioDialogoCorreccionLote v-model="showCorreccion" :lote="corrigiendo" @guardado="alGuardar" />
 </template>
 
 <script setup>
+import { saldosDeLote } from '../../../shared/inventario/operaciones'
+
 const props = defineProps({
   producto: { type: Object, default: null }
 })
@@ -79,14 +61,11 @@ const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
 
 const inv = useInventario()
-const toast = useToast()
 
 const lotes = ref([])
 const cargando = ref(false)
+const showCorreccion = ref(false)
 const corrigiendo = ref(null)
-const precioNuevo = ref(0)
-const motivo = ref('')
-const guardando = ref(false)
 
 const columns = [
   { accessorKey: 'fechaEntrada', header: 'Entrada' },
@@ -106,7 +85,6 @@ function nombreProveedor(lote) {
 
 watch(isOpen, async (open) => {
   if (!open || !props.producto?.id) return
-  corrigiendo.value = null
   await recargar()
 })
 
@@ -120,23 +98,24 @@ async function recargar() {
     let filas = lista
       .filter(l => !props.producto?.id || l.productoId === props.producto.id)
       .map(l => ({ ...l, nombreProveedor: l.proveedorId ? provPorId.get(l.proveedorId) : null }))
-    // El repo puede devolver filas crudas (sin saldos): se derivan por lote
-    // de los movimientos. Se revisa fila por fila (no solo la primera), porque
-    // el servidor puede mezclar filas con y sin saldos calculados.
-    if (filas.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null)) {
+
+    // El repo puede devolver filas crudas (sin saldos): se derivan con la
+    // misma regla del servidor (saldosPorLote) para que el piso del diálogo de
+    // corrección sea el mismo online que offline.
+    const faltaSaldo = filas.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null)
+    if (faltaSaldo) {
       const movsCrudo = await inv.movimientosRepo.value.readAll()
       const movs = Array.isArray(movsCrudo) ? movsCrudo : (movsCrudo?.data ?? [])
-      const delLote = (movs ?? []).filter(m => !m.anulado)
       filas = filas.map((l) => {
         if (l.saldoAlmacen != null && l.saldoQuiosco != null) return l
-        const propios = delLote.filter(m => m.loteId === l.id)
-        const saldoAlmacen = propios.reduce((s, m) => s + Math.trunc(Number(m.deltaAlmacen) || 0), 0)
-        const saldoQuiosco = propios.reduce((s, m) => s + Math.trunc(Number(m.deltaQuiosco) || 0), 0)
+        const s = saldosDeLote(l, movs)
         return {
           ...l,
-          saldoAlmacen,
-          saldoQuiosco,
-          conConsumo: propios.some(m => Number(m.deltaAlmacen) < 0 || Number(m.deltaQuiosco) < 0)
+          saldoAlmacen: s.almacen,
+          saldoQuiosco: s.quiosco,
+          conConsumo: s.consumido,
+          salidasAlmacen: s.salidasAlmacen,
+          piso: s.piso
         }
       })
     }
@@ -149,22 +128,11 @@ async function recargar() {
 
 function abrirCorreccion(lote) {
   corrigiendo.value = lote
-  precioNuevo.value = Number(lote.precioUnitario) || 0
-  motivo.value = ''
+  showCorreccion.value = true
 }
 
-async function confirmarCorreccion() {
-  guardando.value = true
-  try {
-    await inv.corregirPrecioLote(corrigiendo.value.id, Number(precioNuevo.value) || 0, motivo.value.trim())
-    toast.add({ title: 'Precio corregido', color: 'success' })
-    corrigiendo.value = null
-    await recargar()
-    emit('guardado')
-  } catch {
-    // useInventario ya muestra el toast de error
-  } finally {
-    guardando.value = false
-  }
+async function alGuardar() {
+  await recargar()
+  emit('guardado')
 }
 </script>
