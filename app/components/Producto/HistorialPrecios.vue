@@ -22,9 +22,6 @@
       <template #vigenteHasta-cell="{ row }">
         {{ row.original.vigenteHasta ? fmtDate(row.original.vigenteHasta) : 'Vigente' }}
       </template>
-      <template #precioCompra-cell="{ row }">
-        {{ fmtPrecio(row.original.precioCompra) }}
-      </template>
       <template #precioVenta-cell="{ row }">
         {{ fmtPrecio(row.original.precioVenta) }}
       </template>
@@ -60,10 +57,11 @@ watch(isOpen, async (open) => {
   }
 })
 
+// Solo el precio de VENTA: es el único que el jefe controla y el único que
+// cambia aquí. El de compra vive en cada lote y se ve en /almacen como "Costo".
 const columns = [
   { accessorKey: 'vigenteDesde', header: 'Desde' },
   { accessorKey: 'vigenteHasta', header: 'Hasta' },
-  { accessorKey: 'precioCompra', header: 'Precio compra' },
   { accessorKey: 'precioVenta', header: 'Precio venta' }
 ]
 </script>

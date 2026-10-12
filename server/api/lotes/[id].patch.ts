@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { lotes, movimientosInventario, productos, historialPrecios } from '../../database/schema'
+import { lotes, movimientosInventario } from '../../database/schema'
 
 const correccionLoteSchema = z.object({
   precioUnitario: z.number().min(0, 'El precio no puede ser negativo'),
@@ -57,26 +57,8 @@ export default defineEventHandler(async (event) => {
         .where(eq(movimientosInventario.id, m.id))
     }
 
-    // Si es el lote más reciente del producto, el espejo y el historial lo siguen.
-    const recientes = await tx
-      .select()
-      .from(lotes)
-      .where(eq(lotes.productoId, lote.productoId))
-      .orderBy(desc(lotes.fechaEntrada), desc(lotes.creadoEn))
-      .limit(1)
-    if (recientes[0]?.id === id) {
-      await tx.update(productos).set({ precioCompraActual: parsed.data.precioUnitario }).where(eq(productos.id, lote.productoId))
-      const vigentes = await tx
-        .select()
-        .from(historialPrecios)
-        .where(eq(historialPrecios.productoId, lote.productoId))
-        .orderBy(desc(historialPrecios.vigenteDesde))
-        .limit(5)
-      const vigente = vigentes.find(h => !h.vigenteHasta)
-      if (vigente && Number(vigente.precioCompra) !== parsed.data.precioUnitario) {
-        await tx.update(historialPrecios).set({ precioCompra: parsed.data.precioUnitario }).where(eq(historialPrecios.id, vigente.id))
-      }
-    }
+    // Nada más que actualizar: el lote es el único sitio donde vive el precio de
+    // compra. El valorizado y el costo de lo que salga de él salen de aquí.
 
     return actualizado
   })

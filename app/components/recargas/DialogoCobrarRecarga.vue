@@ -56,7 +56,7 @@
       variant="soft"
       icon="i-lucide-triangle-alert"
       title="Supera el saldo"
-      :description="`El saldo pendiente es ${fmtPrecio(saldo)}.`"
+      :description="`El saldo pendiente es ${fmtPrecio(saldo)} cup.`"
     />
   </div>
 </template>

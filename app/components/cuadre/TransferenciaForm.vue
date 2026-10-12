@@ -12,7 +12,6 @@
         />
       </UFormField>
       <UButton
-        v-if="!editar"
         icon="i-lucide-plus"
         size="sm"
         variant="outline"
@@ -45,8 +44,7 @@
 import { usuarioSchema } from '../../../shared/schemas/usuario'
 
 defineProps({
-  clientes: { type: Array, default: () => [] },
-  editar: { type: Boolean, default: false }
+  clientes: { type: Array, default: () => [] }
 })
 
 const model = defineModel({ type: Object, required: true })

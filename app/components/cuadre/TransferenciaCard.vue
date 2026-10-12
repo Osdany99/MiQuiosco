@@ -8,7 +8,7 @@
     <div class="space-y-3 text-sm">
       <div class="flex justify-between">
         <span>En transferencia:</span>
-        <span class="font-mono">{{ fmtPrecio(montoTransferenciaCalculado) }}</span>
+        <span class="font-mono">{{ fmtPrecio(montoTransferencia) }}</span>
       </div>
 
       <div v-if="!readonly" class="flex gap-2 pt-2">
@@ -40,13 +40,6 @@
               <UButton
                 size="xs"
                 variant="ghost"
-                icon="i-lucide-pencil"
-                aria-label="Editar transferencia"
-                @click="abrirEdicion(t)"
-              />
-              <UButton
-                size="xs"
-                variant="ghost"
                 color="error"
                 icon="i-lucide-trash-2"
                 aria-label="Eliminar transferencia"
@@ -71,22 +64,6 @@
         v-model="nuevaForm"
         :clientes="clientes"
         @crear-cliente="onCrearCliente"
-      />
-    </BaseDialog>
-
-    <BaseDialog
-      v-model="editarOpen"
-      title="Editar transferencia"
-      confirm-text="Guardar"
-      :loading="cargando"
-      @confirm="confirmarEdicion"
-      @cancel="editarOpen = false"
-    >
-      <CuadreTransferenciaForm
-        ref="editarFormRef"
-        v-model="editarForm"
-        :clientes="clientes"
-        editar
       />
     </BaseDialog>
 
@@ -116,21 +93,23 @@ const props = defineProps({
 
 const {
   clientes, cargando, transferenciasDelCuadre,
-  montoTransferenciaCalculado,
   cargarClientes, cargarActividadDelCuadre, crearCliente,
-  registrarTransferencia, editarTransferencia, eliminarTransferencia
+  registrarTransferencia, eliminarTransferencia
 } = useTransferencias()
+
+// El total sale del cuadre, no de sumar las filas de la lista: el abono inicial
+// de una deuda pagada por transferencia entra a la gaveta del cuadre SIN crear
+// fila aquí (ver useCuentasFiado.registrarNuevaDeuda), así que la suma de las
+// filas se quedaría corta y la tarjeta y el resumen de la derecha enseñarían
+// números distintos en la misma pantalla.
+const { montoTransferencia } = useCuadre()
 
 const toast = useToast()
 const nuevaOpen = ref(false)
-const editarOpen = ref(false)
 const eliminarOpen = ref(false)
 const nuevaForm = ref({ clienteId: null, monto: 0 })
-const editarForm = ref({ clienteId: null, monto: 0 })
-const editarTransferenciaId = ref(null)
 const transferenciaAEliminar = ref(null)
 const nuevaFormRef = ref(null)
-const editarFormRef = ref(null)
 
 const emit = defineEmits(['actualizado'])
 
@@ -148,15 +127,6 @@ async function onCrearCliente(data) {
   nuevaForm.value.clienteId = nuevo.id
 }
 
-function abrirEdicion(t) {
-  editarTransferenciaId.value = t.id
-  editarForm.value = {
-    clienteId: t.clienteId,
-    monto: Number(t.montoTotal) || 0
-  }
-  editarOpen.value = true
-}
-
 async function confirmarNueva() {
   if (!nuevaForm.value.clienteId) {
     toast.add({ title: 'Error', description: 'Elige el cliente que transfirió.', color: 'error' })
@@ -171,17 +141,6 @@ async function confirmarNueva() {
   if (!r?.ok) return
   nuevaOpen.value = false
   nuevaForm.value = { clienteId: null, monto: 0 }
-  emit('actualizado')
-}
-
-async function confirmarEdicion() {
-  if (!((Number(editarForm.value.monto) || 0) > 0)) {
-    toast.add({ title: 'Error', description: 'El monto debe ser mayor que cero.', color: 'error' })
-    return
-  }
-  const r = await editarTransferencia({ transferenciaId: editarTransferenciaId.value, monto: editarForm.value.monto, cuadreId: props.cuadreId })
-  if (!r?.ok) return
-  editarOpen.value = false
   emit('actualizado')
 }
 

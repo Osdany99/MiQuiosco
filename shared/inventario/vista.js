@@ -52,9 +52,10 @@ export function vistaSaldos({ productos, lotes, movimientos }) {
       stockMinimoQuiosco: Number(p.stockMinimoQuiosco ?? 0),
       stockRecomendadoQuiosco: Number(p.stockRecomendadoQuiosco ?? 0),
       stockMinimoAlmacen: Number(p.stockMinimoAlmacen ?? 0),
-      costoActual: costoActual.has(p.id)
-        ? costoActual.get(p.id)
-        : Number(p.precioCompraActual ?? 0) || 0,
+      // El costo sale del lote más reciente. Sin lotes no hay mercancía que
+      // valuar, así que 0 es la respuesta correcta (antes caía al espejo
+      // precio_compra_actual, que era una copia que se desincronizaba).
+      costoActual: costoActual.get(p.id) ?? 0,
       valorizadoQuiosco: 0,
       valorizadoAlmacen: 0,
       precioVentaActual: Number(p.precioVentaActual ?? 0)

@@ -64,7 +64,9 @@ export async function calcularGrafica(key, opts) {
 
   switch (key) {
     case 'productos-mas-vendidos': return _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo)
-    case 'productos-mayor-ganancia': return _productosMayorGanancia(opts, productoRepo, cuadreRepo, itemsRepo)
+    // 'productos-mayor-ganancia' ya no es una gráfica seleccionable (la cubre
+    // 'ganancia-real-fifo'), pero la función sigue viva como contrapunto de
+    // 'diferencia-estimada-real'.
     case 'productos-menor-rotacion': return _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'ganancia-por-periodo': return _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'ingresos-por-periodo': return _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -298,6 +300,32 @@ function getWeek(d) {
   return Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7)
 }
 
+/**
+ * Costo actual por producto: el precioUnitario de su lote más reciente.
+ *
+ * El lote es el único sitio donde el precio de compra existe de verdad, así que
+ * se deriva de ahí en vez de leer el espejo del producto (que se desincronizaba).
+ * El desempate es por creadoEn, el mismo criterio que usa vistaSaldos().
+ */
+function costoPorProductoDelLibro(lib) {
+  const actual = new Map()
+  for (const l of (lib.lotes ?? [])) {
+    if (l.anulado) continue
+    const previo = actual.get(l.productoId)
+    if (!previo) {
+      actual.set(l.productoId, l)
+      continue
+    }
+    const fa = String(previo.fechaEntrada ?? '')
+    const fb = String(l.fechaEntrada ?? '')
+    const esMasNuevo = fb !== fa ? fb > fa : Number(l.creadoEn ?? 0) > Number(previo.creadoEn ?? 0)
+    if (esMasNuevo) actual.set(l.productoId, l)
+  }
+  return new Map(
+    [...actual].map(([id, l]) => [id, Number(l.precioUnitario) || 0])
+  )
+}
+
 async function _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo) {
   const { items, prodMap } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
   const ventas = {}
@@ -315,19 +343,47 @@ async function _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo) 
     .slice(0, 10)
 }
 
-async function _productosMayorGanancia(opts, productoRepo, cuadreRepo, itemsRepo) {
-  const { items, prodMap } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
+/**
+ * Ganancia ESTIMADA por producto: la que saldría de usar el costo de HOY en vez
+ * del costo FIFO real del lote que se consumió.
+ *
+ * El costo sale del lote más reciente (el mismo criterio que la columna Costo de
+ * /almacen), no de productos.precioCompraActual: ese campo era una copia que se
+ * desincronizaba y daba números inflados. Sirve de contrapunto a la gráfica
+ * 'ganancia-real-fifo' para ver cuánto se desvía la estimación.
+ *
+ * @param {object} repos — juego completo de repos (usa cargarLibro, que además
+ *   trae los lotes). La única llamante es _diferenciaEstimadaReal, que ya paga
+ *   esa carga por _gananciaRealFifo, así que no añade coste.
+ */
+async function _productosMayorGanancia(opts, repos) {
+  const lib = await cargarLibro(repos)
+  const desde = opts.desde || ''
+  const hasta = opts.hasta || ''
+
+  const nombrePorProducto = lib.nombrePorProducto
+  const costoActual = costoPorProductoDelLibro(lib)
+
+  const cuadrePorId = new Map()
+  for (const c of lib.cuadres) {
+    if (c.estado !== 'cerrado') continue
+    const dia = aDia(c.fecha)
+    if (!dia || !enRango(dia, desde, hasta)) continue
+    cuadrePorId.set(c.id, dia)
+  }
+
   const ganancias = {}
-  for (const i of items) {
+  for (const i of lib.items) {
+    if (!cuadrePorId.has(i.cuadreId)) continue
     const cant = Number(i.cantidad) || 0
     if (cant <= 0) continue
-    const p = prodMap[i.productoId]
-    const ganancia = (Number(i.precioVentaUsado) - Number(p?.precioCompraActual || 0)) * cant
+    const costo = costoActual.get(i.productoId) ?? 0
+    const ganancia = (Number(i.precioVentaUsado) - costo) * cant
     ganancias[i.productoId] = (ganancias[i.productoId] || 0) + ganancia
   }
   return Object.entries(ganancias)
     .map(([id, gananciaTotal]) => ({
-      nombre: prodMap[id]?.nombre || '—',
+      nombre: nombrePorProducto.get(id) || '—',
       gananciaTotal: Math.round(gananciaTotal)
     }))
     .sort((a, b) => b.gananciaTotal - a.gananciaTotal)
@@ -1199,8 +1255,8 @@ async function _heatmapProductoDia(opts, repos) {
  *
  * El ingreso sale de lo que se cobró (líneas de cuadre cerradas + ventas
  * directas) y el costo del libro, que guarda el precio FIFO del lote que se
- * consumió. La gráfica 'productos-mayor-ganancia' estima ese costo con el
- * precio de compra de HOY: cuando el precio cambia, deja de cuadrar.
+ * consumió. La estimación de _productosMayorGanancia usa en cambio el costo del
+ * lote MÁS RECIENTE: cuando el precio cambia, deja de cuadrar.
  *
  * @param {boolean} comoMargen — devuelve el porcentaje en vez del monto
  */
@@ -1290,7 +1346,7 @@ async function _diferenciaEstimadaReal(opts, repos) {
 
   // Se compara contra la MISMA base que usa la gráfica estimada, para que la
   // diferencia sea solo del costo y no del conjunto de datos.
-  const estimado = await _productosMayorGanancia(opts, repos.productos, repos.cuadres, repos.items)
+  const estimado = await _productosMayorGanancia(opts, repos)
 
   return estimado
     .map((f) => {

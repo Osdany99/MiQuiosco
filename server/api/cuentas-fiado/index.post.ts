@@ -47,16 +47,38 @@ export default defineEventHandler(async (event) => {
     }
 
     if (montoPagadoInicial > 0) {
-      // Opción B: el abono en el momento entra a la caja del día por vía
-      // normal (el jefe lo cuenta en Dinero real / transferencia). Se guarda
-      // como pago directo para el historial, sin inflar montoCobradoFiado
-      // (antes se sumaba y la nueva fórmula lo habría contado doble).
+      // El abono en el momento NO va a montoCobradoFiado: ese acumulado cuenta
+      // los cobros que entraron por una gaveta y el abono ya se descuenta por la
+      // vía normal (fiado neto + esta gaveta), así que sumarlo lo contaría doble.
+      //
+      // El cuadreId del pago es lo que hace después que el borrado de la deuda
+      // sepa a qué gaveta devolver el dinero:
+      //   - transferencia → el abono entró a montoTransferencia de ESE cuadre,
+      //     así que se marca con su id y borrar la deuda lo revierte.
+      //   - efectivo       → el jefe lo teclea en "Dinero real en caja", que es
+      //     un campo manual sin registro que revertir; queda cuadreId null.
+      // Un cobro posterior SIEMPRE va con cuadreId null (es cobro directo, por
+      // fuera del cuadre), así que nunca se confunde con el abono inicial.
+      const abonoEnTransferencia = formaPagoInicial === 'transferencia'
       await tx.insert(pagosFiado).values({
         cuentaFiadoId: c.id,
-        cuadreId: null,
+        cuadreId: abonoEnTransferencia ? cuadreOrigenId : null,
         monto: montoPagadoInicial,
         formaPago: formaPagoInicial
       })
+
+      if (abonoEnTransferencia) {
+        // El abono entra a la gaveta de transferencias del cuadre del día. No se
+        // crea fila en `transferencias`: esa tabla registra lo que el jefe
+        // captura a mano, y una fila aquí no tendría forma de distinguirse de
+        // esa al borrar la deuda (no hay FK que las una).
+        await tx
+          .update(cuadres)
+          .set({
+            montoTransferencia: sql`${cuadres.montoTransferencia} + ${montoPagadoInicial}`
+          })
+          .where(eq(cuadres.id, cuadreOrigenId))
+      }
     }
 
     // Fiado neto generado hoy (total menos pago inicial): mantiene al día el

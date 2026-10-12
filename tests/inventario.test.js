@@ -12,9 +12,7 @@ import {
   construirAnulacionCuadre,
   construirAjuste,
   saldosPorProducto,
-  lotesConSaldo,
-  rotarPrecioCompra,
-  calcularRotacionHistorial
+  lotesConSaldo
 } from '../shared/inventario/operaciones.js'
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
@@ -23,6 +21,7 @@ import { ventaDirectaSchema, deudaDirectaSchema, pagoFiadoDirectoSchema } from '
 import { pagoFiadoSchema } from '../shared/schemas/pagoFiado.js'
 import { vistaSaldos } from '../shared/inventario/vista.js'
 import { saldosDesdeMovimientos } from '../shared/inventario/fifo.js'
+import { capacidadDelCuadre } from '../shared/inventario/capacidad.js'
 import {
   aDia, diasEntre, enRango, indiceFechasNegocio,
   resumenVentas, magnitudesPorTipo, magnitudesPorProducto,
@@ -951,117 +950,247 @@ describe('analitica: valor y estado del stock', () => {
   })
 })
 
-describe('rotarPrecioCompra', () => {
-  const producto = { id: PAN, precioCompraActual: 10, precioVentaActual: 15 }
-  const vigente = { id: 'vigente-1', vigenteDesde: meta.ahora - 86400000 }
+// ─── Capacidad del cuadre (shared/inventario/capacidad.js) ──────────────────
+// El problema que resuelve: al revisar un cuadre CERRADO, la cantidad vendida se
+// comparaba contra el stock que QUEDABA (4 de 10) y salía en rojo. La capacidad
+// es lo que había disponible para vender ese día, y las ventas del cuadre quedan
+// fuera del cálculo, así que cerrar no baja el número.
 
-  it('mismo precio con vigente no rota', () => {
-    assert.equal(rotarPrecioCompra({ producto, vigente, nuevoPrecio: 10, ahora: meta.ahora, usuarioId: JEFE }), null)
+describe('capacidadDelCuadre', () => {
+  const DIA = '2026-05-04'
+  const AYER = '2026-05-03'
+  const CUADRE = 'c-dia'
+  const LOTE = { id: 'lote-1', productoId: PAN, precioUnitario: 10, fechaEntrada: '2026-05-01' }
+
+  /** Movimiento con la forma exacta del libro (lo que devuelve movimientosRepo). */
+  function mov(over = {}) {
+    return {
+      id: over.id ?? crypto.randomUUID(),
+      puestoId: PUESTO,
+      productoId: PAN,
+      loteId: LOTE.id,
+      cuadreId: null,
+      lineaCuadreId: null,
+      traspasoId: null,
+      ventaDirectaId: null,
+      tipo: 'traspaso',
+      cantidad: 0,
+      deltaAlmacen: 0,
+      deltaQuiosco: 0,
+      precioUnitario: 10,
+      motivo: null,
+      nota: null,
+      usuarioId: JEFE,
+      anulado: false,
+      ...over
+    }
+  }
+
+  const h = (dia = DIA, hora = 17) => ms(dia, hora)
+
+  /** Reposición del día anterior: fija el stock con el que arranca el cuadre. */
+  function arranque(n) {
+    return mov({
+      tipo: 'traspaso', deltaQuiosco: n, cantidad: n,
+      traspasoId: 't-arranque', creadoEn: h(AYER, 8)
+    })
+  }
+
+  function capacidad(movimientos, extra = {}) {
+    const libro = [...movimientos]
+    return capacidadDelCuadre({
+      movimientos: libro,
+      cuadres: [{ id: CUADRE, fecha: DIA, puestoId: PUESTO }],
+      lotes: [LOTE],
+      traspasos: [],
+      saldos: saldosDe(libro),
+      fechaCuadre: DIA,
+      cuadreId: CUADRE,
+      ...extra
+    }).get(PAN)
+  }
+
+  it('reconstruye el arranque desde el día anterior', () => {
+    // Ayer quedaron 8 en el quiosco y hoy no se movió nada.
+    const r = capacidad([arranque(8)])
+    assert.equal(r.inicial, 8)
+    assert.equal(r.capacidad, 8)
+    assert.equal(r.pasos.length, 0)
   })
 
-  it('precio distinto cierra el vigente y abre uno nuevo con espejo', () => {
-    const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
-    assert.equal(r.cerrarId, 'vigente-1')
-    assert.equal(r.nuevoHistorial.productoId, PAN)
-    assert.equal(r.nuevoHistorial.precioCompra, 12)
-    assert.equal(r.nuevoHistorial.precioVenta, 15)
-    assert.equal(r.nuevoHistorial.vigenteHasta, null)
-    assert.equal(r.espejo, 12)
-    assert.ok(r.nuevoHistorial.vigenteDesde >= meta.ahora)
+  it('suma cada reposición y da el desglose en orden', () => {
+    // Arranca con 2, repone 3, luego 6, y devuelve 1 (se equivocó de cantidad).
+    const r1 = mov({ tipo: 'traspaso', deltaQuiosco: 3, cantidad: 3, traspasoId: 't-1', creadoEn: h(DIA, 10) })
+    const r2 = mov({ tipo: 'traspaso', deltaQuiosco: 6, cantidad: 6, traspasoId: 't-2', creadoEn: h(DIA, 11) })
+    const dev = mov({ tipo: 'devolucion', deltaQuiosco: -1, deltaAlmacen: 1, cantidad: 1, motivo: 'sobro', creadoEn: h(DIA, 14) })
+    const r = capacidad([arranque(2), r1, r2, dev])
+    assert.equal(r.inicial, 2)
+    assert.deepEqual(r.pasos.map(p => p.delta), [3, 6, -1])
+    assert.deepEqual(r.pasos.map(p => p.etiqueta), [
+      'Repuesto desde el almacén',
+      'Repuesto desde el almacén',
+      'Devuelto al almacén'
+    ])
+    assert.equal(r.capacidad, 10)
+    // La invariante que hace confiable el desglose: la suma cuadra con el total.
+    assert.equal(r.inicial + r.pasos.reduce((s, p) => s + p.delta, 0), r.capacidad)
   })
 
-  it('sin vigente crea historial sin cerrar nada', () => {
-    const r = rotarPrecioCompra({ producto, vigente: null, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
-    assert.equal(r.cerrarId, null)
-    assert.equal(r.cerrarHasta, null)
-    assert.equal(r.nuevoHistorial.vigenteDesde, meta.ahora)
-    assert.equal(r.espejo, 12)
+  it('un traspaso repartido en varios lotes es UN solo paso', () => {
+    // Todos los movimientos de una operación comparten meta.ahora: mismo
+    // traspasoId y mismo creadoEn, aunque salgan de lotes distintos.
+    const a = mov({ tipo: 'traspaso', deltaQuiosco: 3, cantidad: 3, traspasoId: 't-1', creadoEn: h(DIA, 10) })
+    const b = mov({ tipo: 'traspaso', deltaQuiosco: 4, cantidad: 4, traspasoId: 't-1', creadoEn: h(DIA, 10) })
+    const r = capacidad([arranque(2), a, b])
+    assert.equal(r.pasos.length, 1)
+    assert.equal(r.pasos[0].delta, 7)
+    assert.equal(r.pasos[0].cantidad, 7)
+    assert.equal(r.capacidad, 9)
   })
 
-  it('sin vigente y mismo precio también crea (no hay nada que comparar)', () => {
-    const r = rotarPrecioCompra({ producto, vigente: null, nuevoPrecio: 10, ahora: meta.ahora, usuarioId: JEFE })
-    assert.equal(r.cerrarId, null)
-    assert.equal(r.nuevoHistorial.precioCompra, 10)
+  it('agrupa venta directa y merma en pasos propios', () => {
+    const vd = mov({ tipo: 'venta', deltaQuiosco: -1, cantidad: 1, ventaDirectaId: 'vd-1', creadoEn: h(DIA, 12), motivo: 'venta_directa_quiosco' })
+    const merma = mov({ tipo: 'merma', deltaQuiosco: -1, cantidad: 1, motivo: 'se rompio', creadoEn: h(DIA, 15) })
+    const r = capacidad([arranque(2), vd, merma])
+    assert.deepEqual(r.pasos.map(p => p.delta), [-1, -1])
+    assert.deepEqual(r.pasos.map(p => p.etiqueta), ['Venta directa', 'Merma'])
+    assert.equal(r.capacidad, 0)
   })
 
-  it('tolera precio como texto y redondea la comparación', () => {
-    assert.equal(rotarPrecioCompra({ producto, vigente, nuevoPrecio: '10', ahora: meta.ahora, usuarioId: JEFE }), null)
-    const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: '12.5', ahora: meta.ahora, usuarioId: JEFE })
-    assert.equal(r.nuevoHistorial.precioCompra, 12.5)
+  // El caso que motivó todo: 10 panes, se venden 6 y se cierra.
+  it('las ventas del propio cuadre NO bajan la capacidad al cerrar', () => {
+    const venta = mov({
+      tipo: 'venta', deltaQuiosco: -6, cantidad: 6, cuadreId: CUADRE,
+      lineaCuadreId: 'linea-1', motivo: 'venta_cuadre', creadoEn: h(DIA, 18)
+    })
+    const libro = [arranque(10), venta]
+
+    const abierto = capacidad(libro)
+    assert.equal(abierto.capacidad, 10)
+
+    const cerrado = capacidad(libro, { cerrado: true, cerradoEn: h(DIA, 18) })
+    // Mismo número con el cuadre cerrado: 6 vendidos contra 10 no da rojo, y el
+    // stock real (4) sigue siendo cosa de /quiosco.
+    assert.equal(cerrado.capacidad, 10)
+    assert.equal(cerrado.pasos.length, 0)
+    assert.equal(saldosDe(libro).get(PAN).quiosco, 4)
   })
 
-  it('el nuevo rango no pisa al vigente: empieza al menos 1 ms después', () => {
-    const r = rotarPrecioCompra({ producto, vigente, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
-    assert.ok(r.nuevoHistorial.vigenteDesde > vigente.vigenteDesde)
-    assert.equal(r.cerrarHasta, r.nuevoHistorial.vigenteDesde - 1)
+  it('un cuadre cerrado se congela: lo que pase después no lo reescribe', () => {
+    const rep = mov({ tipo: 'traspaso', deltaQuiosco: 3, cantidad: 3, traspasoId: 't-1', creadoEn: h(DIA, 10) })
+    const venta = mov({ tipo: 'venta', deltaQuiosco: -1, cantidad: 1, cuadreId: CUADRE, creadoEn: h(DIA, 18) })
+    // Tras cerrar, el jefe hace otra venta directa fuera de cuadre.
+    const despues = mov({ tipo: 'venta', deltaQuiosco: -1, cantidad: 1, ventaDirectaId: 'vd-9', creadoEn: h(DIA, 20) })
+    const libro = [arranque(1), rep, venta, despues]
+
+    const congelado = capacidad(libro, { cerrado: true, cerradoEn: h(DIA, 18) })
+    assert.equal(congelado.capacidad, 4)
+    assert.deepEqual(congelado.pasos.map(p => p.delta), [3])
+
+    // El mismo cuadre reabierto: cerrado = false, ahora sí se ve el movimiento
+    // posterior, porque reabrirCuadre no borra cerradoEn.
+    const reabierto = capacidad(libro, { cerrado: false })
+    assert.equal(reabierto.capacidad, 3)
+    assert.deepEqual(reabierto.pasos.map(p => p.delta), [3, -1])
   })
 
-  it('con varias abiertas las cierra todas y arranca después de la última', () => {
-    const abiertos = [
-      { id: 'v-1', vigenteDesde: meta.ahora - 86400000 },
-      { id: 'v-2', vigenteDesde: meta.ahora - 3600000 },
-      { id: 'v-3', vigenteDesde: meta.ahora - 1000 }
+  it('la anulación de una reapertura se cancela en neto', () => {
+    const venta = mov({ tipo: 'venta', deltaQuiosco: -6, cantidad: 6, cuadreId: CUADRE, creadoEn: h(DIA, 18) })
+    const anulacion = mov({ tipo: 'anulacion', deltaQuiosco: 6, cantidad: 6, cuadreId: CUADRE, motivo: 'reapertura_cuadre', creadoEn: h(DIA, 19) })
+    const r = capacidad([arranque(10), venta, anulacion])
+    // La venta y su contramovimiento se van en el acumulado: el stock real volvió
+    // a 10. Ninguno de los dos es un paso, porque los dos son de este cuadre.
+    assert.equal(r.inicial, 10)
+    assert.equal(r.capacidad, 10)
+    assert.equal(r.pasos.length, 0)
+  })
+
+  it('funciona igual en un cuadre de días anteriores', () => {
+    // Cuadre del viernes. El stock de hoy ya es otro, pero el acumulado desde
+    // aquel día reconstruye el arranque y la capacidad de aquel día.
+    const VIE = '2026-05-01'
+    const vie = { id: 'c-vie', fecha: VIE, puestoId: PUESTO }
+    const libro = [
+      // El 01-01 arranca con 5, se traspasan 10 y el cuadre vende 4.
+      mov({ tipo: 'traspaso', deltaQuiosco: 5, cantidad: 5, traspasoId: 't-0', creadoEn: ms('2026-04-30', 8) }),
+      mov({ tipo: 'traspaso', deltaQuiosco: 10, cantidad: 10, traspasoId: 't-1', creadoEn: ms(VIE, 9) }),
+      mov({ tipo: 'venta', deltaQuiosco: -4, cantidad: 4, cuadreId: vie.id, creadoEn: ms(VIE, 18) }),
+      // Días después otra reposición: el stock de hoy ya no es el de aquel día.
+      mov({ tipo: 'traspaso', deltaQuiosco: 7, cantidad: 7, traspasoId: 't-2', creadoEn: ms(DIA, 9) })
     ]
-    const r = rotarPrecioCompra({ producto, abiertos, nuevoPrecio: 12, ahora: meta.ahora, usuarioId: JEFE })
-    assert.deepEqual(r.cierres.map(c => c.id), ['v-1', 'v-2', 'v-3'])
-    // El rango nuevo arranca después de la última abierta: sin esto, el
-    // producto queda con dos filas vigentes a la vez.
-    assert.equal(r.nuevoHistorial.vigenteDesde, meta.ahora)
-    for (const c of r.cierres) assert.equal(c.hasta, r.nuevoHistorial.vigenteDesde - 1)
-    // El contrato de siempre sigue siendo la primera abierta.
-    assert.equal(r.cerrarId, 'v-1')
-    assert.equal(r.cerrarHasta, r.cierres[0].hasta)
+    assert.equal(saldosDe(libro).get(PAN).quiosco, 18)
+    const r = capacidadDelCuadre({
+      movimientos: libro,
+      cuadres: [vie],
+      lotes: [LOTE],
+      saldos: saldosDe(libro),
+      fechaCuadre: VIE,
+      cuadreId: vie.id
+    }).get(PAN)
+    assert.equal(r.inicial, 5)
+    assert.equal(r.capacidad, 15)
+    assert.deepEqual(r.pasos.map(p => p.delta), [10])
   })
 
-  it('una abierta con vigenteDesde ISO no produce NaN', () => {
-    const iso = '2026-07-11T19:13:55.004Z'
-    const r = rotarPrecioCompra({
-      producto,
-      abiertos: [{ id: 'v-iso', vigenteDesde: iso }],
-      nuevoPrecio: 12,
-      ahora: meta.ahora,
-      usuarioId: JEFE
+  it('ignora los movimientos anulados', () => {
+    const anulado = mov({
+      tipo: 'traspaso',
+      deltaQuiosco: 9,
+      cantidad: 9,
+      traspasoId: 't-9',
+      creadoEn: h(DIA, 9),
+      anulado: true
     })
-    assert.equal(Number.isFinite(r.nuevoHistorial.vigenteDesde), true)
-    assert.ok(r.nuevoHistorial.vigenteDesde > Date.parse(iso))
-    assert.ok(r.cierres[0].hasta >= Date.parse(iso))
+    const r = capacidad([arranque(5), anulado])
+    assert.equal(r.capacidad, 5)
+    assert.equal(r.pasos.length, 0)
   })
 
-  it('precio igual no rota, aunque haya duplicados abiertos', () => {
-    // Una entrada al mismo precio no genera historial (contrato de siempre).
-    // Los duplicados que quedaran abiertos se cierran en el siguiente cambio
-    // de precio, que es el camino que usan producto y entrada.
-    const abiertos = [
-      { id: 'v-1', vigenteDesde: meta.ahora - 2000 },
-      { id: 'v-2', vigenteDesde: meta.ahora - 1000 }
-    ]
-    assert.equal(rotarPrecioCompra({ producto, abiertos, nuevoPrecio: 10, ahora: meta.ahora, usuarioId: JEFE }), null)
-  })
-})
-
-describe('calcularRotacionHistorial', () => {
-  it('sin abiertas arranca en ahora', () => {
-    const { vigenteDesde, cierres } = calcularRotacionHistorial({ abiertos: [], ahora: 5000 })
-    assert.equal(vigenteDesde, 5000)
-    assert.deepEqual(cierres, [])
+  it('sin fecha de cuadre devuelve un mapa vacío', () => {
+    assert.equal(capacidadDelCuadre({ movimientos: [] }).size, 0)
   })
 
-  it('arranca un ms después de la última abierta', () => {
-    const { vigenteDesde, cierres } = calcularRotacionHistorial({
-      abiertos: [{ id: 'a', vigenteDesde: 1000 }, { id: 'b', vigenteDesde: 9000 }],
-      ahora: 5000
+  it('acepta el array de filas de vistaSaldos como saldos', () => {
+    const r = capacidadDelCuadre({
+      movimientos: [arranque(4)],
+      cuadres: [{ id: CUADRE, fecha: DIA, puestoId: PUESTO }],
+      lotes: [LOTE],
+      saldos: [{ productoId: PAN, quiosco: 4, almacen: 0 }],
+      fechaCuadre: DIA,
+      cuadreId: CUADRE
+    }).get(PAN)
+    assert.equal(r.capacidad, 4)
+  })
+
+  // El "Q:" del cuadre desaparece entero cuando un readAll sin desarrollar llega
+  // hasta acá: useRepo().readAll() devuelve { data, error } y no lanza, así que
+  // el fallo se manifestaba como "cuadres.map is not a function" mucho más
+  // arriba, dentro de un catch que solo dejaba un console.warn.
+  it('desarrolla el { data, error } de un readAll en vez de romperse', () => {
+    const r = capacidadDelCuadre({
+      movimientos: { data: [arranque(6)], error: null },
+      cuadres: { data: [{ id: CUADRE, fecha: DIA, puestoId: PUESTO }], error: null },
+      lotes: { data: [LOTE], error: null },
+      traspasos: { data: [], error: null },
+      saldos: new Map([[PAN, { productoId: PAN, quiosco: 6 }]]),
+      fechaCuadre: DIA,
+      cuadreId: CUADRE
+    }).get(PAN)
+    assert.equal(r.inicial, 6)
+    assert.equal(r.capacidad, 6)
+  })
+
+  it('un readAll fallido (data null) no revienta: la capacidad sale del saldo', () => {
+    const r = capacidadDelCuadre({
+      movimientos: [arranque(3)],
+      cuadres: { data: null, error: new Error('sin red') },
+      lotes: { data: null, error: new Error('sin red') },
+      saldos: new Map([[PAN, { productoId: PAN, quiosco: 3 }]]),
+      fechaCuadre: DIA,
+      cuadreId: CUADRE
     })
-    assert.equal(vigenteDesde, 9001)
-    assert.deepEqual(cierres, [{ id: 'a', hasta: 9000 }, { id: 'b', hasta: 9000 }])
-  })
-
-  it('nunca invierte un rango (hasta >= desde)', () => {
-    const { vigenteDesde, cierres } = calcularRotacionHistorial({
-      abiertos: [{ id: 'futura', vigenteDesde: 999999999 }],
-      ahora: 1000
-    })
-    assert.equal(vigenteDesde, 1000000000)
-    assert.equal(cierres[0].hasta, 999999999)
-    assert.ok(cierres[0].hasta >= 999999999)
+    // Sin índice de cabeceras, el arranque cae al día de su creadoEn y la
+    // capacidad sale igual desde el saldo: se ve el número, no un hueco.
+    assert.equal(r.get(PAN).capacidad, 3)
   })
 })

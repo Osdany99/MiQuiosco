@@ -154,105 +154,28 @@ export function useCuentasFiado() {
           })
         }
         if (montoPagadoInicial > 0) {
-          // Opción B: el abono entra a caja por vía normal (conteo manual).
-          // Pago directo en historial, sin tocar montoCobradoFiado.
+          // Espejo de server/api/cuentas-fiado/index.post.ts. El cuadreId del
+          // pago marca a qué gaveta entró el abono, que es lo que permite
+          // revertirlo al borrar la deuda:
+          //   - transferencia -> abonó la gaveta de transferencias del cuadre.
+          //   - efectivo       -> el jefe lo teclea en "Dinero real en caja", un
+          //     campo manual sin registro que revertir; queda cuadreId null.
+          // Un cobro posterior SIEMPRE va con cuadreId null (directo).
+          const abonoEnTransferencia = formaPagoInicial === 'transferencia'
           await r(pagosRepo).create({
             cuentaFiadoId: nueva.id,
-            cuadreId: null,
+            cuadreId: abonoEnTransferencia ? cuadreId : null,
             monto: montoPagadoInicial,
             formaPago: formaPagoInicial || 'efectivo'
           })
+          // Sin fila en `transferencias`: esa tabla es de lo que el jefe
+          // captura a mano, y una fila aquí no se podría distinguir de esa al
+          // borrar la deuda (no hay FK que las una).
+          if (abonoEnTransferencia) {
+            await acumularTransferenciaEnCuadre(cuadreId, montoPagadoInicial)
+          }
         }
         await acumularFiadoEnCuadre(cuadreId, montoTotal - (montoPagadoInicial || 0))
-      }
-      await cargarActividadDelCuadre(cuadreId)
-      return { ok: true }
-    } catch (err) {
-      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
-      return { ok: false, error: err }
-    } finally {
-      cargando.value = false
-    }
-  }
-
-  /**
-   * Edita una cuenta pendiente: cambia productos/cantidades conservando el
-   * precio congelado de las líneas existentes.
-   */
-  async function editarDeuda({ cuentaFiadoId, items, cuadreId }) {
-    cargando.value = true
-    try {
-      if (esOnline.value) {
-        await $api(`/api/cuentas-fiado/${cuentaFiadoId}`, {
-          method: 'PATCH',
-          body: { items },
-          headers: apiHeaders()
-        })
-      } else {
-        const todas = await r(cuentasRepo).readAll()
-        const cuenta = todas.find(c => c.id === cuentaFiadoId)
-        if (!cuenta) throw new Error('Cuenta no encontrada')
-        if (cuenta.estado === 'pagada') throw new Error('La cuenta ya está pagada y no se puede editar.')
-
-        const topeMsg = await validarTopeLocal(cuenta.cuadreOrigenId, items, [cuentaFiadoId])
-        if (topeMsg) {
-          toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-          return { ok: false, error: new Error(topeMsg) }
-        }
-
-        // Precios congelados: líneas existentes conservan su precio.
-        const existentes = await r(itemsRepo).readAll()
-        const itemsActuales = existentes.filter(i => i.cuentaFiadoId === cuentaFiadoId)
-        const preciosAnteriores = new Map(itemsActuales.map(i => [i.productoId, Number(i.precioVentaUsado)]))
-        const itemsFinales = items.map((it) => {
-          const congelado = preciosAnteriores.get(it.productoId)
-          const precio = congelado != null ? congelado : Number(it.precioVentaUsado)
-          return { ...it, precioVentaUsado: precio, subtotal: Number(it.cantidad) * precio }
-        })
-
-        const nuevoTotal = itemsFinales.reduce((s, it) => s + it.subtotal, 0)
-        if (nuevoTotal < Number(cuenta.montoPagado)) {
-          throw new Error(`El nuevo total (${nuevoTotal}) no puede ser menor a lo ya pagado (${cuenta.montoPagado}).`)
-        }
-
-        const pendienteAnterior = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
-        const pendienteNuevo = nuevoTotal - Number(cuenta.montoPagado)
-
-        // Sincroniza las líneas de la cuenta: actualizar, crear o borrar.
-        const anterioresMap = new Map(itemsActuales.map(i => [i.productoId, i]))
-        const nuevosSet = new Set(itemsFinales.map(i => i.productoId))
-        for (const antiguo of itemsActuales) {
-          if (!nuevosSet.has(antiguo.productoId)) {
-            await r(itemsRepo).remove(antiguo.id)
-          }
-        }
-        for (const it of itemsFinales) {
-          const anterior = anterioresMap.get(it.productoId)
-          if (anterior) {
-            if (Number(anterior.cantidad) !== Number(it.cantidad)) {
-              await r(itemsRepo).update(anterior.id, {
-                cantidad: it.cantidad,
-                subtotal: it.subtotal
-              })
-            }
-          } else {
-            await r(itemsRepo).create({
-              cuentaFiadoId,
-              productoId: it.productoId,
-              cantidad: it.cantidad,
-              precioVentaUsado: it.precioVentaUsado,
-              subtotal: it.subtotal
-            })
-          }
-        }
-
-        await r(cuentasRepo).update(cuentaFiadoId, {
-          montoTotal: nuevoTotal,
-          estado: Number(cuenta.montoPagado) >= nuevoTotal ? 'pagada' : Number(cuenta.montoPagado) > 0 ? 'parcial' : 'pendiente'
-        })
-
-        const delta = pendienteNuevo - pendienteAnterior
-        if (delta !== 0) await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, delta)
       }
       await cargarActividadDelCuadre(cuadreId)
       return { ok: true }
@@ -286,11 +209,31 @@ export function useCuentasFiado() {
         const todosPagos = await r(pagosRepo).readAll()
         const pagosCuenta = todosPagos.filter(p => p.cuentaFiadoId === cuentaFiadoId)
 
-        for (const p of pagosCuenta) {
-          await acumularCobroEnCuadre(p.cuadreId, -Number(p.monto))
+        // Un cuadre cerrado es historia: sus montos son el snapshot de ese día y
+        // no se reescriben. Misma regla que cobrarDeuda más abajo. La deuda se
+        // borra igual, pero sin tocar las gavetas de un cuadre ya cerrado.
+        let origenAbierto = true
+        if (cuenta.cuadreOrigenId) {
+          const origen = await r(cuadresRepo).read(cuenta.cuadreOrigenId)
+          origenAbierto = !origen || origen.estado === 'abierto'
         }
-        const pendiente = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
-        if (pendiente > 0) await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -pendiente)
+
+        // Cada gaveta se devuelve por la que entró el dinero. El abono inicial
+        // por transferencia viene marcado con cuadreId (ver registrarNuevaDeuda)
+        // y es el único pago con esa combinación: los cobros posteriores son
+        // directos y van con cuadreId null.
+        if (origenAbierto) {
+          for (const p of pagosCuenta) {
+            if (!p.cuadreId) continue
+            if (p.formaPago === 'transferencia') {
+              await acumularTransferenciaEnCuadre(p.cuadreId, -Number(p.monto))
+            } else {
+              await acumularCobroEnCuadre(p.cuadreId, -Number(p.monto))
+            }
+          }
+          const pendiente = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
+          if (pendiente > 0) await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -pendiente)
+        }
 
         for (const it of itemsCuenta) await r(itemsRepo).remove(it.id)
         for (const p of pagosCuenta) await r(pagosRepo).remove(p.id)
@@ -493,6 +436,21 @@ export function useCuentasFiado() {
   }
 
   /**
+   * Gaveta de transferencias del cuadre. Es la contra del abono inicial de una
+   * deuda pagado por transferencia (registrarNuevaDeuda) y su reversión al
+   * borrar esa deuda (eliminarDeuda). Solo local; en online lo hace el
+   * servidor transaccionalmente. Piso 0.
+   */
+  async function acumularTransferenciaEnCuadre(cuadreId, delta) {
+    if (esOnline.value || !delta || !cuadreId) return
+    const cuadre = await r(cuadresRepo).read(cuadreId)
+    if (!cuadre) return
+    await r(cuadresRepo).update(cuadreId, {
+      montoTransferencia: Math.max((Number(cuadre.montoTransferencia) || 0) + delta, 0)
+    })
+  }
+
+  /**
    * Ajusta el fiado pendiente de un cuadre (solo modo local; en online lo
    * hace el servidor transaccionalmente). Positivo al generar deuda (en el
    * cuadre de origen), negativo al cobrar (también en el origen, aunque el
@@ -508,11 +466,6 @@ export function useCuentasFiado() {
     })
   }
 
-  async function itemsDeCuenta(cuentaFiadoId) {
-    const todos = await r(itemsRepo).readAll()
-    return todos.filter(i => i.cuentaFiadoId === cuentaFiadoId)
-  }
-
   async function cuentasConSaldoPendiente() {
     const todas = await r(cuentasRepo).readAll()
     return todas.filter(c => c.estado !== 'pagada')
@@ -522,7 +475,7 @@ export function useCuentasFiado() {
     clientes, cuentasDelCuadre, pagosDelCuadre, cargando,
     montoFiadoCalculado, montoCobradoFiadoCalculado,
     cargarClientes, cargarActividadDelCuadre, crearCliente,
-    registrarNuevaDeuda, registrarDeudaDirecta, editarDeuda, eliminarDeuda, cobrarDeuda,
-    itemsDeCuenta, cuentasConSaldoPendiente, cargarDeudas, pagosDeCuenta
+    registrarNuevaDeuda, registrarDeudaDirecta, eliminarDeuda, cobrarDeuda,
+    cuentasConSaldoPendiente, cargarDeudas, pagosDeCuenta
   }
 }

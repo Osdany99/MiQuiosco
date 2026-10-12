@@ -1,9 +1,14 @@
+/**
+ * Formatea un precio sin el sufijo de moneda.
+ *
+ * Todos los precios de la app son CUP, así que repetirlo en cada celda solo
+ * roba ancho (y en las tablas de columnas estrechas estorba). Los textos donde
+ * el monto va suelto en una frase ("Recarga de 500 CUP al 043...") sí lo
+ * escriben a mano, porque ahí el número sin unidad se confundiría con una
+ * cantidad.
+ */
 export function fmtPrecio(v) {
-  return new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'CUP',
-    minimumFractionDigits: 0
-  }).format(v)
+  return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0 }).format(v)
 }
 
 export function fmtDate(d) {

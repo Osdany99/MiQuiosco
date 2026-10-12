@@ -27,7 +27,9 @@ const columns = [
   // Solo lectura y oculta: sirve para verificar el orden real tras un
   // arrastre. El orden no se edita a mano (el drag es la única vía).
   { accessorKey: 'orden', header: 'Orden', visible: false },
-  { accessorKey: 'precioCompraActual', header: 'P. compra (auto)', cell: 'currency' },
+  // Sin columna de precio de compra: ese precio vive en el lote (lo que entra al
+  // almacén) y se ve en /almacen como "Costo". Guardarlo aquí era una copia que
+  // se desincronizaba.
   { accessorKey: 'precioVentaActual', header: 'Precio Venta', cell: 'currency' },
   { accessorKey: 'activo', header: 'Estado', cell: 'activation', cascadeOff: 'activoQuiosco' },
   { accessorKey: 'activoQuiosco', header: 'Vende', cell: 'activation', labelTrue: 'sí', labelFalse: 'no' },
@@ -205,17 +207,12 @@ onBeforeUnmount(() => destruirSortable())
           :schema="productoSchema"
         >
           <template #field-precioVentaActual>
-            <div class="space-y-1">
-              <BaseInputNumber
-                v-model="form.precioVentaActual"
-                :min="0"
-                :step="100"
-                class="w-full"
-              />
-              <p class="text-xs text-muted">
-                Compra actual: {{ fmtPrecio(form.precioCompraActual) }} (se actualiza con las entradas al almacén)
-              </p>
-            </div>
+            <BaseInputNumber
+              v-model="form.precioVentaActual"
+              :min="0"
+              :step="100"
+              class="w-full"
+            />
           </template>
         </BaseForm>
       </template>

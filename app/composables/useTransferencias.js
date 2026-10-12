@@ -28,10 +28,6 @@ export function useTransferencias() {
   const transferenciasDelCuadre = ref([])
   const cargando = ref(false)
 
-  const montoTransferenciaCalculado = computed(() =>
-    transferenciasDelCuadre.value.reduce((sum, t) => sum + Number(t.montoTotal || 0), 0)
-  )
-
   async function cargarActividadDelCuadre(cuadreId) {
     const rpta = await r(transferenciasRepo).readAll({ query: { cuadreId } })
     // useRemoteRepo devuelve el array directo y useLocalRepo { data }: se
@@ -63,44 +59,6 @@ export function useTransferencias() {
         })
         void nueva
         await acumularTransferenciaEnCuadre(cuadreId, montoTotal)
-      }
-      await cargarActividadDelCuadre(cuadreId)
-      return { ok: true }
-    } catch (err) {
-      toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
-      return { ok: false, error: err }
-    } finally {
-      cargando.value = false
-    }
-  }
-
-  async function editarTransferencia({ transferenciaId, monto, cuadreId }) {
-    cargando.value = true
-    try {
-      const nuevoTotal = Math.round((Number(monto) || 0) * 100) / 100
-      if (!(nuevoTotal > 0)) throw new Error('El monto debe ser mayor que cero.')
-      if (esOnline.value) {
-        await $api(`/api/transferencias/${transferenciaId}`, {
-          method: 'PATCH',
-          body: { monto: nuevoTotal },
-          headers: apiHeaders()
-        })
-      } else {
-        const todas = await r(transferenciasRepo).readAll()
-        const transferencia = todas.find(t => t.id === transferenciaId)
-        if (!transferencia) throw new Error('Transferencia no encontrada')
-
-        // Las líneas históricas por producto (modelo anterior) se retiran.
-        const existentes = await r(itemsRepo).readAll()
-        const itemsActuales = existentes.filter(i => i.transferenciaId === transferenciaId)
-        for (const antiguo of itemsActuales) {
-          await r(itemsRepo).remove(antiguo.id)
-        }
-
-        await r(transferenciasRepo).update(transferenciaId, { montoTotal: nuevoTotal })
-
-        const delta = nuevoTotal - Number(transferencia.montoTotal)
-        if (delta !== 0) await acumularTransferenciaEnCuadre(cuadreId, delta)
       }
       await cargarActividadDelCuadre(cuadreId)
       return { ok: true }
@@ -157,9 +115,8 @@ export function useTransferencias() {
 
   return {
     clientes, transferenciasDelCuadre, cargando,
-    montoTransferenciaCalculado,
     cargarClientes, crearCliente, cargarActividadDelCuadre,
-    registrarTransferencia, editarTransferencia, eliminarTransferencia,
+    registrarTransferencia, eliminarTransferencia,
     itemsDeTransferencia
   }
 }

@@ -1,7 +1,7 @@
 <template>
   <BaseHeaderPage
     title="Deudas"
-    description="Cuentas por cobrar, cobros y ventas fuera de cuadre"
+    description="Cuentas por cobrar y cobros"
     leading-icon="i-lucide-hand-coins"
     :show-button="false"
   >
@@ -46,7 +46,7 @@
 
     <UTabs v-model="tab" :items="tabs" class="mb-4" />
 
-    <div v-if="tab !== 'ventas'" class="flex justify-end mb-4">
+    <div class="flex justify-end mb-4">
       <USelectMenu
         v-model="filtroOrigen"
         :items="opcionesOrigen"
@@ -153,32 +153,6 @@
         </template>
       </UTable>
     </template>
-
-    <UTable
-      v-else-if="tab === 'ventas'"
-      :data="ventas"
-      :columns="columnasVenta"
-      :ui="uiTabla"
-      empty="Sin ventas fuera de cuadre"
-    >
-      <template #ubicacion-cell="{ row }">
-        <UBadge variant="soft" size="sm" color="neutral">
-          {{ row.original.ubicacion }}
-        </UBadge>
-      </template>
-      <template #creadoEn-cell="{ row }">
-        {{ formatearFecha(row.original.creadoEn) }}
-      </template>
-      <template #montoTotal-cell="{ row }">
-        <span class="font-mono">{{ fmtPrecio(row.original.montoTotal) }}</span>
-      </template>
-      <template #costoTotal-cell="{ row }">
-        <span class="font-mono">{{ fmtPrecio(row.original.costoTotal) }}</span>
-      </template>
-      <template #ganancia-cell="{ row }">
-        <span class="font-mono font-medium">{{ fmtPrecio(row.original.ganancia) }}</span>
-      </template>
-    </UTable>
 
     <UTable
       v-else
@@ -305,12 +279,10 @@ const {
   pagosDeCuenta
 } = useCuentasFiado()
 const rec = useRecargas()
-const inv = useInventario()
 
 const tab = ref('deudas')
 const tabs = [
   { label: 'Deudas', value: 'deudas' },
-  { label: 'Ventas fuera de cuadre', value: 'ventas' },
   { label: 'Saldadas', value: 'pagadas' }
 ]
 
@@ -318,7 +290,6 @@ const cargando = ref(true)
 const deudas = ref([])
 const pagadas = ref([])
 const clientes = ref([])
-const ventas = ref([])
 const pagos = ref([])
 
 const showCobro = ref(false)
@@ -343,15 +314,6 @@ const columnasDeuda = [
   { accessorKey: 'creadoEn', header: 'Fecha' },
   { accessorKey: 'ganancia', header: 'Ganancia' },
   { accessorKey: 'acciones', header: '' }
-]
-
-const columnasVenta = [
-  { accessorKey: 'creadoEn', header: 'Fecha' },
-  { accessorKey: 'ubicacion', header: 'Sale de' },
-  { accessorKey: 'montoTotal', header: 'Total' },
-  { accessorKey: 'costoTotal', header: 'Costo' },
-  { accessorKey: 'ganancia', header: 'Ganancia' },
-  { accessorKey: 'nombreUsuario', header: 'Quién' }
 ]
 
 // El cobro es siempre directo: el jefe cobra en físico y ningún cuadre
@@ -445,11 +407,10 @@ async function recargar() {
   cargando.value = true
   try {
     const puestoId = auth.usuarioActual.value?.puestoId
-    const [pendientes, todas, listaClientes, vDirectas, filasRecargas] = await Promise.all([
+    const [pendientes, todas, listaClientes, filasRecargas] = await Promise.all([
       cargarDeudas({ conSaldo: true }),
       cargarDeudas({ conSaldo: false }),
       cargarClientes(puestoId),
-      inv.cargarVentasDirectas(),
       rec.cargarRecargas()
     ])
 
@@ -464,7 +425,6 @@ async function recargar() {
     deudas.value = [...quioscoPend, ...recPend].sort(porFecha)
     pagadas.value = [...quioscoSald, ...recSald].sort(porFecha)
     clientes.value = listaClientes
-    ventas.value = vDirectas
 
     // Reparte lo cobrado de cada deuda de quiosco entre caja (histórico) y
     // directo para los totales de la cabecera. Los cobros nuevos son siempre

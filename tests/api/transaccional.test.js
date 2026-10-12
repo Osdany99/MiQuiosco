@@ -294,6 +294,124 @@ describe('fiado normal y pagos', () => {
     })
     assert.equal(r.status, 404)
   })
+
+  // El abono inicial pagado por transferencia ES una gaveta del cuadre: si no
+  // sumara a montoTransferencia, el cuadre mostraba un faltante falso por
+  // dinero que sí entró (10 de esperado, 5 de abono y 5 de saldo = faltante 5).
+  it('abono inicial por transferencia suma a montoTransferencia y lo revierte al borrar', async () => {
+    const { productoId } = await montarTienda('abono', { stock: 10 })
+    const cuadre = await crearCuadre()
+    // Vender 10 unidades: es el tope contra el que se valida el fiado.
+    await raw('POST', `/api/cuadres/${cuadre.id}/cerrar`, {
+      body: {
+        totalEsperado: 100, totalRealCaja: 0,
+        lineas: [{
+          id: randomUUID(), productoId,
+          precioVentaUsado: 10, cantidad: 10, subtotal: 100
+        }]
+      },
+      token, status: 200
+    })
+    await raw('POST', `/api/cuadres/${cuadre.id}/reabrir`, { body: {}, token, status: 200 })
+
+    const cli = await crearCliente('abono')
+    const nuevoDeuda = formaPago => post('/api/cuentas-fiado', {
+      clienteId: cli.id,
+      cuadreOrigenId: cuadre.id,
+      items: [{ productoId, cantidad: 1, precioVentaUsado: 10 }],
+      montoPagadoInicial: 5,
+      formaPagoInicial: formaPago
+    }, { token, status: 200 })
+
+    const porTransferencia = await nuevoDeuda('transferencia')
+    const porEfectivo = await nuevoDeuda('efectivo')
+
+    const gavetas = async () => {
+      const c = (await filas('cuadres', `id = '${cuadre.id}'`))[0]
+      return {
+        fiado: Number(c.monto_fiado),
+        transferencia: Number(c.monto_transferencia),
+        cobradoFiado: Number(c.monto_cobrado_fiado)
+      }
+    }
+
+    // Cada deuda fía 10 y abona 5: al cuadre le van 5 de fiado cada una, y solo
+    // la de transferencia suma a la gaveta de transferencias.
+    assert.deepEqual(await gavetas(), { fiado: 10, transferencia: 5, cobradoFiado: 0 })
+
+    // El abono en efectivo NO se marca con cuadreId: es dinero que el jefe
+    // teclea a mano en "Dinero real en caja", sin registro que revertir. El de
+    // transferencia sí, que es lo que permite devolverlo a su gaveta.
+    const pagos = await filas('pagos_fiado', `cuenta_fiado_id in ('${porTransferencia.id}', '${porEfectivo.id}')`)
+    const cuadreDelPago = id => (pagos.find(p => p.cuenta_fiado_id === id) || {}).cuadre_id
+    assert.equal(cuadreDelPago(porTransferencia.id), cuadre.id)
+    assert.equal(cuadreDelPago(porEfectivo.id), null)
+
+    // Con 1000 de esperado, 5 por transferencia, 5 en caja y 10 fiados, el día
+    // cuadra: sobrante/faltante = 100 - 5 - 5 - 10 = 0.
+    await raw('DELETE', `/api/cuentas-fiado/${porTransferencia.id}`, { token, status: 200 })
+    assert.deepEqual(
+      await gavetas(),
+      { fiado: 5, transferencia: 0, cobradoFiado: 0 },
+      'borrar la deuda devuelve el abono a la gaveta de transferencias y quita su saldo'
+    )
+
+    // La de efectivo no toca esa gaveta: su dinero entra por el conteo manual.
+    await raw('DELETE', `/api/cuentas-fiado/${porEfectivo.id}`, { token, status: 200 })
+    assert.deepEqual(await gavetas(), { fiado: 0, transferencia: 0, cobradoFiado: 0 })
+  })
+
+  it('borrar deuda de un cuadre cerrado no reescribe sus montos', async () => {
+    const { productoId } = await montarTienda('cerrado', { stock: 8 })
+    const cuadre = await crearCuadre()
+    // Cerrar con lineas y reabrir: es la unica forma de tener lineas en el
+    // cuadre, que es contra las que se valida el tope del fiado.
+    await raw('POST', `/api/cuadres/${cuadre.id}/cerrar`, {
+      body: {
+        totalEsperado: 40, totalRealCaja: 40,
+        lineas: [{
+          id: randomUUID(), productoId,
+          precioVentaUsado: 10, cantidad: 4, subtotal: 40
+        }]
+      },
+      token, status: 200
+    })
+    await raw('POST', `/api/cuadres/${cuadre.id}/reabrir`, { body: {}, token, status: 200 })
+
+    const cli = await crearCliente('cerrado')
+    const deuda = await post('/api/cuentas-fiado', {
+      clienteId: cli.id,
+      cuadreOrigenId: cuadre.id,
+      items: [{ productoId, cantidad: 1, precioVentaUsado: 10 }],
+      montoPagadoInicial: 5,
+      formaPagoInicial: 'transferencia'
+    }, { token, status: 200 })
+
+    const montos = async () => {
+      const c = (await filas('cuadres', `id = '${cuadre.id}'`))[0]
+      return { fiado: Number(c.monto_fiado), transferencia: Number(c.monto_transferencia) }
+    }
+    assert.deepEqual(await montos(), { fiado: 5, transferencia: 5 })
+
+    // Cerrar de nuevo: el cierre reescribe las gavetas con lo que le manda el
+    // cliente, asi que hay que pasarlas tal cual para no perderlas.
+    await raw('POST', `/api/cuadres/${cuadre.id}/cerrar`, {
+      body: {
+        totalEsperado: 40, totalRealCaja: 40,
+        montoTransferencia: 5, montoFiado: 5,
+        lineas: [{
+          id: randomUUID(), productoId,
+          precioVentaUsado: 10, cantidad: 4, subtotal: 40
+        }]
+      },
+      token, status: 200
+    })
+
+    await raw('DELETE', `/api/cuentas-fiado/${deuda.id}`, { token, status: 200 })
+    // Un cuadre cerrado es el snapshot de su dia: el registro de la deuda se
+    // borra, pero el dia no se reescribe ni por el fiado ni por la gaveta.
+    assert.deepEqual(await montos(), { fiado: 5, transferencia: 5 })
+  })
 })
 
 describe('deudas y ventas directas (fuera del cuadre)', () => {

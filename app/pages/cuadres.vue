@@ -14,20 +14,28 @@ const reabrirOpen = ref(false)
 const reabrirTarget = ref(null)
 const reabriendo = ref(false)
 
+// Esta tabla es un ÍNDICE para entrar al cuadre, no un reporte: lo que se ve
+// de entrada es con qué se cierra cada día (esperado, diferencia) y el botón
+// para abrirlo. Los montos desglosados (caja, transferencia, fiado, costo,
+// ganancia) y las marcas de tiempo quedan en el selector de columnas: abrir
+// un cuadre es la excepción diaria; revisarlos todos desde una tabla de 14
+// columnas, no.
 const columns = [
   { accessorKey: 'id', header: 'ID', visible: false },
   { accessorKey: 'fecha', header: 'Fecha', cell: 'date' },
   { accessorKey: 'estado', header: 'Estado', cell: 'boolean', labelTrue: 'abierto', labelFalse: 'cerrado', colorTrue: 'warning', colorFalse: 'success' },
   { accessorKey: 'totalEsperado', header: 'Esperado', cell: 'currency' },
-  { accessorKey: 'totalRealCaja', header: 'Real', cell: 'currencyWithValue' },
-  { accessorKey: 'montoTransferencia', header: 'Transferencia', cell: 'currency' },
-  { accessorKey: 'montoFiado', header: 'Fiado', cell: 'currency' },
-  { accessorKey: 'montoCobradoFiado', header: 'Cobrado fiado', cell: 'currency' },
+  // La diferencia se queda: es el número con el que se revisa si el día
+  // cuadró, y es lo único que no se deduce de las otras dos columnas.
   { accessorKey: 'diferencia', header: 'Diferencia' },
-  { accessorKey: 'costoTotal', header: 'Costo' },
-  { accessorKey: 'ganancia', header: 'Ganancia' },
-  { accessorKey: 'pagoTrabajador', header: 'Pago trab.', cell: 'currencyWithValue' },
-  { accessorKey: 'cerradoEn', header: 'Cerrado en', cell: 'dateWithValue' },
+  { accessorKey: 'totalRealCaja', header: 'Real', cell: 'currencyWithValue', visible: false },
+  { accessorKey: 'montoTransferencia', header: 'Transferencia', cell: 'currency', visible: false },
+  { accessorKey: 'montoFiado', header: 'Fiado', cell: 'currency', visible: false },
+  { accessorKey: 'montoCobradoFiado', header: 'Cobrado fiado', cell: 'currency', visible: false },
+  { accessorKey: 'costoTotal', header: 'Costo', visible: false },
+  { accessorKey: 'ganancia', header: 'Ganancia', visible: false },
+  { accessorKey: 'pagoTrabajador', header: 'Pago trab.', cell: 'currencyWithValue', visible: false },
+  { accessorKey: 'cerradoEn', header: 'Cerrado en', cell: 'dateWithValue', visible: false },
   { accessorKey: 'action', header: 'Acciones' }
 ]
 

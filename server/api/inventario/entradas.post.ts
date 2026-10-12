@@ -1,9 +1,9 @@
-import { eq, and, isNull, inArray, asc } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { lotes, movimientosInventario, productos, historialPrecios, proveedores } from '../../database/schema'
+import { lotes, movimientosInventario, productos, proveedores } from '../../database/schema'
 import { entradaAlmacenSchema } from '#shared/schemas/entradaAlmacen'
-import { construirEntrada, rotarPrecioCompra } from '#shared/inventario/operaciones'
-import { comoMovimiento, comoRotacionPrecio } from '../../utils/inventario'
+import { construirEntrada } from '#shared/inventario/operaciones'
+import { comoMovimiento } from '../../utils/inventario'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -63,45 +63,6 @@ export default defineEventHandler(async (event) => {
     }
     for (const m of movimientos) {
       await tx.insert(movimientosInventario).values(comoMovimiento(m))
-    }
-
-    // Rotación del precio de compra por producto (solo cambia si difiere).
-    for (const linea of datos.lineas) {
-      const producto = porId.get(linea.productoId)!
-      // Todas las filas sin cerrar, no solo una: si el producto arrastra
-      // duplicados, cerrar solo el primero deja el resto vigente para siempre.
-      const abiertos = await tx
-        .select()
-        .from(historialPrecios)
-        .where(and(eq(historialPrecios.productoId, linea.productoId), isNull(historialPrecios.vigenteHasta)))
-        .orderBy(asc(historialPrecios.vigenteDesde))
-      const rot = comoRotacionPrecio(
-        rotarPrecioCompra({
-          producto,
-          abiertos,
-          nuevoPrecio: linea.precioUnitario,
-          ahora: ahoraMs,
-          usuarioId
-        })
-      )
-      if (!rot) continue
-      for (const cierre of rot.cierres) {
-        await tx
-          .update(historialPrecios)
-          .set({ vigenteHasta: new Date(cierre.hasta) })
-          .where(eq(historialPrecios.id, cierre.id))
-      }
-      await tx.insert(historialPrecios).values({
-        productoId: linea.productoId,
-        precioCompra: rot.nuevoHistorial.precioCompra,
-        precioVenta: rot.nuevoHistorial.precioVenta,
-        vigenteDesde: new Date(rot.nuevoHistorial.vigenteDesde),
-        cambiadoPor: usuarioId
-      })
-      await tx
-        .update(productos)
-        .set({ precioCompraActual: rot.espejo })
-        .where(eq(productos.id, linea.productoId))
     }
   })
 

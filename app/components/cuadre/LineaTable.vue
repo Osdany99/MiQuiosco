@@ -1,5 +1,22 @@
 <template>
   <div @scroll.capture="soltarFoco">
+    <!-- Aviso general: el rojo del campo hay que ir a buscarlo, y en un día
+         con muchos productos es fácil no llegar a todos. Va arriba de todo y
+         cuenta los CAMPOS mal, que es lo que el jefe tiene que corregir. -->
+    <div
+      v-if="esJefe && excedentes.length"
+      class="mb-3 flex items-start gap-2 rounded-md border border-error bg-error/10 px-3 py-2 text-sm text-error"
+    >
+      <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0 mt-0.5" />
+      <p>
+        <strong>{{ excedentes.length }} {{ excedentes.length === 1 ? 'campo tiene' : 'campos tienen' }}</strong>
+        más unidades de las que había en el quiosco ({{ nombresExcedentes }}).
+        <template v-if="!readonly">
+          Corrige {{ excedentes.length === 1 ? 'esa cantidad' : 'esas cantidades' }} antes de cerrar el cuadre.
+        </template>
+      </p>
+    </div>
+
     <BaseTable
       :data="lineas"
       :columns="columnDefs"
@@ -117,17 +134,29 @@
             :readonly="bloqueado(row.original.id)"
             :increment="false"
             :decrement="false"
+            :color="excesoDe(row.original) ? 'error' : undefined"
+            :highlight="!!excesoDe(row.original)"
             @focus="(e) => activarEdicion(row.original, e)"
-            @blur="terminarEdicion"
+            @blur="terminarEdicion(row.original)"
             @update:model-value="recalcularSubtotal(row.original)"
           />
-          <div
-            v-if="stockQuiosco.has(row.original.productoId)"
-            class="text-sm leading-tight mt-0.5"
-            :class="Number(row.original.cantidad) > (stockQuiosco.get(row.original.productoId) ?? 0) ? 'text-error font-medium' : 'text-muted'"
+          <!-- El "Q:" es la CAPACIDAD del día (con qué merchandise había para
+               vender), no el stock que queda: al cerrar el cuadre las ventas ya
+               se descontaron y comparar contra el saldo salía en rojo sin razón.
+               Tocar abre el desglose de dónde salió el número. -->
+          <button
+            v-if="capacidadDe(row.original.productoId)"
+            type="button"
+            class="block text-sm leading-tight mt-0.5 text-left"
+            :class="excesoDe(row.original) ? 'text-error font-medium' : 'text-muted'"
+            title="Ver de dónde sale este número"
+            @click="abrirCapacidad(row.original)"
           >
-            Q: {{ stockQuiosco.get(row.original.productoId) }}
-          </div>
+            <span class="block">Q: {{ capacidadDe(row.original.productoId).capacidad }}</span>
+            <span v-if="excesoDe(row.original)" class="block text-xs">
+              quedarían −{{ excesoDe(row.original).exceso }}
+            </span>
+          </button>
         </div>
       </template>
     </BaseTable>
@@ -145,6 +174,13 @@
         a {{ aEliminar ? fmtPrecio(aEliminar.precioVentaUsado) : '' }}.
       </p>
     </BaseDialog>
+
+    <CuadreDialogoCapacidad
+      v-model="capacidadOpen"
+      :datos="capacidadActual"
+      :producto="productoCapacidad"
+      :vendido="vendidoActual"
+    />
   </div>
 </template>
 
@@ -152,29 +188,69 @@
 const emit = defineEmits(['reload', 'fiar'])
 
 const {
-  lineas, expandida, cargando,
+  lineas, expandida, cargando, capacidadPorProducto, excedentes, vendidoDe,
   recalcularSubtotal, toggleExpandir,
   getProductoNombre, getProductoDescripcion,
   flushAutosave, duplicarLinea, eliminarLinea
 } = useCuadre()
 
+const toast = useToast()
+
 const eliminarOpen = ref(false)
 const aEliminar = ref(null)
 
-// Stock del quiosco como ayuda visual (solo jefe: el trabajador no ve costos
-// ni stock). No bloquea la venta; el descuento real pasa al cerrar.
-const stockQuiosco = ref(new Map())
+const capacidadOpen = ref(false)
+const productoCapacidad = ref(null)
+
+// La capacidad es solo ayuda visual (y solo para el jefe: el trabajador no ve
+// costos ni stock). No bloquea la venta; el descuento real pasa al cerrar.
 const { esJefe } = useAuth()
 
-onMounted(async () => {
-  if (!esJefe.value) return
-  try {
-    const saldos = await useInventario().cargarSaldos()
-    stockQuiosco.value = new Map((saldos ?? []).map(s => [s.productoId, s.quiosco]))
-  } catch {
-    // Sin saldos no hay hint; la venta sigue funcionando igual.
+/** Datos de capacidad del producto, o null si el jefe no ve stock. */
+function capacidadDe(productoId) {
+  if (!esJefe.value) return null
+  return capacidadPorProducto.value?.get(productoId) ?? null
+}
+
+/**
+ * El exceso de ESTA línea, o null si no se pasa. Sale de `excedentes` para que
+ * el rojo del campo, la banda de arriba y el bloqueo del cierre comparen
+ * siempre contra los mismos números (la suma de las líneas del producto).
+ */
+function excesoDe(linea) {
+  return excedentes.value.find(e => e.lineaId === linea.id) ?? null
+}
+
+/** Nombres de los productos con cantidades mal, para la banda de arriba. */
+const nombresExcedentes = computed(() => {
+  const nombres = []
+  for (const e of excedentes.value) {
+    const nombre = getProductoNombre(e.productoId)
+    if (!nombres.includes(nombre)) nombres.push(nombre)
   }
+  if (nombres.length <= 4) return nombres.join(', ')
+  return `${nombres.slice(0, 4).join(', ')} y ${nombres.length - 4} más`
 })
+
+function abrirCapacidad(linea) {
+  productoCapacidad.value = { id: linea.productoId, nombre: getProductoNombre(linea.productoId) }
+  capacidadOpen.value = true
+}
+
+// El diálogo recibe el desglose del producto abierto. Se deriva del mapa y no
+// se guarda aparte: si el cuadre se recarga, el diálogo no puede quedarse
+// enseñando el número de un producto que ya no es el que está en pantalla.
+const capacidadActual = computed(() =>
+  productoCapacidad.value
+    ? capacidadDe(productoCapacidad.value.id)
+    : null
+)
+
+// El vendido se deriva igual, y con TODAS las líneas del producto: es lo que
+// falta por restar a la capacidad para saber cuánto queda en el quiosco.
+const vendidoActual = computed(() =>
+  productoCapacidad.value ? vendidoDe(productoCapacidad.value.id) : 0
+)
 
 function duplicar(linea) {
   duplicarLinea(linea)
@@ -225,12 +301,25 @@ function activarEdicion(linea, e) {
   }
 }
 
-function terminarEdicion() {
+function terminarEdicion(linea) {
   if (reEnfocando) return
   editandoId.value = null
   // Al salir del campo ya no hay nada que seguir editando: se guarda de
   // inmediato en vez de esperar al debounce.
   flushAutosave()
+  // Aviso al soltar el campo, no mientras se teclea: a media palabra la
+  // cantidad todavía está en camino y un toast por tecla sería insoportable.
+  // El número NO se corrige solo — la capacidad puede estar mal registrada y
+  // lo que escribió el jefe es el dato real; lo que hace es dejarlo en rojo
+  // e impedir cerrar el cuadre hasta que lo revise.
+  const exceso = linea ? excesoDe(linea) : null
+  if (exceso) {
+    toast.add({
+      title: 'Cantidad mayor que lo disponible',
+      description: `${getProductoNombre(linea.productoId)} — escribiste ${exceso.vendido} y en el quiosco había ${exceso.capacidad}.`,
+      color: 'error'
+    })
+  }
 }
 
 function soltarFoco() {

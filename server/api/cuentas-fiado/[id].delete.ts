@@ -15,19 +15,35 @@ export default defineEventHandler(async (event) => {
   const pagos = await db.select().from(pagosFiado).where(eq(pagosFiado.cuentaFiadoId, id))
   const pendiente = cuenta.montoTotal - cuenta.montoPagado
 
+  // Un cuadre cerrado es historia: sus montos son el snapshot de ese día y no se
+  // reescriben. Misma regla que cobrarDeuda (app/composables/useCuentasFiado.js).
+  // Se borra la deuda igual, pero sin tocar las gavetas del cuadre.
+  const [origen] = cuenta.cuadreOrigenId
+    ? await db.select({ estado: cuadres.estado }).from(cuadres).where(eq(cuadres.id, cuenta.cuadreOrigenId)).limit(1)
+    : [null]
+  const origenAbierto = !origen || origen.estado === 'abierto'
+
   await db.transaction(async (tx) => {
-    // Revertir en cascada: los pagos quitaban del montoCobradoFiado de cada
-    // cuadre donde se recibieron; la deuda pendiente quitaba del montoFiado
-    // del cuadre de origen.
+    // Revertir en cascada. Cada gaveta se devuelve por la que entró el dinero:
+    // el abono inicial por transferencia está marcado con cuadreId (ver
+    // index.post.ts) y es el ÚNICO pago con esa combinación, porque los cobros
+    // posteriores van directo (cuadreId null) por diseño.
     for (const pago of pagos) {
       // Los cobros directos no tocaron ninguna gaveta: no hay qué revertir.
-      if (!pago.cuadreId) continue
-      await tx
-        .update(cuadres)
-        .set({ montoCobradoFiado: sql`GREATEST(${cuadres.montoCobradoFiado} - ${pago.monto}, 0)` })
-        .where(eq(cuadres.id, pago.cuadreId))
+      if (!pago.cuadreId || !origenAbierto) continue
+      if (pago.formaPago === 'transferencia') {
+        await tx
+          .update(cuadres)
+          .set({ montoTransferencia: sql`GREATEST(${cuadres.montoTransferencia} - ${pago.monto}, 0)` })
+          .where(eq(cuadres.id, pago.cuadreId))
+      } else {
+        await tx
+          .update(cuadres)
+          .set({ montoCobradoFiado: sql`GREATEST(${cuadres.montoCobradoFiado} - ${pago.monto}, 0)` })
+          .where(eq(cuadres.id, pago.cuadreId))
+      }
     }
-    if (pendiente > 0 && cuenta.cuadreOrigenId) {
+    if (pendiente > 0 && cuenta.cuadreOrigenId && origenAbierto) {
       await tx
         .update(cuadres)
         .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} - ${pendiente}, 0)` })

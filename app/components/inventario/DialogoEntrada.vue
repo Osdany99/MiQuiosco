@@ -78,8 +78,8 @@ const toast = useToast()
 
 const nombreProducto = ref('')
 const proveedoresItems = ref([])
-/** Productos que ya entraron alguna vez: su precio de compra ya es conocido. */
-const productosConLotes = ref(new Set())
+/** Último precio pagado por cada producto, derivado de su lote más reciente. */
+const ultimoPrecio = ref(new Map())
 const guardando = ref(false)
 
 const form = ref({
@@ -96,14 +96,14 @@ const proveedorActual = computed(
 )
 
 /**
- * El precio de compra solo se captura en la entrada al almacén, no en /productos.
- * Un producto que nunca ha entrado sí necesita precio aquí: dejarlo en 0 crea un
- * lote a costo cero y deja el valorizado y los márgenes falseados.
+ * El precio de compra solo se captura en la entrada al almacén, no en
+ * /productos. Un 0 aquí crea un lote a costo cero, que deja el valorizado del
+ * stock y los márgenes falseados, así que SIEMPRE es error: no hay excepción
+ * para productos que ya tienen lotes (ese era el hueco por el que se colaba).
  */
 const faltaPrecio = computed(() => {
   if (!form.value.productoId) return false
-  if (Number(form.value.precioUnitario) > 0) return false
-  return !productosConLotes.value.has(form.value.productoId)
+  return !(Number(form.value.precioUnitario) > 0)
 })
 
 const valida = computed(() =>
@@ -125,17 +125,33 @@ watch(isOpen, async (open) => {
   ])
   const producto = (prods ?? []).find(p => p.id === props.productoId)
   nombreProducto.value = producto?.nombre ?? ''
+
+  // El último precio pagado sale del LOTE más reciente, no de un espejo en el
+  // producto: el lote es el único sitio donde ese precio existe de verdad.
+  // Sale gratis de los lotes que ya se cargaron para nada más.
+  const porProducto = new Map()
+  for (const l of (loteRows ?? []).filter(l => !l.anulado)) {
+    const previo = porProducto.get(l.productoId)
+    const fa = String(previo?.fechaEntrada ?? '')
+    const fb = String(l.fechaEntrada ?? '')
+    const esMasNuevo = !previo
+      || (fb !== fa ? fb > fa : Number(l.creadoEn ?? 0) > Number(previo.creadoEn ?? 0))
+    if (esMasNuevo) porProducto.set(l.productoId, l)
+  }
+  ultimoPrecio.value = new Map(
+    [...porProducto].map(([id, l]) => [id, Number(l.precioUnitario) || 0])
+  )
+
   form.value = {
     productoId: props.productoId,
     fechaEntrada: hoyLocal(),
     proveedorId: null,
-    // Se precarga el último precio de compra conocido: es lo que el jefe
-    // quiere confirmar en la mayoría de las compras.
+    // Se precarga el último precio pagado: es lo que el jefe quiere confirmar en
+    // la mayoría de las compras.
     cantidad: 0,
-    precioUnitario: Number(producto?.precioCompraActual) || 0
+    precioUnitario: ultimoPrecio.value.get(props.productoId) ?? 0
   }
   proveedoresItems.value = (provs ?? []).filter(p => p.activo !== false)
-  productosConLotes.value = new Set((loteRows ?? []).filter(l => !l.anulado).map(l => l.productoId))
 })
 
 async function confirmar() {

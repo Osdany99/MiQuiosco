@@ -84,7 +84,10 @@ const graficas = [
 
   // ---------- Ventas ----------
   { key: 'productos-mas-vendidos', seccion: 'ventas', componente: 'bar-horizontal', titulo: 'Productos más vendidos', descripcion: 'Top 10 por cantidad total vendida', icon: 'i-lucide-trending-up' },
-  { key: 'productos-mayor-ganancia', seccion: 'ventas', componente: 'bar-horizontal', titulo: 'Ganancia estimada', descripcion: 'Top 10 estimando el costo con el precio de compra actual', icon: 'i-lucide-coin' },
+  // Sin 'productos-mayor-ganancia': estimaba la ganancia con el precio de compra
+  // ACTUAL del producto, que además de estar desincronizado daba un número
+  // inflado. La misma pregunta la responde 'ganancia-real-fifo' con el costo
+  // real del lote consumido.
   { key: 'productos-menor-rotacion', seccion: 'ventas', componente: 'bar-horizontal', titulo: 'Productos con menor rotación', descripcion: 'Productos activos con menos ventas en el período', icon: 'i-lucide-package-x' },
   { key: 'evolucion-producto', seccion: 'ventas', componente: 'linea', titulo: 'Evolución de un producto', descripcion: 'Ventas diarias de un producto seleccionado', icon: 'i-lucide-line-chart', requiereProducto: true },
   { key: 'precio-usado-vs-oficial', seccion: 'ventas', componente: 'linea', titulo: 'Precio usado vs. oficial', descripcion: 'Precio de venta usado en cuadre vs. precio oficial', icon: 'i-lucide-git-compare', requiereProducto: true },
@@ -281,7 +284,7 @@ function getChartConfig(g) {
 
     // Ventas
     'productos-mas-vendidos': barra('nombre', ['totalVendido'], { nombre: 'Producto', totalVendido: 'Cantidad vendida' }),
-    'productos-mayor-ganancia': barra('nombre', ['gananciaTotal'], { nombre: 'Producto', gananciaTotal: 'Ganancia estimada' }),
+    'productos-mayor-ganancia': null, // eliminada: la cubre 'ganancia-real-fifo'
     'productos-menor-rotacion': barra('nombre', ['totalVendido'], { nombre: 'Producto', totalVendido: 'Cantidad vendida' }),
     'evolucion-producto': { xKey: 'fecha', yKeys: ['cantidadVendida'], labels: { fecha: 'Fecha', cantidadVendida: 'Cantidad' } },
     'precio-usado-vs-oficial': { xKey: 'fecha', yKeys: ['precioVentaUsado', 'precioOficialActual'], labels: { fecha: 'Fecha', precioVentaUsado: 'Precio usado', precioOficialActual: 'Precio oficial' } },

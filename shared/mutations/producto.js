@@ -15,62 +15,78 @@
  * datos (offline u pg según quién llame) y sus params no tienen un tipo único.
  */
 
-import { calcularRotacionHistorial } from '../inventario/operaciones.js'
 import { aEpoch } from '../fechas.js'
 
 /**
- * Crea el producto y su primera fila de historial (el rango vigente inicial
- * arranca en el creado del producto).
+ * Crea el producto.
+ *
+ * SIN fila de historial inicial. El historial de precios es de VENTA: lo que el
+ * jefe captura al crear el producto es su precio de venta, y esa fila ya nace en
+ * la primera edición o entrada. Meterla aquí obligaba a inventar un precio de
+ * compra (0, porque el formulario no lo pide) y esa fila era basura: salía en el
+ * historial como si fuera un precio real.
  */
-export async function createProductoMut(ctx, data, auth) {
-  const p = await ctx.insert('productos', data)
-  await ctx.insert('historial_precios', {
-    productoId: p.id,
-    precioCompra: Number(data.precioCompraActual ?? 0),
-    precioVenta: Number(data.precioVentaActual ?? 0),
-    // aEpoch y no Number(): el creadoEn puede venir como ISO del servidor y
-    // Number(iso) es NaN → INSERT con vigente_desde NULL → error 1299.
-    vigenteDesde: aEpoch(p.creadoEn) || Date.now(),
-    vigenteHasta: null,
-    cambiadoPor: auth?.usuarioActual?.value?.id
-  })
-  return p
+export async function createProductoMut(ctx, data) {
+  return ctx.insert('productos', data)
 }
 
 /**
- * Aplica la edición del producto y, si cambió un precio, rota su historial.
+ * Rango temporal de la nueva fila vigente del historial.
+ *
+ * "Una sola fila vigente por producto": se cierran TODAS las abiertas, no solo
+ * la primera, porque si un dispositivo arrastró duplicados cerrarlos todos es lo
+ * único que deja el historial sano. La nueva arranca después de la última.
+ *
+ * aEpoch y no Number() a pelo: `vigenteDesde` puede venir como ISO del servidor
+ * (columna integer en SQLite) y Number(iso) es NaN, que se propagaría por
+ * Math.max y el INSERT se iría con NOT NULL constraint failed.
+ */
+function rangoVigente(abiertos, ahora) {
+  const lista = Array.isArray(abiertos) ? abiertos : []
+  let vigenteDesde = aEpoch(ahora)
+  for (const abierta of lista) {
+    vigenteDesde = Math.max(vigenteDesde, aEpoch(abierta.vigenteDesde) + 1)
+  }
+  const cierres = lista.map(abierta => ({
+    id: abierta.id,
+    hasta: Math.max(vigenteDesde - 1, aEpoch(abierta.vigenteDesde))
+  }))
+  return { vigenteDesde, cierres }
+}
+
+/**
+ * Aplica la edición del producto y, si cambió el precio de VENTA, rota su
+ * historial.
+ *
+ * El precio de compra no se guarda en ningún sitio: vive en el lote
+ * (`lotes.precioUnitario`), que es su único origen y ya tiene su propio
+ * historial. Aquí se borra del parche para que el formulario no lo invente.
  */
 export async function updateProductoMut(ctx, id, cambios, auth) {
-  // El precio de compra lo gobiernan los lotes (entradas al almacén): aquí se
-  // ignora para no desincronizar el espejo. La corrección vive en el lote.
   delete cambios.precioCompraActual
   const previo = await ctx.get('productos', id)
-  const cambioCompra = cambios.precioCompraActual != null
-    && Number(cambios.precioCompraActual) !== Number(previo?.precioCompraActual)
   const cambioVenta = cambios.precioVentaActual != null
     && Number(cambios.precioVentaActual) !== Number(previo?.precioVentaActual)
 
   await ctx.update('productos', id, cambios)
 
-  if (cambioCompra || cambioVenta) {
+  if (cambioVenta) {
     const ahora = Date.now()
-    // Todas las abiertas, no solo la primera: cerrar una y dejar el resto
-    // abierta produce productos con varias filas vigentes, que es como se
-    // corrompió el historial. Con varias, calcularRotacionHistorial coloca la
-    // nueva fila después de la última y cierra todas.
     const abiertos = ctx.findHistorialAbiertos
       ? await ctx.findHistorialAbiertos(id)
       : (await ctx.queryAll('historial_precios'))
           .filter(h => h.productoId === id && h.vigenteHasta == null)
 
-    const { vigenteDesde, cierres } = calcularRotacionHistorial({ abiertos, ahora })
+    const { vigenteDesde, cierres } = rangoVigente(abiertos, ahora)
     for (const cierre of cierres) {
       await ctx.update('historial_precios', cierre.id, { vigenteHasta: cierre.hasta })
     }
 
     await ctx.insert('historial_precios', {
       productoId: id,
-      precioCompra: Number(cambios.precioCompraActual ?? previo?.precioCompraActual ?? 0),
+      // Sin precio de compra: la columna sigue existiendo en la base por no
+      // migrar, pero ya nadie la lee ni la escribe con un valor real.
+      precioCompra: Number(previo?.precioCompraActual ?? 0),
       precioVenta: Number(cambios.precioVentaActual ?? previo?.precioVentaActual ?? 0),
       vigenteDesde,
       vigenteHasta: null,

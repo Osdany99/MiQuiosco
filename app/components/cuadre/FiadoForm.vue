@@ -9,7 +9,6 @@
           label-key="nombre"
           placeholder="Seleccionar cliente..."
           class="w-full"
-          :disabled="editar"
         />
       </UFormField>
       <UButton
@@ -90,7 +89,7 @@
           <BaseInputNumber v-model="item.cantidad" placeholder="0" @update:model-value="onCantidadChange(item)" />
         </UFormField>
         <UFormField label="Precio" class="w-28">
-          <BaseInputNumber v-model="item.precioVentaUsado" placeholder="0" :disabled="editar" />
+          <BaseInputNumber v-model="item.precioVentaUsado" placeholder="0" />
         </UFormField>
         <UButton
           icon="i-lucide-x"
@@ -111,7 +110,7 @@
       />
     </template>
 
-    <div v-if="!editar" class="grid grid-cols-2 gap-4 pt-2">
+    <div class="grid grid-cols-2 gap-4 pt-2">
       <UCollapsible v-model:open="pagoInicialOpen" class="col-span-2">
         <UButton
           variant="ghost"
@@ -150,7 +149,6 @@ import { usuarioSchema } from '../../../shared/schemas/usuario'
 const props = defineProps({
   productosActivos: { type: Array, default: () => [] },
   clientes: { type: Array, default: () => [] },
-  editar: { type: Boolean, default: false },
   /**
    * { productoId, nombre, descripcion, precio } cuando el producto ya está
    * decidido (fiado launched desde la fila del cuadre). Entonces el formulario

@@ -16,8 +16,7 @@ import {
   construirAjuste,
   construirVentaDirecta,
   generarId,
-  lotesConSaldo,
-  rotarPrecioCompra
+  lotesConSaldo
 } from '../../shared/inventario/operaciones'
 import { vistaSaldos } from '../../shared/inventario/vista'
 import { sugerenciaReposicion } from '../../shared/inventario/fifo'
@@ -28,7 +27,7 @@ const lotesConfig = TABLES.lotes
 const traspasosConfig = TABLES.traspasos
 const movimientosConfig = TABLES.movimientos_inventario
 const productosConfig = TABLES.productos
-const historialConfig = TABLES.historial_precios
+const usuariosConfig = TABLES.usuarios
 const ventasDirectasConfig = TABLES.ventas_directas
 const ventasDirectasItemsConfig = TABLES.ventas_directas_items
 
@@ -49,7 +48,7 @@ export function useInventario() {
   const traspasosRepo = computed(() => esOnline.value ? useRemoteRepo(traspasosConfig) : useLocalRepo(traspasosConfig))
   const movimientosRepo = computed(() => esOnline.value ? useRemoteRepo(movimientosConfig) : useLocalRepo(movimientosConfig))
   const productosRepo = computed(() => esOnline.value ? useRemoteRepo(productosConfig) : useLocalRepo(productosConfig))
-  const historialRepo = computed(() => esOnline.value ? useRemoteRepo(historialConfig) : useLocalRepo(historialConfig))
+  const usuariosRepo = computed(() => esOnline.value ? useRemoteRepo(usuariosConfig) : useLocalRepo(usuariosConfig))
   const ventasDirectasRepo = computed(() => esOnline.value ? useRemoteRepo(ventasDirectasConfig) : useLocalRepo(ventasDirectasConfig))
   const ventasDirectasItemsRepo = computed(() => esOnline.value ? useRemoteRepo(ventasDirectasItemsConfig) : useLocalRepo(ventasDirectasItemsConfig))
 
@@ -145,19 +144,6 @@ export function useInventario() {
       await db.transaction(async () => {
         for (const l of lotesNuevos) await r(lotesRepo).create(l)
         for (const m of movimientos) await r(movimientosRepo).create(m)
-        for (const linea of parsed.data.lineas) {
-          const producto = porProd.get(linea.productoId)
-          // Todas las filas sin cerrar: rotar cierra la historia entera del
-          // producto, no solo la primera que encuentre.
-          const abiertos = await db.findHistorialAbiertos(linea.productoId)
-          const rot = rotarPrecioCompra({ producto, abiertos, nuevoPrecio: linea.precioUnitario, ahora, usuarioId })
-          if (!rot) continue
-          for (const cierre of rot.cierres) {
-            await r(historialRepo).update(cierre.id, { vigenteHasta: cierre.hasta })
-          }
-          await r(historialRepo).create(rot.nuevoHistorial)
-          await r(productosRepo).update(linea.productoId, { precioCompraActual: rot.espejo })
-        }
       })
       await cargarSaldos().catch(() => {})
       return { entradaRef, lotes: lotesNuevos.length, movimientos: movimientos.length }
@@ -358,20 +344,79 @@ export function useInventario() {
     }
   }
 
-  /** Ventas directas del puesto, para la pestaña /deudas y la gráfica. */
+  /**
+   * Ventas directas del puesto para la vista /venta-directa.
+   *
+   * Normaliza la forma de la fila para que sea la misma online y local, porque
+   * las dos vías no devuelven lo mismo: el endpoint ya resuelve el alias
+   * `ubicacion` y trae `nombreUsuario` por su join con usuarios, mientras que
+   * el sqlite devuelve la columna cruda (`ubicacionVenta`, `usuarioId`). Y
+   * ninguna de las dos trae el nombre ni la descripción del producto, que viven
+   * en `productos` y en `ventas_directas_items`.
+   *
+   * La unión se hace una sola vez aquí y la tabla no tiene que saber de qué
+   * modo salieron los datos.
+   *
+   * @returns {Promise<Array>} ventas del puesto, sin anular, de más reciente a
+   *   más antigua, cada una con sus `lineas` ya ordenadas por secuencia y
+   *   enriquecidas con nombre/descripción/unidad del producto.
+   */
   async function cargarVentasDirectas({ desde, hasta } = {}) {
-    const todas = await r(ventasDirectasRepo).readAll()
+    const [ventas, items, prods, users] = await Promise.all([
+      r(ventasDirectasRepo).readAll(),
+      r(ventasDirectasItemsRepo).readAll(),
+      r(productosRepo).readAll(),
+      r(usuariosRepo).readAll()
+    ])
+
     const pid = puestoIdActual()
     const desdeMs = desde ? new Date(desde).getTime() : null
     const hastaMs = hasta ? new Date(hasta).getTime() : null
-    return todas.filter((v) => {
-      if (pid && v.puestoId !== pid) return false
-      if (v.anulado) return false
+
+    function enRango(v) {
       const t = new Date(v.creadoEn ?? 0).getTime()
+      if (Number.isNaN(t)) return false
       if (desdeMs != null && t < desdeMs) return false
       if (hastaMs != null && t > hastaMs) return false
       return true
-    })
+    }
+
+    const cabecera = (ventas ?? []).filter(v =>
+      (!pid || v.puestoId === pid) && !v.anulado && enRango(v)
+    )
+    const ids = new Set(cabecera.map(v => v.id))
+
+    const productoPorId = new Map((prods ?? []).map(p => [p.id, p]))
+    const usuarioPorId = new Map((users ?? []).map(u => [u.id, u]))
+
+    // Las líneas no tienen puestoId (lo heredan de su venta), así que el
+    // corte por puesto se hace contra los ids de las ventas ya filtradas.
+    const lineasPorVenta = new Map()
+    for (const it of items ?? []) {
+      if (!ids.has(it.ventaDirectaId)) continue
+      if (!lineasPorVenta.has(it.ventaDirectaId)) lineasPorVenta.set(it.ventaDirectaId, [])
+      lineasPorVenta.get(it.ventaDirectaId).push(it)
+    }
+
+    return cabecera
+      .map(v => ({
+        ...v,
+        ubicacion: v.ubicacion ?? v.ubicacionVenta ?? null,
+        nombreUsuario: v.nombreUsuario ?? usuarioPorId.get(v.usuarioId)?.nombre ?? null,
+        lineas: (lineasPorVenta.get(v.id) ?? [])
+          .slice()
+          .sort((a, b) => (Number(a.secuencia) || 0) - (Number(b.secuencia) || 0))
+          .map((it) => {
+            const p = productoPorId.get(it.productoId)
+            return {
+              ...it,
+              nombreProducto: p?.nombre ?? 'Producto eliminado',
+              descripcionProducto: p?.descripcion ?? null,
+              unidad: p?.unidad ?? null
+            }
+          })
+      }))
+      .sort((a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0))
   }
 
   // ---------- Corrección de precio de lote ----------
@@ -398,33 +443,14 @@ export function useInventario() {
         throw new Error('El lote ya tiene movimientos de salida. Anúlalo y crea uno correcto en su lugar.')
       }
       await db.transaction(async () => {
+        // El lote es el único sitio donde vive el precio de compra: corregirlo
+        // aquí corrige el valorizado y el costo de todo lo que salga de él.
         await r(lotesRepo).update(loteId, { precioUnitario })
         for (const m of delLote) {
           await r(movimientosRepo).update(m.id, {
             precioUnitario,
             importe: Math.round(Number(m.cantidad) * precioUnitario * 100) / 100
           })
-        }
-        // Si es el lote más reciente, el espejo y el historial lo siguen.
-        const filasLotes = await filasPuesto(lotesRepo, pid)
-        const delProd = filasLotes
-          .filter(l => l.productoId === lote.productoId && !l.anulado)
-          .sort((a, b) => {
-            const fa = String(a.fechaEntrada ?? '')
-            const fb = String(b.fechaEntrada ?? '')
-            if (fa !== fb) return fa < fb ? -1 : 1
-            return Number(a.creadoEn ?? 0) - Number(b.creadoEn ?? 0)
-          })
-        if (delProd[delProd.length - 1]?.id === loteId) {
-          await r(productosRepo).update(lote.productoId, { precioCompraActual: precioUnitario })
-          // Todas las abiertas, no solo la última: si el producto arrastra
-          // filas duplicadas, corregirlas todas deja el historial coherente.
-          const abiertos = await db.findHistorialAbiertos(lote.productoId)
-          for (const abierta of abiertos) {
-            if (Number(abierta.precioCompra) !== Number(precioUnitario)) {
-              await r(historialRepo).update(abierta.id, { precioCompra: precioUnitario })
-            }
-          }
         }
       })
       await cargarSaldos().catch(() => {})
@@ -470,6 +496,7 @@ export function useInventario() {
     traspasosRepo,
     movimientosRepo,
     productosRepo,
+    usuariosRepo,
     cargarProveedores,
     cargarLotes,
     cargarSaldos,

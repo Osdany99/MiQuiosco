@@ -50,13 +50,6 @@
               <UButton
                 size="xs"
                 variant="ghost"
-                icon="i-lucide-pencil"
-                aria-label="Editar deuda"
-                @click="abrirEdicion(deuda)"
-              />
-              <UButton
-                size="xs"
-                variant="ghost"
                 color="error"
                 icon="i-lucide-trash-2"
                 aria-label="Eliminar deuda"
@@ -87,23 +80,6 @@
     </BaseDialog>
 
     <BaseDialog
-      v-model="editarOpen"
-      title="Editar deuda"
-      confirm-text="Guardar"
-      :loading="cargando"
-      @confirm="confirmarEdicion"
-      @cancel="editarOpen = false"
-    >
-      <CuadreFiadoForm
-        ref="editarFormRef"
-        v-model="editarForm"
-        :productos-activos="productosActivos"
-        :clientes="clientes"
-        editar
-      />
-    </BaseDialog>
-
-    <BaseDialog
       v-model="eliminarOpen"
       title="Eliminar deuda"
       confirm-text="Eliminar"
@@ -113,8 +89,12 @@
       @cancel="eliminarOpen = false"
     >
       <p class="text-sm">
-        Se eliminará la deuda de <strong>{{ deudaAEliminar ? nombreCliente(deudaAEliminar.clienteId) : '' }}</strong>
-        y se revertirán sus cantidades del cuadre.
+        Se eliminará la deuda de <strong>{{ deudaAEliminar ? nombreCliente(deudaAEliminar.clienteId) : '' }}</strong>.
+      </p>
+      <p class="mt-2 text-sm text-muted">
+        {{ cuadreYaCerrado
+          ? 'Su cuadre del día ya está cerrado: el dinero y la venta se quedan como están, solo se borra el registro de la deuda.'
+          : 'Volverán a su sitio los montos del cuadre de ese día: el saldo pendiente que estaba en fiado y, si el abono inicial se pagó por transferencia, ese monto en transferencia.' }}
       </p>
     </BaseDialog>
   </UCard>
@@ -132,12 +112,10 @@ const {
   clientes, cargando, cuentasDelCuadre,
   montoFiadoCalculado,
   cargarClientes, cargarActividadDelCuadre, crearCliente,
-  registrarNuevaDeuda, editarDeuda, eliminarDeuda,
-  itemsDeCuenta
+  registrarNuevaDeuda, eliminarDeuda
 } = useCuentasFiado()
 
 const nuevaDeudaOpen = ref(false)
-const editarOpen = ref(false)
 const eliminarOpen = ref(false)
 const FIADO_VACIO = () => ({
   clienteId: null,
@@ -152,11 +130,8 @@ const fiadoForm = ref(FIADO_VACIO())
  * desde aquí con un selector libre de producto y cualquier cantidad.
  */
 const productoFijo = ref(null)
-const editarForm = ref({ clienteId: null, items: [] })
-const editarCuentaId = ref(null)
 const deudaAEliminar = ref(null)
 const fiadoFormRef = ref(null)
-const editarFormRef = ref(null)
 
 const emit = defineEmits(['actualizado'])
 const toast = useToast()
@@ -164,6 +139,13 @@ const toast = useToast()
 const deudasActivas = computed(() =>
   cuentasDelCuadre.value.filter(c => c.estado !== 'pagada')
 )
+
+/**
+ * Un cuadre cerrado es historia: sus montos no se reescriben, así que borrar una
+ * deuda de ese día quita el registro pero NO devuelve nada al cuadre. El aviso
+ * del diálogo depende de esto para no prometer una reversión que no ocurre.
+ */
+const cuadreYaCerrado = computed(() => props.readonly)
 
 function nombreCliente(clienteId) {
   return clientes.value.find(c => c.id === clienteId)?.nombre ?? 'Cliente'
@@ -177,20 +159,6 @@ onMounted(async () => {
 async function onCrearCliente(data) {
   const nuevo = await crearCliente(data, props.puestoId)
   fiadoForm.value.clienteId = nuevo.id
-}
-
-async function abrirEdicion(deuda) {
-  editarCuentaId.value = deuda.id
-  const items = await itemsDeCuenta(deuda.id)
-  editarForm.value = {
-    clienteId: deuda.clienteId,
-    items: items.map(i => ({
-      productoId: i.productoId,
-      cantidad: Number(i.cantidad) || 0,
-      precioVentaUsado: Number(i.precioVentaUsado) || 0
-    }))
-  }
-  editarOpen.value = true
 }
 
 /**
@@ -255,27 +223,12 @@ async function confirmarNuevaDeuda() {
   emit('actualizado')
 }
 
-async function confirmarEdicion() {
-  const items = editarForm.value.items
-    .filter(i => i.productoId)
-    .map(i => ({
-      productoId: i.productoId,
-      cantidad: Number(i.cantidad) || 0,
-      precioVentaUsado: Number(i.precioVentaUsado) || 0
-    }))
-  if (items.length === 0) return
-  const r = await editarDeuda({ cuentaFiadoId: editarCuentaId.value, items, cuadreId: props.cuadreId })
-  if (!r?.ok) return
-  editarOpen.value = false
-  emit('actualizado')
-}
-
 async function confirmarEliminar() {
   const id = deudaAEliminar.value?.id
   deudaAEliminar.value = null
   eliminarOpen.value = false
   if (!id) return
-  if (id) await eliminarDeuda(id, props.cuadreId)
+  await eliminarDeuda(id, props.cuadreId)
   emit('actualizado')
 }
 

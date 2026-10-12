@@ -78,6 +78,11 @@ const links = computed(() => {
         to: '/deudas'
       },
       {
+        label: 'Venta directa',
+        icon: 'i-lucide-receipt',
+        to: '/venta-directa'
+      },
+      {
         label: 'Productos',
         icon: 'i-lucide-package',
         to: '/productos'

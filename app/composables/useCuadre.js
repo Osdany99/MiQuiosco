@@ -2,6 +2,7 @@ import { getCurrentScope, onScopeDispose } from 'vue'
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
 import { aEpochOpcional as tsToEpoch } from '../../shared/fechas'
+import { capacidadDelCuadre } from '../../shared/inventario/capacidad'
 import { generateId } from '~/utils/id'
 import { $api } from '../utils/api'
 import { calcularSubtotalLinea } from '../utils'
@@ -10,6 +11,9 @@ const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
 const productoConfig = TABLES.productos
 const usuarioConfig = TABLES.usuarios
+const loteConfig = TABLES.lotes
+const movimientoConfig = TABLES.movimientos_inventario
+const traspasoConfig = TABLES.traspasos
 
 function normalizarCuadre(c) {
   if (!c) return c
@@ -239,6 +243,12 @@ export function useCuadre() {
   const pagoTrabajador = useState('cuadre-pago-trabajador', () => null)
   const notasCuadre = useState('cuadre-notas', () => '')
   const salarioBaseTrabajador = useState('cuadre-salario-base', () => 600)
+  /**
+   * Capacidad de venta por producto para el cuadre abierto: cuánto había
+   * disponible ese día y de dónde sale ese número. Lo consume el "Q:" de cada
+   * línea. Es un useState para no releer el libro por cada componente.
+   */
+  const capacidadPorProducto = useState('cuadre-capacidad', () => new Map())
 
   const expandida = reactive(new Set())
 
@@ -314,6 +324,72 @@ export function useCuadre() {
   // Marca el pago como manual en cuanto el jefe lo toca.
   function marcarPagoManual() {
     if (!pagoManual.value) pagoManual.value = true
+  }
+
+  /**
+   * Reconstruye la capacidad de venta del cuadre desde el libro de movimientos.
+   * Es una pista visual, nunca un bloqueo: si algo falla, la venta sigue igual y
+   * el "Q:" simplemente no aparece.
+   */
+  async function cargarCapacidad(c) {
+    if (!c?.fecha) {
+      capacidadPorProducto.value = new Map()
+      return
+    }
+    const pid = c.puestoId ?? cuadre.value?.puestoId ?? null
+    try {
+      // Los cuadres NO se recortan por puesto: indiceFechasNegocio los busca por
+      // id, y dejar fuera uno solo haría que su venta cayera a la fecha técnica
+      // del autoguardado en vez de a la del día del cuadre.
+      const [saldos, movimientos, lotes, traspasos, cuadres] = await Promise.all([
+        useInventario().cargarSaldos(),
+        leerPuesto(movimientoConfig, pid),
+        leerPuesto(loteConfig, pid),
+        leerPuesto(traspasoConfig, pid),
+        leerTabla(cuadreConfig)
+      ])
+      capacidadPorProducto.value = capacidadDelCuadre({
+        movimientos,
+        lotes,
+        traspasos,
+        // Necesario para indiceFechasNegocio: la venta pertenece al día de SU
+        // cuadre, no al reloj del dispositivo. Sin esto un cuadre reopened se
+        // contaría en el día que se escribió la venta.
+        cuadres,
+        // saldosPorProducto no hace falta: cargarSaldos ya devuelve filas con
+        // productoId y quiosco, que es lo que la capacidad necesita leer.
+        saldos,
+        fechaCuadre: c.fecha,
+        cuadreId: c.id,
+        cerrado: c.estado === 'cerrado',
+        cerradoEn: c.cerradoEn
+      })
+    } catch (err) {
+      console.warn('No se pudo calcular la capacidad del cuadre:', err)
+      capacidadPorProducto.value = new Map()
+    }
+  }
+
+  /**
+   * Desenvuelve lo que devuelve useRepo().readAll(): { data, error }. Un fallo
+   * NO es una excepción, es data: null — por eso leer sin esto pasa un objeto
+   * donde la función pura espera un array y revienta más abajo, en un sitio
+   * cuyo mensaje no señala la causa.
+   */
+  function desempacar(filas) {
+    if (Array.isArray(filas?.data)) return filas.data
+    return Array.isArray(filas) ? filas : []
+  }
+
+  /** Lee una tabla entera, sin toast: aquí un fallo no es del usuario. */
+  async function leerTabla(config) {
+    return desempacar(await useRepo(config, { toast: false }).readAll())
+  }
+
+  /** Igual, pero solo las filas del puesto (las que no lo tienen, se quedan). */
+  async function leerPuesto(config, puestoId) {
+    const lista = await leerTabla(config)
+    return puestoId ? lista.filter(f => !f.puestoId || f.puestoId === puestoId) : lista
   }
 
   async function cargarDatos(puestoId, cuadreId) {
@@ -408,6 +484,8 @@ export function useCuadre() {
       else montoRegalo.value = 0
       if (c.montoDescuento != null) montoDescuento.value = Number(c.montoDescuento)
       else montoDescuento.value = 0
+
+      await cargarCapacidad(c)
     } catch (err) {
       toast.add({ title: 'Error', description: err.message || 'No se pudo cargar el cuadre.', color: 'error' })
     } finally {
@@ -732,6 +810,30 @@ export function useCuadre() {
       return { costoTotal: null, ganancia: null, faltantes: [] }
     }
 
+    // Vender más de lo que había en el quiosco deja el inventario descuadrado
+    // sin que nadie lo note: el total de dinero cuadra igual y el faltante solo
+    // aflora como toast al final, con el cuadre ya cerrado. Se corta antes de
+    // preguntar por la caja: primero se corrigen las cantidades, después se
+    // cuenta el dinero.
+    if (excedentes.value.length > 0) {
+      // Un producto puede aparecer dos veces (una entrada por línea marcada),
+      // pero en el mensaje va una vez: al jefe le interesa el producto, no el
+      // número de campos que lo tocaron.
+      const porProducto = new Map()
+      for (const e of excedentes.value) {
+        if (!porProducto.has(e.productoId)) porProducto.set(e.productoId, e)
+      }
+      const lista = [...porProducto.values()]
+        .map(e => `${getProductoNombre(e.productoId)} (${e.vendido} de ${e.capacidad})`)
+        .join(', ')
+      toast.add({
+        title: 'Corrige las cantidades antes de cerrar',
+        description: `Se vendió más de lo que había en el quiosco: ${lista}.`,
+        color: 'error'
+      })
+      return { costoTotal: null, ganancia: null, faltantes: [] }
+    }
+
     if (totalRealCaja.value === null) {
       toast.add({ title: 'Debes ingresar el dinero real en caja.', color: 'warning' })
       return { costoTotal: null, ganancia: null, faltantes: [] }
@@ -809,10 +911,12 @@ export function useCuadre() {
         })
       }
 
+      // El monto va suelto en la frase, así que aquí sí lleva la unidad:
+      // un "faltante de 500" a secas no dice de qué.
       let mensaje = 'Cuadre cerrado: '
       if (tipo === 'exacto') mensaje += 'todo correcto, caja exacta.'
-      else if (tipo === 'sobrante') mensaje += `sobrante de ${fmtPrecio(diff)}.`
-      else mensaje += `faltante de ${fmtPrecio(-diff)}.`
+      else if (tipo === 'sobrante') mensaje += `sobrante de ${fmtPrecio(diff)} cup.`
+      else mensaje += `faltante de ${fmtPrecio(-diff)} cup.`
 
       // Solo se avisa si hay sobrante o faltante; el cierre exacto no necesita toast.
       if (tipo !== 'exacto') {
@@ -830,6 +934,9 @@ export function useCuadre() {
           color: 'warning'
         })
       }
+      // La capacidad no cambia al cerrar (las ventas del cuadre quedan fuera del
+      // cálculo), pero el corte por cerradoEn sí cambia: hay que recalcularla.
+      await cargarCapacidad(cuadre.value)
       return { costoTotal, ganancia, faltantes }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
@@ -935,12 +1042,62 @@ export function useCuadre() {
     totalRealCaja.value = null
     if (trabajadorTurnoId.value) await cargarSalarioTrabajador(trabajadorTurnoId.value)
     pagoTrabajador.value = pagoReabierto
+    // Al reabrir desaparece el corte por cerradoEn: la capacidad vuelve a ver
+    // los traspasos y ventas que pasaron después del último cierre.
+    await cargarCapacidad(cuadre.value)
     toast.add({ title: 'Cuadre reabierto', description: 'Ahora puedes editarlo nuevamente.', color: 'info' })
   }
 
   function getProductoNombre(productoId) {
     return productosActivos.value.find(p => p.id === productoId)?.nombre || '—'
   }
+
+  /** Capacidad del producto en este cuadre, o null si no se pudo calcular. */
+  function capacidadDe(productoId) {
+    return capacidadPorProducto.value?.get(productoId) ?? null
+  }
+
+  /**
+   * Cuánto se vendió de un producto en ESTE cuadre: la suma de TODAS sus
+   * líneas, no la de una. Un producto puede tener varias el mismo día (el
+   * duplicado de precio) y lo que agota el quiosco es la suma de todas.
+   */
+  function vendidoDe(productoId) {
+    return lineas.value.reduce(
+      (s, l) => (l.productoId === productoId ? s + (Number(l.cantidad) || 0) : s),
+      0
+    )
+  }
+
+  /**
+   * Campos que venden más de lo que había en el quiosco ese día.
+   *
+   * Una entrada por LÍNEA marcada (el contador de la banda cuenta campos, no
+   * productos) pero con los números del producto: es la suma de sus líneas la
+   * que se pasa, así que con capacidad 10 y líneas de 6 y 5 se marcan las dos.
+   *
+   * La capacidad NO es un bloqueo de escritura: el jefe puede tener razón (el
+   * stock real no está registrado). Por eso no se corrige el número solo,
+   * solo se avisa — y el cierre sí se corta, para que no se vaya sin que nadie
+   * lo haya visto.
+   */
+  const excedentes = computed(() => {
+    const salida = []
+    for (const l of lineas.value) {
+      const cap = capacidadDe(l.productoId)
+      if (!cap) continue
+      const vendido = vendidoDe(l.productoId)
+      if (vendido <= cap.capacidad) continue
+      salida.push({
+        lineaId: l.id,
+        productoId: l.productoId,
+        capacidad: cap.capacidad,
+        vendido,
+        exceso: vendido - cap.capacidad
+      })
+    }
+    return salida
+  })
 
   // Subtítulo del producto: null/vacío cuando no tiene, para no pintar nada.
   function getProductoDescripcion(productoId) {
@@ -950,6 +1107,7 @@ export function useCuadre() {
 
   return {
     cuadre, lineas, productosActivos, cargando,
+    capacidadPorProducto, cargarCapacidad, vendidoDe, excedentes,
     expandida,
     totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
     montoRegalo, montoDescuento,
