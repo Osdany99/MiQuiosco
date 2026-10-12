@@ -43,8 +43,53 @@ import java.util.Locale;
 @CapacitorPlugin(name = "DbBackup")
 public class DbBackupPlugin extends Plugin {
 
+    /**
+     * Nombre de la CONEXIÓN, tal y como la crea app/server-offline/db/client.js.
+     * No es el nombre del archivo: ver ARCHIVO_BD.
+     */
     private static final String DB_NAME = "miquiosco";
+
+    /**
+     * Nombre real del archivo en databases/.
+     *
+     * POR QUÉ NO ES `miquiosco`
+     * @capacitor-community/sqlite no usa el nombre de la conexión tal cual: su
+     * Android le concatena el sufijo "SQLite.db" al abrirla (CapacitorSQLite.java
+     * -> `new Database(context, dbName + "SQLite.db", ...)`, y Database.java hace
+     * `_file = context.getDatabasePath(dbName)`). Con DB_NAME = "miquiosco" el
+     * archivo en disco es "miquioscoSQLite.db"; buscar "miquiosco" daba siempre
+     * NOT_FOUND y la copia de seguridad no salía nunca.
+     */
+    private static final String ARCHIVO_BD = DB_NAME + "SQLite.db";
+
     private static final String MIME_SQLITE = "application/vnd.sqlite3";
+
+    /**
+     * Localiza el archivo de la base local en databases/.
+     *
+     * Primero prueba el nombre exacto que construye el plugin; si no aparece,
+     * recorre databaseList() buscando la base de esta app (todo lo que empieza
+     * por el nombre de conexión y acaba en "SQLite.db"). Así la copia no se rompe
+     * si el plugin cambia su convención de nombres en una actualización.
+     *
+     * @return el archivo, o null si la base todavía no existe en disco.
+     */
+    private File encontrarBase() {
+        File directa = getContext().getDatabasePath(ARCHIVO_BD);
+        if (directa != null && directa.exists()) {
+            return directa;
+        }
+
+        for (String nombre : getContext().databaseList()) {
+            if (nombre.startsWith(DB_NAME) && nombre.endsWith("SQLite.db")) {
+                File encontrado = getContext().getDatabasePath(nombre);
+                if (encontrado != null && encontrado.exists()) {
+                    return encontrado;
+                }
+            }
+        }
+        return null;
+    }
 
     /**
      * Copia la base local a Descargas/miquiosco-<sello>.db.
@@ -54,8 +99,8 @@ public class DbBackupPlugin extends Plugin {
      */
     @PluginMethod
     public void exportar(PluginCall call) {
-        File origen = getContext().getDatabasePath(DB_NAME);
-        if (origen == null || !origen.exists()) {
+        File origen = encontrarBase();
+        if (origen == null) {
             call.reject("No se encontró la base de datos local", "NOT_FOUND");
             return;
         }

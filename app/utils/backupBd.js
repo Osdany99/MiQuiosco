@@ -8,6 +8,11 @@
  * propio registrado en MainActivity.
  *
  * Va en utils/ y no como composable porque lo usa un solo sitio (Configuración).
+ *
+ * OJO con el nombre del archivo: la conexión se abre como 'miquiosco', pero
+ * @capacitor-community/sqlite guarda el archivo en databases/ como
+ * 'miquioscoSQLite.db' (le añade el sufijo). Si el nombre cambia aquí, hay que
+ * cambiarlo también en DbBackupPlugin.java (ARCHIVO_BD).
  */
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { useDb } from '../server-offline/db/client'
