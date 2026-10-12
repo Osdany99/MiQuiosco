@@ -2,6 +2,7 @@
 import { Capacitor } from '@capacitor/core'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
+import { crearCopiaBd, formatearBytes } from '../utils/backupBd'
 
 const toast = useToast()
 const conexion = useModoConexion()
@@ -200,6 +201,37 @@ async function probarConexion() {
 async function guardar() {
   const url = serverUrl.value.trim()
   await setApiBaseUrl(url || '')
+}
+
+// --- Copia de seguridad de la base local ---
+// La copia va a la carpeta Descargas del propio teléfono (no al servidor): el
+// jefe la envía luego a donde quiera, p. ej. WhatsApp, sin depender de que la
+// sincronización haya funcionado.
+const guardandoCopia = ref(false)
+const resultadoCopia = ref(null) // null | { ruta, bytes }
+const errorCopia = ref('')
+
+async function crearCopia() {
+  if (guardandoCopia.value) return
+  guardandoCopia.value = true
+  resultadoCopia.value = null
+  errorCopia.value = ''
+  try {
+    const res = await crearCopiaBd()
+    if (res) {
+      resultadoCopia.value = res
+      toast.add({
+        title: 'Copia guardada en Descargas',
+        description: `${res.ruta} (${formatearBytes(res.bytes)})`,
+        icon: 'i-lucide-circle-check',
+        color: 'success'
+      })
+    }
+  } catch (err) {
+    errorCopia.value = err?.message || 'No se pudo crear la copia de seguridad.'
+  } finally {
+    guardandoCopia.value = false
+  }
 }
 
 async function comprobarUpdates() {
@@ -405,6 +437,48 @@ async function whOlvidarEste() {
         >
           Comprobar actualizaciones
         </UButton>
+      </div>
+    </UCard>
+
+    <UCard v-if="esNativo && auth.esJefe">
+      <div class="space-y-4">
+        <div>
+          <h2 class="text-sm font-medium">
+            Copia de seguridad
+          </h2>
+          <p class="text-sm text-muted">
+            Guarda la base de datos local del teléfono en la carpeta Descargas.
+          </p>
+        </div>
+
+        <p class="text-xs text-muted">
+          Útil si no confías en que la sincronización con el servidor haya
+          guardado todo. El archivo contiene los datos completos del quiosco
+          (ventas, fiado, clientes); guárdalo en un sitio seguro.
+        </p>
+
+        <UButton
+          :loading="guardandoCopia"
+          icon="i-lucide-database-backup"
+          @click="crearCopia"
+        >
+          Guardar copia en Descargas
+        </UButton>
+
+        <UAlert
+          v-if="resultadoCopia"
+          color="success"
+          icon="i-lucide-circle-check"
+          :title="`Copia guardada: ${resultadoCopia.ruta}`"
+          :description="`Tamaño: ${formatearBytes(resultadoCopia.bytes)}. Búscala en Descargas o envíala por WhatsApp.`"
+        />
+
+        <UAlert
+          v-if="errorCopia"
+          color="error"
+          icon="i-lucide-circle-alert"
+          :title="errorCopia"
+        />
       </div>
     </UCard>
 

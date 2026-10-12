@@ -450,6 +450,56 @@ export function useDb() {
     dbConnectionPromise = null
   }
 
+  /**
+   * Cierra la conexión para poder copiar el archivo de la base a disco.
+   *
+   * POR QUÉ CERRAR EN VEZ DE COPIAR DIRECTO
+   * El plugin abre la base con `openOrCreateDatabase` sin fijar journal_mode,
+   * así que Android usa WAL por defecto: las últimas escrituras viven en el
+   * archivo `miquiosco-wal` y NO en el `miquiosco`. Copiar solo este último
+   * daría una copia incompleta, justo lo que una copia de seguridad no puede
+   * ser. Al cerrar la última conexión, SQLite hace el checkpoint y borra el
+   * WAL, dejando el archivo `.db` completo por definición.
+   *
+   * Devuelve `false` en web: allí no hay archivo que copiar (la base vive en
+   * memoria, ver InMemoryDb).
+   *
+   * @throws si hay una transacción en curso: cerrarle encima la abortaría.
+   */
+  async function cerrarParaCopia() {
+    if (!Capacitor.isNativePlatform()) return false
+
+    // Una transacción a medias perdería su confirmación al cerrar debajo.
+    if (transaccionActiva) {
+      throw new Error('No se puede copiar la base mientras hay una transacción en curso.')
+    }
+
+    const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
+    const sqliteConnection = new SQLiteConnection(CapacitorSQLite)
+    // Sin preguntar antes: closeConnection es idempotente y si no hay nada que
+    // cerrar no hace nada. Es el mismo criterio que usa abrirConexionNativa.
+    await sqliteConnection.closeConnection(DB_NAME, false).catch(() => {})
+
+    // Los handles se anulan para que la siguiente llamada a getConnection()
+    // reabra desde cero. Si no, volvería a usar una conexión ya cerrada.
+    dbConnection = null
+    dbConnectionPromise = null
+    return true
+  }
+
+  /**
+   * Reabre la base tras una copia. Deuda con cerrarParaCopia(): sin esto la app
+   * se quedaría sin base y el jefe vería cuadres en cero y gráficas vacías.
+   *
+   * Si hay una apertura en curso (otra pestaña ya reaccionó al WebView), se
+   * espera a que termine en vez de crear una segunda conexión.
+   */
+  async function reabrirTrasCopia() {
+    if (!Capacitor.isNativePlatform()) return
+    if (dbConnectionPromise) await dbConnectionPromise.catch(() => {})
+    await getConnection()
+  }
+
   // La cola colaTransacciones es compartida a nivel módulo: como useDb() se
   // instancia en cada componente, una cola local por instancia no alcanzaría
   // para serializar transacciones entre consumidores distintos.
@@ -496,6 +546,8 @@ export function useDb() {
     queryAll,
     getById,
     resetLocalDatabase,
+    cerrarParaCopia,
+    reabrirTrasCopia,
     transaction
   }
 }

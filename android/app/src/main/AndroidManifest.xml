@@ -83,4 +83,12 @@
          importar. Es "dangerous" y, como la app es sideloaded, hay que haber
          levantado antes el candado de "ajustes restringidos". -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Copia de seguridad de la base local en Descargas.
+         Desde Android 10 (API 29) la escritura pasa por MediaStore y NO necesita
+         permiso de almacenamiento, así que maxSdkVersion=28 lo deja declarado
+         solo para Android 7-9, donde todavía es obligatorio. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 </manifest>
