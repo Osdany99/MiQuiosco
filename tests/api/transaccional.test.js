@@ -12,7 +12,7 @@ import { describe, it, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import {
-  tokenJefe, get, post, raw, mensajeDe, nombreUnico
+  tokenJefe, get, post, patch, raw, mensajeDe, nombreUnico
 } from './cliente.js'
 import { filas } from './db-directa.js'
 
@@ -689,7 +689,7 @@ describe('inventario: traspasos, mermas y lotes', () => {
     assert.equal(fila.almacen, 2)
   })
 
-  it('corregir lote sin consumo actualiza espejo e historial; con consumo da 409', async () => {
+  it('corregir lote sin consumo actualiza el libro; con consumo da 409', async () => {
     const p = await post('/api/productos', {
       nombre: nombreUnico('lote_prod'), precioVentaActual: 20
     }, { token, status: 200 })
@@ -708,7 +708,23 @@ describe('inventario: traspasos, mermas y lotes', () => {
       body: { precioUnitario: 9, motivo: 'factura mal' }, token
     })
     assert.equal(ok.status, 200)
-    assert.equal(Number((await filas('productos', `id = '${p.id}'`))[0].precio_compra_actual), 9)
+
+    // El precio de compra vive en el lote. productos.precio_compra_actual es un
+    // espejo que dejo de mantenerse cuando el costo paso a salir del libro (el
+    // endpoint lo dice: "el lote es el unico sitio donde vive el precio de
+    // compra"), asi que comprobarlo aqui fijaria un comportamiento retirado.
+    assert.equal(Number((await filas('lotes', `id = '${lote.id}'`))[0].precio_unitario), 9)
+
+    // Lo que la correccion si garantiza: baja a los movimientos de entrada del
+    // lote, que son los que valuan lo que salga de el.
+    const movs = await filas(
+      'movimientos_inventario',
+      `lote_id = '${lote.id}' AND anulado = false`
+    )
+    assert.ok(movs.length > 0, 'el lote debe tener su movimiento de entrada')
+    for (const m of movs) {
+      assert.equal(Number(m.precio_unitario), 9)
+    }
 
     // Con consumo ya no se puede corregir.
     await post('/api/inventario/traspasos', {
@@ -811,21 +827,29 @@ describe('clientes, telefonos, productos y proveedores', () => {
     assert.equal(dup.status, 409)
   })
 
-  it('producto: el alta abre historial y el cambio de precio lo rota', async () => {
+  it('producto: el alta no abre historial; el cambio de precio lo abre y lo rota', async () => {
     const p = await post('/api/productos', {
       nombre: nombreUnico('hist_prod'), precioVentaActual: 15
     }, { token, status: 200 })
+
+    // El alta NO abre historial. El producto nace con su precio de venta y la
+    // primera fila se crea al cambiar ese precio (ver createProductoMut): al
+    // abrirla en el alta habia que inventar un precio de compra (0, porque el
+    // formulario no lo pide) y esa fila era basura.
+    const h0 = await get(`/api/productos/${p.id}/historial-precios`, { token, status: 200 })
+    assert.equal(h0.length, 0, 'el alta no debe abrir historial')
+
+    // El primer cambio de precio de venta abre la fila vigente.
+    await patch(`/api/productos/${p.id}`, { precioVentaActual: 18 }, { token, status: 200 })
     const h1 = await get(`/api/productos/${p.id}/historial-precios`, { token, status: 200 })
-    assert.ok(h1.length >= 1)
-    // Solo una fila vigente (vigenteHasta null/ausente).
+    assert.equal(h1.length, 1)
+    // "Una sola fila vigente por producto".
     assert.equal(h1.filter(h => !h.vigenteHasta).length, 1)
 
-    await post('/api/inventario/entradas', {
-      fechaEntrada: '2026-05-07',
-      lineas: [{ productoId: p.id, cantidad: 5, precioUnitario: 9 }]
-    }, { token, status: 200 })
+    // El siguiente la cierra y abre otra: el historial rota de verdad.
+    await patch(`/api/productos/${p.id}`, { precioVentaActual: 21 }, { token, status: 200 })
     const h2 = await get(`/api/productos/${p.id}/historial-precios`, { token, status: 200 })
-    assert.ok(h2.length > h1.length, 'la entrada rota el precio: cierra y abre fila')
+    assert.equal(h2.length, 2)
     assert.equal(h2.filter(h => !h.vigenteHasta).length, 1)
   })
 
