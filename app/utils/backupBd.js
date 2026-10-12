@@ -1,5 +1,5 @@
 /**
- * backupBd.js — Copia de seguridad de la base local a la carpeta Descargas.
+ * backupBd.js — Copia de seguridad y restauración de la base local.
  *
  * Existe porque el archivo de la base vive en el directorio interno `databases/`
  * de Android, al que el enum `Directory` de @capacitor/filesystem no llega
@@ -70,4 +70,63 @@ export function formatearBytes(bytes) {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// ------------------------------------------------------- restauración ----
+
+/**
+ * Abre el selector de archivos para elegir una copia de la base.
+ *
+ * NO toca la base: el plugin deja el archivo validado en la caché y devuelve un
+ * resumen (cuadres, productos, rango de fechas) para que el jefe confirme que
+ * es el archivo que cree. Cancelar no es un error: devuelve `{ cancelado: true }`.
+ *
+ * @returns {Promise<{cancelado:boolean}|{bytes:number, cuadres:number, productos:number,
+ *   movimientos:number, desde:string, hasta:string}|null>} null en web.
+ */
+export async function elegirCopiaParaRestaurar() {
+  if (!Capacitor.isNativePlatform()) return null
+
+  const p = plugin()
+  if (!p) throw new Error('La restauración solo está disponible en Android')
+
+  return await p.elegirCopia()
+}
+
+/**
+ * Sustituye la base local por la copia elegida.
+ *
+ * Cierra la conexión ANTES y no la reabre: el archivo que se va a tocar es
+ * justo el que SQLite tiene abierto. Quien llama debe recargar la página
+ * después (ver Ajustes), que es lo que reabre la base y aplica las
+ * migraciones que le falten a la copia.
+ *
+ * El plugin deja antes una copia del estado actual en Descargas, así que un
+ * archivo equivocado tiene vuelta atrás.
+ *
+ * @returns {Promise<{bytes:number, respaldo:string}|null>} null en web.
+ */
+export async function restaurarCopiaBd() {
+  if (!Capacitor.isNativePlatform()) return null
+
+  const p = plugin()
+  if (!p) throw new Error('La restauración solo está disponible en Android')
+
+  const db = useDb()
+  // Lanza si hay una transacción en curso: cerrarle encima la abortaría.
+  const cerrada = await db.cerrarParaCopia()
+  if (!cerrada) return null
+
+  try {
+    // Sin reabrir al terminar: la conexión no debe volver a abrirse sobre el
+    // archivo recién sustituido. Quien llama recarga la página después, que es
+    // lo que reabre la base y aplica las migraciones que falten.
+    return await p.aplicarCopia()
+  } catch (err) {
+    // Si la sustitución falló, el archivo viejo sigue en su sitio pero la
+    // conexión está cerrada: se reabre para no dejar la app inservible y sin
+    // tener que pedirle al jefe que reinicie.
+    await db.reabrirTrasCopia().catch(() => {})
+    throw err
+  }
 }

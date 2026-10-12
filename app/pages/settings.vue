@@ -2,7 +2,7 @@
 import { Capacitor } from '@capacitor/core'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
-import { crearCopiaBd, formatearBytes } from '../utils/backupBd'
+import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
 
 const toast = useToast()
 const conexion = useModoConexion()
@@ -231,6 +231,65 @@ async function crearCopia() {
     errorCopia.value = err?.message || 'No se pudo crear la copia de seguridad.'
   } finally {
     guardandoCopia.value = false
+  }
+}
+
+// --- Restaurar una copia ---
+// Son dos pasos a propósito: elegir el archivo NO toca la base (el plugin solo
+// lo valida y lo deja en caché), y el jefe ve un resumen de lo que contiene
+// antes de confirmar. En Descargas suele haber varias copias y ninguna se llama
+// igual, así que el resumen es lo que evita restaurar la equivocada.
+// Tras restaurar, la base se recarga: la conexión quedó cerrada a propósito.
+const eligiendoCopia = ref(false)
+const restaurando = ref(false)
+const dialogoRestaurar = ref(false)
+const copiaElegida = ref(null)
+const errorRestaurar = ref('')
+
+async function prepararRestauracion() {
+  if (eligiendoCopia.value || restaurando.value) return
+  eligiendoCopia.value = true
+  errorRestaurar.value = ''
+  copiaElegida.value = null
+  try {
+    const res = await elegirCopiaParaRestaurar()
+    if (!res) {
+      errorRestaurar.value = 'La restauración solo está disponible en Android.'
+    } else if (!res.cancelado) {
+      copiaElegida.value = res
+      dialogoRestaurar.value = true
+    }
+  } catch (err) {
+    errorRestaurar.value = err?.message || 'No se pudo leer el archivo elegido.'
+  } finally {
+    eligiendoCopia.value = false
+  }
+}
+
+async function confirmarRestauracion() {
+  if (restaurando.value) return
+  restaurando.value = true
+  errorRestaurar.value = ''
+  try {
+    const res = await restaurarCopiaBd()
+    if (res) {
+      dialogoRestaurar.value = false
+      toast.add({
+        title: 'Base restaurada',
+        description: `Vuelvo a cargar la app. La copia anterior quedó en ${res.respaldo}.`,
+        icon: 'i-lucide-circle-check',
+        color: 'success',
+        duration: 6000
+      })
+      // La conexión quedó cerrada al sustituir el archivo. Recargar es lo que
+      // la reabre y aplica las migraciones que le falten a la copia.
+      setTimeout(() => window.location.reload(), 1200)
+    }
+  } catch (err) {
+    errorRestaurar.value = err?.message || 'No se pudo restaurar la base.'
+    dialogoRestaurar.value = false
+  } finally {
+    restaurando.value = false
   }
 }
 
@@ -465,6 +524,16 @@ async function whOlvidarEste() {
           Guardar copia en Descargas
         </UButton>
 
+        <UButton
+          :loading="eligiendoCopia"
+          icon="i-lucide-database-backup"
+          variant="soft"
+          color="neutral"
+          @click="prepararRestauracion"
+        >
+          Restaurar desde un archivo
+        </UButton>
+
         <UAlert
           v-if="resultadoCopia"
           color="success"
@@ -479,8 +548,63 @@ async function whOlvidarEste() {
           icon="i-lucide-circle-alert"
           :title="errorCopia"
         />
+
+        <UAlert
+          v-if="errorRestaurar"
+          color="error"
+          icon="i-lucide-circle-alert"
+          :title="errorRestaurar"
+        />
+
+        <p class="text-xs text-muted">
+          Restaurar reemplaza TODOS los datos del teléfono por los de la copia.
+          Antes de tocar nada se guarda el estado actual en Descargas, y lo que
+          no se hubiera sincronizado se pierde: esa copia es la vuelta atrás.
+        </p>
       </div>
     </UCard>
+
+    <BaseDialog
+      v-model="dialogoRestaurar"
+      title="Restaurar esta copia"
+      description="Se reemplazarán los datos del teléfono por los del archivo elegido."
+      confirm-text="Restaurar"
+      confirm-color="error"
+      :loading="restaurando"
+      @cancel="dialogoRestaurar = false"
+      @confirm="confirmarRestauracion"
+    >
+      <div v-if="copiaElegida" class="space-y-3 text-sm">
+        <p>La copia contiene:</p>
+        <ul class="space-y-1">
+          <li>
+            <span class="text-muted">Cuadres:</span>
+            {{ copiaElegida.cuadres }}
+            <template v-if="copiaElegida.desde">
+              (del {{ copiaElegida.desde }} al {{ copiaElegida.hasta }})
+            </template>
+          </li>
+          <li>
+            <span class="text-muted">Productos:</span>
+            {{ copiaElegida.productos }}
+          </li>
+          <li>
+            <span class="text-muted">Movimientos de inventario:</span>
+            {{ copiaElegida.movimientos }}
+          </li>
+          <li>
+            <span class="text-muted">Tamaño:</span>
+            {{ formatearBytes(copiaElegida.bytes) }}
+          </li>
+        </ul>
+        <UAlert
+          color="warning"
+          icon="i-lucide-circle-alert"
+          title="Se reemplaza todo"
+          description="Ventas, cuadres, fiado, clientes y el inventario. La app se recarga al terminar, y antes se guarda en Descargas una copia de lo que hay ahora."
+        />
+      </div>
+    </BaseDialog>
 
     <UCard v-if="!esNativo && webAuthnSoportada">
       <div class="space-y-4">
