@@ -10,6 +10,7 @@ import {
   construirVentaCuadre,
   construirVentaDirecta,
   construirAnulacionCuadre,
+  auditarAnulacionesCuadre,
   construirAjuste,
   saldosPorProducto,
   lotesConSaldo
@@ -286,6 +287,113 @@ describe('reapertura (anulación por contramovimiento)', () => {
       meta
     })
     assert.equal(anulaciones.length, 0)
+  })
+})
+
+// El descuadre que se viu en el negocio: un cuadre reabierto por segunda vez
+// devolvia al quiosco el stock de un cierre que ya habia sido devuelto, y la
+// venta del dia dejaba de descontarse (el quiosco mostraba mercancia que ya
+// no existia). Es la misma regla que en la app: solo se anulan ventas VIVAS.
+describe('reapertura repetida (el stock no vuelve dos veces)', () => {
+  /** Cierra un cuadre sobre el quiosco actual y devuelve movimientos + libro. */
+  function cerrar(libro, lineas, ahora) {
+    const v = construirVentaCuadre({
+      lineas,
+      lotesPorProducto: new Map([[PAN, lotesEn(libro, 'quiosco')]]),
+      cuadreId: 'c',
+      meta: { ...meta, ahora }
+    })
+    return { venta: v, libro: [...libro, ...v.movimientos] }
+  }
+
+  /** Reabre el cuadre: la anulación se calcula sobre TODO el libro del cuadre. */
+  function reabrir(libro, cuadreMovs, ahora) {
+    const { anulaciones } = construirAnulacionCuadre({
+      movimientosPrevios: cuadreMovs,
+      meta: { ...meta, ahora }
+    })
+    return { anulaciones, libro: [...libro, ...anulaciones] }
+  }
+
+  it('dos reaperturas seguidas devuelven el stock una sola vez', () => {
+    const e = entrada(20, 10)
+    const tr = construirTraspaso({
+      lineas: [{ productoId: PAN, cantidad: 20 }],
+      lotesPorProducto: new Map([[PAN, lotesEn(e.movimientos, 'almacen')]]),
+      meta: { ...meta, fecha: '2026-01-02' }
+    })
+    const quiosco = [...e.movimientos, ...tr.movimientos]
+
+    // Cierre 1: se venden 6.
+    const c1 = cerrar(quiosco, [{ id: 'l1', productoId: PAN, cantidad: 6 }], meta.ahora + 1000)
+    // Reapertura 1: el quiosco vuelve a 20.
+    const r1 = reabrir(c1.libro, c1.venta.movimientos, meta.ahora + 2000)
+    assert.equal(r1.anulaciones.length, 1)
+    assert.equal(saldosDe(r1.libro).get(PAN).quiosco, 20)
+
+    // Cierre 2: se venden 6 otra vez.
+    const c2 = cerrar(r1.libro, [{ id: 'l1', productoId: PAN, cantidad: 6 }], meta.ahora + 3000)
+    assert.equal(saldosDe(c2.libro).get(PAN).quiosco, 14)
+
+    // Reapertura 2: solo se anula la venta del cierre 2, no las dos.
+    const cuadre = [...c1.venta.movimientos, ...r1.anulaciones, ...c2.venta.movimientos]
+    const r2 = reabrir(c2.libro, cuadre, meta.ahora + 4000)
+    assert.equal(r2.anulaciones.length, 1, 'solo la venta viva del cierre 2')
+    assert.equal(saldosDe(r2.libro).get(PAN).quiosco, 20)
+
+    // Y al volver a cerrar, el quiosco descuenta una vez y solo una.
+    const c3 = cerrar(r2.libro, [{ id: 'l1', productoId: PAN, cantidad: 6 }], meta.ahora + 5000)
+    assert.equal(saldosDe(c3.libro).get(PAN).quiosco, 14)
+  })
+
+  it('tres cierres con dos reaperturas dejan una sola venta descontada', () => {
+    const e = entrada(20, 10)
+    const tr = construirTraspaso({
+      lineas: [{ productoId: PAN, cantidad: 20 }],
+      lotesPorProducto: new Map([[PAN, lotesEn(e.movimientos, 'almacen')]]),
+      meta: { ...meta, fecha: '2026-01-02' }
+    })
+    const quiosco = [...e.movimientos, ...tr.movimientos]
+    const linea = [{ id: 'l1', productoId: PAN, cantidad: 5 }]
+
+    const c1 = cerrar(quiosco, linea, meta.ahora + 1000)
+    const r1 = reabrir(c1.libro, c1.venta.movimientos, meta.ahora + 2000)
+    const c2 = cerrar(r1.libro, linea, meta.ahora + 3000)
+    const r2 = reabrir(c2.libro, [...c1.venta.movimientos, ...r1.anulaciones, ...c2.venta.movimientos], meta.ahora + 4000)
+    const c3 = cerrar(r2.libro, linea, meta.ahora + 5000)
+
+    // 20 en quiosco, se vendieron 5: ni una más.
+    assert.equal(saldosDe(c3.libro).get(PAN).quiosco, 15)
+  })
+
+  it('la auditoría distingue ventas vivas de anulaciones sobrantes', () => {
+    const e = entrada(20, 10)
+    const tr = construirTraspaso({
+      lineas: [{ productoId: PAN, cantidad: 20 }],
+      lotesPorProducto: new Map([[PAN, lotesEn(e.movimientos, 'almacen')]]),
+      meta: { ...meta, fecha: '2026-01-02' }
+    })
+    const quiosco = [...e.movimientos, ...tr.movimientos]
+
+    const c1 = cerrar(quiosco, [{ id: 'l1', productoId: PAN, cantidad: 6 }], meta.ahora + 1000)
+    const r1 = reabrir(c1.libro, c1.venta.movimientos, meta.ahora + 2000)
+    const c2 = cerrar(r1.libro, [{ id: 'l1', productoId: PAN, cantidad: 6 }], meta.ahora + 3000)
+
+    // Una sola anulación escrita: todo cuadra, no hay sobrante.
+    const sano = auditarAnulacionesCuadre([
+      ...c1.venta.movimientos, ...r1.anulaciones, ...c2.venta.movimientos
+    ])
+    assert.equal(sano.sobrantes.length, 0)
+    assert.equal(sano.vivas.length, 1)
+    assert.equal(sano.vivas[0].creadoEn, meta.ahora + 3000)
+
+    // La segunda reapertura duplica la anulación del cierre 1: ese duplicado
+    // es el sobrante que devuelve el stock dos veces.
+    const roto = auditarAnulacionesCuadre([
+      ...c1.venta.movimientos, ...r1.anulaciones, ...c2.venta.movimientos, ...r1.anulaciones
+    ])
+    assert.equal(roto.sobrantes.length, 1)
+    assert.equal(roto.vivas.length, 1)
   })
 })
 

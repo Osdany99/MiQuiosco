@@ -365,6 +365,30 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
 }
 
 /**
+ * Identifica la venta que un movimiento (de venta o de anulación) representa.
+ *
+ * La venta de un cuadre sale del consumo FIFO: una línea se reparte entre
+ * varios lotes, así que la clave incluye el lote. La cantidad completa la
+ * identidad porque dos ventas del mismo lote pueden tener distinto tamaño
+ * (la línea se partió entre varios lotes, por ejemplo).
+ */
+function claveAnulacion(m) {
+  return [
+    m.productoId ?? '',
+    m.loteId ?? '',
+    m.lineaCuadreId ?? '',
+    Math.trunc(Number(m.cantidad) || 0)
+  ].join('|')
+}
+
+/** Fecha de un movimiento en epoch ms, tolerando número, ISO o Date. */
+function msMovimiento(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+  const n = new Date(v ?? 0).getTime()
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
  * Anulación de los movimientos de venta de un cuadre (reapertura).
  *
  * El original NO se marca anulado: sigue contabilizando su delta y es la
@@ -372,36 +396,99 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
  * el inverso haría que el original dejara de contar y el saldo quedara
  * desviado justo por la cantidad anulada.
  *
+ * Por eso mismo, "no está anulado" NO significa "sigue viva": una venta
+ * neutralizada por una reapertura anterior sigue en el libro con
+ * `anulado = false`, y es su contramovimiento la que la compensa. Si una
+ * segunda reapertura invirtiera todas las ventas otra vez, el stock volvería
+ * al quiosco dos veces y la venta del día dejaría de descontarse.
+ *
+ * Aquí solo se invierten las ventas VIVAS (ver auditarAnulacionesCuadre), que
+ * son exactamente lo que este cierre tiene que devolver, por muchas veces que
+ * se haya reabierto el cuadre.
+ *
+ * `movimientosPrevios` debe traer los movimientos del cuadre tal como están,
+ * ventas Y anulaciones (los dos llamadores ya los leen así: cuadreId + no
+ * anulados). Si solo llegaran ventas, el resultado sería el de siempre.
+ *
  * La columna `anulado` queda reservada para invalidar un movimiento sin
  * contrapartida (registros defectuosos, importaciones), no para este flujo.
  */
 export function construirAnulacionCuadre({ movimientosPrevios, meta }) {
   const ahora = meta.ahora ?? Date.now()
-  const anulaciones = []
-  for (const m of movimientosPrevios) {
-    if (m.anulado || m.tipo !== 'venta') continue
-    anulaciones.push({
-      id: generarId(),
-      puestoId: m.puestoId,
-      productoId: m.productoId,
-      loteId: m.loteId,
-      cuadreId: m.cuadreId,
-      lineaCuadreId: m.lineaCuadreId,
-      traspasoId: null,
-      tipo: 'anulacion',
-      cantidad: m.cantidad,
-      deltaAlmacen: opuesto(m.deltaAlmacen),
-      deltaQuiosco: opuesto(m.deltaQuiosco),
-      precioUnitario: Number(m.precioUnitario) || 0,
-      importe: Number(m.importe) || 0,
-      motivo: 'reapertura_cuadre',
-      nota: null,
-      usuarioId: meta.usuarioId ?? null,
-      anulado: false,
-      creadoEn: ahora
-    })
-  }
+  const { vivas } = auditarAnulacionesCuadre(movimientosPrevios)
+  const anulaciones = vivas.map(m => ({
+    id: generarId(),
+    puestoId: m.puestoId,
+    productoId: m.productoId,
+    loteId: m.loteId,
+    cuadreId: m.cuadreId,
+    lineaCuadreId: m.lineaCuadreId,
+    traspasoId: null,
+    tipo: 'anulacion',
+    cantidad: m.cantidad,
+    deltaAlmacen: opuesto(m.deltaAlmacen),
+    deltaQuiosco: opuesto(m.deltaQuiosco),
+    precioUnitario: Number(m.precioUnitario) || 0,
+    importe: Number(m.importe) || 0,
+    motivo: 'reapertura_cuadre',
+    nota: null,
+    usuarioId: meta.usuarioId ?? null,
+    anulado: false,
+    creadoEn: ahora
+  }))
   return { anulaciones }
+}
+
+/**
+ * Separa los movimientos de un cuadre en ventas VIVAS y anulaciones sobrantes.
+ *
+ * Es la regla de las reaperturas, en un solo sitio y sin efectos: el cierre
+ * la usa para decidir a qué ventas devuelve el stock, y el script de reparación
+ * (scripts/reparar-reaperturas.mjs) la usa para auditar y arreglar bases ya
+ * escritas. Así la app y el script no pueden decidir distinto qué es una venta
+ * viva.
+ *
+ * - vivas: ventas del cuadre que ninguna anulación ha neutralizado todavía.
+ *   Reabrir un cuadre devuelve estas y solo estas.
+ * - sobrantes: anulaciones que no encuentran venta que neutralizar, porque la
+ *   venta que copiaaron ya estaba cancelada por una reapertura anterior. Es la
+ *   firma del descuadre: devuelven stock dos veces.
+ *
+ * El emparejamiento es CRONOLÓGICO, no un simple recuento. Cuenta porque una
+ * anulación nunca precede a la venta que copia: el cierre va primero y la
+ * reapertura después. Recorrer el libro en orden deja que cada anulación se
+ * coma la venta viva más antigua de su línea y, cuando ya no queda ninguna,
+ * se reconozca como sobrante. Solo contando por clave el descuadre sería
+ * invisible: tres ventas con tres anulaciones (una de ellas duplicada) se ven
+ * exactamente igual que tres cierres con sus tres reaperturas.
+ *
+ * @param {Array} movimientos — movimientos del cuadre (cualquier orden)
+ * @returns {{ vivas: Array, sobrantes: Array }}
+ */
+export function auditarAnulacionesCuadre(movimientos = []) {
+  const lista = (movimientos ?? []).filter(m => m && !m.anulado)
+  // Sort estable: a igual creadoEn se respeta el orden de llegada.
+  const orden = [...lista].sort((a, b) => msMovimiento(a.creadoEn) - msMovimiento(b.creadoEn))
+
+  // Una venta entra al libro en el pendiente de su línea y sale de él cuando
+  // una anulación posterior la neutraliza. Lo que sobre al final son las vivas.
+  const pendientes = new Map()
+  const sobrantes = []
+  for (const m of orden) {
+    if (m.tipo === 'venta') {
+      const clave = claveAnulacion(m)
+      if (!pendientes.has(clave)) pendientes.set(clave, [])
+      pendientes.get(clave).push(m)
+    } else if (m.tipo === 'anulacion') {
+      const grupo = pendientes.get(claveAnulacion(m))
+      if (grupo?.length) grupo.shift()
+      else sobrantes.push(m)
+    }
+  }
+
+  const vivas = []
+  for (const grupo of pendientes.values()) vivas.push(...grupo)
+  return { vivas, sobrantes }
 }
 
 /**
