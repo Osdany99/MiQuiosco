@@ -144,11 +144,17 @@ const editarFormRef = ref(null)
 
 const emit = defineEmits(['actualizado'])
 
-onMounted(async () => {
-  await cargarClientes(props.puestoId)
-  await cargarProductos(props.puestoId)
-  await cargarActividadDelCuadre(props.cuadreId)
+onMounted(() => {
+  void cargarClientes(props.puestoId)
+  void cargarProductos(props.puestoId)
 })
+
+// Ver FiadoCard: la tarjeta monta antes de que la página resuelva el cuadre, así
+// que cuadreId llega '' y con onMounted la lista nunca llegaba a cargar.
+watch(() => props.cuadreId, async (id) => {
+  if (!id) return
+  await cargarActividadDelCuadre(id)
+}, { immediate: true })
 
 async function onCrearCliente(data) {
   const nuevo = await crearCliente(data, props.puestoId)

@@ -30,6 +30,15 @@
               <p class="truncate font-medium">
                 {{ nombreCliente(deuda.clienteId) }}
               </p>
+              <!-- Qué se fió. La fila solo decía "pendiente" y el saldo: con
+                   varias deudas del día no había forma de saber cuál era cuál ni
+                   de qué producto hablaba. -->
+              <p
+                v-if="resumenItems(deuda)"
+                class="truncate text-xs text-muted"
+              >
+                {{ resumenItems(deuda) }}
+              </p>
               <p class="text-xs text-gray-500">
                 Saldo: <span class="font-mono">{{ fmtPrecio(Number(deuda.montoTotal) - Number(deuda.montoPagado)) }}</span>
                 <UBadge
@@ -151,10 +160,33 @@ function nombreCliente(clienteId) {
   return clientes.value.find(c => c.id === clienteId)?.nombre ?? 'Cliente'
 }
 
-onMounted(async () => {
-  await cargarClientes(props.puestoId)
-  await cargarActividadDelCuadre(props.cuadreId)
+function nombreProducto(productoId) {
+  return props.productosActivos.find(p => p.id === productoId)?.nombre ?? 'Producto'
+}
+
+/** "Aceite ×1", o "Aceite ×2, Sal ×1" si la deuda trae varias líneas. */
+function resumenItems(cuenta) {
+  return (cuenta.items ?? [])
+    .map(it => `${nombreProducto(it.productoId)} ×${Number(it.cantidad) || 0}`)
+    .join(', ')
+}
+
+onMounted(() => {
+  void cargarClientes(props.puestoId)
 })
+
+// El cuadre se carga de forma asíncrona y esta tarjeta monta ANTES de que la
+// página lo resuelva (en Vue el onMounted de un hijo corre antes que el del
+// padre), así que cuadreId llega ''. Con onMounted esa lectura se quedaba fija
+// para siempre y la lista salía vacía aunque hubiera datos: el jefe veía el
+// monto del fiado en la tarjeta de arriba pero no tenía ninguna deuda que
+// borrar — y como el borrado solo existe en esta tarjeta, quedaba sin salida.
+// El watch con immediate cubre el primer render y además recargar si el cuadre
+// cambia (reabrir, cambio de día).
+watch(() => props.cuadreId, async (id) => {
+  if (!id) return
+  await cargarActividadDelCuadre(id)
+}, { immediate: true })
 
 async function onCrearCliente(data) {
   const nuevo = await crearCliente(data, props.puestoId)

@@ -7,6 +7,7 @@
  * empareja cada recarga que entra, por eso se gestiona aquí y no suelta.
  */
 import { clientes as config } from '../../shared/tables'
+import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
 import { normalizarTelefono } from '../utils/parseEtecsaSms'
 import {
   contactosEstado,
@@ -118,6 +119,14 @@ function quitarTelefono(t) {
   telefonosForm.value = telefonosForm.value.filter(x => x.telefono !== t.telefono)
 }
 
+/**
+ * El cliente centinela no se renombra ni se desactiva: su nombre es la única
+ * señal de que esa transferencia no tiene dueño conocido, y desactivarlo lo
+ * saca del selector de transferencias (ver cargarClientes). El ensure-on-use
+ * lo reviviría, pero mejor que no haya forma de romperlo.
+ */
+const esCentinela = computed(() => form.value.id === CLIENTE_SIN_CLIENTE_ID_FIJO)
+
 async function guardar() {
   const nombre = form.value.nombre.trim()
   if (!nombre) {
@@ -128,11 +137,13 @@ async function guardar() {
   try {
     let cliente
     if (form.value.id) {
-      cliente = await cli.clientesRepo.value.patch(form.value.id, {
-        nombre,
-        notas: form.value.notas || null,
-        activo: form.value.activo !== false
-      })
+      cliente = await cli.clientesRepo.value.patch(form.value.id, esCentinela.value
+        ? { notas: form.value.notas || null }
+        : {
+            nombre,
+            notas: form.value.notas || null,
+            activo: form.value.activo !== false
+          })
     } else {
       cliente = await cli.crearCliente(
         { nombre, notas: form.value.notas || null },
@@ -426,10 +437,23 @@ onMounted(() => {
             v-model="form.nombre"
             placeholder="Ej. Marta la de la esquina"
             class="w-full"
+            :disabled="esCentinela"
           />
         </UFormField>
 
-        <UFormField label="Notas">
+        <UFormField
+          v-if="esCentinela"
+          label="Cliente centinela"
+        >
+          <p class="text-xs text-muted">
+            Es el cliente que usan las transferencias cuyo cliente no se conoce o se olvidó. No se renombra ni se desactiva: su nombre es la señal de que esa transferencia no tiene dueño.
+          </p>
+        </UFormField>
+
+        <UFormField
+          v-if="!esCentinela"
+          label="Notas"
+        >
           <UInput
             v-model="form.notas"
             placeholder="Opcional"
@@ -437,7 +461,7 @@ onMounted(() => {
           />
         </UFormField>
 
-        <UFormField label="Estado">
+        <UFormField v-if="!esCentinela" label="Estado">
           <USwitch
             v-model="form.activo"
             label="Activo"

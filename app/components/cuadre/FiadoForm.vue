@@ -8,6 +8,7 @@
           value-key="id"
           label-key="nombre"
           placeholder="Seleccionar cliente..."
+          size="sm"
           class="w-full"
         />
       </UFormField>
@@ -42,29 +43,43 @@
       v-if="productoFijo"
       class="flex gap-2 items-start"
     >
-      <UFormField label="Producto" class="flex-1">
-        <div class="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 dark:border-gray-800">
+      <UFormField label="Producto" class="flex-[2] min-w-0">
+        <!-- La caja copia la receta de un input `sm` (py-1.5 + text-sm/4) para
+             medir lo mismo que el campo de Cant. y cerrar en el mismo borde. El
+             line-height va explícito porque `text-sm` también lo pisa, y eso
+             volvería a estirar la caja. -->
+        <div class="flex items-center justify-between gap-2 rounded-md border border-gray-200 px-3 py-1.5 text-sm/4 dark:border-gray-800">
           <div class="min-w-0">
             <p class="truncate font-medium">
               {{ productoFijo.nombre }}
             </p>
             <p
               v-if="productoFijo.descripcion"
-              class="truncate text-xs text-muted"
+              class="truncate text-xs/3 text-muted"
             >
               {{ productoFijo.descripcion }}
             </p>
           </div>
-          <span class="shrink-0 font-mono text-sm">{{ fmtPrecio(productoFijo.precio) }}</span>
+          <span class="shrink-0 font-mono text-sm/4">{{ fmtPrecio(productoFijo.precio) }}</span>
         </div>
       </UFormField>
-      <UFormField label="Cant." class="w-24">
+      <UFormField label="Cant." class="flex-1 min-w-0">
         <BaseInputNumber
           v-model="model.items[0].cantidad"
           placeholder="0"
           @update:model-value="onCantidadChange(model.items[0])"
         />
       </UFormField>
+    </div>
+
+    <!-- Con el producto ya fijado la deuda nace de una sola línea, así que el
+         total se resuelve aquí: la tarjeta de atrás no se lee desde el diálogo. -->
+    <div
+      v-if="productoFijo"
+      class="flex items-center justify-between rounded-md bg-muted px-3 py-2"
+    >
+      <span class="text-sm text-muted">Total a fiar</span>
+      <span class="font-mono font-semibold text-primary">{{ fmtPrecio(totalFiado) }}</span>
     </div>
 
     <template v-else>
@@ -81,6 +96,7 @@
             label-key="nombre"
             description-key="descripcion"
             placeholder="Producto..."
+            size="sm"
             class="w-full"
             @update:model-value="onProductoChange(item)"
           />
@@ -132,6 +148,7 @@
                 ]"
                 value-key="value"
                 label-key="label"
+                size="sm"
                 class="w-full"
                 :search-input="false"
               />
@@ -171,6 +188,17 @@ const formRef = ref(null)
 const clienteFields = [
   { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre completo', props: { class: 'w-full', maxlength: 100 } }
 ]
+
+/**
+ * Importe de la deuda que se va a registrar: cantidad × precio de la línea.
+ * Solo aplica con `productoFijo` (una única línea ya decidida); en la rama de
+ * varios productos el resumen se calcula en la tarjeta de atrás.
+ */
+const totalFiado = computed(() => {
+  const item = model.value.items?.[0]
+  if (!item) return 0
+  return (Number(item.cantidad) || 0) * (Number(item.precioVentaUsado) || 0)
+})
 
 function onProductoChange(item) {
   const prod = props.productosActivos.find(p => p.id === item.productoId)

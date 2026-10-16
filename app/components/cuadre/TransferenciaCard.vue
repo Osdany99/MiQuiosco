@@ -117,10 +117,19 @@ function nombreCliente(clienteId) {
   return clientes.value.find(c => c.id === clienteId)?.nombre ?? 'Cliente'
 }
 
-onMounted(async () => {
-  await cargarClientes(props.puestoId)
-  await cargarActividadDelCuadre(props.cuadreId)
+// Única tarjeta que ofrece el cliente centinela: una transferencia puede no
+// tener cliente conocido (se olvidó quién fue), y ahí "Sin cliente" es la
+// respuesta honesta. En las demás (fiado, ajustes, recargas) no tiene sentido.
+onMounted(() => {
+  void cargarClientes(props.puestoId, { incluirSinCliente: true })
 })
+
+// Ver FiadoCard: la tarjeta monta antes de que la página resuelva el cuadre, así
+// que cuadreId llega '' y con onMounted la lista nunca llegaba a cargar.
+watch(() => props.cuadreId, async (id) => {
+  if (!id) return
+  await cargarActividadDelCuadre(id)
+}, { immediate: true })
 
 async function onCrearCliente(data) {
   const nuevo = await crearCliente(data, props.puestoId)
@@ -128,10 +137,9 @@ async function onCrearCliente(data) {
 }
 
 async function confirmarNueva() {
-  if (!nuevaForm.value.clienteId) {
-    toast.add({ title: 'Error', description: 'Elige el cliente que transfirió.', color: 'error' })
-    return
-  }
+  // El cliente no se valida aquí: la lista incluye el centinela "Sin cliente",
+  // así que un valor no elegido es indistinguible de "no sé de quién era".
+  // Si el jefe no eligió ninguno, registrarTransferencia lo rechaza.
   if (!((Number(nuevaForm.value.monto) || 0) > 0)) {
     toast.add({ title: 'Error', description: 'El monto debe ser mayor que cero.', color: 'error' })
     return

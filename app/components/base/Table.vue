@@ -7,6 +7,7 @@
           :columns="columns"
           :filter-fields="filterFields"
           :disable-filters="disableFilters"
+          :show-reset="showReset"
           @reload="reload"
         >
           <slot name="toolbar-leading" />
@@ -165,6 +166,12 @@ const props = defineProps({
   formRef: { type: Object, default: null },
   loadingProp: { type: Boolean, default: false },
   disableFilters: { type: Boolean, default: false },
+  /**
+   * Botón "Restablecer" de la barra. Por defecto en todas las tablas; se apaga
+   * donde no hay filtros que restablecer o donde recargar tira trabajo sin
+   * guardar (ver ToolbarLeft).
+   */
+  showReset: { type: Boolean, default: true },
   /**
    * Filtros con los que arranca la tabla. Útil cuando el listado debe venir ya
    * filtrado (p. ej. "solo lo pendiente") sin que el usuario toque nada: se ven

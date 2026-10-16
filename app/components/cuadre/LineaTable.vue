@@ -25,7 +25,7 @@
       :loading-prop="cargando"
       :pagination="false"
       :disable-filters="true"
-      @reload="reload"
+      :show-reset="false"
     >
       <template #actions="{ row }">
         <UTooltip
@@ -127,7 +127,7 @@
       <template #cantidad-cell="{ row }">
         <div>
           <BaseInputNumber
-            v-model="row.original.cantidad"
+            :model-value="row.original.cantidad"
             :step="1"
             class="w-20"
             :disabled="readonly"
@@ -138,7 +138,7 @@
             :highlight="!!excesoDe(row.original)"
             @focus="(e) => activarEdicion(row.original, e)"
             @blur="terminarEdicion(row.original)"
-            @update:model-value="recalcularSubtotal(row.original)"
+            @update:model-value="(v) => alCambiarCantidad(row.original, v)"
           />
           <!-- El "Q:" es la CAPACIDAD del día (con qué merchandise había para
                vender), no el stock que queda: al cerrar el cuadre las ventas ya
@@ -185,10 +185,10 @@
 </template>
 
 <script setup>
-const emit = defineEmits(['reload', 'fiar'])
+const emit = defineEmits(['fiar'])
 
 const {
-  lineas, expandida, cargando, capacidadPorProducto, excedentes, vendidoDe,
+  lineas, expandida, cargando, capacidadPorProducto, excedentes, vendidoDe, fiadoDeProducto,
   recalcularSubtotal, toggleExpandir,
   getProductoNombre, getProductoDescripcion,
   flushAutosave, duplicarLinea, eliminarLinea
@@ -256,10 +256,49 @@ function duplicar(linea) {
   duplicarLinea(linea)
 }
 
+/**
+ * No se puede vender menos de lo que ya está fiado de ese producto. Bajar la
+ * línea dejaría al cuadre debiendo unidades que él ya no cuenta como vendidas,
+ * y el tope "fiado ≤ vendido" se rompería en silencio: el cuadre cerraría con
+ * una deuda por algo que nunca se vendió. La salida es borrar la deuda, no
+ * maquillar la venta.
+ */
+function alCambiarCantidad(linea, valor) {
+  const minimo = fiadoDeProducto(linea.productoId)
+  const n = Number(valor) || 0
+  if (n < minimo) {
+    toast.add({
+      title: 'No puedes vender menos de lo ya fiado',
+      description: `Ya fiaraste ${minimo} de ${getProductoNombre(linea.productoId)}. Borra esa deuda desde "Fiado del día" antes de bajar la cantidad.`,
+      color: 'error'
+    })
+    return
+  }
+  linea.cantidad = n
+  recalcularSubtotal(linea)
+}
+
+/**
+ * Quitar una línea baja el vendido de ese producto, así que abre el mismo
+ * agujero que bajar la cantidad a mano: si queda menos vendido de lo que está
+ * fiado, la deuda se queda apuntando a unidades que ya no constan.
+ */
 function confirmarEliminar() {
-  if (aEliminar.value) eliminarLinea(aEliminar.value.id)
+  const linea = aEliminar.value
   aEliminar.value = null
   eliminarOpen.value = false
+  if (!linea) return
+  const minimo = fiadoDeProducto(linea.productoId)
+  const restante = vendidoDe(linea.productoId) - (Number(linea.cantidad) || 0)
+  if (restante < minimo) {
+    toast.add({
+      title: 'No puedes quitar una línea con fiado',
+      description: `De ${getProductoNombre(linea.productoId)} ya fiaraste ${minimo} y al quitar esta línea solo quedarían ${restante} unidades vendidas. Borra esa deuda desde "Fiado del día" primero.`,
+      color: 'error'
+    })
+    return
+  }
+  eliminarLinea(linea.id)
 }
 
 defineProps({
@@ -337,8 +376,4 @@ const columnDefs = [
   { accessorKey: 'subtotal', header: 'Subtotal', cell: 'currency', visible: false },
   { id: 'action', header: 'Acciones' }
 ]
-
-function reload() {
-  emit('reload')
-}
 </script>

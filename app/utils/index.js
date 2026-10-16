@@ -33,7 +33,17 @@ export const UMBRAL_BONO_SALARIO = 10000
 export function calcularSalario(baseSalario, totalVendido) {
   const base = normalizarNumero(baseSalario)
   const excedente = Math.max(0, normalizarNumero(totalVendido) - UMBRAL_BONO_SALARIO)
-  return Math.round(base + excedente * 0.01)
+  // El bono sale siempre en múltiplos de 10. Un 1% exacto deja cifras que no
+  // se pagan en efectivo (12 900 vendidos dan 29 de bono) y eso obliga a
+  // embolarse al trabajador; bajarlo a 20 deja el número redondo. Lo que sobra
+  // queda para el negocio, y un bono menor de 10 se va directo a cero.
+  //
+  // Se divide en vez de multiplicar por 0.01 a propósito: `x * 0.01` arrastra
+  // coma flotante (10000 * 0.01 no es exactamente 100) y el floor de abajo se
+  // comería un bono entero.
+  const bonoExacto = excedente / 100
+  const bono = Math.floor(bonoExacto / 10) * 10
+  return base + bono
 }
 
 // Normaliza entradas numéricas de formularios: '', null, undefined o NaN → 0.

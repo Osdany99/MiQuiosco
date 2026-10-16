@@ -1,4 +1,9 @@
 import { TABLES } from '../../shared/tables'
+import {
+  CLIENTE_SIN_CLIENTE_ID_FIJO,
+  CLIENTE_SIN_CLIENTE_NOMBRE,
+  CLIENTE_SIN_CLIENTE_NOTAS
+} from '../../shared/constants'
 
 const clienteConfig = TABLES.clientes
 const telefonoConfig = TABLES.clientes_telefonos
@@ -25,11 +30,35 @@ export function useClientes() {
   const telefonos = ref([])
   const cargando = ref(false)
 
-  async function cargarClientes(puestoId) {
+  /**
+   * Clientes del puesto. Por defecto SIN el centinela: fiarle o venderle a
+   * "Sin cliente" no tiene sentido, solo se ofrece donde sí lo es (las
+   * transferencias). Pídelo con `incluirSinCliente` en ese selector.
+   *
+   * El centinela se asegura en cada carga, no en la siembra: sembrarJefeLocal
+   * hace early-return en una base que ya tiene usuarios, así que un dispositivo
+   * en uso nunca lo crearía. Además se autorrepara si alguien lo desactivó.
+   */
+  async function cargarClientes(puestoId, { incluirSinCliente = false } = {}) {
     cargando.value = true
     try {
-      const todos = await clientesRepo.value.readAll()
-      clientes.value = (todos || []).filter(c => c.puestoId === puestoId && c.activo)
+      const filas = [...((await clientesRepo.value.readAll()) || [])]
+
+      if (!filas.some(c => c.id === CLIENTE_SIN_CLIENTE_ID_FIJO && c.puestoId === puestoId)) {
+        filas.push(await clientesRepo.value.create({
+          id: CLIENTE_SIN_CLIENTE_ID_FIJO,
+          puestoId,
+          nombre: CLIENTE_SIN_CLIENTE_NOMBRE,
+          notas: CLIENTE_SIN_CLIENTE_NOTAS,
+          activo: true
+        }))
+      }
+
+      clientes.value = filas.filter(c =>
+        c.puestoId === puestoId
+        && c.activo
+        && (incluirSinCliente || c.id !== CLIENTE_SIN_CLIENTE_ID_FIJO)
+      )
       return clientes.value
     } finally {
       cargando.value = false

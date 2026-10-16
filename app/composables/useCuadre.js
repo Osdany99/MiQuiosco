@@ -250,6 +250,14 @@ export function useCuadre() {
    */
   const capacidadPorProducto = useState('cuadre-capacidad', () => new Map())
 
+  /**
+   * Unidades fiadas por producto del cuadre abierto. La escribe
+   * useCuentasFiado al cargar la actividad; se declara aquí con la misma clave
+   * para que la tabla de líneas pueda leerla sin instanciar dos veces el
+   * composable de fiado. Ver fiadoDeProducto.
+   */
+  const fiadoPorProducto = useState('cuadre-fiado-por-producto', () => new Map())
+
   const expandida = reactive(new Set())
 
   // El pago al trabajador sigue al cálculo (base + 1% de lo vendido) mientras
@@ -1070,6 +1078,16 @@ export function useCuadre() {
   }
 
   /**
+   * Unidades ya comprometidas como fiado de este producto en el cuadre.
+   * Misma clave que escribe useCuentasFiado al cargar la actividad del cuadre.
+   * Sirve para no dejar que una línea baje por debajo de lo ya fiado: hacerlo
+   * dejaría la deuda apuntando a unidades que el cuadre ya no da por vendidas.
+   */
+  function fiadoDeProducto(productoId) {
+    return Number(fiadoPorProducto.value?.get(productoId) ?? 0)
+  }
+
+  /**
    * Campos que venden más de lo que había en el quiosco ese día.
    *
    * Una entrada por LÍNEA marcada (el contador de la banda cuenta campos, no
@@ -1107,7 +1125,7 @@ export function useCuadre() {
 
   return {
     cuadre, lineas, productosActivos, cargando,
-    capacidadPorProducto, cargarCapacidad, vendidoDe, excedentes,
+    capacidadPorProducto, cargarCapacidad, vendidoDe, fiadoDeProducto, excedentes,
     expandida,
     totalRealCaja, montoTransferencia, montoFiado, montoCobradoFiado,
     montoRegalo, montoDescuento,

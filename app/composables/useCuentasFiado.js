@@ -51,6 +51,18 @@ export function useCuentasFiado() {
   const pagosDelCuadre = ref([])
   const cargando = ref(false)
 
+  /**
+   * Unidades fiadas por producto en el cuadre abierto. Va en un useState y no en
+   * un ref como el resto del composable porque lo leen dos capas distintas: la
+   * tarjeta de fiado lo escribe y useCuadre lo usa para no dejar bajar una
+   * cantidad por debajo de lo ya fiado.
+   *
+   * Entra toda deuda del cuadre, pagada o no, igual que
+   * consumoPorProductoEnCuadreLocal: unas unidades ya vendidas no se
+   * "des-venden" por saldar la deuda.
+   */
+  const fiadoPorProducto = useState('cuadre-fiado-por-producto', () => new Map())
+
   const montoFiadoCalculado = computed(() =>
     cuentasDelCuadre.value.reduce((sum, c) => sum + (Number(c.montoTotal) - Number(c.montoPagado)), 0)
   )
@@ -62,10 +74,31 @@ export function useCuentasFiado() {
   )
 
   async function cargarActividadDelCuadre(cuadreId) {
-    const todasCuentas = await r(cuentasRepo).readAll()
-    cuentasDelCuadre.value = todasCuentas.filter(c => c.cuadreOrigenId === cuadreId)
-    const todosPagos = await r(pagosRepo).readAll()
+    // Sin id (la tarjeta monta antes de que la página cargue el cuadre) se
+    // limpia todo y se avisa con el watch: filtrar por '' no matchea nada pero
+    // deja las listas viejas en pantalla, que es peor que estar vacío.
+    if (!cuadreId) {
+      cuentasDelCuadre.value = []
+      pagosDelCuadre.value = []
+      fiadoPorProducto.value = new Map()
+      return
+    }
+    const [todasCuentas, todosItems, todosPagos] = await Promise.all([
+      r(cuentasRepo).readAll(),
+      r(itemsRepo).readAll(),
+      r(pagosRepo).readAll()
+    ])
+    const cuentas = todasCuentas.filter(c => c.cuadreOrigenId === cuadreId)
+    const ids = new Set(cuentas.map(c => c.id))
+    const items = todosItems.filter(i => ids.has(i.cuentaFiadoId))
+    // Cada deuda guarda qué se fió: sin esto la fila de la lista solo decía
+    // "pendiente" y no se sabía de qué producto hablaba ni cuántas unidades.
+    cuentasDelCuadre.value = cuentas.map(c => ({
+      ...c,
+      items: items.filter(i => i.cuentaFiadoId === c.id)
+    }))
     pagosDelCuadre.value = todosPagos.filter(p => p.cuadreId === cuadreId)
+    fiadoPorProducto.value = sumarPorProducto(items)
   }
 
   /**
@@ -472,7 +505,7 @@ export function useCuentasFiado() {
   }
 
   return {
-    clientes, cuentasDelCuadre, pagosDelCuadre, cargando,
+    clientes, cuentasDelCuadre, pagosDelCuadre, cargando, fiadoPorProducto,
     montoFiadoCalculado, montoCobradoFiadoCalculado,
     cargarClientes, cargarActividadDelCuadre, crearCliente,
     registrarNuevaDeuda, registrarDeudaDirecta, eliminarDeuda, cobrarDeuda,

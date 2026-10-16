@@ -1,6 +1,6 @@
 <template>
   <div class="flex items-center gap-2">
-    <UTooltip text="Restablecer" :delay-duration="0">
+    <UTooltip v-if="showReset" text="Restablecer" :delay-duration="0">
       <UButton
         icon="i-lucide-rotate-ccw"
         variant="ghost"
@@ -75,6 +75,12 @@ const props = defineProps({
   filterFields: { type: Array, default: () => [] },
   columns: { type: Array, default: () => [] },
   disableFilters: { type: Boolean, default: false },
+  /**
+   * Muestra el botón "Restablecer". Se apaga en las tablas sin filtros (donde
+   * la mitad de "restablecer" no hace nada) y en las que recargan un
+   * autoguardado: ahí un toque descarta lo tecleado sin avisar.
+   */
+  showReset: { type: Boolean, default: true },
   modelValue: { type: Object, default: () => ({}) }
 })
 

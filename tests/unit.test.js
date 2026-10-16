@@ -177,6 +177,34 @@ describe('fmtPrecio y calcularSalario', () => {
   it('calcularSalario: total indefinido no rompe el cálculo', () => {
     assert.equal(calcularSalario(600, undefined), 600)
   })
+  // El bono se cobra siempre en múltiplos de 10: un 1% exacto deja cifras que
+  // no se pagan en efectivo y obligan a embolarse al trabajador.
+  it('calcularSalario: bono de 29 (12900 vendidos) baja a 20', () => {
+    assert.equal(calcularSalario(600, 12900), 620)
+  })
+  it('calcularSalario: bono de 19 (11900 vendidos) baja a 10', () => {
+    assert.equal(calcularSalario(600, 11900), 610)
+  })
+  it('calcularSalario: bono de 9 (10900 vendidos) se va a cero', () => {
+    assert.equal(calcularSalario(600, 10900), 600)
+  })
+  it('calcularSalario: pago 991 baja a 990 (bono 391 → 390)', () => {
+    assert.equal(calcularSalario(600, 49100), 990)
+  })
+  it('calcularSalario: pago 999 baja a 990 (bono 399 → 390)', () => {
+    assert.equal(calcularSalario(600, 49900), 990)
+  })
+  it('calcularSalario: un bono ya múltiplo de 10 no se toca', () => {
+    assert.equal(calcularSalario(600, 21000), 710)
+  })
+  it('calcularSalario: el redondeo del bono no arrastra coma flotante', () => {
+    // Con `excedente * 0.01` este caso daba 100.00000000000001 y el floor
+    // se comía el bono entero, bajándolo de 100 a 90.
+    assert.equal(calcularSalario(600, 20000), 700)
+  })
+  it('calcularSalario: la base nunca se redondea (605 + bono 20 = 625)', () => {
+    assert.equal(calcularSalario(605, 12000), 625)
+  })
 })
 
 // --- normalizarNumero y calcularSubtotalLinea (blindaje NaN del cuadre) ---

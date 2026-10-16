@@ -14,6 +14,20 @@ const showSugerencia = ref(false)
 const sugerencias = ref([])
 const fiadoCardRef = ref(null)
 
+/**
+ * El desglose se pinta siempre, desde el primer peso esperado: esperar al
+ * dinero real para mostrarlo dejaba la tarjeta vacía durante todo el día. Lo
+ * único que sí depende de ese dato es el cierre (Faltante/Sobrante/Exacto),
+ * que va en gris con un guion mientras no exista, como los demás valores
+ * ausentes de la app.
+ */
+const etiquetaDiferencia = computed(() => {
+  if (faltanteReal.value == null) return 'Pendiente'
+  if (faltanteReal.value > 0) return 'Faltante'
+  if (faltanteReal.value < 0) return 'Sobrante'
+  return 'Exacto'
+})
+
 function recargar() {
   cargarDatos(auth.usuarioActual.value?.puestoId || '', cuadreIdParam?.value ?? null)
 }
@@ -81,7 +95,6 @@ onMounted(() => {
           :readonly="cuadre?.estado !== 'abierto'"
           :puede-fiar="!esTrabajador"
           @fiar="abrirDeudaDesdeLinea"
-          @reload="recargar"
         />
       </div>
 
@@ -92,28 +105,26 @@ onMounted(() => {
               <span class="font-semibold">Total esperado (descontado)</span>
               <span class="text-xl font-mono font-bold text-primary">{{ fmtPrecio(totalEsperado) }}</span>
             </div>
-            <hr v-if="faltanteReal != null" class="border-t border-gray-200 dark:border-gray-800">
-            <template v-if="faltanteReal != null">
-              <div class="flex justify-between text-sm">
-                <span>En caja (efectivo)</span>
-                <span class="font-mono">{{ fmtPrecio(totalRealCaja ?? 0) }}</span>
-              </div>
-              <div class="flex justify-between text-sm">
-                <span>En transferencia</span>
-                <span class="font-mono">{{ fmtPrecio(montoTransferencia) }}</span>
-              </div>
-              <div class="flex justify-between text-sm">
-                <span>En deuda (fiado)</span>
-                <span class="font-mono">{{ fmtPrecio(montoFiado) }}</span>
-              </div>
-              <hr class="border-t border-gray-200 dark:border-gray-800">
-              <div class="flex justify-between items-center font-semibold" :class="faltanteReal > 0 ? 'text-error' : faltanteReal < 0 ? 'text-success' : ''">
-                <span>{{ faltanteReal > 0 ? 'Faltante' : faltanteReal < 0 ? 'Sobrante' : 'Exacto' }}</span>
-                <span class="font-mono">{{ fmtPrecio(Math.abs(faltanteReal)) }}</span>
-              </div>
-            </template>
-            <div v-else class="text-sm text-gray-500 italic">
-              Ingresa el dinero real en caja en el formulario de cierre para ver el desglose.
+            <hr class="border-t border-gray-200 dark:border-gray-800">
+            <div class="flex justify-between text-sm">
+              <span>En caja (efectivo)</span>
+              <span class="font-mono">{{ fmtPrecio(totalRealCaja ?? 0) }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span>En transferencia</span>
+              <span class="font-mono">{{ fmtPrecio(montoTransferencia) }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span>En deuda (fiado)</span>
+              <span class="font-mono">{{ fmtPrecio(montoFiado) }}</span>
+            </div>
+            <hr class="border-t border-gray-200 dark:border-gray-800">
+            <div
+              class="flex justify-between items-center font-semibold"
+              :class="faltanteReal == null ? 'text-gray-500' : faltanteReal > 0 ? 'text-error' : faltanteReal < 0 ? 'text-success' : ''"
+            >
+              <span>{{ etiquetaDiferencia }}</span>
+              <span class="font-mono">{{ faltanteReal == null ? '—' : fmtPrecio(Math.abs(faltanteReal)) }}</span>
             </div>
           </div>
         </UCard>

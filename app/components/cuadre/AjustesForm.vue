@@ -8,6 +8,7 @@
           value-key="id"
           label-key="nombre"
           placeholder="Sin cliente..."
+          size="sm"
           class="w-full"
         />
       </UFormField>

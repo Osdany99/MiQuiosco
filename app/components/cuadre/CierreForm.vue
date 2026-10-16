@@ -7,18 +7,13 @@
     </template>
 
     <div class="space-y-4">
-      <div>
-        <UFormField label="Dinero real en caja" required>
-          <BaseInputNumber
-            v-model="totalRealCaja"
-            placeholder="0"
-            :disabled="readonly"
-          />
-        </UFormField>
-      </div>
-      <p class="text-xs text-gray-500 -mt-3">
-        El monto en transferencia y el fiado se ven en sus propios apartados y cuentan como justificados al cerrar. Si un cliente abonó al momento, cuenta ese dinero aquí o en transferencia.
-      </p>
+      <UFormField label="Dinero real en caja" required>
+        <BaseInputNumber
+          v-model="totalRealCaja"
+          placeholder="0"
+          :disabled="readonly"
+        />
+      </UFormField>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Pago al trabajador">
@@ -30,9 +25,6 @@
           />
         </UFormField>
       </div>
-      <p v-if="trabajadorTurnoId && salarioCalculado" class="text-xs text-gray-500 -mt-3">
-        Salario calculado: {{ fmtPrecio(salarioCalculado) }} (base {{ fmtPrecio(salarioBase) }} + bono por ventas). Editable manualmente.
-      </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Trabajador de turno">
@@ -69,16 +61,11 @@ const usuarioConfig = TABLES.usuarios
 const {
   totalRealCaja,
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
-  salarioCalculado, marcarPagoManual
+  marcarPagoManual
 } = useCuadre()
 
 const repo = useRepo(usuarioConfig)
 const trabajadores = ref([])
-const salarioBase = computed(() => {
-  if (!trabajadorTurnoId.value) return 0
-  const t = trabajadores.value.find(t => t.id === trabajadorTurnoId.value)
-  return t?.salario ?? 600
-})
 
 onMounted(async () => {
   const { data: users } = await repo.readAll()
