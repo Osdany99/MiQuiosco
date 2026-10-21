@@ -220,8 +220,11 @@ jobs:
 
   # Actualiza Vercel sin tocar el dashboard: variables de versión (upsert),
   # redeploy a producción y verificación del manifiesto /api/app-version.
-  # Política: MIN_VERSION_CODE = LATEST (actualización obligatoria). Si una
-  # versión debe ser opcional, bajar APP_MIN_VERSION_CODE en el dashboard.
+  # Política: MIN_VERSION_CODE = 0 (actualización OPCIONAL). La app ofrece la
+  # versión nueva como descartable ("Más tarde", no vuelve a insistir) y el
+  # servidor nunca responde 426: una APK vieja sigue trabajando.
+  # Para hacer una release obligatoria, pon aquí el code de esa versión
+  # (MIN_VERSION_CODE = LATEST) y revísalo en docs/PUBLICAR_VERSION.md.
   # El changelog sale del cuerpo del tag anotado (git tag -a -m titulo -m notas).
   sync-vercel:
     needs: [build-release]
@@ -269,6 +272,8 @@ jobs:
             exit 1
           fi
           echo "PROJECT_ID=${PROJECT_ID}" >> "${GITHUB_ENV}"
+          # APP_MIN_VERSION_CODE va en 0 a propósito: la actualización se ofrece
+          # como opcional. Cambiarlo a ${VERSION_CODE} la vuelve obligatoria.
           PAYLOAD="$(jq -n \
             --arg code "${VERSION_CODE}" \
             --arg name "${VERSION_NAME}" \
@@ -276,7 +281,7 @@ jobs:
             --arg log "${CHANGELOG}" \
             '[{"key":"APP_LATEST_VERSION_CODE","value":$code},
               {"key":"APP_LATEST_VERSION_NAME","value":$name},
-              {"key":"APP_MIN_VERSION_CODE","value":$code},
+              {"key":"APP_MIN_VERSION_CODE","value":"0"},
               {"key":"APP_APK_URL","value":$url},
               {"key":"APP_CHANGELOG","value":$log}]
               | map(. + {type:"plain", target:["production","preview"]})')"
@@ -337,6 +342,12 @@ jobs:
           echo "latestVersionCode en producción: ${CODE} (esperado: ${VERSION_CODE})"
           if [[ "${CODE}" != "${VERSION_CODE}" ]]; then
             echo "::error::El manifiesto no refleja la nueva versión."
+            exit 1
+          fi
+          MIN="$(curl -sS "${BASE_URL}/api/app-version" | jq -r '.minVersionCode')"
+          echo "minVersionCode en producción: ${MIN} (esperado: 0, actualización opcional)"
+          if [[ "${MIN}" != "0" ]]; then
+            echo "::error::La actualización se está publicando como obligatoria (minVersionCode=${MIN})."
             exit 1
           fi
           echo "Manifiesto verificado."

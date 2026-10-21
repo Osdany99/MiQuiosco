@@ -23,6 +23,8 @@ cambio de esquema de BD).
 - `versionName` (ej. `"1.2"`): solo informativo para el usuario.
 - `APP_MIN_VERSION_CODE`: por debajo de este código la actualización es
   **obligatoria** (bloquea la app) y el servidor responde `426` a esa APK.
+  Con `0` (valor que publica el workflow) **ninguna** versión es obligatoria:
+  la actualización siempre es opcional y la APK vieja sigue trabajando.
 - `APP_LATEST_VERSION_CODE`: por encima de la instalada hay actualización
   **opcional** (descartable, con "Más tarde" que no vuelve a insistir para
   esa misma versión).
@@ -100,8 +102,8 @@ pnpm lint && pnpm test && pnpm typecheck
      `apksigner` y publicación del **GitHub Release** con la APK adjunta
      (`miquiosco-vX.Y.N.apk`).
    - Job `sync-vercel`: actualiza en Vercel `APP_LATEST_VERSION_CODE`,
-     `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE` (= latest, o sea
-     actualización **obligatoria**), `APP_APK_URL` (URL del asset recién
+     `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE` (= `0`, o sea
+     actualización **opcional**), `APP_APK_URL` (URL del asset recién
      creado) y `APP_CHANGELOG`; luego redeploy a producción y verifica
      `/api/app-version`.
 4. Vigilar el run en `Actions → release-apk` hasta que los 3 jobs estén en
@@ -120,9 +122,12 @@ generada (`drizzle/` desactualizado), error al migrar Neon (el release se
 aborta antes de compilar), assets con `localhost` (secret `SYNC_SERVER_URL`
 mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
 
-> Para que una versión sea **opcional** en vez de obligatoria, baja
-> `APP_MIN_VERSION_CODE` en el dashboard de Vercel tras el release
-> (el workflow siempre publica como obligatoria, lo seguro).
+> La actualización se publica **opcional** (`APP_MIN_VERSION_CODE = 0`): la app
+> la ofrece con "Más tarde" y una APK vieja no se bloquea. Para hacer una
+> release **obligatoria**, pon `APP_MIN_VERSION_CODE` = el code de esa versión
+> en el dashboard de Vercel (y muévele el valor en
+> `.github/workflows/release-apk.yml` para que los siguientes releases no lo
+> pisen).
 
 ## Caso B — Solo web/servidor (sin APK nueva)
 
@@ -158,8 +163,10 @@ al crear el tag. Este Caso C es solo para cambios **destructivos**
    sin datos valiosos o tras vaciar `public`).
 4. Regla **expand-only** para no romper la ventana entre migración y deploy:
    primero se publica lo aditivo (automático) y lo destructivo va después,
-   en su propio release y siempre **obligatorio**
-   (`APP_MIN_VERSION_CODE = APP_LATEST_VERSION_CODE`).
+   en su propio release. Como el workflow publica siempre **opcional**
+   (`APP_MIN_VERSION_CODE = 0`), en un release destructivo hay que subir
+   `APP_MIN_VERSION_CODE` = `APP_LATEST_VERSION_CODE` en el dashboard de
+   Vercel para que las APK viejas no sigan hablando con el esquema nuevo.
 5. Volver al caso A (paso 2) o B (paso 3).
 
 Notas:
