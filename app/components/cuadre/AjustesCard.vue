@@ -25,7 +25,7 @@
       </div>
 
       <template v-if="ajustesDelCuadre.length > 0">
-        <UDivider label="Ajustes del día" />
+        <USeparator label="Ajustes del día" />
         <ul class="space-y-2">
           <li
             v-for="a in ajustesDelCuadre"

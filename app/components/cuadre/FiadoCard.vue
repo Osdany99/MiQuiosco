@@ -19,7 +19,7 @@
       </p>
 
       <template v-if="deudasActivas.length > 0">
-        <UDivider label="Deudas del día" />
+        <USeparator label="Deudas del día" />
         <ul class="space-y-2">
           <li
             v-for="deuda in deudasActivas"

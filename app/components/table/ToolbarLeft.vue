@@ -15,8 +15,19 @@
           variant="ghost"
           size="sm"
           icon="i-lucide-filter"
-          :badge="appliedCount || undefined"
-        />
+        >
+          <!-- UButton de Nuxt UI v4 no tiene prop "badge": el contador va en
+               el slot trailing para que se vea de verdad. -->
+          <template v-if="appliedCount" #trailing>
+            <UBadge
+              color="primary"
+              variant="solid"
+              size="sm"
+              :label="appliedCount"
+              class="rounded-full px-1.5"
+            />
+          </template>
+        </UButton>
       </UTooltip>
       <template #content>
         <div class="p-4 min-w-48 space-y-3">

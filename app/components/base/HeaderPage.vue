@@ -8,9 +8,14 @@
           class="size-6 text-muted-foreground shrink-0"
         />
         <div>
-          <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
-            {{ title }}
-          </h1>
+          <div class="flex flex-wrap items-center gap-2">
+            <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
+              {{ title }}
+            </h1>
+            <!-- Etiqueta junto al título (el mes que se está viendo, por
+                 ejemplo). Opcional: si no se usa, el encabezado queda igual. -->
+            <slot name="badge" />
+          </div>
           <p class="text-gray-500 dark:text-gray-400">
             {{ description }}
           </p>

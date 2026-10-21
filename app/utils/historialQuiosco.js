@@ -37,16 +37,6 @@ export function nombreMesCorto(mes) {
   return `${MESES_CORTOS[m - 1]} ${y}`
 }
 
-/** Mes 'YYYY-MM' siguiente / anterior al dado. */
-export function desplazarMes(mes, salto) {
-  const [y, m] = String(mes ?? '').split('-').map(Number)
-  if (!y || !m) return ''
-  const total = y * 12 + (m - 1) + salto
-  const nuevoY = Math.floor(total / 12)
-  const nuevoM = (total % 12) + 1
-  return `${nuevoY}-${String(nuevoM).padStart(2, '0')}`
-}
-
 /** Cabeceras de las columnas de día: número, nombre de día y si es el de hoy. */
 export function columnasDeMes(mes) {
   const hoy = aDia(Date.now())

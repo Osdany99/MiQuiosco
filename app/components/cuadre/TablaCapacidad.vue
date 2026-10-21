@@ -90,7 +90,10 @@
                 class="px-0 py-1.5 text-center align-top"
                 :class="col.esHoy ? 'bg-primary/5' : ''"
               >
-                <CeldaDia
+                <!-- Con prefijo de carpeta: el nombre auto-importado es
+                     CuadreCeldaDia, no CeldaDia. Sin él Vue resuelve un elemento
+                     desconocido y la celda sale vacía. -->
+                <CuadreCeldaDia
                   :celda="fila.celdas.get(col.dia)"
                   @abrir="emit('abrir', { fila, dia: col.dia })"
                 />

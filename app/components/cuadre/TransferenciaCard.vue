@@ -21,7 +21,7 @@
       </div>
 
       <template v-if="transferenciasDelCuadre.length > 0">
-        <UDivider label="Registros del día" />
+        <USeparator label="Registros del día" />
         <ul class="space-y-2">
           <li
             v-for="t in transferenciasDelCuadre"
