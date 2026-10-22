@@ -60,6 +60,15 @@ function telefonosDe(clienteId) {
   return cli.telefonos.value.filter(t => t.clienteId === clienteId && t.activo !== false)
 }
 
+/** `5352565410 (Cheila 2)`: el número y el nombre propio que lo distingue. */
+function telefonoConNombre(t) {
+  return t?.etiqueta ? `${t.telefono} (${t.etiqueta})` : (t?.telefono ?? '')
+}
+
+function telefonoConNombrePorNumero(telefono) {
+  return telefonoConNombre(cli.telefonoDe(telefono)) || telefono
+}
+
 /**
  * Coincide por nombre o por número (parcial). El número se compara en forma
  * de dígitos para que "5..." encuentre el canónico de 10 dígitos.
@@ -241,7 +250,7 @@ function saldoDeRecarga(r) {
             <span class="min-w-0 text-left">
               <span class="block truncate font-medium">{{ c.nombre }}</span>
               <span class="block truncate font-mono text-xs text-muted">
-                {{ telefonosDe(c.id).map(t => t.telefono).join(' · ') || 'sin números' }}
+                {{ telefonosDe(c.id).map(telefonoConNombre).join(' · ') || 'sin números' }}
               </span>
             </span>
           </UButton>
@@ -258,7 +267,7 @@ function saldoDeRecarga(r) {
             <span class="min-w-0 text-left">
               <span class="block truncate font-medium">{{ c.nombre }}</span>
               <span class="block truncate font-mono text-xs text-muted">
-                {{ telefonosDe(c.id).map(t => t.telefono).join(' · ') || 'sin números' }}
+                {{ telefonosDe(c.id).map(telefonoConNombre).join(' · ') || 'sin números' }}
               </span>
             </span>
           </UButton>
@@ -287,7 +296,7 @@ function saldoDeRecarga(r) {
               size="sm"
               color="primary"
               class="font-mono"
-              :label="t.telefono"
+              :label="telefonoConNombre(t)"
             />
             <span v-if="!telefonosDe(seleccionado.id).length" class="text-xs text-muted">
               sin números
@@ -359,7 +368,7 @@ function saldoDeRecarga(r) {
               {{ tipoRecarga(row.original) }}
             </template>
             <template #telefonoDestino-cell="{ row }">
-              <span class="font-mono text-xs">{{ row.original.telefonoDestino }}</span>
+              <span class="font-mono text-xs">{{ telefonoConNombrePorNumero(row.original.telefonoDestino) }}</span>
             </template>
             <template #montoNominal-cell="{ row }">
               <span class="font-mono">{{ fmtPrecio(row.original.montoNominal) }}</span>

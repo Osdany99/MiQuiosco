@@ -4,11 +4,110 @@
  * Los módulos CRUD por tabla se generan con createOfflineModule(config, overrides).
  * Cada módulo expone: { list, get, create, update, patch, remove, ...actions }.
  */
-import { createOfflineModule } from './api/_factory.js'
+import { createOfflineModule, enrichForUpdate } from './api/_factory.js'
 import { createProductoMut, updateProductoMut } from '../../shared/mutations/producto'
 import { useDb } from './db/client'
-import { hashPin } from './utils/auth.js'
+import { hashPin, requireJefe } from './utils/auth.js'
 import { TABLES } from '../../shared/tables.js'
+import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
+import { fusionClienteSchema } from '../../shared/schemas/fusionCliente.js'
+import { planificarFusion } from '../utils/clientes.js'
+
+/** Tablas con `clienteId` que se re-apuntan al fusionar dos clientes. */
+const TABLAS_CON_CLIENTE = [
+  ['recargas', 'recargas'],
+  ['cuentas_fiado', 'deudas'],
+  ['transferencias', 'transferencias'],
+  ['ajustes', 'ajustes'],
+  ['sms_etecsa', 'sms']
+]
+
+/**
+ * Fusiona dos o más clientes en una sola identidad.
+ *
+ * El nombre final lo decide el jefe (uno de los existentes o uno nuevo). Los
+ * números conservan el nombre de su cliente de origen en `etiqueta` cuando
+ * difiere del final, que es lo que permite distinguir en Recargas a qué número
+ * se recargó. Todo va en una transacción: si algo falla no queda medio fusionado.
+ *
+ * El absorbido NO se borra: queda `activo=false` + `fusionadoEn`, fuera de los
+ * listados pero con su fila y su historial intactos.
+ */
+async function fusionarClientesOffline(payload, auth) {
+  requireJefe(auth)
+  const parsed = fusionClienteSchema.safeParse(payload)
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? 'Datos inválidos.')
+  }
+  const { ids, nombreFinal } = parsed.data
+  const puestoId = auth?.usuarioActual?.value?.puestoId
+  if (!puestoId) throw new Error('No hay puesto identificado.')
+
+  const db = useDb()
+  return db.transaction(async () => {
+    const todos = await db.queryAll('clientes')
+    const elegidos = todos.filter(c =>
+      ids.includes(c.id) && c.puestoId === puestoId && !c.fusionadoEn
+    )
+    if (elegidos.length !== ids.length) {
+      throw new Error('Alguno de los clientes ya no existe o ya fue fusionado.')
+    }
+    if (elegidos.some(c => c.id === CLIENTE_SIN_CLIENTE_ID_FIJO)) {
+      throw new Error('El cliente "Sin cliente" no se puede fusionar.')
+    }
+
+    const telefonos = await db.queryAll('clientes_telefonos')
+    const plan = planificarFusion({
+      clientes: elegidos,
+      telefonos,
+      ids,
+      nombreFinal
+    })
+
+    if (plan.renombrar) {
+      await db.update('clientes', plan.principal.id, enrichForUpdate('clientes', { nombre: nombreFinal }))
+    }
+
+    const resumen = {
+      principalId: plan.principal.id,
+      nombre: nombreFinal,
+      fusionados: plan.absorbidos.length,
+      telefonos: plan.telefonos.length,
+      recargas: 0,
+      deudas: 0,
+      transferencias: 0,
+      ajustes: 0,
+      sms: 0
+    }
+
+    for (const t of plan.telefonos) {
+      await db.update('clientes_telefonos', t.id, enrichForUpdate('clientes_telefonos', {
+        clienteId: t.clienteId,
+        ...(t.etiqueta ? { etiqueta: t.etiqueta } : {})
+      }))
+    }
+
+    for (const abs of plan.absorbidos) {
+      for (const [tabla, clave] of TABLAS_CON_CLIENTE) {
+        const filas = (await db.queryAll(tabla)).filter(r => r.clienteId === abs.id)
+        for (const fila of filas) {
+          await db.update(tabla, fila.id, enrichForUpdate(tabla, { clienteId: plan.principal.id }))
+          resumen[clave]++
+        }
+      }
+
+      const nota = `Fusionado en ${nombreFinal} (${new Date().toLocaleDateString('es-MX')})`
+      await db.update('clientes', abs.id, enrichForUpdate('clientes', {
+        activo: false,
+        fusionadoEn: plan.principal.id,
+        notas: abs.notas ? `${abs.notas} · ${nota}` : nota
+      }))
+    }
+
+    const principalFinal = await db.getById('clientes', plan.principal.id)
+    return { ...principalFinal, resumen }
+  })
+}
 
 function serializarUsuario(u) {
   if (!u) return u
@@ -156,7 +255,12 @@ const OFFLINE_CONFIGS = [
   // ------------------------------------------------------------ módulo recargas
   {
     config: { tabla: 'clientes', defaults: { activo: true }, puestoScoped: TABLES.clientes.puestoScoped },
-    overrides: { requireRole: 'jefe' }
+    overrides: {
+      requireRole: 'jefe',
+      // Los fusionados conservan la fila (historial) pero no se listan.
+      listFilter: (opts, row) => (opts?.incluirFusionados ? true : !row.fusionadoEn),
+      actions: { fusionar: fusionarClientesOffline }
+    }
   },
   {
     config: { tabla: 'clientes_telefonos', defaults: { activo: true }, puestoScoped: TABLES.clientes_telefonos.puestoScoped },

@@ -1,4 +1,6 @@
 import { TABLES } from '../../shared/tables'
+import { $api } from '../utils/api'
+import { clientesSimilares } from '../utils/clientes'
 import {
   CLIENTE_SIN_CLIENTE_ID_FIJO,
   CLIENTE_SIN_CLIENTE_NOMBRE,
@@ -30,6 +32,11 @@ export function useClientes() {
   const telefonos = ref([])
   const cargando = ref(false)
 
+  function apiHeaders() {
+    const token = useAuth().jwtSync.value
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
   /**
    * Clientes del puesto. Por defecto SIN el centinela: fiarle o venderle a
    * "Sin cliente" no tiene sentido, solo se ofrece donde sí lo es (las
@@ -57,6 +64,7 @@ export function useClientes() {
       clientes.value = filas.filter(c =>
         c.puestoId === puestoId
         && c.activo
+        && !c.fusionadoEn
         && (incluirSinCliente || c.id !== CLIENTE_SIN_CLIENTE_ID_FIJO)
       )
       return clientes.value
@@ -102,9 +110,18 @@ export function useClientes() {
   async function agregarTelefono(clienteId, telefono, puestoId, etiqueta = null) {
     // Reutiliza la fila que ya hubiera con ese número, aunque estuviera
     // inactiva: `telefono` es UNIQUE y insertar otra vez reventaría, dejando el
-    // cliente creado pero sin número.
+    // cliente creado pero sin número. Si la fila no tenía nombre propio, se le
+    // pone el del contacto de origen (importación); si ya tenía, se respeta:
+    // el alias pertenece al número, no al último import que lo tocó.
     const existente = filaConTelefono(telefono)
-    if (existente) return reasignarTelefono(existente.id, clienteId, true)
+    if (existente) {
+      const sinEtiqueta = !String(existente.etiqueta ?? '').trim()
+      return moverTelefono(
+        existente.id,
+        clienteId,
+        etiqueta && sinEtiqueta ? { etiqueta } : {}
+      )
+    }
 
     const nuevo = await telefonosRepo.value.create({
       puestoId,
@@ -164,10 +181,62 @@ export function useClientes() {
    * Cliente y número en un solo paso. Es el flujo de mostrador: se teclea el
    * nombre y la siguiente recarga a ese número entra ya asignada.
    */
-  async function crearClienteConTelefono({ nombre, telefono }, puestoId) {
+  async function crearClienteConTelefono({ nombre, telefono, etiqueta = null }, puestoId) {
     const cliente = await crearCliente({ nombre }, puestoId)
-    const tel = await agregarTelefono(cliente.id, telefono, puestoId)
+    const tel = await agregarTelefono(cliente.id, telefono, puestoId, etiqueta)
     return { cliente, telefono: tel }
+  }
+
+  /** Cualquier fila con ese número, activa o no. Sirve para leer su etiqueta. */
+  function telefonoDe(telefono) {
+    if (!telefono) return null
+    return telefonos.value.find(t => t.telefono === telefono) ?? null
+  }
+
+  /**
+   * Clientes con nombre parecido. Solo alimenta avisos de la UI: decidir si dos
+   * nombres son la misma persona es siempre del jefe.
+   */
+  function clientesParecidos(nombre, { excluirId = null, umbral = 0.8 } = {}) {
+    return clientesSimilares(nombre, clientes.value, { excluirId, umbral })
+  }
+
+  /**
+   * Reasigna un número a otro cliente, reactivándolo si estaba desvinculado.
+   * Quien llama debe confirmar antes: mover un número cambia a quién se le
+   * imputan las próximas recargas (el historial ya guardado no se mueve).
+   */
+  async function moverTelefono(telefonoId, clienteId, { etiqueta } = {}) {
+    const cambios = { clienteId, activo: true }
+    if (etiqueta !== undefined) cambios.etiqueta = etiqueta
+    const fila = await telefonosRepo.value.patch(telefonoId, cambios)
+    const i = telefonos.value.findIndex(t => t.id === telefonoId)
+    const actualizada = { ...telefonos.value[i], ...cambios, ...(fila ?? {}) }
+    if (i >= 0) telefonos.value[i] = actualizada
+    return actualizada
+  }
+
+  /**
+   * Fusiona dos o más clientes en una identidad única.
+   *
+   * Offline lo resuelve la acción `fusionar` del módulo local (transacción); en
+   * modo online, el endpoint equivalente. En ambos casos el absorbido queda
+   * inactivo y sus números conservan su nombre en `etiqueta`.
+   * @returns {Promise<object>} cliente principal + `resumen`
+   */
+  async function fusionarClientes({ ids, nombreFinal }) {
+    const res = esOnline.value
+      ? await $api('/api/clientes/fusionar', {
+          method: 'POST',
+          body: { ids, nombreFinal },
+          headers: apiHeaders()
+        })
+      : await clientesRepo.value.fusionar({ ids, nombreFinal })
+
+    await cargarTelefonos()
+    const puestoId = useAuth().usuarioActual.value?.puestoId ?? null
+    if (puestoId) await cargarClientes(puestoId)
+    return res
   }
 
   return {
@@ -184,6 +253,10 @@ export function useClientes() {
     asignarTelefonoA,
     desvincularTelefono,
     buscarPorTelefono,
+    telefonoDe,
+    clientesParecidos,
+    moverTelefono,
+    fusionarClientes,
     telefonosDe,
     crearClienteConTelefono
   }

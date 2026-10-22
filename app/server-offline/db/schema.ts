@@ -755,6 +755,12 @@ export const clientes = sqliteTable(
     nombre: text('nombre').notNull(),
     notas: text('notas'),
     activo: integer('activo', { mode: 'boolean' }).notNull().default(true),
+    /**
+     * Cliente al que se fusionó este (espejo de Postgres). NULL = vivo. Los
+     * fusionados no se listan en los selectores pero la fila se conserva para
+     * no romper el historial que los referencia.
+     */
+    fusionadoEn: text('fusionado_en'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -768,6 +774,7 @@ export const clientes = sqliteTable(
   table => ({
     puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
     puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
+    fusionadoIdx: index('clientes_fusionado_idx').on(table.fusionadoEn),
     actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn),
     sincIdx: index('clientes_sincronizado_idx').on(table.sincronizado)
   })

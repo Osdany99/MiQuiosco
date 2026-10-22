@@ -5,46 +5,22 @@
     leading-icon="i-lucide-hand-coins"
     :show-button="false"
   >
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-      <UCard>
-        <p class="text-xs text-muted">
-          Pendiente por cobrar
-        </p>
-        <p class="text-xl font-bold font-mono">
-          {{ fmtPrecio(totales.pendiente) }}
-        </p>
-        <p class="text-xs text-muted">
-          {{ totales.deudores }} {{ totales.deudores === 1 ? 'deudor' : 'deudores' }}
-        </p>
-        <p class="text-xs text-muted">
-          Quiosco {{ fmtPrecio(totales.pendienteQuiosco) }} · Recargas {{ fmtPrecio(totales.pendienteRecarga) }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Cobrado en caja
-        </p>
-        <p class="text-xl font-bold font-mono text-success">
-          {{ fmtPrecio(totales.caja) }}
-        </p>
-        <p class="text-xs text-muted">
-          Entró a la gaveta de un cuadre
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Cobro directo
-        </p>
-        <p class="text-xl font-bold font-mono text-warning">
-          {{ fmtPrecio(totales.directo) }}
-        </p>
-        <p class="text-xs text-muted">
-          Cobrado por fuera, sin gaveta
-        </p>
-      </UCard>
-    </div>
-
     <UTabs v-model="tab" :items="tabs" class="mb-4" />
+
+    <UCard v-if="tab === 'deudas'" class="mb-4">
+      <p class="text-xs text-muted">
+        Pendiente por cobrar
+      </p>
+      <p class="text-xl font-bold font-mono">
+        {{ fmtPrecio(totales.pendiente) }}
+      </p>
+      <p class="text-xs text-muted">
+        {{ totales.deudores }} {{ totales.deudores === 1 ? 'deudor' : 'deudores' }}
+      </p>
+      <p class="text-xs text-muted">
+        Quiosco {{ fmtPrecio(totales.pendienteQuiosco) }} · Recargas {{ fmtPrecio(totales.pendienteRecarga) }}
+      </p>
+    </UCard>
 
     <div class="flex justify-end mb-4">
       <USelectMenu
@@ -87,7 +63,9 @@
               v-if="row.original.origen === 'recarga'"
               class="truncate text-xs text-muted font-mono"
             >
-              {{ row.original.telefonoDestino }} · {{ row.original.plataforma === 'banco' ? 'Banco' : 'Monedero' }} · {{ etiquetaTipoRecarga(row.original.tipo) }}
+              {{ row.original.etiquetaTelefono
+                ? `${row.original.etiquetaTelefono} · ${row.original.telefonoDestino}`
+                : row.original.telefonoDestino }} · {{ row.original.plataforma === 'banco' ? 'Banco' : 'Monedero' }} · {{ etiquetaTipoRecarga(row.original.tipo) }}
             </p>
             <UBadge
               v-if="row.original.directa"
@@ -334,16 +312,13 @@ const puedeCobrarRecarga = computed(() => {
 const totales = computed(() => {
   const pendiente = deudas.value.reduce((s, d) => s + (Number(d.saldoPendiente) || 0), 0)
   const deudores = new Set(deudas.value.map(d => d.clienteId)).size
-  const todos = [...deudas.value, ...pagadas.value]
-  const caja = todos.reduce((s, d) => s + (Number(d.totalEnCaja) || 0), 0)
-  const directo = todos.reduce((s, d) => s + (Number(d.totalDirecto) || 0), 0)
   const pendienteQuiosco = deudas.value
     .filter(d => d.origen !== 'recarga')
     .reduce((s, d) => s + (Number(d.saldoPendiente) || 0), 0)
   const pendienteRecarga = deudas.value
     .filter(d => d.origen === 'recarga')
     .reduce((s, d) => s + (Number(d.saldoPendiente) || 0), 0)
-  return { pendiente, deudores, caja, directo, pendienteQuiosco, pendienteRecarga }
+  return { pendiente, deudores, pendienteQuiosco, pendienteRecarga }
 })
 
 // Filtro por origen de la deuda: la tabla es única, el badge distingue.
@@ -380,12 +355,14 @@ function aDeudaRecarga(r, nombrePorCliente) {
     ...r,
     origen: 'recarga',
     nombreCliente: r.nombreCliente ?? nombrePorCliente.get(r.clienteId) ?? 'Cliente',
+    // Nombre propio del número: "Cheila 2" aunque el cliente sea "Cheila".
+    etiquetaTelefono: r.telefonoDestino
+      ? (rec.cli.telefonoDe(r.telefonoDestino)?.etiqueta ?? null)
+      : null,
     estado: r.estadoPago === 'pagada' ? 'pagada' : (cobrado > 0 ? 'parcial' : 'pendiente'),
     montoTotal: nominal,
     montoPagado: cobrado,
     saldoPendiente: Math.max(0, nominal - cobrado),
-    totalEnCaja: 0,
-    totalDirecto: 0,
     directa: false
   }
 }
@@ -411,7 +388,9 @@ async function recargar() {
       cargarDeudas({ conSaldo: true }),
       cargarDeudas({ conSaldo: false }),
       cargarClientes(puestoId),
-      rec.cargarRecargas()
+      rec.cargarRecargas(),
+      // Los alias de los números se leen de la caché de useClientes.
+      rec.cli.cargarTelefonos()
     ])
 
     const nombrePorCliente = new Map((listaClientes ?? []).map(c => [c.id, c.nombre]))
@@ -425,15 +404,6 @@ async function recargar() {
     deudas.value = [...quioscoPend, ...recPend].sort(porFecha)
     pagadas.value = [...quioscoSald, ...recSald].sort(porFecha)
     clientes.value = listaClientes
-
-    // Reparte lo cobrado de cada deuda de quiosco entre caja (histórico) y
-    // directo para los totales de la cabecera. Los cobros nuevos son siempre
-    // directos; la parte de caja viene de pagos antiguos.
-    for (const d of [...quioscoPend, ...quioscoSald]) {
-      const ps = await pagosDeCuenta(d.id)
-      d.totalEnCaja = ps.filter(p => p.cuadreId).reduce((s, p) => s + (Number(p.monto) || 0), 0)
-      d.totalDirecto = ps.filter(p => !p.cuadreId).reduce((s, p) => s + (Number(p.monto) || 0), 0)
-    }
   } catch (err) {
     toast.add({ title: 'Error', description: err?.message, color: 'error' })
   } finally {

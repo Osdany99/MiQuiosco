@@ -10,7 +10,8 @@ export const clienteTelefonoSchema = z.object({
   clienteId: z.string().uuid('ID de cliente inválido'),
   telefono: z.string().regex(/^\d{10}$/, 'Teléfono canónico de 10 dígitos'),
   telefonoRaw: z.string().max(20).nullable().optional(),
-  etiqueta: z.string().max(40).nullable().optional(),
+  /** Nombre propio del número ("Cheila 2"), útil tras fusionar clientes. */
+  etiqueta: z.string().max(100).nullable().optional(),
   activo: z.boolean().default(true)
 })
 
@@ -22,6 +23,6 @@ export const updateClienteTelefonoSchema = z.object({
    */
   clienteId: z.string().uuid('ID de cliente inválido').optional(),
   telefonoRaw: z.string().max(20).nullable().optional(),
-  etiqueta: z.string().max(40).nullable().optional(),
+  etiqueta: z.string().max(100).nullable().optional(),
   activo: z.boolean().optional()
 })

@@ -7,6 +7,7 @@
  * y su estado de pago: los montos vienen del SMS y no se tocan.
  */
 import { recargas as config } from '../../../shared/tables'
+import { textoIdentidad } from '../../utils/clientes'
 
 definePageMeta({
   middleware: ['jefe']
@@ -115,9 +116,17 @@ const guardando = ref(false)
 
 const saldoDe = r => Math.max(0, Number(r.montoNominal ?? 0) - Number(r.montoCobrado ?? 0))
 
+/**
+ * Nombre con el que se reconoce la recarga: el del número ("Cheila 2") y el
+ * del cliente unificado ("Cheila"). Si el número se movió después, manda el
+ * dueño actual para no enseñar una identidad que ya no existe.
+ */
 function nombreCliente(r) {
-  if (!r.clienteId) return 'Sin asignar'
-  return rec.cli.clientes.value.find(c => c.id === r.clienteId)?.nombre ?? 'Sin asignar'
+  const fila = rec.cli.telefonoDe(r.telefonoDestino)
+  const cliente = rec.cli.clientes.value.find(c => c.id === r.clienteId)
+    ?? rec.cli.clientes.value.find(c => c.id === fila?.clienteId)
+  if (!cliente && !fila) return 'Sin asignar'
+  return textoIdentidad(cliente?.nombre, fila)
 }
 
 function abrirCobrar(r) {

@@ -5,53 +5,6 @@
     leading-icon="i-lucide-receipt"
     :show-button="false"
   >
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-      <UCard>
-        <p class="text-xs text-muted">
-          Total vendido
-        </p>
-        <p class="text-xl font-bold font-mono text-primary">
-          {{ fmtPrecio(totales.monto) }}
-        </p>
-        <p class="text-xs text-muted">
-          {{ totales.ventas }} {{ totales.ventas === 1 ? 'venta' : 'ventas' }}
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Ganancia
-        </p>
-        <p class="text-xl font-bold font-mono text-success">
-          {{ fmtPrecio(totales.ganancia) }}
-        </p>
-        <p class="text-xs text-muted">
-          Costo FIFO congelado al vender
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Unidades
-        </p>
-        <p class="text-xl font-bold font-mono">
-          {{ fmtPrecio(totales.unidades) }}
-        </p>
-        <p class="text-xs text-muted">
-          Piezas que salieron del stock
-        </p>
-      </UCard>
-      <UCard>
-        <p class="text-xs text-muted">
-          Margen
-        </p>
-        <p class="text-xl font-bold font-mono" :class="totales.margen >= 0 ? 'text-success' : 'text-error'">
-          {{ totales.margen }}%
-        </p>
-        <p class="text-xs text-muted">
-          Promedio ponderado de todas las ventas
-        </p>
-      </UCard>
-    </div>
-
     <UAlert
       v-if="!cargando && ventas.length === 0"
       icon="i-lucide-info"
@@ -242,19 +195,6 @@ const ventas = computed(() => crudas.value.map((v) => {
     margen: total > 0 ? Math.round((ganancia / total) * 1000) / 10 : null
   }
 }))
-
-const totales = computed(() => {
-  const monto = ventas.value.reduce((s, v) => s + (Number(v.montoTotal) || 0), 0)
-  const ganancia = ventas.value.reduce((s, v) => s + (Number(v.ganancia) || 0), 0)
-  const unidades = ventas.value.reduce((s, v) => s + v.cantidad, 0)
-  return {
-    monto,
-    ganancia,
-    unidades,
-    ventas: ventas.value.length,
-    margen: monto > 0 ? Math.round((ganancia / monto) * 1000) / 10 : 0
-  }
-})
 
 async function recargar() {
   cargando.value = true

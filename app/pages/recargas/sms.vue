@@ -1,4 +1,6 @@
 <script setup>
+import { textoIdentidad } from '../../utils/clientes'
+
 /**
  * /recargas/sms — Bandeja de recargas por confirmar.
  *
@@ -34,7 +36,12 @@ const clienteDe = (p) => {
   return rec.cli.clientes.value.find(c => c.id === p.clienteId) ?? null
 }
 
-const nombreCliente = p => clienteDe(p)?.nombre ?? null
+const nombreCliente = (p) => {
+  const cliente = clienteDe(p)
+  const fila = rec.cli.telefonoDe(p.telefonoDestino)
+  if (!cliente && !fila) return null
+  return textoIdentidad(cliente?.nombre, fila)
+}
 
 const totales = computed(() => ({
   cantidad: rec.pendientes.value.length,

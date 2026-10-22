@@ -585,7 +585,8 @@ describe('journal sqlite (instalación fresca)', () => {
       if (!/^CREATE\s+TABLE\s+/.test(s)
         && !/^CREATE\s+(UNIQUE\s+)?INDEX\s+/.test(s)
         && !/^DROP\s+TABLE\s+/.test(s)
-        && !/^ALTER\s+TABLE\s+\S+\s+RENAME\s+TO\s+/.test(s)) continue
+        && !/^ALTER\s+TABLE\s+\S+\s+RENAME\s+TO\s+/.test(s)
+        && !/^ALTER\s+TABLE\s+\S+\s+ADD\s+(COLUMN\s+)?\S+/i.test(s)) continue
       await conn.run(s, [])
     }
     assert.equal(await tablaExiste(conn, 'usuarios'), true)

@@ -9,6 +9,7 @@
 import { clientes as config } from '../../shared/tables'
 import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
 import { normalizarTelefono } from '../utils/parseEtecsaSms'
+import { normalizarNombre } from '../utils/clientes'
 import {
   contactosEstado,
   contactosListar,
@@ -68,6 +69,12 @@ const progreso = ref(null)
 const dialogoDeudas = ref(false)
 const viendoDeudas = ref(null)
 
+const dialogoFusionar = ref(false)
+const fusionando = ref(false)
+
+const dialogoMover = ref(false)
+const telefonoAMover = ref(null)
+
 function telefonosDe(clienteId) {
   return cli.telefonos.value.filter(t => t.clienteId === clienteId && t.activo !== false)
 }
@@ -85,7 +92,12 @@ async function abrirEditar(cliente) {
   editando.value = cliente
   form.value = { id: cliente.id, nombre: cliente.nombre ?? '', notas: cliente.notas ?? '', activo: cliente.activo !== false }
   formErrores.value = {}
-  telefonosForm.value = telefonosDe(cliente.id).map(t => ({ id: t.id, telefono: t.telefono }))
+  telefonosForm.value = telefonosDe(cliente.id).map(t => ({
+    id: t.id,
+    clienteId: t.clienteId,
+    telefono: t.telefono,
+    etiqueta: t.etiqueta ?? ''
+  }))
   nuevoTelefono.value = ''
   dialogo.value = true
 }
@@ -95,6 +107,11 @@ function abrirDeudas(cliente) {
   dialogoDeudas.value = true
 }
 
+/**
+ * Añade un número al formulario. Si ya tiene dueño no se rechaza: se marca y
+ * se avisa. Un número puede cambiar de cliente, pero el cambio se consuma al
+ * guardar (y el aviso lo dice), no en silencio al teclearlo.
+ */
 function agregarTelefono() {
   const canon = normalizarTelefono(nuevoTelefono.value)
   nuevoTelefono.value = ''
@@ -103,21 +120,62 @@ function agregarTelefono() {
     return
   }
   if (telefonosForm.value.some(t => t.telefono === canon)) return
+
   const ocupado = cli.buscarPorTelefono(canon)
-  if (ocupado) {
+  if (ocupado && ocupado.clienteId !== form.value.id) {
+    const dueno = cli.clientes.value.find(c => c.id === ocupado.clienteId)
+    telefonosForm.value.push({
+      telefono: canon,
+      etiqueta: '',
+      ocupadoPor: dueno?.nombre ?? 'otro cliente'
+    })
     toast.add({
-      title: 'Ese número ya tiene dueño',
-      description: 'Un número no puede pertenecer a dos clientes.',
+      title: `Ese número pertenece a «${dueno?.nombre ?? 'otro cliente'}»`,
+      description: 'Si guardas, el número se moverá a este cliente.',
       color: 'warning'
     })
     return
   }
-  telefonosForm.value.push({ telefono: canon })
+  telefonosForm.value.push({ telefono: canon, etiqueta: '' })
 }
 
 function quitarTelefono(t) {
   telefonosForm.value = telefonosForm.value.filter(x => x.telefono !== t.telefono)
 }
+
+function abrirMover(t) {
+  telefonoAMover.value = t
+  dialogoMover.value = true
+}
+
+/** Se aplica al momento: el número ya no pertenece al cliente que se edita. */
+async function moverTelefono(clienteId) {
+  const t = telefonoAMover.value
+  if (!t?.id) return
+  try {
+    await cli.moverTelefono(t.id, clienteId)
+    const destino = cli.clientes.value.find(c => c.id === clienteId)
+    // Si el número estaba en el formulario del cliente actual, sale de él:
+    // guardar después no debe volver a moverlo.
+    telefonosForm.value = telefonosForm.value.filter(x => x.id !== t.id)
+    dialogoMover.value = false
+    telefonoAMover.value = null
+    toast.add({
+      title: 'Número movido',
+      description: destino ? `Ahora pertenece a «${destino.nombre}».` : undefined,
+      color: 'success'
+    })
+  } catch (e) {
+    toast.add({ title: 'No se pudo mover', description: e?.message, color: 'error' })
+  }
+}
+
+/** Clientes con nombre parecido al que se está escribiendo (solo aviso). */
+const similaresForm = computed(() => {
+  const nombre = form.value.nombre?.trim()
+  if (!nombre || nombre.length < 3) return []
+  return cli.clientesParecidos(nombre, { excluirId: form.value.id }).slice(0, 3)
+})
 
 /**
  * El cliente centinela no se renombra ni se desactiva: su nombre es la única
@@ -133,6 +191,20 @@ async function guardar() {
     formErrores.value = { nombre: 'El nombre es requerido' }
     return
   }
+
+  // Los nombres son la identidad del cliente: dos "Cheila" activos son el
+  // mismo cliente partido en dos y es justo lo que la fusión viene a arreglar.
+  if (!esCentinela.value) {
+    const canon = normalizarNombre(nombre)
+    const duplicado = cli.clientes.value.find(
+      c => c.id !== form.value.id && normalizarNombre(c.nombre) === canon
+    )
+    if (duplicado) {
+      formErrores.value = { nombre: `Ya existe «${duplicado.nombre}». Edítalo o fusiónalos.` }
+      return
+    }
+  }
+
   guardando.value = true
   try {
     let cliente
@@ -161,10 +233,17 @@ async function guardar() {
       }
     }
     for (const t of telefonosForm.value) {
-      if (!previos.some(p => p.telefono === t.telefono)) {
-        await cli.agregarTelefono(cliente.id, t.telefono, pid.value)
+      const etiqueta = t.etiqueta?.trim() || null
+      const previo = previos.find(p => p.telefono === t.telefono)
+      if (!previo) {
+        await cli.agregarTelefono(cliente.id, t.telefono, pid.value, etiqueta)
+      } else if ((previo.etiqueta ?? null) !== etiqueta) {
+        await cli.telefonosRepo.value.patch(previo.id, { etiqueta })
       }
     }
+
+    // El número pudo cambiar de dueño al guardar: refresca alias y dueños.
+    await cli.cargarTelefonos()
 
     dialogo.value = false
     toast.add({ title: form.value.id ? 'Cliente actualizado' : 'Cliente creado', color: 'success' })
@@ -207,8 +286,14 @@ async function abrirImportar() {
     pedirPermisoContactos()
     return
   }
+  progreso.value = null
   dialogoImportar.value = true
-  if (contactos.value.length) return
+  if (contactos.value.length) {
+    // La agenda está cacheada, pero los dueños de los números pueden haber
+    // cambiado desde la última importación.
+    await cli.cargarTelefonos()
+    return
+  }
   cargandoContactos.value = true
   try {
     const r = await contactosListar()
@@ -218,51 +303,58 @@ async function abrirImportar() {
   }
 }
 
-const ocupados = computed(() => cli.telefonos.value.filter(t => t.activo !== false).map(t => t.telefono))
+// Al cerrar se borra el resumen: al volver a abrir se ve la vista previa.
+watch(dialogoImportar, (abierto) => {
+  if (!abierto && !importando.value) progreso.value = null
+})
 
 /**
- * Importa contactos por tandas cediendo el hilo entre una y otra.
+ * Aplica el plan que devuelve el diálogo de importación.
  *
- * El driver inserta fila a fila, así que con 150 contactos son ~300 escrituras:
- * hacerlo de un tirón deja la app varios segundos sin pintar nada y parece
- * colgada. Procesar en lotes de 8 y soltar el hilo con `nextTick` + un tick de
- * temporizador hace que la barra del diálogo avance de verdad.
+ * El plan ya viene decidido (un bloque por cliente final, con sus números y su
+ * `etiqueta`): aquí solo se crea/reutiliza el cliente y se asignan los números.
+ * Un número ocupado se mueve reutilizando su fila (UNIQUE), y el contador lo
+ * separa de los que entraban libres para que el resumen diga la verdad.
  *
- * Cada contacto es todo o nada: si se crea el cliente pero fallan sus números,
- * se elimina el recién creado (compensa) para no dejar clientes huérfanos sin
- * números. Y si el contacto ya existe por nombre (reintento tras un corte a
- * mitad), se reutiliza en vez de duplicarlo.
+ * Se procesa por tandas cediendo el hilo: el driver inserta fila a fila y con
+ * ~150 contactos hacerlo de un tirón deja la app sin pintar varios segundos.
  */
-async function importarContactos(lista) {
+async function importarContactos(plan) {
   importando.value = true
-  progreso.value = { hechos: 0, total: lista.length, clientes: 0, numeros: 0, omitidos: 0 }
+  progreso.value = { hechos: 0, total: plan.length, clientes: 0, numeros: 0, movidos: 0, omitidos: 0 }
 
-  const TANDAS = 8
-  for (let i = 0; i < lista.length; i += TANDAS) {
-    for (const c of lista.slice(i, i + TANDAS)) {
+  const TANDAS = 4
+  for (let i = 0; i < plan.length; i += TANDAS) {
+    for (const bloque of plan.slice(i, i + TANDAS)) {
+      let creado = false
       try {
-        const nombreNorm = String(c.nombre ?? '').trim().toLowerCase()
-        let cliente = cli.clientes.value.find(x => String(x.nombre ?? '').trim().toLowerCase() === nombreNorm) ?? null
-        let creado = false
+        let cliente = bloque.clienteId
+          ? cli.clientes.value.find(c => c.id === bloque.clienteId) ?? null
+          : null
+
+        // Reintento tras un corte: el cliente ya existe con ese nombre.
         if (!cliente) {
-          cliente = await cli.crearCliente({ nombre: c.nombre }, pid.value)
+          const canon = normalizarNombre(bloque.nombre)
+          cliente = cli.clientes.value.find(c => normalizarNombre(c.nombre) === canon) ?? null
+        }
+        if (!cliente) {
+          cliente = await cli.crearCliente({ nombre: bloque.nombre }, pid.value)
           creado = true
         }
-        const numerosAntes = cli.telefonosDe(cliente.id).length
-        let numerosNuevos = 0
-        for (const t of c.telefonos) {
-          if (ocupados.value.includes(t)) {
-            progreso.value.omitidos++
-            continue
-          }
-          await cli.agregarTelefono(cliente.id, t, pid.value)
-          progreso.value.numeros++
-          numerosNuevos++
+
+        let aplicados = 0
+        for (const n of bloque.numeros) {
+          const dueno = cli.buscarPorTelefono(n.telefono)
+          const esDeOtro = !!dueno && dueno.clienteId !== cliente.id
+          await cli.agregarTelefono(cliente.id, n.telefono, pid.value, n.etiqueta || null)
+          if (esDeOtro) progreso.value.movidos++
+          else progreso.value.numeros++
+          aplicados++
         }
+
         if (creado) {
-          if (numerosAntes + numerosNuevos === 0) {
-            // Compensación: el cliente quedó huérfano (todos sus números
-            // fallaron u ocupados). Se elimina para no dejar basura.
+          if (!aplicados) {
+            // Compensación: el cliente quedó huérfano.
             await cli.clientesRepo.value.remove(cliente.id)
             const idx = cli.clientes.value.findIndex(x => x.id === cliente.id)
             if (idx >= 0) cli.clientes.value.splice(idx, 1)
@@ -275,13 +367,41 @@ async function importarContactos(lista) {
         progreso.value.omitidos++
       }
     }
-    progreso.value.hechos = Math.min(i + TANDAS, lista.length)
+    progreso.value.hechos = Math.min(i + TANDAS, plan.length)
     await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
   }
 
   importando.value = false
+  await cli.cargarTelefonos()
+  if (pid.value) await cli.cargarClientes(pid.value)
   await tablaRef.value?.refresh()
+}
+
+/** Fusiona los clientes elegidos y refresca la lista con el resultado. */
+async function fusionarClientes({ ids, nombreFinal }) {
+  fusionando.value = true
+  try {
+    const res = await cli.fusionarClientes({ ids, nombreFinal })
+    const r = res?.resumen
+    dialogoFusionar.value = false
+    toast.add({
+      title: `Fusionados en «${nombreFinal}»`,
+      description: r
+        ? `${r.telefonos} número(s), ${r.recargas} recarga(s) y ${r.deudas} deuda(s) re-apuntados.`
+        : undefined,
+      color: 'success'
+    })
+    await tablaRef.value?.refresh()
+  } catch (e) {
+    toast.add({
+      title: 'No se pudo fusionar',
+      description: e?.data?.statusMessage ?? e?.message,
+      color: 'error'
+    })
+  } finally {
+    fusionando.value = false
+  }
 }
 
 /**
@@ -310,6 +430,12 @@ onMounted(() => {
     @new="abrirNuevo"
   >
     <template #trailing>
+      <UButton
+        icon="i-lucide-merge"
+        variant="outline"
+        label="Fusionar"
+        @click="dialogoFusionar = true"
+      />
       <UButton
         icon="i-lucide-contact-round"
         variant="outline"
@@ -375,15 +501,17 @@ onMounted(() => {
 
       <template #telefonos-cell="{ row }">
         <div class="flex flex-wrap gap-1">
-          <UBadge
+          <div
             v-for="t in telefonosDe(row.original.id)"
             :key="t.id"
-            variant="soft"
-            size="sm"
-            color="primary"
-            class="font-mono"
-            :label="t.telefono"
-          />
+            class="flex items-center gap-1 rounded-md bg-elevated px-1.5 py-0.5"
+          >
+            <span class="font-mono text-xs">{{ t.telefono }}</span>
+            <span
+              v-if="t.etiqueta"
+              class="text-[11px] text-muted"
+            >· {{ t.etiqueta }}</span>
+          </div>
           <span
             v-if="!telefonosDe(row.original.id).length"
             class="text-xs text-muted"
@@ -441,6 +569,15 @@ onMounted(() => {
           />
         </UFormField>
 
+        <UAlert
+          v-if="similaresForm.length"
+          color="warning"
+          variant="soft"
+          icon="i-lucide-users"
+          title="Ya hay clientes con un nombre parecido"
+          :description="`${similaresForm.map(s => s.cliente.nombre).join(', ')}. Si es la misma persona, usa «Fusionar» en vez de crear otro.`"
+        />
+
         <UFormField
           v-if="esCentinela"
           label="Cliente centinela"
@@ -479,22 +616,52 @@ onMounted(() => {
 
           <ul
             v-if="telefonosForm.length"
-            class="mb-2 space-y-1"
+            class="mb-2 space-y-2"
           >
             <li
               v-for="t in telefonosForm"
               :key="t.telefono"
-              class="flex items-center justify-between rounded-md border border-default px-2 py-1"
+              class="space-y-1 rounded-md border border-default px-2 py-1.5"
             >
-              <span class="font-mono text-sm">{{ t.telefono }}</span>
-              <UButton
-                size="xs"
-                color="neutral"
-                variant="ghost"
-                icon="i-lucide-x"
-                aria-label="Quitar"
-                @click="quitarTelefono(t)"
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-mono text-sm">{{ t.telefono }}</span>
+                <div class="flex gap-1">
+                  <UTooltip
+                    v-if="t.id"
+                    text="Mover a otro cliente"
+                    :delay-duration="0"
+                  >
+                    <UButton
+                      size="xs"
+                      color="neutral"
+                      variant="ghost"
+                      icon="i-lucide-arrow-right-left"
+                      aria-label="Mover a otro cliente"
+                      @click="abrirMover(t)"
+                    />
+                  </UTooltip>
+                  <UButton
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-lucide-x"
+                    aria-label="Quitar"
+                    @click="quitarTelefono(t)"
+                  />
+                </div>
+              </div>
+              <UInput
+                v-model="t.etiqueta"
+                size="sm"
+                placeholder="Nombre del número (opcional)"
+                class="w-full"
               />
+              <p
+                v-if="t.ocupadoPor"
+                class="text-xs text-warning"
+              >
+                Pertenece a «{{ t.ocupadoPor }}»: se moverá al guardar.
+              </p>
             </li>
           </ul>
 
@@ -526,10 +693,27 @@ onMounted(() => {
       v-model="dialogoImportar"
       :contactos="contactos"
       :cargando="cargandoContactos"
-      :ocupados="ocupados"
+      :clientes="cli.clientes.value"
+      :telefonos="cli.telefonos.value"
       :importando="importando"
       :progreso="progreso"
       @importar="importarContactos"
+    />
+
+    <ClientesDialogoFusionarClientes
+      v-model="dialogoFusionar"
+      :clientes="cli.clientes.value"
+      :telefonos="cli.telefonos.value"
+      :preseleccion="[]"
+      :loading="fusionando"
+      @fusionar="fusionarClientes"
+    />
+
+    <ClientesDialogoMoverTelefono
+      v-model="dialogoMover"
+      :telefono="telefonoAMover"
+      :clientes="cli.clientes.value"
+      @mover="moverTelefono"
     />
   </BaseHeaderPage>
 </template>

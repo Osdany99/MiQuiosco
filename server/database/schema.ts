@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex
 } from 'drizzle-orm/pg-core'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 
 /**
  * Enumeraciones de la base de datos.
@@ -806,6 +807,12 @@ export const clientes = pgTable(
     nombre: text('nombre').notNull(),
     notas: text('notas'),
     activo: boolean('activo').notNull().default(true),
+    /**
+     * Cliente al que se fusionó este. NULL = cliente vivo. Los fusionados no se
+     * listan pero conservan la fila: sus recargas y deudas ya se re-apuntaron al
+     * principal y aquí queda la trazabilidad de qué pasó.
+     */
+    fusionadoEn: uuid('fusionado_en').references((): AnyPgColumn => clientes.id),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -817,6 +824,7 @@ export const clientes = pgTable(
     puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
     puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
     activoIdx: index('clientes_activo_idx').on(table.activo),
+    fusionadoIdx: index('clientes_fusionado_idx').on(table.fusionadoEn),
     actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn)
   })
 )

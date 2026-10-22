@@ -57,6 +57,13 @@
       "when": 1791012685916,
       "tag": "0007_flowery_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792694684851,
+      "tag": "0008_flawless_jigsaw",
+      "breakpoints": true
     }
   ]
 }
