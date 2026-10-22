@@ -9,7 +9,7 @@
 import { clientes as config } from '../../shared/tables'
 import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
 import { normalizarTelefono } from '../utils/parseEtecsaSms'
-import { normalizarNombre } from '../utils/clientes'
+import { normalizarNombre } from '#shared/clientes'
 import {
   contactosEstado,
   contactosListar,

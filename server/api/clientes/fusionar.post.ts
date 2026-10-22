@@ -12,7 +12,7 @@ import {
 import { requireRole } from '../../utils/auth'
 import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '#shared/constants'
 import { fusionClienteSchema } from '#shared/schemas/fusionCliente'
-import { planificarFusion } from '../../../app/utils/clientes'
+import { planificarFusion } from '#shared/clientes'
 
 /**
  * Fusiona dos o más clientes en una identidad única (modo online).

@@ -1,5 +1,5 @@
 <script setup>
-import { textoIdentidad } from '../../utils/clientes'
+import { textoIdentidad } from '#shared/clientes'
 
 /**
  * /recargas/sms — Bandeja de recargas por confirmar.

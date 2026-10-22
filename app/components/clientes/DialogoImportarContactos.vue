@@ -23,7 +23,7 @@ import {
   nombrePareceTelefono,
   normalizarNombre,
   similitudNombres
-} from '../../utils/clientes'
+} from '#shared/clientes'
 
 const UMBRAL = 0.8
 

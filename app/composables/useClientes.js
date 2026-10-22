@@ -1,6 +1,6 @@
 import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
-import { clientesSimilares } from '../utils/clientes'
+import { clientesSimilares } from '#shared/clientes'
 import {
   CLIENTE_SIN_CLIENTE_ID_FIJO,
   CLIENTE_SIN_CLIENTE_NOMBRE,

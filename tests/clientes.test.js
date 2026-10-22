@@ -9,7 +9,7 @@ import {
   planificarFusion,
   similitudNombres,
   textoIdentidad
-} from '../app/utils/clientes.js'
+} from '../shared/clientes.js'
 import { fusionClienteSchema } from '../shared/schemas/fusionCliente.js'
 
 // --- normalizarNombre ---

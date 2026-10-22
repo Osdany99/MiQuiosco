@@ -11,7 +11,7 @@ import { hashPin, requireJefe } from './utils/auth.js'
 import { TABLES } from '../../shared/tables.js'
 import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
 import { fusionClienteSchema } from '../../shared/schemas/fusionCliente.js'
-import { planificarFusion } from '../utils/clientes.js'
+import { planificarFusion } from '../../shared/clientes.js'
 
 /** Tablas con `clienteId` que se re-apuntan al fusionar dos clientes. */
 const TABLAS_CON_CLIENTE = [

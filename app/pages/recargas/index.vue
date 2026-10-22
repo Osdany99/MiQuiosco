@@ -7,7 +7,7 @@
  * y su estado de pago: los montos vienen del SMS y no se tocan.
  */
 import { recargas as config } from '../../../shared/tables'
-import { textoIdentidad } from '../../utils/clientes'
+import { textoIdentidad } from '#shared/clientes'
 
 definePageMeta({
   middleware: ['jefe']

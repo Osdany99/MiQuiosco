@@ -1,5 +1,5 @@
 /**
- * app/utils/clientes.js — Identidad de clientes: nombres y números.
+ * shared/clientes.js — Identidad de clientes: nombres y números.
  *
  * Un cliente tiene un nombre unificado y N números. Cada número puede llevar
  * su propio nombre (`etiqueta`), que es lo que permite distinguir "Cheila" de
