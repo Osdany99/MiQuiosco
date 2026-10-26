@@ -66,9 +66,6 @@ const restringido = ref(false)
 const importando = ref(false)
 const progreso = ref(null)
 
-const dialogoDeudas = ref(false)
-const viendoDeudas = ref(null)
-
 const dialogoFusionar = ref(false)
 const fusionando = ref(false)
 
@@ -100,11 +97,6 @@ async function abrirEditar(cliente) {
   }))
   nuevoTelefono.value = ''
   dialogo.value = true
-}
-
-function abrirDeudas(cliente) {
-  viendoDeudas.value = cliente
-  dialogoDeudas.value = true
 }
 
 /**
@@ -523,16 +515,6 @@ onMounted(() => {
 
       <template #acciones-cell="{ row }">
         <div class="flex gap-1 justify-end">
-          <UTooltip text="Ver deudas" :delay-duration="0">
-            <UButton
-              size="xs"
-              icon="i-lucide-hand-coins"
-              color="neutral"
-              variant="ghost"
-              aria-label="Ver deudas"
-              @click="abrirDeudas(row.original)"
-            />
-          </UTooltip>
           <UTooltip text="Editar" :delay-duration="0">
             <UButton
               size="xs"
@@ -683,11 +665,6 @@ onMounted(() => {
         </div>
       </div>
     </BaseDialog>
-
-    <ClientesDialogoDeudasCliente
-      v-model="dialogoDeudas"
-      :cliente="viendoDeudas"
-    />
 
     <ClientesDialogoImportarContactos
       v-model="dialogoImportar"

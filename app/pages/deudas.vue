@@ -48,11 +48,16 @@
         class="mb-4"
       />
 
-      <UTable
+      <BaseTable
         v-else
         :data="deudasFiltradas"
         :columns="columnasDeuda"
         :ui="uiTabla"
+        :pagination="false"
+        :show-edit="false"
+        :show-delete="false"
+        :disable-filters="true"
+        :show-reset="false"
       >
         <template #nombreCliente-cell="{ row }">
           <div class="min-w-0">
@@ -76,6 +81,9 @@
             />
           </div>
         </template>
+        <template #producto-cell="{ row }">
+          <DeudasCeldaProducto :items="row.original.items" />
+        </template>
         <template #origen-cell="{ row }">
           <UBadge
             :color="row.original.origen === 'recarga' ? 'info' : 'primary'"
@@ -85,7 +93,7 @@
           />
         </template>
         <template #estado-cell="{ row }">
-          <UBadge :color="colorEstado(row.original.estado)" variant="soft" size="sm">
+          <UBadge :color="colorEstadoDeuda(row.original.estado)" variant="soft" size="sm">
             {{ row.original.estado }}
           </UBadge>
         </template>
@@ -129,18 +137,26 @@
             </UTooltip>
           </div>
         </template>
-      </UTable>
+      </BaseTable>
     </template>
 
-    <UTable
+    <BaseTable
       v-else
       :data="pagadasFiltradas"
       :columns="columnasDeuda"
       :ui="uiTabla"
-      empty="Sin deudas saldadas"
+      :pagination="false"
+      :show-edit="false"
+      :show-delete="false"
+      :disable-filters="true"
+      :show-reset="false"
+      empty-state="Sin deudas saldadas"
     >
       <template #nombreCliente-cell="{ row }">
         {{ row.original.nombreCliente ?? 'Cliente' }}
+      </template>
+      <template #producto-cell="{ row }">
+        <DeudasCeldaProducto :items="row.original.items" />
       </template>
       <template #origen-cell="{ row }">
         <UBadge
@@ -177,7 +193,7 @@
       <template #acciones-cell>
         <div />
       </template>
-    </UTable>
+    </BaseTable>
 
     <BaseDialog
       v-model="showCobro"
@@ -284,13 +300,15 @@ const uiTabla = { td: 'px-3 py-2' }
 
 const columnasDeuda = [
   { accessorKey: 'nombreCliente', header: 'Cliente' },
+  { id: 'producto', header: 'Producto' },
   { accessorKey: 'origen', header: 'Origen' },
   { accessorKey: 'estado', header: 'Estado' },
   { accessorKey: 'montoTotal', header: 'Total' },
   { accessorKey: 'montoPagado', header: 'Pagado' },
   { accessorKey: 'saldoPendiente', header: 'Saldo' },
   { accessorKey: 'creadoEn', header: 'Fecha' },
-  { accessorKey: 'ganancia', header: 'Ganancia' },
+  // Oculta por defecto: el dato sigue en el selector de columnas.
+  { accessorKey: 'ganancia', header: 'Ganancia', visible: false },
   { accessorKey: 'acciones', header: '' }
 ]
 
@@ -367,10 +385,6 @@ function aDeudaRecarga(r, nombrePorCliente) {
   }
 }
 
-function colorEstado(estado) {
-  return estado === 'pagada' ? 'success' : estado === 'parcial' ? 'warning' : 'info'
-}
-
 function formatearFecha(v) {
   if (!v) return '—'
   try {
@@ -384,23 +398,32 @@ async function recargar() {
   cargando.value = true
   try {
     const puestoId = auth.usuarioActual.value?.puestoId
-    const [pendientes, todas, listaClientes, filasRecargas] = await Promise.all([
-      cargarDeudas({ conSaldo: true }),
+    const [cuentasQuiosco, listaClientes, filasRecargas] = await Promise.all([
+      // Una sola lectura: pendientes y saldadas salen de la misma lista (los
+      // ítems de cada deuda se leen una vez, no dos).
       cargarDeudas({ conSaldo: false }),
-      cargarClientes(puestoId),
+      // Incluye desactivados: una deuda vieja no debe perder el nombre.
+      cargarClientes(puestoId, { incluirInactivos: true }),
       rec.cargarRecargas(),
       // Los alias de los números se leen de la caché de useClientes.
       rec.cli.cargarTelefonos()
     ])
 
+    // El repo local no trae join: el nombre se resuelve aquí para los dos
+    // orígenes (cuentas_fiado solo guarda clienteId).
     const nombrePorCliente = new Map((listaClientes ?? []).map(c => [c.id, c.nombre]))
+    const aDeudaQuiosco = c => ({
+      ...c,
+      origen: 'quiosco',
+      nombreCliente: c.nombreCliente ?? nombrePorCliente.get(c.clienteId) ?? 'Cliente'
+    })
     const delPuesto = filasRecargas.filter(r => !puestoId || r.puestoId === puestoId)
     const recPend = delPuesto.filter(r => r.estadoPago !== 'pagada').map(r => aDeudaRecarga(r, nombrePorCliente))
     const recSald = delPuesto.filter(r => r.estadoPago === 'pagada').map(r => aDeudaRecarga(r, nombrePorCliente))
     const porFecha = (a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0)
 
-    const quioscoPend = pendientes.map(q => ({ ...q, origen: 'quiosco' }))
-    const quioscoSald = todas.filter(c => c.estado === 'pagada').map(q => ({ ...q, origen: 'quiosco' }))
+    const quioscoPend = cuentasQuiosco.filter(c => c.estado !== 'pagada').map(aDeudaQuiosco)
+    const quioscoSald = cuentasQuiosco.filter(c => c.estado === 'pagada').map(aDeudaQuiosco)
     deudas.value = [...quioscoPend, ...recPend].sort(porFecha)
     pagadas.value = [...quioscoSald, ...recSald].sort(porFecha)
     clientes.value = listaClientes

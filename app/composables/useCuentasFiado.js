@@ -425,6 +425,35 @@ export function useCuentasFiado() {
   }
 
   /**
+   * Items de las cuentas dadas, con nombre y descripción del producto.
+   * @param {object[]} cuentas
+   * @returns {Promise<Map<string, object[]>>}
+   */
+  async function itemsDeCuentas(cuentas) {
+    const porCuenta = new Map()
+    if (!cuentas.length) return porCuenta
+    const ids = new Set(cuentas.map(c => c.id))
+    const [todosItems, todosProductos] = await Promise.all([
+      r(itemsRepo).readAll(),
+      r(productosRepo).readAll()
+    ])
+    const productoPorId = new Map((todosProductos ?? []).map(p => [p.id, p]))
+    for (const it of todosItems ?? []) {
+      if (!ids.has(it.cuentaFiadoId)) continue
+      const prod = productoPorId.get(it.productoId)
+      const fila = {
+        ...it,
+        nombre: prod?.nombre ?? 'Producto',
+        descripcion: prod?.descripcion ?? ''
+      }
+      const lista = porCuenta.get(it.cuentaFiadoId)
+      if (lista) lista.push(fila)
+      else porCuenta.set(it.cuentaFiadoId, [fila])
+    }
+    return porCuenta
+  }
+
+  /**
    * Deudas del puesto con el saldo derivado.
    * @param {object} [opts]
    * @param {boolean} [opts.conSaldo=true] false trae también las saldadas.
@@ -433,12 +462,19 @@ export function useCuentasFiado() {
   async function cargarDeudas({ conSaldo = true, clienteId = null } = {}) {
     const todas = await r(cuentasRepo).readAll()
     const pid = auth.usuarioActual.value?.puestoId ?? null
-    return todas
-      .filter(c => (!pid || c.puestoId === pid)
+    const cuentas = todas
+      // En online el servidor ya acota por puesto y no manda puestoId.
+      .filter(c => (esOnline.value || !pid || c.puestoId === pid)
         && (!conSaldo || c.estado !== 'pagada')
         && (!clienteId || c.clienteId === clienteId))
+
+    const items = await itemsDeCuentas(cuentas)
+
+    return cuentas
       .map(c => ({
         ...c,
+        // Qué se fió: sin esto la vista de Deudas solo podía decir el monto.
+        items: items.get(c.id) ?? [],
         saldoPendiente: Number(c.montoTotal) - Number(c.montoPagado),
         // cuadreOrigenId null = fiada por fuera del cuadre.
         directa: !c.cuadreOrigenId

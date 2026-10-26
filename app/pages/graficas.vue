@@ -93,8 +93,8 @@ const graficas = [
   { key: 'evolucion-producto', seccion: 'ventas', componente: 'linea', titulo: 'Evolución de un producto', descripcion: 'Ventas diarias de un producto seleccionado', icon: 'i-lucide-line-chart', requiereProducto: true },
   { key: 'precio-usado-vs-oficial', seccion: 'ventas', componente: 'linea', titulo: 'Precio usado vs. oficial', descripcion: 'Precio de venta usado en cuadre vs. precio oficial', icon: 'i-lucide-git-compare', requiereProducto: true },
   { key: 'proporcion-formas-pago', seccion: 'ventas', componente: 'pie', titulo: 'Proporción de formas de pago', descripcion: 'Efectivo vs. transferencia vs. fiado', icon: 'i-lucide-pie-chart' },
-  { key: 'estado-cuadres', seccion: 'ventas', componente: 'bar', titulo: 'Estado de cuadres', descripcion: 'Cuadres abiertos vs. cerrados vs. reabiertos', icon: 'i-lucide-clipboard-list' },
-  { key: 'cuadres-reabiertos', seccion: 'ventas', componente: 'bar', titulo: 'Cuadres reabiertos', descripcion: 'Historial de reaperturas con fechas', icon: 'i-lucide-rotate-ccw' },
+  { key: 'estado-cuadres', seccion: 'ventas', componente: 'bar', titulo: 'Estado de cuadres', descripcion: 'Cuadres abiertos vs. cerrados vs. reabiertos', icon: 'i-lucide-clipboard-list', ignoraRango: true },
+  { key: 'cuadres-reabiertos', seccion: 'ventas', componente: 'bar', titulo: 'Cuadres reabiertos', descripcion: 'Historial de reaperturas con fechas', icon: 'i-lucide-rotate-ccw', ignoraRango: true },
 
   // ---------- Deudas ----------
   { key: 'deuda-por-cliente', seccion: 'deudas', componente: 'bar-horizontal', titulo: 'Deuda por cliente', descripcion: 'Quién debe y cuánto queda', icon: 'i-lucide-hand-coins' },

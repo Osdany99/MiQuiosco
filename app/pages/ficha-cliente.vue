@@ -38,10 +38,15 @@ const columnasRecarga = [
 ]
 
 const columnasDeuda = [
-  { accessorKey: 'fecha', header: 'Fecha' },
+  { id: 'producto', header: 'Producto' },
   { accessorKey: 'origen', header: 'Origen' },
+  { accessorKey: 'estado', header: 'Estado' },
   { accessorKey: 'montoTotal', header: 'Total' },
-  { accessorKey: 'saldo', header: 'Debe' }
+  { accessorKey: 'montoPagado', header: 'Pagado' },
+  { accessorKey: 'saldo', header: 'Debe' },
+  { accessorKey: 'fecha', header: 'Fecha' },
+  // Oculta por defecto: sigue disponible en el selector de columnas.
+  { accessorKey: 'ganancia', header: 'Ganancia', visible: false }
 ]
 
 const uiTabla = { td: 'px-2 py-2' }
@@ -360,7 +365,16 @@ function saldoDeRecarga(r) {
               :label="fmtPrecio(saldoRecargas)"
             />
           </h3>
-          <UTable :data="recargasPend" :columns="columnasRecarga" :ui="uiTabla">
+          <BaseTable
+            :data="recargasPend"
+            :columns="columnasRecarga"
+            :ui="uiTabla"
+            :pagination="false"
+            :show-edit="false"
+            :show-delete="false"
+            :disable-filters="true"
+            :show-reset="false"
+          >
             <template #fecha-cell="{ row }">
               {{ fecha(row.original.creadoEn) }}
             </template>
@@ -378,7 +392,7 @@ function saldoDeRecarga(r) {
                 {{ fmtPrecio(saldoDeRecarga(row.original)) }}
               </span>
             </template>
-          </UTable>
+          </BaseTable>
         </section>
 
         <section v-if="deudas.length">
@@ -392,7 +406,24 @@ function saldoDeRecarga(r) {
               :label="fmtPrecio(saldoQuiosco)"
             />
           </h3>
-          <UTable :data="deudas" :columns="columnasDeuda" :ui="uiTabla">
+          <BaseTable
+            :data="deudas"
+            :columns="columnasDeuda"
+            :ui="uiTabla"
+            :pagination="false"
+            :show-edit="false"
+            :show-delete="false"
+            :disable-filters="true"
+            :show-reset="false"
+          >
+            <template #producto-cell="{ row }">
+              <DeudasCeldaProducto :items="row.original.items" />
+            </template>
+            <template #estado-cell="{ row }">
+              <UBadge :color="colorEstadoDeuda(row.original.estado)" variant="soft" size="sm">
+                {{ row.original.estado }}
+              </UBadge>
+            </template>
             <template #origen-cell="{ row }">
               <UBadge
                 variant="outline"
@@ -407,10 +438,17 @@ function saldoDeRecarga(r) {
             <template #montoTotal-cell="{ row }">
               <span class="font-mono">{{ fmtPrecio(row.original.montoTotal) }}</span>
             </template>
+            <template #montoPagado-cell="{ row }">
+              <span class="font-mono">{{ fmtPrecio(row.original.montoPagado) }}</span>
+            </template>
             <template #saldo-cell="{ row }">
               <span class="font-mono font-medium text-warning">{{ fmtPrecio(row.original.saldoPendiente) }}</span>
             </template>
-          </UTable>
+            <template #ganancia-cell="{ row }">
+              <span v-if="row.original.ganancia != null" class="font-mono">{{ fmtPrecio(row.original.ganancia) }}</span>
+              <span v-else class="text-muted">—</span>
+            </template>
+          </BaseTable>
         </section>
       </div>
 

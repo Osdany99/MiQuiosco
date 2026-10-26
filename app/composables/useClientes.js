@@ -42,11 +42,15 @@ export function useClientes() {
    * "Sin cliente" no tiene sentido, solo se ofrece donde sí lo es (las
    * transferencias). Pídelo con `incluirSinCliente` en ese selector.
    *
+   * `incluirInactivos` es para vistas de solo lectura que deben poner nombre a
+   * datos históricos (deudas, recargas): desactivar un cliente no debe dejar
+   * sus deudas huérfanas con el nombre genérico "Cliente".
+   *
    * El centinela se asegura en cada carga, no en la siembra: sembrarJefeLocal
    * hace early-return en una base que ya tiene usuarios, así que un dispositivo
    * en uso nunca lo crearía. Además se autorrepara si alguien lo desactivó.
    */
-  async function cargarClientes(puestoId, { incluirSinCliente = false } = {}) {
+  async function cargarClientes(puestoId, { incluirSinCliente = false, incluirInactivos = false } = {}) {
     cargando.value = true
     try {
       const filas = [...((await clientesRepo.value.readAll()) || [])]
@@ -63,7 +67,7 @@ export function useClientes() {
 
       clientes.value = filas.filter(c =>
         c.puestoId === puestoId
-        && c.activo
+        && (incluirInactivos || c.activo)
         && !c.fusionadoEn
         && (incluirSinCliente || c.id !== CLIENTE_SIN_CLIENTE_ID_FIJO)
       )

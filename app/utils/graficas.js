@@ -53,7 +53,6 @@ export async function calcularGrafica(key, opts) {
   const recargasRepo = useRepo(recargaConfig, { toast: false })
   const cobrosRecargaRepo = useRepo(cobroRecargaConfig, { toast: false })
   const clientesRepo = useRepo(clienteConfig, { toast: false })
-  const usuariosRepo = useRepo(usuarioConfig, { toast: false })
 
   switch (key) {
     case 'productos-mas-vendidos': return _productosMasVendidos(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -99,7 +98,7 @@ export async function calcularGrafica(key, opts) {
     case 'diferencia-estimada-real': return _diferenciaEstimadaReal(opts, reposInventario())
 
     // ---------- Deudas ----------
-    case 'deuda-por-cliente': return _deudaPorCliente(opts, cuentasFiadoRepo, usuariosRepo)
+    case 'deuda-por-cliente': return _deudaPorCliente(opts, cuentasFiadoRepo, clientesRepo)
     case 'antiguedad-cartera': return _antiguedadCartera(opts, cuentasFiadoRepo)
     case 'cobrado-vs-fiado': return _cobradoVsFiado(opts, pagosRepo, cuentasFiadoRepo)
 
@@ -1394,11 +1393,15 @@ async function _diferenciaEstimadaReal(opts, repos) {
 
 // ═════════════════════════════════ Deudas ═══════════════════════════════════
 
-/** Tramos de antigüedad de la cartera, en días desde que se fió. */
+/**
+ * Tramos de antigüedad de la cartera, en días desde que se fió. "Al día" es el
+ * crédito normal del negocio (hasta 30 días); de ahí en adelante los tramos van
+ * de 30 en 30. El rótulo tiene que coincidir con el corte real (31-60, no 1-30).
+ */
 const TRAMOS_CARTERA = [
   { estado: 'Al día', max: 30 },
-  { estado: '1 a 30 días', max: 60 },
-  { estado: '31 a 60 días', max: 90 },
+  { estado: '31 a 60 días', max: 60 },
+  { estado: '61 a 90 días', max: 90 },
   { estado: 'Más de 90 días', max: Infinity }
 ]
 
@@ -1407,13 +1410,13 @@ function saldoDe(cuenta) {
 }
 
 /** Quién debe y cuánto. Solo lo que está pendiente de verdad. */
-async function _deudaPorCliente(opts, cuentasRepo, usuariosRepo) {
-  const [cuentas, usuarios] = await Promise.all([
+async function _deudaPorCliente(opts, cuentasRepo, clientesRepo) {
+  const [cuentas, clientes] = await Promise.all([
     cuentasRepo.readAll(),
-    usuariosRepo.readAll()
+    clientesRepo.readAll()
   ]).then(rs => rs.map(fila))
 
-  const nombrePorUsuario = new Map(usuarios.map(u => [u.id, u.nombre]))
+  const nombrePorCliente = new Map(clientes.map(c => [c.id, c.nombre]))
   const porCliente = new Map()
 
   for (const c of cuentas) {
@@ -1424,7 +1427,7 @@ async function _deudaPorCliente(opts, cuentasRepo, usuariosRepo) {
 
   return [...porCliente.entries()]
     .map(([clienteId, saldo]) => ({
-      nombre: nombrePorUsuario.get(clienteId) ?? 'Cliente',
+      nombre: nombrePorCliente.get(clienteId) ?? 'Cliente',
       saldo: Math.round(saldo)
     }))
     .sort((a, b) => b.saldo - a.saldo)

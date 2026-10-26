@@ -18,6 +18,11 @@ export function fmtDate(d) {
   return new Date(d).toLocaleDateString('es-ES')
 }
 
+/** Color de badge para el estado de una deuda fiada. */
+export function colorEstadoDeuda(estado) {
+  return estado === 'pagada' ? 'success' : estado === 'parcial' ? 'warning' : 'info'
+}
+
 export function hoyLocal() {
   const d = new Date()
   const mes = String(d.getMonth() + 1).padStart(2, '0')
