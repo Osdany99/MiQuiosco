@@ -4,8 +4,15 @@ import { fallosRed } from '../utils/api'
 
 const PREF_MODO = 'modo_conexion'
 
+// Tras un intento fallido no se relanza solo el cambio a online: el watcher de
+// `fallosRed` se dispara cada vez que una petición vuelve a funcionar, y con un
+// backlog grande eso encadenaba sincronizaciones gigantes y toasts de error.
+const MS_ENFRIAMIENTO_TRAS_FALLO = 60_000
+
 const modo = ref('local')
 const transicionando = ref(false)
+
+let ultimoFalloTransicion = 0
 
 let _watcherInstalled = false
 
@@ -62,9 +69,10 @@ export function useModoConexion() {
     // llegaba con el servidor caido de forma sostenida).
     watch(fallosRed, (fallos) => {
       if (fallos === 0) {
-        if (modo.value === 'local') {
-          cambiarAOnline().catch(() => {})
-        }
+        if (modo.value !== 'local') return
+        if (transicionando.value || haySyncEnCurso()) return
+        if (Date.now() - ultimoFalloTransicion < MS_ENFRIAMIENTO_TRAS_FALLO) return
+        cambiarAOnline().catch(() => {})
         return
       }
       if (fallos >= 2 && modo.value === 'online') {
@@ -94,6 +102,7 @@ export function useModoConexion() {
     try {
       const ok = await sync.sincronizarAhora()
       if (!ok) {
+        ultimoFalloTransicion = Date.now()
         toast.add({ title: 'No se puede cambiar a online', description: 'Resuelve los errores de sincronización primero.', color: 'error' })
         return false
       }
@@ -116,8 +125,12 @@ export function useModoConexion() {
           sync.informarFase('bajando')
           const pullResult = await sync.fetchPull(desde, signal)
           if (signal.aborted) throw new Error('Sincronización cancelada.')
-          sync.informarFase('aplicando')
-          await sync.aplicarPull(pullResult, { signal })
+          const total = sync.contarPayload(pullResult)
+          sync.informarFase('aplicando', 0, total)
+          await sync.aplicarPull(pullResult, {
+            signal,
+            onProgress: procesados => sync.informarFase('aplicando', Math.min(procesados, total), total)
+          })
           modo.value = 'local'
           writePref(PREF_MODO, 'local')
           return true

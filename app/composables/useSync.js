@@ -12,6 +12,19 @@ const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 
+// Filas por petición de push. El push era UN solo POST con todos los
+// pendientes: con miles de filas superaba el timeout del cliente (15 s) y el
+// límite de ejecución de la función de Vercel, y la sincronización moría
+// siempre en el mismo punto ("signal is aborted without reason"). Cada lote es
+// atómico e idempotente en el servidor, así que trocear no cambia el resultado.
+const FILAS_POR_LOTE = 150
+const DELETES_POR_LOTE = 200
+
+// Los endpoints de sync no son una petición de UI: se les da margen de sobra.
+// El tamaño del lote es lo que mantiene cada petición corta.
+const TIMEOUT_PUSH_MS = 60_000
+const TIMEOUT_PULL_MS = 60_000
+
 // Estado COMPARTIDO a nivel módulo (una sola sync visible para toda la app):
 // useSync() se instancia en varios componentes y cada uno tendría su propio
 // `sincronizando`; el banner del layout necesita una fuente única.
@@ -19,10 +32,21 @@ const faseSync = ref('inactiva') // inactiva|preparando|subiendo|bajando|aplican
 const progresoSync = ref({ actual: 0, total: 0 })
 const controlesSync = new Set()
 
-// Cancela la(s) sincronización(es) en curso. Seguro en cualquier punto: el
-// push del servidor es transaccional e idempotente, el pull se aplica con
-// upserts y el watermark solo avanza al completar, así que el próximo intento
-// reenvía/reaplica lo que faltó. El modo no cambia hasta completar.
+// Cola de sincronizaciones. El login lanza un pull en segundo plano y el
+// cambio a online puede disparar un push justo después: dos escrituras sobre
+// la misma conexión sqlite a la vez compiten y el progreso salta.
+let colaSync = Promise.resolve()
+
+function enColaSync(tarea) {
+  const turno = colaSync.then(tarea, tarea)
+  colaSync = turno.then(() => {}, () => {})
+  return turno
+}
+
+// Cancela la(s) sincronización(es) en curso. Seguro en cualquier punto: cada
+// lote del push es transaccional e idempotente, el pull se aplica con upserts y
+// el watermark solo avanza al completar, así que el próximo intento reenvía o
+// reaplica lo que faltó. El modo no cambia hasta completar.
 export function cancelarSincronizacion() {
   for (const c of controlesSync) {
     try {
@@ -108,17 +132,91 @@ export function useSync() {
     return !!signal?.aborted
   }
 
+  /** Filas totales de un payload de sync (tablas + deletes). */
+  function contarPayload(payload) {
+    if (!payload) return 0
+    return TABLAS_SYNC.reduce((s, t) => s + (payload[t]?.length ?? 0), 0)
+      + (payload.deletes?.length ?? 0)
+  }
+
+  /**
+   * Trocea el push en lotes respetando el orden topológico de SYNC_TABLES:
+   * los padres siempre viajan antes que sus hijos, así las FK se cumplen lote a
+   * lote igual que se cumplían en la única transacción de antes.
+   */
+  function construirLotes(pendientes) {
+    const lotes = []
+    for (const tabla of TABLAS_SYNC) {
+      const filas = pendientes?.[tabla]
+      if (!filas?.length) continue
+      for (let i = 0; i < filas.length; i += FILAS_POR_LOTE) {
+        lotes.push({ tabla, filas: filas.slice(i, i + FILAS_POR_LOTE) })
+      }
+    }
+    const deletes = pendientes?.deletes ?? []
+    for (let i = 0; i < deletes.length; i += DELETES_POR_LOTE) {
+      lotes.push({ deletes: deletes.slice(i, i + DELETES_POR_LOTE) })
+    }
+    return lotes
+  }
+
+  async function _subirPendientes(pendientes, signal) {
+    const lotes = construirLotes(pendientes)
+    const total = contarPayload(pendientes)
+    let enviados = 0
+    informarFase('subiendo', 0, total)
+
+    for (const lote of lotes) {
+      if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
+
+      if (lote.deletes) {
+        const res = await fetch(API_ROUTES.syncPush, {
+          method: 'POST',
+          body: { deletes: lote.deletes },
+          signal,
+          timeoutMs: TIMEOUT_PUSH_MS
+        })
+        if (res.deletesAceptados?.length) {
+          await removePendingDeletesAccepted(res.deletesAceptados)
+        }
+        enviados += lote.deletes.length
+      } else {
+        const res = await fetch(API_ROUTES.syncPush, {
+          method: 'POST',
+          body: { [lote.tabla]: lote.filas },
+          signal,
+          timeoutMs: TIMEOUT_PUSH_MS
+        })
+        // Cierre inmediato del lote: si el siguiente falla, lo ya aceptado no
+        // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
+        // uno por fila.
+        await marcarAceptados(lote.tabla, res.aceptados)
+        await absorberConflictos(res.conflictos, signal)
+        enviados += lote.filas.length
+      }
+
+      informarFase('subiendo', enviados, total)
+    }
+
+    return { enviados, total }
+  }
+
   async function _ejecutarPull(signal) {
     const desde = ultimaSync.value ?? 0
     informarFase('bajando')
-    const pullResult = await fetch(API_ROUTES.syncPull + '?desde=' + desde, { signal })
+    const pullResult = await fetch(API_ROUTES.syncPull + '?desde=' + desde, {
+      signal,
+      timeoutMs: TIMEOUT_PULL_MS
+    })
     if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
-    const total = TABLAS_SYNC.reduce((s, t) => s + (pullResult[t]?.length ?? 0), 0)
-      + (pullResult.deletes?.length ?? 0)
+
+    const total = contarPayload(pullResult)
     informarFase('aplicando', 0, total)
-    const aplicado = await pullOffline(pullResult, { signal }, null)
+    await pullOffline(pullResult, {
+      signal,
+      onProgress: procesados => informarFase('aplicando', Math.min(procesados, total), total)
+    }, null)
     informarFase('aplicando', total, total)
-    void aplicado
 
     const ahora = pullResult.timestamp_servidor ?? Date.now()
     ultimaSync.value = ahora
@@ -160,25 +258,15 @@ export function useSync() {
     }
 
     sincronizando.value = true
-    return await conSenalSync(async (signal) => {
+    return enColaSync(() => conSenalSync(async (signal) => {
       try {
         informarFase('preparando')
-        const pendientes = await pushOffline({}, null)
-        const totalPendientes = TABLAS_SYNC.reduce(
-          (s, t) => s + (pendientes[t]?.length ?? 0),
-          0
-        )
+        // `pushOffline` lee las filas crudas y con `sincronizado = 0`. Se pasa
+        // el auth para filtrar por puesto antes de partir los lotes.
+        const pendientes = await pushOffline({}, auth)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-        informarFase('subiendo', 0, totalPendientes)
-        const pushResult = await fetch(API_ROUTES.syncPush, { method: 'POST', body: pendientes, signal })
-
-        informarFase('aplicando', 0, totalPendientes)
-        await marcarAceptados(pushResult.aceptados, pendientes, signal)
-        await absorberConflictos(pushResult.conflictos, signal)
-        if (pushResult.deletesAceptados?.length) {
-          await removePendingDeletesAccepted(pushResult.deletesAceptados)
-        }
+        await _subirPendientes(pendientes, signal)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
         for (let intento = 0; intento < 2; intento++) {
@@ -213,9 +301,9 @@ export function useSync() {
         return false
       } finally {
         sincronizando.value = false
-        await actualizarPendientesCount()
+        await actualizarPendientesCount().catch(() => {})
       }
-    })
+    }))
   }
 
   async function pullServidor({ silent = false } = {}) {
@@ -239,7 +327,7 @@ export function useSync() {
     }
 
     sincronizando.value = true
-    return await conSenalSync(async (signal) => {
+    return enColaSync(() => conSenalSync(async (signal) => {
       try {
         await _ejecutarPull(signal)
         return true
@@ -268,33 +356,25 @@ export function useSync() {
         return false
       } finally {
         sincronizando.value = false
-        await actualizarPendientesCount()
+        await actualizarPendientesCount().catch(() => {})
       }
-    })
+    }))
   }
 
-  async function marcarAceptados(aceptados, pendientes, signal) {
-    if (!aceptados?.length) return
-    const idsSet = new Set(aceptados)
-    let vistos = 0
-    for (const t of TABLAS_SYNC) {
-      const rows = pendientes[t]
-      if (!rows?.length) continue
-      for (const reg of rows) {
-        if (++vistos % 25 === 0) signal?.throwIfAborted?.()
-        if (idsSet.has(reg.id)) {
-          try {
-            // Escritura directa, no por el repo: esto NO es una edición del
-            // usuario sino el cierre de una subida que el servidor ya aceptó.
-            // Por eso va con enrichForSync (marca la fila sincronizada) y no
-            // con enrichForUpdate, que la dejaría pendiente otra vez. Además
-            // evita disparar la mutación de productos por marcar un id.
-            await useDb().update(t, reg.id, enrichForSync(t, { sincronizado: 1 }))
-          } catch {
-            // best-effort: se reintentará en la siguiente sync
-          }
-        }
-      }
+  /**
+   * Marca como sincronizadas las filas que el servidor aceptó en un lote.
+   *
+   * Escritura directa, no por el repo: esto NO es una edición del usuario sino
+   * el cierre de una subida que el servidor ya aceptó. Por eso no se toca
+   * `actualizadoEn` (el bueno es el que ya trae la fila) y solo se pone
+   * `sincronizado = 1`.
+   */
+  async function marcarAceptados(tabla, ids) {
+    if (!ids?.length) return
+    try {
+      await useDb().marcarSincronizados(tabla, ids)
+    } catch {
+      // best-effort: se reintentará en la siguiente sync
     }
   }
 
@@ -326,12 +406,25 @@ export function useSync() {
     }
   }
 
+  /**
+   * Conteo de pendientes con un COUNT por tabla (`contarPendientes`), sin
+   * volver a leer las 21 tablas completas cada vez que termina una sync.
+   */
   async function actualizarPendientesCount(pendientesYaCalculados = null) {
-    const pendientes = pendientesYaCalculados ?? (await pushOffline({}, null))
-    pendientesCount.value = TABLAS_SYNC.reduce(
-      (s, t) => s + (pendientes[t]?.length ?? 0),
-      0
-    )
+    if (pendientesYaCalculados) {
+      pendientesCount.value = contarPayload(pendientesYaCalculados)
+      return
+    }
+    const db = useDb()
+    let total = 0
+    for (const tabla of TABLAS_SYNC) {
+      try {
+        total += await db.contarPendientes(tabla)
+      } catch {
+        // tabla aún sin migrar en esta instalación
+      }
+    }
+    pendientesCount.value = total
   }
 
   async function descargarCatalogo() {
@@ -373,7 +466,11 @@ export function useSync() {
     pullServidor,
     conSenalSync,
     informarFase,
-    fetchPull: (desde, signal) => fetch(API_ROUTES.syncPull + '?desde=' + desde, { signal }),
+    fetchPull: (desde, signal) => fetch(API_ROUTES.syncPull + '?desde=' + desde, {
+      signal,
+      timeoutMs: TIMEOUT_PULL_MS
+    }),
+    contarPayload,
     descargarCatalogo,
     aplicarPull: pullOffline
   }

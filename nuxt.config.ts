@@ -40,6 +40,13 @@ export default defineNuxtConfig({
   nitro: {
     prerender: {
       routes: ['/']
+    },
+    // Margen para /api/sync/*: aunque el cliente manda lotes pequeños, un
+    // push/pull puede tardar más que el límite por defecto de Vercel.
+    vercel: {
+      functions: {
+        maxDuration: 60
+      }
     }
   },
 

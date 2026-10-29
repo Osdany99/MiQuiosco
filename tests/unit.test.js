@@ -38,6 +38,10 @@ describe('etiquetaFaseSync', () => {
     assert.equal(etiquetaFaseSync('subiendo', { actual: 0, total: 1 }), 'Subiendo 1 cambio…')
     assert.equal(etiquetaFaseSync('subiendo'), 'Subiendo cambios…')
   })
+  it('subiendo con avance muestra actual/total', () => {
+    assert.equal(etiquetaFaseSync('subiendo', { actual: 150, total: 3782 }), 'Subiendo 150/3782…')
+    assert.equal(etiquetaFaseSync('subiendo', { actual: 3782, total: 3782 }), 'Subiendo 3782/3782…')
+  })
   it('aplicando muestra actual/total', () => {
     assert.equal(etiquetaFaseSync('aplicando', { actual: 3, total: 10 }), 'Aplicando 3/10…')
   })

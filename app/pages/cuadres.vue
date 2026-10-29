@@ -10,6 +10,14 @@ const toast = useToast()
 const cuadreCtl = useCuadre()
 
 const tableRef = ref(null)
+
+// El historial va de lo más reciente a lo más viejo. Sin esto la API devuelve
+// las filas en orden físico de inserción (Postgres) y el SQLite local en orden
+// de rowid, así que un cuadre de octubre podía aparecer antes que el de hoy.
+// `fecha` es YYYY-MM-DD en ambos backends, así que el orden descendente es
+// cronológico.
+const query = { orderBy: 'fecha', orderDir: 'desc' }
+
 const reabrirOpen = ref(false)
 const reabrirTarget = ref(null)
 const reabriendo = ref(false)
@@ -92,6 +100,7 @@ async function confirmarReabrir() {
       ref="tableRef"
       :config="config"
       :columns="columns"
+      :query="query"
       :show-edit="false"
       :show-delete="false"
       :show-details="true"

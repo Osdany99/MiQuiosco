@@ -11,6 +11,12 @@ const config = useRuntimeConfig()
 
 const etiquetaSync = computed(() => etiquetaFaseSync(faseSync.value, progresoSync.value))
 const mostrarBannerSync = computed(() => conexion.transicionando.value || faseSync.value !== 'inactiva')
+// Avance real de la fase en curso (subida por lotes, bajada o aplicación).
+const porcentajeSync = computed(() => {
+  const { actual, total } = progresoSync.value ?? {}
+  if (!total) return 0
+  return Math.min(100, Math.max(0, Math.round((actual / total) * 100)))
+})
 
 // El cambio Online/Local solo existe en Android nativo: en web el modo es
 // forzosamente online y el sqlite es in-memory (se pierde al recargar).
@@ -299,21 +305,34 @@ const userMenuItems = computed(() => {
     </div>
 
     <!-- Progreso visible del cambio Local/Online: el toggle cierra el menú al
-         tocarlo, así que el estado vive aquí para que se vea sin reabrir nada. -->
+         tocarlo, así que el estado vive aquí para que se vea sin reabrir nada.
+         Ancho completo en móvil (el texto no cabe en una píldora) y compacto
+         en pantallas grandes. -->
     <div
       v-if="mostrarBannerSync"
-      class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-full border border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-4 py-2 shadow-lg"
+      class="fixed bottom-4 inset-x-4 z-50 mx-auto max-w-xl rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-4 py-2.5 shadow-lg"
     >
-      <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary shrink-0" />
-      <span class="text-sm font-medium whitespace-nowrap">{{ etiquetaSync || 'Sincronizando…' }}</span>
-      <UButton
-        size="xs"
-        variant="ghost"
-        color="neutral"
-        icon="i-lucide-x"
-        aria-label="Cancelar sincronización"
-        @click="cancelarSincronizacion()"
-      />
+      <div class="flex items-center gap-3">
+        <UIcon name="i-lucide-loader-circle" class="size-4 shrink-0 animate-spin text-primary" />
+        <span class="min-w-0 flex-1 text-sm font-medium break-words">{{ etiquetaSync || 'Sincronizando…' }}</span>
+        <UButton
+          size="xs"
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-x"
+          aria-label="Cancelar sincronización"
+          @click="cancelarSincronizacion()"
+        />
+      </div>
+      <div
+        v-if="porcentajeSync > 0"
+        class="mt-2 h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+      >
+        <div
+          class="h-full rounded-full bg-primary transition-all duration-300"
+          :style="{ width: porcentajeSync + '%' }"
+        />
+      </div>
     </div>
   </UDashboardGroup>
 </template>

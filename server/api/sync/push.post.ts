@@ -11,6 +11,13 @@ import type { Table, Column } from 'drizzle-orm'
 const TABLAS_SYNC_SET = new Set(SYNC_TABLES.map(t => t.tabla))
 
 /**
+ * Tope de filas por petición. El cliente manda lotes de 150; este límite solo
+ * protege a la función de un cliente viejo que reenvíe todo el backlog de una
+ * vez y agote el tiempo de ejecución (que era justo el fallo original).
+ */
+const MAX_FILAS_POR_PUSH = 1000
+
+/**
  * Regla del dominio aplicada en la frontera: un producto tiene UNA sola fila de
  * historial vigente.
  *
@@ -77,6 +84,19 @@ export default defineEventHandler(async (event) => {
   const deletesAceptados: { tabla: string, id: string }[] = []
   const conflictos: Record<string, any[]> = {}
 
+  const totalFilas = SYNC_TABLES.reduce((s, c) => s + (data[c.tabla]?.length ?? 0), 0)
+  if (totalFilas > MAX_FILAS_POR_PUSH) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: `Demasiadas filas en un solo push (${totalFilas}). Actualiza la app para sincronizar por lotes.`
+    })
+  }
+
+  // Padres ya comprobados en esta transacción (tabla:fk → fila o null). Sin
+  // esta caché cada fila hija hacía su propio SELECT: en un push de miles de
+  // líneas eso era la mayor parte del tiempo de la función.
+  const cachePadres = new Map<string, any>()
+
   // Todo el push se aplica en una única transacción: o se completa entero,
   // o no deja estado parcial en el servidor. Las validaciones de puesto van
   // DENTRO de la tx y antes de cada escritura: un 403 aborta todo el push.
@@ -131,7 +151,7 @@ export default defineEventHandler(async (event) => {
           } else {
             // Hija sin puestoId propio: el padre debe existir y ser propio.
             // Se lee en la tx para ver tambien padres del mismo push.
-            await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId)
+            await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, undefined, cachePadres)
           }
           // Coercionado aquí y no en el insert: el guard necesita los valores ya
           // convertidos (el vigenteDesde llega como ISO y la columna es timestamp).
@@ -153,7 +173,7 @@ export default defineEventHandler(async (event) => {
             })
           }
         } else {
-          await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, existing)
+          await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, existing, cachePadres)
         }
 
         if (syncConfig.insertOnly) {
@@ -199,7 +219,7 @@ export default defineEventHandler(async (event) => {
           })
         }
       } else if (syncConfig) {
-        await exigirPadrePropio(tx, syncConfig.tabla, existing, puestoId, existing)
+        await exigirPadrePropio(tx, syncConfig.tabla, existing, puestoId, existing, cachePadres)
       }
 
       await tx.delete(table).where(eq(columns.id!, del.id))
@@ -224,7 +244,8 @@ async function exigirPadrePropio(
   tablaHija: string,
   row: any,
   puestoId: string,
-  existing?: any
+  existing?: any,
+  cachePadres?: Map<string, any>
 ): Promise<void> {
   const padre = PADRE_POR_TABLA[tablaHija]
   if (!padre) {
@@ -238,12 +259,20 @@ async function exigirPadrePropio(
   if (!parentTable || fk == null) {
     throw createError({ statusCode: 404, statusMessage: 'Registro padre no encontrado.' })
   }
-  const parentCols = getTableColumns(parentTable) as Record<string, Column>
-  const [parent] = await tx
-    .select()
-    .from(parentTable)
-    .where(eq(parentCols.id!, fk))
-    .limit(1)
+  const clave = `${padre.padre}:${fk}`
+  let parent: any
+  if (cachePadres?.has(clave)) {
+    parent = cachePadres.get(clave)
+  } else {
+    const parentCols = getTableColumns(parentTable) as Record<string, Column>
+    const [encontrado] = await tx
+      .select()
+      .from(parentTable)
+      .where(eq(parentCols.id!, fk))
+      .limit(1)
+    parent = encontrado ?? null
+    cachePadres?.set(clave, parent)
+  }
   if (!parent) {
     throw createError({ statusCode: 404, statusMessage: 'Registro padre no encontrado.' })
   }

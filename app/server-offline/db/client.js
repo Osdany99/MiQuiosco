@@ -39,6 +39,9 @@ async function runEscritura(conn, sql, params) {
   return conn.run(sql, params)
 }
 
+/** Filas por sentencia en las escrituras masivas de sincronización. */
+const LOTE_ESCRITURA_SYNC = 150
+
 class InMemoryDb {
   tables = new Map()
 
@@ -434,6 +437,46 @@ export function useDb() {
       : null
   }
 
+  /**
+   * Cuenta filas pendientes de subir de una tabla.
+   *
+   * Antes `actualizarPendientesCount` volvía a leer las 21 tablas completas
+   * para contarlas; con miles de filas eso bloqueaba el final de cada sync.
+   */
+  async function contarPendientes(tabla) {
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      return conn.where(tabla, r => !r.sincronizado).length
+    }
+    const result = await conn.query(`SELECT COUNT(*) AS n FROM ${tabla} WHERE sincronizado = 0`, [])
+    return Number(result.values?.[0]?.n ?? 0)
+  }
+
+  /**
+   * Marca como sincronizadas varias filas con UNA sentencia por lote.
+   *
+   * `marcarAceptados` hacía un UPDATE por fila: con 3 000 aceptadas eran 3 000
+   * llamadas seguidas al puente nativo de Capacitor y el cierre del push se
+   * eternizaba. El nombre de tabla viene siempre de SYNC_TABLES, nunca de la UI.
+   */
+  async function marcarSincronizados(tabla, ids) {
+    if (!ids?.length) return 0
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      const objetivo = new Set(ids)
+      conn.update(tabla, r => objetivo.has(r.id), { sincronizado: 1 })
+      return ids.length
+    }
+    let marcados = 0
+    for (let i = 0; i < ids.length; i += LOTE_ESCRITURA_SYNC) {
+      const trozo = ids.slice(i, i + LOTE_ESCRITURA_SYNC)
+      const placeholders = trozo.map(() => '?').join(', ')
+      await runEscritura(conn, `UPDATE ${tabla} SET sincronizado = 1 WHERE id IN (${placeholders})`, trozo)
+      marcados += trozo.length
+    }
+    return marcados
+  }
+
   async function resetLocalDatabase() {
     const conn = await getConnection()
     const tableNames = [...deriveTableNames(schemaSqlite), '_migrations']
@@ -545,6 +588,8 @@ export function useDb() {
     remove,
     queryAll,
     getById,
+    contarPendientes,
+    marcarSincronizados,
     resetLocalDatabase,
     cerrarParaCopia,
     reabrirTrasCopia,

@@ -103,7 +103,16 @@ export async function getAppVersionNombre() {
   return cachedVersionNombre
 }
 
+/**
+ * Petición HTTP con JWT de sync, versión de la APK y timeout.
+ *
+ * `opts.timeoutMs` permite ampliar el límite por petición (p. ej. el push de
+ * sincronización, que puede tardar minutos). El valor por defecto sigue siendo
+ * corto para que una UI normal no se quede colgada.
+ */
 export async function $api(path, opts = {}) {
+  const { timeoutMs = TIMEOUT_MS, signal: externa, ...opciones } = opts
+
   const baseUrl = await getApiBaseUrl()
   const url = baseUrl
     ? `${baseUrl.replace(/\/+$/, '')}${path}`
@@ -117,12 +126,18 @@ export async function $api(path, opts = {}) {
     : {}
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  // El timeout ya no es el único motivo de abort: se distingue del abort del
+  // usuario para poder dar un mensaje útil ("tardó demasiado") en vez del
+  // críptico "signal is aborted without reason" de ofetch.
+  let abortadoPorTimeout = false
+  const timeoutId = setTimeout(() => {
+    abortadoPorTimeout = true
+    controller.abort()
+  }, timeoutMs)
 
   // Cancelación del usuario (p. ej. botón "Cancelar sincronización"): se
   // propaga la señal externa al controlador del timeout. En el catch se
   // marca el error para no contarlo como fallo de red.
-  const externa = opts.signal
   let quitarOyente = null
   if (externa) {
     if (externa.aborted) {
@@ -136,8 +151,8 @@ export async function $api(path, opts = {}) {
 
   try {
     const result = await $fetch(url, {
-      ...opts,
-      headers: { ...versionHeaders, ...opts.headers },
+      ...opciones,
+      headers: { ...versionHeaders, ...opciones.headers },
       signal: controller.signal
     })
     _serverAlcanzable.value = true
@@ -147,6 +162,10 @@ export async function $api(path, opts = {}) {
     if (externa?.aborted) {
       err.cancelacionUsuario = true
       throw err
+    }
+    if (abortadoPorTimeout && !err.cancelacionUsuario) {
+      err.timeout = true
+      err.message = `El servidor tardó más de ${Math.round(timeoutMs / 1000)} s en responder.`
     }
     if (esErrorDeRed(err)) {
       _serverAlcanzable.value = false
