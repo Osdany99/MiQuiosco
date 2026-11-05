@@ -631,7 +631,8 @@ export const movimientosInventario = pgTable(
     ),
     // Lo mismo para las deudas directas, que no tienen fila en ventas_directas.
     cuentaFiadoItemId: uuid('cuenta_fiado_item_id').references(
-      () => cuentasFiadoItems.id
+      () => cuentasFiadoItems.id,
+      { onDelete: 'cascade' }
     ),
     tipo: tipoMovimientoEnum('tipo').notNull(),
     cantidad: integer('cantidad').notNull(),
