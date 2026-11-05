@@ -11,7 +11,11 @@
       <button class="bg-violet-600 text-white px-4 py-2 rounded" :disabled="running" @click="grabarEspanol">
         Mic (native)
       </button>
+      <button class="bg-emerald-600 text-white px-4 py-2 rounded" @click="guardarLog">
+        Guardar log ({{ historial.length }})
+      </button>
     </div>
+    <div v-if="guardado" class="text-sm text-emerald-600">Log guardado: {{ guardado }}</div>
 
     <div v-if="last" class="space-y-2 text-sm">
       <div>Ultimo transcript: <strong>{{ last.transcript }}</strong></div>
@@ -35,13 +39,16 @@ import { parseVoiceCommand } from '~/utils/voice/parseVoiceCommand'
 import { fuzzyMatchProducts } from '~/utils/voice/fuzzyMatchProducts'
 import { registerPlugin, Capacitor } from '@capacitor/core'
 
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 const VoiceRecognitionNative = registerPlugin('VoiceRecognitionNative')
 
 const manualText = ref('')
 const last = ref(null)
 const matches = ref([])
 const error = ref(null)
+const guardado = ref(null)
 const running = ref(false)
+const historial = ref([])
 
 const catalogoDemo = [
   { id: '1', name: 'pan', canonicalSpeak: 'pan' },
@@ -56,7 +63,14 @@ function asignarMatch(transcript) {
     last.value = parseVoiceCommand(transcript)
     const hint = last.value.lines[0].productoHint || ''
     matches.value = fuzzyMatchProducts(hint, catalogoDemo)
+    historial.value.push({
+      ts: new Date().toISOString(),
+      transcript,
+      parsed: JSON.parse(JSON.stringify(last.value)),
+      matches: (matches.value || []).map((m) => ({ name: m.product.name, distance: m.distance, score: m.score }))
+    })
     error.value = null
+    guardado.value = null
   } catch (e) {
     error.value = e && e.message ? e.message : String(e)
   }
@@ -65,6 +79,26 @@ function asignarMatch(transcript) {
 function procesarManual() {
   if (!manualText.value) return
   asignarMatch(manualText.value)
+}
+
+async function guardarLog() {
+  if (!historial.value.length) {
+    error.value = 'No hay datos para guardar'
+    return
+  }
+  try {
+    const data = JSON.stringify(historial.value, null, 2)
+    await Filesystem.writeFile({
+      path: 'voice-command-log.json',
+      data,
+      directory: Directory.Cache,
+      encoding: Encoding.UTF8
+    })
+    guardado.value = 'voice-command-log.json'
+    error.value = null
+  } catch (e) {
+    error.value = e && e.message ? e.message : String(e)
+  }
 }
 
 async function grabarEspanol() {
