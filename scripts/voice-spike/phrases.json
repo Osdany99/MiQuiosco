@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intents": ["venta_directa"],
+  "speakers": ["L1", "L2", "L3", "L4"],
+  "phrases": [
+    { "id": "p001", "expectedIntent": "venta_directa", "expectedQuantity": 1, "expectedProductHint": "pan", "phrase": "anota un pan" },
+    { "id": "p002", "expectedIntent": "venta_directa", "expectedQuantity": 5, "expectedProductHint": "pan", "phrase": "anota cinco manises" },
+    { "id": "p003", "expectedIntent": "venta_directa", "expectedQuantity": 3, "expectedProductHint": "pan", "phrase": "vende tres panes a precio de 18" },
+    { "id": "p004", "expectedIntent": "venta_directa", "expectedQuantity": 1, "expectedProductHint": "test e2e", "phrase": "anota un test e2e cinco dias edit" },
+    { "id": "p005", "expectedIntent": "venta_directa", "expectedQuantity": 2, "expectedProductHint": "jkf", "phrase": "vende dos j kf" },
+    { "id": "p006", "expectedIntent": "venta_directa", "expectedQuantity": 1, "expectedProductHint": "edite", "phrase": "anota un edite" },
+    { "id": "p007", "expectedIntent": "venta_directa", "expectedQuantity": 4, "expectedProductHint": "pan", "phrase": "anota cuatro panes en quiosco" },
+    { "id": "p008", "expectedIntent": "venta_directa", "expectedQuantity": 1, "expectedProductHint": "pan", "phrase": "anota un pan normal de venta directa" },
+    { "id": "p009", "expectedIntent": "venta_directa", "expectedQuantity": 2, "expectedProductHint": "pan", "phrase": "anota dos panes a don juan" },
+    { "id": "p010", "expectedIntent": "venta_directa", "expectedQuantity": 1, "expectedProductHint": "pan", "phrase": "vende un pan normal en quiosco regalo" }
+  ],
+  "notes": "Plantillas generales; completar manualmente con locutores reales. Medir WER, intent accuracy, slot accuracy y latencias."
+}

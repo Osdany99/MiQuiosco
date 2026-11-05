@@ -1,0 +1,104 @@
+{
+  "generatedAt": "2026-11-05",
+  "source": "postgres-mcp / public.productos",
+  "puestoId": "00000000-0000-0000-0000-000000000002",
+  "note": "La DB actual contiene solo 12 filas activas en quiosco ( sandbox/dev). Varias son de prueba E2E. En produccion repetir el export para catalogo real completo.",
+  "products": [
+    {
+      "id": "e43f7e3c-3407-4c90-aa54-b463038e8e4a",
+      "name": "__TEST_PAN__",
+      "priceSell": 18.0,
+      "isTest": true,
+      "canonicalSpeak": "pan",
+      "aliases": []
+    },
+    {
+      "id": "059e4942-41ad-4cde-84ac-895ee47124d1",
+      "name": "__TEST_PAN__",
+      "priceSell": 18.0,
+      "isTest": true,
+      "canonicalSpeak": "pan",
+      "aliases": []
+    },
+    {
+      "id": "33ad25ab-8854-4046-a5a4-f0c84d8678a1",
+      "name": "__TEST_PAN__",
+      "priceSell": 18.0,
+      "isTest": true,
+      "canonicalSpeak": "pan",
+      "aliases": []
+    },
+    {
+      "id": "9b00e7b7-d78d-4a6d-a8da-9d46e3ab1992",
+      "name": "Test E2E 510878 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "f080f78e-8d28-4636-8d0a-d2a7740c1ea3",
+      "name": "Test E2E 512501 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "377d6595-d519-44f4-b98e-61bae061c485",
+      "name": "Test E2E 512751 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "9fe4c40a-2ad9-49f0-94f0-0f739f419061",
+      "name": "Test E2E 512997 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "b0320226-1408-4886-af19-d6fec14400d1",
+      "name": "Test E2E 513930 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "c71f6dbf-e1b4-4fc7-a131-a2c04897da56",
+      "name": "Test E2E 530169 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "71d64f10-44e0-46a0-b7e9-3b5e6471ff32",
+      "name": "Test E2E 534338 edit",
+      "priceSell": 2000.0,
+      "isTest": true,
+      "canonicalSpeak": "test e2e",
+      "aliases": []
+    },
+    {
+      "id": "c50c8d9a-7fd7-46b4-a71f-7159730532e0",
+      "name": "jkf",
+      "priceSell": 300.0,
+      "isTest": true,
+      "canonicalSpeak": "je i ka ef",
+      "aliases": []
+    },
+    {
+      "id": "533174f5-bdb5-494e-98cb-9b59512e7fa2",
+      "name": "edite",
+      "priceSell": 600.0,
+      "isTest": true,
+      "canonicalSpeak": "edite",
+      "aliases": []
+    }
+  ]
+}
