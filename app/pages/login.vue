@@ -366,5 +366,10 @@ async function onSubmit() {
         Descarga la app
       </NuxtLink>
     </p>
+    <p class="mt-2 text-center text-xs">
+      <NuxtLink to="/dev/voice-spike" class="underline opacity-70">
+        Spike STT nativo
+      </NuxtLink>
+    </p>
   </div>
 </template>

@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SmsReaderPlugin.class);
         registerPlugin(ContactosPlugin.class);
         registerPlugin(DbBackupPlugin.class);
+        registerPlugin(VoiceRecognitionNativePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
