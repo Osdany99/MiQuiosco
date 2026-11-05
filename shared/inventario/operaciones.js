@@ -274,11 +274,26 @@ export function construirVentaCuadre({ lineas, lotesPorProducto, cuadreId, meta 
  * No toca ningún cuadre: cuadreId y lineaCuadreId van en null porque el
  * efectivo nunca entra a una gaveta.
  *
- * @param {object} params — { lineas, lotesPorProducto, ubicacion, motivo, meta }
+ * `tipoVenta` decide el precio, no el flujo:
+ *  - directa: el precio que mande el jefe.
+ *  - casa:    el costo FIFO real de lo servido (ganancia siempre 0).
+ *  - familiar: el precio que mande el jefe (suele ser el costo con descuento).
+ *  - regalo:  0, sin importe.
+ *
+ * @param {object} params — { lineas, lotesPorProducto, ubicacion, tipoVenta,
+ *   motivo, meta }
  * lineas: [{ id, productoId, cantidad, precioVentaUsado, secuencia }]
- * @returns {{ items, movimientos, montoTotal, costoTotal, ganancia, faltantes }}
+ * @returns {{ tipoVenta, items, movimientos, montoTotal, costoTotal, ganancia, faltantes }}
  */
-export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'almacen', motivo, ventaId, meta }) {
+export function construirVentaDirecta({
+  lineas,
+  lotesPorProducto,
+  ubicacion = 'almacen',
+  tipoVenta = 'directa',
+  motivo,
+  ventaId,
+  meta
+}) {
   const ahora = meta.ahora ?? Date.now()
   // ventaId solo se pasa en ventas directas: una deuda directa no tiene fila
   // en ventas_directas, y sus movimientos deben dejar la referencia en null.
@@ -295,8 +310,7 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
 
   for (const l of ordenadas) {
     const cant = Math.trunc(Number(l.cantidad) || 0)
-    const precio = Number(l.precioVentaUsado) || 0
-    const subtotal = redondear2(cant * precio)
+    const precioPedido = Number(l.precioVentaUsado) || 0
 
     const disponibles = (lotesPorProducto.get(l.productoId) ?? []).map(x => ({
       id: x.id,
@@ -316,8 +330,19 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
     const servido = repartos.reduce((s, r) => s + r.cantidad, 0)
     const costoUnitario = servido > 0 ? redondear2(costo / servido) : 0
 
+    // El precio se resuelve DESPUÉS del FIFO porque casa necesita el costo
+    // real de estas unidades. Así una venta de casa no deja ganancia ni
+    // pérdida fantasma por diferencias entre lotes.
+    const precio = tipoVenta === 'regalo'
+      ? 0
+      : tipoVenta === 'casa'
+        ? costoUnitario
+        : precioPedido
+    const subtotal = redondear2(cant * precio)
+
+    const itemId = l.id ?? generarId()
     items.push({
-      id: l.id ?? generarId(),
+      id: itemId,
       productoId: l.productoId,
       cantidad: cant,
       precioVentaUsado: precio,
@@ -341,11 +366,13 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
         tipo: 'venta',
         cantidad: r.cantidad,
         ventaDirectaId: refVenta,
+        ventaDirectaItemId: refVenta ? itemId : null,
+        cuentaFiadoItemId: refVenta ? null : itemId,
         deltaAlmacen: ubicacion === 'almacen' ? -r.cantidad : 0,
         deltaQuiosco: ubicacion === 'quiosco' ? -r.cantidad : 0,
         precioUnitario: r.precioUnitario,
         importe: r.importe,
-        motivo: motivo ?? (ubicacion === 'almacen' ? 'venta_directa_almacen' : 'venta_directa_quiosco'),
+        motivo: motivo ?? motivoDeVentaDirecta(tipoVenta, ubicacion),
         nota: null,
         usuarioId: meta.usuarioId ?? null,
         anulado: false,
@@ -355,6 +382,7 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
   }
 
   return {
+    tipoVenta,
     items,
     movimientos,
     montoTotal,
@@ -362,6 +390,14 @@ export function construirVentaDirecta({ lineas, lotesPorProducto, ubicacion = 'a
     ganancia: redondear2(montoTotal - costoTotal),
     faltantes
   }
+}
+
+/** Motivo por defecto de una salida fuera de cuadre, para el libro. */
+function motivoDeVentaDirecta(tipoVenta, ubicacion) {
+  if (tipoVenta === 'casa') return 'venta_casa'
+  if (tipoVenta === 'familiar') return 'venta_familiar'
+  if (tipoVenta === 'regalo') return 'regalo'
+  return ubicacion === 'almacen' ? 'venta_directa_almacen' : 'venta_directa_quiosco'
 }
 
 /**

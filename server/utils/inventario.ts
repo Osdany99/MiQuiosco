@@ -66,6 +66,7 @@ export interface ItemVentaDirecta {
 }
 
 export interface ResultadoVentaDirecta {
+  tipoVenta: 'directa' | 'casa' | 'familiar' | 'regalo'
   items: ItemVentaDirecta[]
   movimientos: Record<string, unknown>[]
   montoTotal: number

@@ -13,9 +13,20 @@ const lineaDirecta = z.object({
  *
  * No lleva cuadreId a propósito — la plata no entra a ninguna gaveta. El
  * producto sí sale del inventario (FIFO) desde la ubicación que elija el jefe.
+ *
+ * `tipoVenta` cambia el significado del precio, no el flujo:
+ *  - directa: precio libre (lo que cobre el jefe).
+ *  - casa:    el constructor lo fuerza al costo FIFO real.
+ *  - familiar: precio libre; la UI arranca en el costo para permitir descuento.
+ *  - regalo:  el constructor lo fuerza a 0.
+ * El cliente es opcional en todas; solo la deuda directa lo exige.
  */
 export const ventaDirectaSchema = z.object({
   ubicacion: z.enum(['almacen', 'quiosco'], { message: 'Ubicación inválida' }).default('almacen'),
+  tipoVenta: z
+    .enum(['directa', 'casa', 'familiar', 'regalo'], { message: 'Tipo de venta inválido' })
+    .default('directa'),
+  clienteId: z.string().uuid('ID de cliente inválido').nullable().optional(),
   lineas: z
     .array(lineaDirecta)
     .min(1, 'Debe incluir al menos un producto.'),

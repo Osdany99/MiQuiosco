@@ -4,6 +4,7 @@ import {
   lotes,
   movimientosInventario,
   productos,
+  clientes,
   ventasDirectas,
   ventasDirectasItems
 } from '../../database/schema'
@@ -42,6 +43,19 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // El cliente es opcional en las ventas (solo la deuda directa lo exige), pero
+  // si viene debe ser del puesto y estar activo: mismo criterio que la deuda.
+  if (datos.clienteId) {
+    const [cliente] = await db
+      .select()
+      .from(clientes)
+      .where(eq(clientes.id, datos.clienteId))
+      .limit(1)
+    if (!cliente || cliente.puestoId !== puestoId || !cliente.activo) {
+      throw createError({ statusCode: 400, statusMessage: 'Cliente inválido.' })
+    }
+  }
+
   const resultado = await db.transaction(async (tx) => {
     const ventaId = generarId()
     const [filasLotes, movs] = await Promise.all([
@@ -61,6 +75,7 @@ export default defineEventHandler(async (event) => {
       lineas: datos.lineas,
       lotesPorProducto,
       ubicacion: datos.ubicacion,
+      tipoVenta: datos.tipoVenta,
       ventaId,
       meta: { puestoId, usuarioId, ahora: ahoraMs }
     }))
@@ -84,6 +99,8 @@ export default defineEventHandler(async (event) => {
         id: ventaId,
         puestoId,
         ubicacionVenta: datos.ubicacion,
+        tipoVenta: datos.tipoVenta,
+        clienteId: datos.clienteId ?? null,
         montoTotal: venta.montoTotal,
         costoTotal: venta.costoTotal,
         ganancia: venta.ganancia,

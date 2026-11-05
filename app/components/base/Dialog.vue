@@ -6,6 +6,7 @@
     :dismissible="false"
     :title="title"
     :description="description"
+    :ui="ui"
     :close="{
       color: 'primary',
       variant: 'ghost',
@@ -70,6 +71,13 @@ defineProps({
   hideConfirm: {
     type: Boolean,
     default: false
+  },
+  // Ancho y demás clases del UModal. Los diálogos de solo lectura con tablas
+  // anchas (p. ej. el desglose de un lote) necesitan más que el `sm:max-w-lg`
+  // por defecto.
+  ui: {
+    type: Object,
+    default: undefined
   }
 })
 

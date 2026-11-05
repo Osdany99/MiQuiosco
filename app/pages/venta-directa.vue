@@ -1,7 +1,7 @@
 <template>
   <BaseHeaderPage
-    title="Venta directa"
-    description="Ventas en efectivo hechas fuera del cuadre"
+    title="Salidas fuera de cuadre"
+    description="Ventas, ventas de casa, familiares y regalos registrados fuera del cuadre"
     leading-icon="i-lucide-receipt"
     :show-button="false"
   >
@@ -10,7 +10,7 @@
       icon="i-lucide-info"
       color="warning"
       variant="soft"
-      title="Todavía no hay ventas directas"
+      title="Todavía no hay salidas fuera del cuadre"
       description="Se registran desde la acción Vender de cada producto en Quiosco o Almacén."
       class="mb-4"
     >
@@ -70,6 +70,20 @@
           {{ fmtDate(row.original.creadoEn) }}
         </template>
 
+        <template #tipoVenta-cell="{ row }">
+          <UBadge
+            :color="colorTipo(row.original.tipoVenta)"
+            :icon="iconoTipo(row.original.tipoVenta)"
+            variant="soft"
+            size="sm"
+            :label="etiquetaTipo(row.original.tipoVenta)"
+          />
+        </template>
+
+        <template #nombreCliente-cell="{ row }">
+          <span class="block max-w-40 truncate">{{ row.original.nombreCliente || '—' }}</span>
+        </template>
+
         <template #ubicacion-cell="{ row }">
           <UBadge
             variant="soft"
@@ -102,7 +116,12 @@
         </template>
 
         <template #ganancia-cell="{ row }">
-          <span class="font-mono font-medium text-success">{{ fmtPrecio(row.original.ganancia) }}</span>
+          <span
+            class="font-mono font-medium"
+            :class="(Number(row.original.ganancia) || 0) < 0 ? 'text-error' : 'text-success'"
+          >
+            {{ fmtPrecio(row.original.ganancia) }}
+          </span>
         </template>
 
         <template #margen-cell="{ row }">
@@ -151,8 +170,10 @@ const uiTabla = { td: 'px-3 py-2' }
 // frente es qué se vendió y por cuánto entró, no el FIFO que consumió.
 const columnas = [
   { accessorKey: 'creadoEn', header: 'Fecha' },
+  { accessorKey: 'tipoVenta', header: 'Tipo' },
   { accessorKey: 'ubicacion', header: 'Sale de' },
   { accessorKey: 'nombreProducto', header: 'Producto' },
+  { accessorKey: 'nombreCliente', header: 'Cliente' },
   { accessorKey: 'cantidad', header: 'Cant.', visible: false },
   { accessorKey: 'precioVenta', header: 'Precio venta' },
   { accessorKey: 'montoTotal', header: 'Total' },
@@ -163,6 +184,17 @@ const columnas = [
   { accessorKey: 'notas', header: 'Notas', visible: false },
   { accessorKey: 'id', header: 'ID', visible: false }
 ]
+
+const TIPOS = {
+  directa: { label: 'Directa', icon: 'i-lucide-pocket', color: 'primary' },
+  casa: { label: 'Casa', icon: 'i-lucide-house', color: 'info' },
+  familiar: { label: 'Familiar', icon: 'i-lucide-users', color: 'warning' },
+  regalo: { label: 'Regalo', icon: 'i-lucide-gift', color: 'neutral' }
+}
+
+const etiquetaTipo = t => TIPOS[t]?.label ?? 'Directa'
+const iconoTipo = t => TIPOS[t]?.icon ?? TIPOS.directa.icon
+const colorTipo = t => TIPOS[t]?.color ?? TIPOS.directa.color
 
 // Selector de columnas (misma regla que BaseTable y useVistaInventario): lo
 // visible sale del propio flag `visible` de cada columna, y las de header vacío

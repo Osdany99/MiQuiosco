@@ -30,6 +30,7 @@ export const ESTADOS_PAGO_RECARGA = ['pagada', 'pendiente'] as const
 export const PLATAFORMAS_RECARGA = ['monedero', 'banco'] as const
 export const ESTADOS_SMS_ETECSA = ['pendiente', 'guardada', 'descartada'] as const
 export const FORMAS_PAGO_FIADO = ['efectivo', 'transferencia'] as const
+export const TIPOS_VENTA_DIRECTA = ['directa', 'casa', 'familiar', 'regalo'] as const
 
 export type Rol = (typeof ROLES)[number]
 export type EstadoCuadre = (typeof ESTADOS_CUADRE)[number]
@@ -540,6 +541,8 @@ export const movimientosInventario = sqliteTable(
     lineaCuadreId: text('linea_cuadre_id'),
     traspasoId: text('traspaso_id'),
     ventaDirectaId: text('venta_directa_id'),
+    ventaDirectaItemId: text('venta_directa_item_id'),
+    cuentaFiadoItemId: text('cuenta_fiado_item_id'),
     tipo: text('tipo', { enum: TIPOS_MOVIMIENTO }).notNull(),
     cantidad: integer('cantidad').notNull(),
     deltaAlmacen: integer('delta_almacen').notNull().default(0),
@@ -599,6 +602,10 @@ export const ventasDirectas = sqliteTable(
     ubicacionVenta: text('ubicacion_venta', { enum: ['almacen', 'quiosco'] })
       .notNull()
       .default('almacen'),
+    tipoVenta: text('tipo_venta', { enum: TIPOS_VENTA_DIRECTA })
+      .notNull()
+      .default('directa'),
+    clienteId: text('cliente_id'),
     montoTotal: real('monto_total').notNull(),
     costoTotal: real('costo_total').notNull(),
     ganancia: real('ganancia').notNull(),

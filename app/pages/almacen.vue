@@ -145,6 +145,34 @@
                     class="justify-start"
                     @click="vender(row.original, 'deuda')"
                   />
+                  <USeparator class="my-1" />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-house"
+                    label="Venta casa (al costo)"
+                    class="justify-start"
+                    @click="vender(row.original, 'casa')"
+                  />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-users"
+                    label="Venta familiar"
+                    class="justify-start"
+                    @click="vender(row.original, 'familiar')"
+                  />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-gift"
+                    label="Regalo"
+                    class="justify-start"
+                    @click="vender(row.original, 'regalo')"
+                  />
                 </div>
               </template>
             </UPopover>
@@ -153,53 +181,90 @@
       </UTable>
     </template>
 
-    <UTable
-      v-else
-      :data="lotesHistorial"
-      :columns="columnsHistorial"
-      empty="Sin entradas registradas"
-    >
-      <template #nombreProducto-cell="{ row }">
-        <div class="min-w-0">
-          <div class="font-medium truncate">
-            {{ row.original.nombreProducto }}
-          </div>
-          <div
-            v-if="row.original.descripcionProducto?.trim()"
-            class="text-xs text-muted truncate"
-          >
-            {{ row.original.descripcionProducto }}
-          </div>
-        </div>
-      </template>
-      <template #fechaEntrada-cell="{ row }">
-        {{ row.original.fechaEntrada }}
-      </template>
-      <template #precioUnitario-cell="{ row }">
-        {{ fmtPrecio(row.original.precioUnitario) }}
-      </template>
-      <template #saldo-cell="{ row }">
-        <span class="whitespace-nowrap">
-          Alm: {{ row.original.saldoAlmacen }} · Quiosco: {{ row.original.saldoQuiosco }}
-        </span>
-      </template>
-      <template #valor-cell="{ row }">
-        {{ fmtPrecio(Number(row.original.cantidadInicial || 0) * Number(row.original.precioUnitario || 0)) }}
-      </template>
-      <template #acciones-cell="{ row }">
-        <UTooltip text="Corregir cantidad o precio" :delay-duration="0">
-          <UButton
-            v-if="!row.original.anulado"
-            icon="i-lucide-pencil"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            aria-label="Corregir entrada"
-            @click="abrirCorreccion(row.original)"
+    <template v-else>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <UInput
+            v-model="busquedaHistorial"
+            icon="i-lucide-search"
+            placeholder="Buscar producto..."
+            class="w-56"
           />
-        </UTooltip>
-      </template>
-    </UTable>
+          <USelect
+            v-model="filtroHistorial"
+            :items="filtrosHistorial"
+            class="w-40"
+          />
+          <USwitch v-model="incluirAnulados" label="Incluir anulados" />
+        </div>
+        <TableToolbar
+          v-model:visible-headers="visibleHeadersHistorial"
+          :column-headers="columnHeadersHistorial"
+        />
+      </div>
+
+      <UTable
+        :data="lotesHistorialFiltrados"
+        :columns="visibleColumnsHistorial"
+        empty="Sin entradas registradas"
+      >
+        <template #nombreProducto-cell="{ row }">
+          <div class="min-w-0">
+            <div class="font-medium truncate">
+              {{ row.original.nombreProducto }}
+            </div>
+            <div
+              v-if="row.original.descripcionProducto?.trim()"
+              class="text-xs text-muted truncate"
+            >
+              {{ row.original.descripcionProducto }}
+            </div>
+          </div>
+        </template>
+        <template #fechaEntrada-cell="{ row }">
+          {{ row.original.fechaEntrada }}
+        </template>
+        <template #precioUnitario-cell="{ row }">
+          {{ fmtPrecio(row.original.precioUnitario) }}
+        </template>
+        <template #saldo-cell="{ row }">
+          <span class="whitespace-nowrap">
+            Alm: {{ row.original.saldoAlmacen }} · Quiosco: {{ row.original.saldoQuiosco }}
+          </span>
+        </template>
+        <template #valor-cell="{ row }">
+          {{ fmtPrecio(Number(row.original.cantidadInicial || 0) * Number(row.original.precioUnitario || 0)) }}
+        </template>
+        <template #valorRestante-cell="{ row }">
+          {{ fmtPrecio(row.original.valorRestante) }}
+        </template>
+        <template #acciones-cell="{ row }">
+          <div class="flex gap-1 justify-end">
+            <UTooltip text="Ver detalle del lote" :delay-duration="0">
+              <UButton
+                icon="i-lucide-eye"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                aria-label="Ver detalle del lote"
+                @click="abrirDetalleLote(row.original)"
+              />
+            </UTooltip>
+            <UTooltip text="Corregir cantidad o precio" :delay-duration="0">
+              <UButton
+                v-if="!row.original.anulado"
+                icon="i-lucide-pencil"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                aria-label="Corregir entrada"
+                @click="abrirCorreccion(row.original)"
+              />
+            </UTooltip>
+          </div>
+        </template>
+      </UTable>
+    </template>
 
     <InventarioDialogoEntrada v-model="showEntrada" :producto-id="productoEntrada" @guardado="recargar" />
     <InventarioDialogoTraspaso v-model="showTraspaso" :producto-id="productoTraspaso" @guardado="recargar" />
@@ -215,6 +280,7 @@
       :lote="loteCorreccion"
       @guardado="recargar"
     />
+    <InventarioDialogoLote v-model="showDetalleLote" :lote="loteDetalle" />
     <InventarioDialogoVenta
       v-model="showVenta"
       :producto="productoVenta"
@@ -231,11 +297,14 @@ definePageMeta({
 })
 
 const {
-  cargando, filas, lotesHistorial, columnsHistorial,
+  cargando, filas, lotesHistorialFiltrados,
   visibleHeaders, columnHeaders, visibleColumns,
-  colorEstado, textoEstado, abrirAjuste, abrirLotes, abrirCorreccion, recargar, sinMovimientos, hayProductos,
+  visibleHeadersHistorial, columnHeadersHistorial, visibleColumnsHistorial,
+  busquedaHistorial, filtroHistorial, incluirAnulados,
+  colorEstado, textoEstado, abrirAjuste, abrirLotes, abrirCorreccion, abrirDetalleLote,
+  recargar, sinMovimientos, hayProductos,
   showAjuste, showLotes, productoAjuste, productoLotes,
-  showCorreccion, loteCorreccion,
+  showCorreccion, loteCorreccion, showDetalleLote, loteDetalle,
   abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
 
@@ -243,6 +312,12 @@ const tab = ref('stock')
 const tabs = [
   { label: 'Stock', value: 'stock' },
   { label: 'Historial de compras', value: 'historial' }
+]
+
+const filtrosHistorial = [
+  { label: 'Todos los lotes', value: 'todos' },
+  { label: 'Con stock', value: 'con-stock' },
+  { label: 'Sin stock', value: 'sin-stock' }
 ]
 
 const showEntrada = ref(false)

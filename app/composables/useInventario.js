@@ -20,6 +20,7 @@ import {
   lotesConSaldo
 } from '../../shared/inventario/operaciones'
 import { vistaSaldos } from '../../shared/inventario/vista'
+import { desgloseDeLote } from '../../shared/inventario/desglose'
 import { sugerenciaReposicion } from '../../shared/inventario/fifo'
 import { $api } from '../utils/api'
 
@@ -31,6 +32,11 @@ const productosConfig = TABLES.productos
 const usuariosConfig = TABLES.usuarios
 const ventasDirectasConfig = TABLES.ventas_directas
 const ventasDirectasItemsConfig = TABLES.ventas_directas_items
+const clientesConfig = TABLES.clientes
+const cuadresConfig = TABLES.cuadres
+const cuadreItemsConfig = TABLES.cuadre_items
+const cuentasFiadoConfig = TABLES.cuentas_fiado
+const cuentasFiadoItemsConfig = TABLES.cuentas_fiado_items
 
 export function useInventario() {
   const toast = useToast()
@@ -52,6 +58,11 @@ export function useInventario() {
   const usuariosRepo = computed(() => esOnline.value ? useRemoteRepo(usuariosConfig) : useLocalRepo(usuariosConfig))
   const ventasDirectasRepo = computed(() => esOnline.value ? useRemoteRepo(ventasDirectasConfig) : useLocalRepo(ventasDirectasConfig))
   const ventasDirectasItemsRepo = computed(() => esOnline.value ? useRemoteRepo(ventasDirectasItemsConfig) : useLocalRepo(ventasDirectasItemsConfig))
+  const clientesRepo = computed(() => esOnline.value ? useRemoteRepo(clientesConfig) : useLocalRepo(clientesConfig))
+  const cuadresRepo = computed(() => esOnline.value ? useRemoteRepo(cuadresConfig) : useLocalRepo(cuadresConfig))
+  const cuadreItemsRepo = computed(() => esOnline.value ? useRemoteRepo(cuadreItemsConfig) : useLocalRepo(cuadreItemsConfig))
+  const cuentasFiadoRepo = computed(() => esOnline.value ? useRemoteRepo(cuentasFiadoConfig) : useLocalRepo(cuentasFiadoConfig))
+  const cuentasFiadoItemsRepo = computed(() => esOnline.value ? useRemoteRepo(cuentasFiadoItemsConfig) : useLocalRepo(cuentasFiadoItemsConfig))
 
   function r(repo) {
     return repo.value
@@ -306,6 +317,7 @@ export function useInventario() {
         lineas: parsed.data.lineas,
         lotesPorProducto,
         ubicacion: parsed.data.ubicacion,
+        tipoVenta: parsed.data.tipoVenta,
         ventaId,
         meta: { puestoId: pid, usuarioId, ahora }
       })
@@ -318,6 +330,8 @@ export function useInventario() {
           id: ventaId,
           puestoId: pid,
           ubicacionVenta: parsed.data.ubicacion,
+          tipoVenta: parsed.data.tipoVenta,
+          clienteId: parsed.data.clienteId ?? null,
           montoTotal: venta.montoTotal,
           costoTotal: venta.costoTotal,
           ganancia: venta.ganancia,
@@ -363,11 +377,12 @@ export function useInventario() {
    *   enriquecidas con nombre/descripción/unidad del producto.
    */
   async function cargarVentasDirectas({ desde, hasta } = {}) {
-    const [ventas, items, prods, users] = await Promise.all([
+    const [ventas, items, prods, users, clientesRows] = await Promise.all([
       r(ventasDirectasRepo).readAll(),
       r(ventasDirectasItemsRepo).readAll(),
       r(productosRepo).readAll(),
-      r(usuariosRepo).readAll()
+      r(usuariosRepo).readAll(),
+      r(clientesRepo).readAll().catch(() => [])
     ])
 
     const pid = puestoIdActual()
@@ -389,6 +404,7 @@ export function useInventario() {
 
     const productoPorId = new Map((prods ?? []).map(p => [p.id, p]))
     const usuarioPorId = new Map((users ?? []).map(u => [u.id, u]))
+    const clientePorId = new Map((clientesRows ?? []).map(c => [c.id, c]))
 
     // Las líneas no tienen puestoId (lo heredan de su venta), así que el
     // corte por puesto se hace contra los ids de las ventas ya filtradas.
@@ -403,7 +419,9 @@ export function useInventario() {
       .map(v => ({
         ...v,
         ubicacion: v.ubicacion ?? v.ubicacionVenta ?? null,
+        tipoVenta: v.tipoVenta ?? 'directa',
         nombreUsuario: v.nombreUsuario ?? usuarioPorId.get(v.usuarioId)?.nombre ?? null,
+        nombreCliente: v.nombreCliente ?? clientePorId.get(v.clienteId)?.nombre ?? null,
         lineas: (lineasPorVenta.get(v.id) ?? [])
           .slice()
           .sort((a, b) => (Number(a.secuencia) || 0) - (Number(b.secuencia) || 0))
@@ -418,6 +436,80 @@ export function useInventario() {
           })
       }))
       .sort((a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0))
+  }
+
+  /**
+   * Desglose de un lote para el diálogo de detalle.
+   *
+   * Online delega en /api/lotes/[id]/desglose; offline lee los repos locales y
+   * llama a la MISMA función pura. Así el resumen no puede cambiar de número
+   * según haya o no conexión.
+   */
+  async function cargarDesgloseLote(loteId) {
+    if (esOnline.value) {
+      return await $api(`/api/lotes/${loteId}/desglose`, { headers: apiHeaders() })
+    }
+
+    const pid = puestoIdActual()
+    const lote = await r(lotesRepo).read(loteId)
+    if (!lote || (pid && lote.puestoId !== pid)) throw new Error('Lote no encontrado.')
+
+    const [
+      movsTodos, prods, provs, lineasTodas, cuadresTodos,
+      ventas, ventaItems, cuentas, cuentaItems, clientesRows, users
+    ] = await Promise.all([
+      r(movimientosRepo).readAll(),
+      r(productosRepo).readAll(),
+      r(proveedoresRepo).readAll(),
+      r(cuadreItemsRepo).readAll(),
+      r(cuadresRepo).readAll(),
+      r(ventasDirectasRepo).readAll(),
+      r(ventasDirectasItemsRepo).readAll(),
+      r(cuentasFiadoRepo).readAll(),
+      r(cuentasFiadoItemsRepo).readAll(),
+      r(clientesRepo).readAll().catch(() => []),
+      r(usuariosRepo).readAll()
+    ])
+
+    const delPuesto = arr => (arr ?? []).filter(x => !pid || x.puestoId === pid)
+    const movs = delPuesto(movsTodos).filter(m => m.productoId === lote.productoId)
+
+    const cuadreIds = new Set(movs.map(m => m.cuadreId).filter(Boolean))
+    const ventaIds = new Set(movs.map(m => m.ventaDirectaId).filter(Boolean))
+
+    const lineas = (lineasTodas ?? []).filter(l => cuadreIds.has(l.cuadreId))
+    const cuadresRows = delPuesto(cuadresTodos).filter(c => cuadreIds.has(c.id))
+    const ventasRows = delPuesto(ventas).filter(v => ventaIds.has(v.id))
+    const ventaItemsRows = (ventaItems ?? []).filter(i => ventaIds.has(i.ventaDirectaId))
+
+    const cuentasTodas = delPuesto(cuentas)
+    const cuentasRelacionadas = cuentasTodas.filter(
+      c => !c.cuadreOrigenId || cuadreIds.has(c.cuadreOrigenId)
+    )
+    const cuentaIds = new Set(cuentasRelacionadas.map(c => c.id))
+    const cuentaItemsRows = (cuentaItems ?? []).filter(i => cuentaIds.has(i.cuentaFiadoId))
+
+    const producto = (prods ?? []).find(p => p.id === lote.productoId) ?? null
+    const proveedor = lote.proveedorId
+      ? (provs ?? []).find(p => p.id === lote.proveedorId) ?? null
+      : null
+
+    return desgloseDeLote({
+      lote: {
+        ...lote,
+        nombreProducto: producto?.nombre ?? null,
+        proveedorNombre: proveedor?.nombre ?? null
+      },
+      movimientos: movs,
+      cuadreItems: lineas,
+      cuadres: cuadresRows,
+      ventas: ventasRows,
+      ventaItems: ventaItemsRows,
+      cuentas: cuentasRelacionadas,
+      cuentaItems: cuentaItemsRows,
+      clientes: delPuesto(clientesRows),
+      usuarios: delPuesto(users)
+    })
   }
 
   // ---------- Corrección de cantidad y precio de un lote ----------
@@ -520,6 +612,7 @@ export function useInventario() {
     registrarAjuste,
     registrarVentaDirecta,
     cargarVentasDirectas,
+    cargarDesgloseLote,
     corregirLote,
     sugerenciaParaManana
   }

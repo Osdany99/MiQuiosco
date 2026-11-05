@@ -48,6 +48,20 @@ export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
 // el punto de venta y no había stock atrás.
 export const ubicacionDirectaEnum = pgEnum('ubicacion_directa', ['almacen', 'quiosco'])
 
+// Naturaleza de una salida fuera de cuadre. Comparten el mismo registro
+// (ventas_directas) para no duplicar cabeceras, pero se separan en el desglose
+// del lote y en la lista de /venta-directa:
+//  - directa: precio libre (efectivo habitual).
+//  - casa:    precio forzado al costo FIFO (no genera ganancia).
+//  - familiar: precio libre con descuento; arranca en el costo.
+//  - regalo:  precio 0, solo cantidad.
+export const tipoVentaDirectaEnum = pgEnum('tipo_venta_directa', [
+  'directa',
+  'casa',
+  'familiar',
+  'regalo'
+])
+
 /**
  * Puestos: soporte multi-puesto desde el día 1.
  * En la versión inicial existirá un único puesto activo.
@@ -609,6 +623,16 @@ export const movimientosInventario = pgTable(
     }),
     traspasoId: uuid('traspaso_id').references(() => traspasos.id),
     ventaDirectaId: uuid('venta_directa_id').references(() => ventasDirectas.id),
+    // Enlace exacto a la línea que originó el movimiento. Las ventas actuales
+    // son de una sola línea, pero sin esto dos líneas del mismo producto en una
+    // venta no se pueden atribuir a su precio correcto en el desglose del lote.
+    ventaDirectaItemId: uuid('venta_directa_item_id').references(
+      () => ventasDirectasItems.id
+    ),
+    // Lo mismo para las deudas directas, que no tienen fila en ventas_directas.
+    cuentaFiadoItemId: uuid('cuenta_fiado_item_id').references(
+      () => cuentasFiadoItems.id
+    ),
     tipo: tipoMovimientoEnum('tipo').notNull(),
     cantidad: integer('cantidad').notNull(),
     deltaAlmacen: integer('delta_almacen').notNull().default(0),
@@ -661,6 +685,10 @@ export const ventasDirectas = pgTable(
       .notNull()
       .references(() => puestos.id),
     ubicacionVenta: ubicacionDirectaEnum('ubicacion_venta').notNull().default('almacen'),
+    tipoVenta: tipoVentaDirectaEnum('tipo_venta').notNull().default('directa'),
+    // Cliente opcional: solo la deuda lo exige, pero una venta normal, de casa,
+    // familiar o un regalo también pueden quedar asociados a alguien.
+    clienteId: uuid('cliente_id').references(() => clientes.id),
     montoTotal: doublePrecision('monto_total').notNull(),
     costoTotal: doublePrecision('costo_total').notNull(),
     ganancia: doublePrecision('ganancia').notNull(),

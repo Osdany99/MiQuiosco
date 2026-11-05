@@ -144,6 +144,34 @@
                     class="justify-start"
                     @click="vender(row.original, 'deuda')"
                   />
+                  <USeparator class="my-1" />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-house"
+                    label="Venta casa (al costo)"
+                    class="justify-start"
+                    @click="vender(row.original, 'casa')"
+                  />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-users"
+                    label="Venta familiar"
+                    class="justify-start"
+                    @click="vender(row.original, 'familiar')"
+                  />
+                  <UButton
+                    block
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-lucide-gift"
+                    label="Regalo"
+                    class="justify-start"
+                    @click="vender(row.original, 'regalo')"
+                  />
                 </div>
               </template>
             </UPopover>

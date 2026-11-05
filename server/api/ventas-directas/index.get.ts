@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { ventasDirectas, ventasDirectasItems, productos, usuarios } from '../../database/schema'
+import { ventasDirectas, ventasDirectasItems, productos, usuarios, clientes } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 
 /**
@@ -21,6 +21,9 @@ export default defineEventHandler(async (event) => {
     .select({
       id: ventasDirectas.id,
       ubicacionVenta: ventasDirectas.ubicacionVenta,
+      tipoVenta: ventasDirectas.tipoVenta,
+      clienteId: ventasDirectas.clienteId,
+      nombreCliente: clientes.nombre,
       montoTotal: ventasDirectas.montoTotal,
       costoTotal: ventasDirectas.costoTotal,
       ganancia: ventasDirectas.ganancia,
@@ -31,6 +34,7 @@ export default defineEventHandler(async (event) => {
     })
     .from(ventasDirectas)
     .innerJoin(usuarios, eq(ventasDirectas.usuarioId, usuarios.id))
+    .leftJoin(clientes, eq(ventasDirectas.clienteId, clientes.id))
     .where(and(...conditions))
     .orderBy(desc(ventasDirectas.creadoEn))
 
@@ -63,6 +67,9 @@ export default defineEventHandler(async (event) => {
   return rows.map(r => ({
     id: r.id,
     ubicacion: r.ubicacionVenta,
+    tipoVenta: r.tipoVenta,
+    clienteId: r.clienteId,
+    nombreCliente: r.nombreCliente,
     montoTotal: r.montoTotal,
     costoTotal: r.costoTotal,
     ganancia: r.ganancia,

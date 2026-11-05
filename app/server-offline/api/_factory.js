@@ -48,6 +48,86 @@ export async function getPendingDeletes() {
   return await loadPendingDeletes()
 }
 
+// ---------------------------------------------------------------------------
+// Rechazos del push
+//
+// Filas que el servidor no pudo aplicar (FK rota, duplicado, dato inválido).
+// Antes una sola de ellas abortaba el push entero y la sincronización moría
+// siempre en el mismo sitio. Ahora se guardan aquí para:
+//   1. no reenviarlas tal cual en cada sync (bloquearían el push para
+//      siempre), y
+//   2. reintentarlas en cuanto el usuario las edita (`actualizadoEn` cambia).
+//
+// La clave es `tabla:id`; el valor guarda la marca de tiempo con la que se
+// rechazó para poder compararla con la fila actual.
+// ---------------------------------------------------------------------------
+const PREF_SYNC_RECHAZOS = 'sync_rechazos'
+let _syncRechazosCache = null
+
+async function loadSyncRechazos() {
+  if (_syncRechazosCache !== null) return _syncRechazosCache
+  const stored = await Preferences.get({ key: PREF_SYNC_RECHAZOS })
+  try {
+    _syncRechazosCache = stored.value ? JSON.parse(stored.value) : {}
+  } catch {
+    // Preferencia corrupta: se empieza de cero en vez de romper la sync.
+    _syncRechazosCache = {}
+  }
+  return _syncRechazosCache
+}
+
+async function saveSyncRechazos(mapa) {
+  _syncRechazosCache = mapa
+  await Preferences.set({ key: PREF_SYNC_RECHAZOS, value: JSON.stringify(mapa) })
+}
+
+export async function getSyncRechazos() {
+  return await loadSyncRechazos()
+}
+
+export async function contarSyncRechazos() {
+  return Object.keys(await loadSyncRechazos()).length
+}
+
+/**
+ * Guarda los rechazos devueltos por el servidor. Cada entrada necesita
+ * `tabla`, `id`, `actualizadoEn` (el de la fila local enviada), y opcionalmente
+ * `codigo`/`motivo` para el resumen que se muestra al usuario.
+ */
+export async function registrarSyncRechazos(rechazos) {
+  if (!rechazos?.length) return 0
+  const mapa = { ...(await loadSyncRechazos()) }
+  const momento = Date.now()
+  for (const r of rechazos) {
+    if (!r?.tabla || !r?.id) continue
+    mapa[`${r.tabla}:${r.id}`] = {
+      tabla: r.tabla,
+      id: r.id,
+      codigo: r.codigo ?? '',
+      motivo: r.motivo ?? '',
+      actualizadoEn: r.actualizadoEn == null ? '' : String(r.actualizadoEn),
+      rechazadoEn: momento
+    }
+  }
+  await saveSyncRechazos(mapa)
+  return Object.keys(mapa).length
+}
+
+/** Olvida los rechazos de filas que ya se aceptaron (o se repararon). */
+export async function limpiarSyncRechazos(tabla, ids) {
+  if (!ids?.length) return
+  const mapa = await loadSyncRechazos()
+  let cambiado = false
+  for (const id of ids) {
+    const clave = `${tabla}:${id}`
+    if (mapa[clave]) {
+      delete mapa[clave]
+      cambiado = true
+    }
+  }
+  if (cambiado) await saveSyncRechazos({ ...mapa })
+}
+
 const ahora = () => Date.now()
 const identidad = x => x
 

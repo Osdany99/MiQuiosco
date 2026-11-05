@@ -44,6 +44,15 @@ export function useVistaInventario(ubicacion) {
   const modoVenta = ref('venta')
   const productoVenta = ref(null)
 
+  // Detalle de un lote del historial de compras.
+  const showDetalleLote = ref(false)
+  const loteDetalle = ref(null)
+
+  // Filtros y columnas del historial de compras.
+  const busquedaHistorial = ref('')
+  const filtroHistorial = ref('todos')
+  const incluirAnulados = ref(false)
+
   const columns = computed(() => [
     { accessorKey: 'nombre', header: 'Producto' },
     { accessorKey: esQuiosco.value ? 'quiosco' : 'almacen', header: 'Stock' },
@@ -79,14 +88,58 @@ export function useVistaInventario(ubicacion) {
     { accessorKey: 'precioUnitario', header: 'P. compra' },
     { accessorKey: 'valor', header: 'Valor' },
     { accessorKey: 'saldo', header: 'Saldo' },
+    { accessorKey: 'salidas', header: 'Salidas' },
+    { accessorKey: 'valorRestante', header: 'Valor rest.' },
     { accessorKey: 'origen', header: 'Origen' },
     { accessorKey: 'detalleCompra', header: 'Detalle' },
-    // Estructural: el lápiz de corregir la entrada. No entra al selector de
-    // columnas ni se puede apagar (misma regla que 'acciones' en `columns`).
+    // Estructural: ver el detalle y corregir la entrada. No entra al selector
+    // de columnas ni se puede apagar (misma regla que 'acciones' en `columns`).
     { accessorKey: 'acciones', header: '' }
     // 'origen' muestra el proveedor (o el lugar de compra). El dato se sigue
     // calculando en cada fila; solo se oculta la columna. Ver app/utils/flags.js
   ].filter(c => MOSTRAR_PROVEEDOR || c.accessorKey !== 'origen')
+
+  /**
+   * Columnas visibles del historial. Se arranca con lo esencial (como en la
+   * pestaña de stock) y el resto queda disponible en el selector.
+   */
+  const COLUMNAS_HISTORIAL_POR_DEFECTO = [
+    'Fecha', 'Producto', 'Cant.', 'P. compra', 'Saldo', 'Salidas'
+  ]
+
+  const visibleHeadersHistorial = ref([...COLUMNAS_HISTORIAL_POR_DEFECTO])
+
+  const columnHeadersHistorial = computed(() =>
+    columnsHistorial.filter(c => c.header).map(c => c.header)
+  )
+
+  const visibleColumnsHistorial = computed(() =>
+    columnsHistorial.filter(c => !c.header || visibleHeadersHistorial.value.includes(c.header))
+  )
+
+  /** Normaliza para buscar sin distinguir mayúsculas ni acentos. */
+  function normalizarTexto(v) {
+    return String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('es')
+      .trim()
+  }
+
+  /**
+   * Historial filtrado: búsqueda por producto/descripción y estado del stock.
+   * Los anulados quedan fuera salvo que se pidan expresamente.
+   */
+  const lotesHistorialFiltrados = computed(() => {
+    const q = normalizarTexto(busquedaHistorial.value)
+    return lotesHistorial.value.filter((l) => {
+      if (!incluirAnulados.value && l.anulado) return false
+      if (filtroHistorial.value === 'con-stock' && !l.conStock) return false
+      if (filtroHistorial.value === 'sin-stock' && l.conStock) return false
+      if (!q) return true
+      return normalizarTexto(`${l.nombreProducto ?? ''} ${l.descripcionProducto ?? ''}`).includes(q)
+    })
+  })
 
   /**
    * En /quiosco sale lo mismo que en el cuadre: un producto con 'Vende' apagado
@@ -129,6 +182,12 @@ export function useVistaInventario(ubicacion) {
     showCorreccion.value = true
   }
 
+  /** Ver el desglose completo de un lote (resumen + ventas por tipo). */
+  function abrirDetalleLote(fila) {
+    loteDetalle.value = fila
+    showDetalleLote.value = true
+  }
+
   /** Venta directa (efectivo) o deuda directa (fiado) del producto de la fila. */
   function abrirVenta(fila, modo = 'venta') {
     productoVenta.value = fila
@@ -157,12 +216,18 @@ export function useVistaInventario(ubicacion) {
       lotesHistorial.value = filas
         .slice()
         .sort((a, b) => String(b.fechaEntrada ?? '').localeCompare(String(a.fechaEntrada ?? '')))
-        .map(l => ({
-          ...l,
-          nombreProducto: nombreProd.get(l.productoId) ?? '—',
-          descripcionProducto: descripcionProd.get(l.productoId) ?? null,
-          origen: l.proveedorId ? (nombreProv.get(l.proveedorId) ?? '—') : (l.lugarCompra || '—')
-        }))
+        .map((l) => {
+          const stock = (Number(l.saldoAlmacen) || 0) + (Number(l.saldoQuiosco) || 0)
+          return {
+            ...l,
+            nombreProducto: nombreProd.get(l.productoId) ?? '—',
+            descripcionProducto: descripcionProd.get(l.productoId) ?? null,
+            origen: l.proveedorId ? (nombreProv.get(l.proveedorId) ?? '—') : (l.lugarCompra || '—'),
+            conStock: stock > 0,
+            salidas: Math.max(0, (Number(l.cantidadInicial) || 0) - stock),
+            valorRestante: Math.round(stock * (Number(l.precioUnitario) || 0) * 100) / 100
+          }
+        })
       productosActivos.value = prods ?? []
     } finally {
       cargando.value = false
@@ -202,16 +267,24 @@ export function useVistaInventario(ubicacion) {
     saldos,
     filas,
     lotesHistorial,
+    lotesHistorialFiltrados,
     columns,
     columnsHistorial,
     visibleHeaders,
     columnHeaders,
     visibleColumns,
+    visibleHeadersHistorial,
+    columnHeadersHistorial,
+    visibleColumnsHistorial,
+    busquedaHistorial,
+    filtroHistorial,
+    incluirAnulados,
     colorEstado,
     textoEstado,
     abrirAjuste,
     abrirLotes,
     abrirCorreccion,
+    abrirDetalleLote,
     abrirVenta,
     recargar,
     sinMovimientos,
@@ -222,6 +295,8 @@ export function useVistaInventario(ubicacion) {
     productoLotes,
     showCorreccion,
     loteCorreccion,
+    showDetalleLote,
+    loteDetalle,
     showVenta,
     modoVenta,
     productoVenta
