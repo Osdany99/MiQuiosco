@@ -89,7 +89,9 @@ const props = defineProps({
   producto: { type: Object, default: null },
   ubicacion: { type: String, default: 'almacen' },
   // 'venta' | 'deuda' | 'casa' | 'familiar' | 'regalo'
-  modo: { type: String, default: 'venta' }
+  modo: { type: String, default: 'venta' },
+  // Prefill por voz (opcional): { cantidad, tipoVenta, precioVentaUsado, clienteHint, clienteId }
+  prefill: { type: Object, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -104,6 +106,8 @@ const lotes = ref([])
 const guardando = ref(false)
 
 const form = ref({ clienteId: null, cantidad: 1, precioVentaUsado: 0, loteId: null })
+
+const propsConPrefill = computed(() => props.prefill ?? null)
 
 /**
  * Cada modo comparte el mismo flujo; solo cambian textos y la política del
@@ -156,10 +160,11 @@ const MODOS = {
   }
 }
 
-const cfg = computed(() => MODOS[props.modo] ?? MODOS.venta)
-const esDeuda = computed(() => props.modo === 'deuda')
-const esCasa = computed(() => props.modo === 'casa')
-const esRegalo = computed(() => props.modo === 'regalo')
+const modoActual = computed(() => props.prefill?.modo ?? props.modo)
+const cfg = computed(() => MODOS[modoActual.value] ?? MODOS.venta)
+const esDeuda = computed(() => modoActual.value === 'deuda')
+const esCasa = computed(() => modoActual.value === 'casa')
+const esRegalo = computed(() => modoActual.value === 'regalo')
 const precioFijo = computed(() => cfg.value.precio === 'fijo')
 
 const etiquetaUbicacion = computed(() => props.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén')
@@ -224,6 +229,22 @@ watch(isOpen, async (open) => {
     clientes.value = cls ?? []
     lotes.value = ls ?? []
     form.value.loteId = lotes.value[0]?.id ?? null
+
+    if (props.prefill) {
+      if (props.prefill.clienteId) form.value.clienteId = props.prefill.clienteId
+      if (props.prefill.cantidad != null) {
+        const max = disponible.value > 0 ? disponible.value : Number(props.producto?.stock ?? 999999)
+        const qty = Math.trunc(Number(props.prefill.cantidad) || 1)
+        form.value.cantidad = Math.max(1, Math.min(qty, max || qty))
+      }
+      if (esRegalo.value) {
+        form.value.precioVentaUsado = 0
+      } else if (precioFijo.value) {
+        form.value.precioVentaUsado = precioInicial()
+      } else if (props.prefill.precioVentaUsado != null) {
+        form.value.precioVentaUsado = Number(props.prefill.precioVentaUsado)
+      }
+    }
   } catch {
     clientes.value = []
     lotes.value = []

@@ -5,6 +5,7 @@ import { registerPlugin, Capacitor } from '@capacitor/core'
 const VoiceRecognitionNative = registerPlugin('VoiceRecognitionNative')
 
 export function useVoiceCommand() {
+  const auth = useAuth()
   const estado = ref('idle') // idle, listening, parsing, ready, error
   const transcript = ref('')
   const error = ref(null)
@@ -20,6 +21,10 @@ export function useVoiceCommand() {
     error.value = null
     
     try {
+      auth.registrarActividad()
+      if (!Capacitor.isNativePlatform()) {
+        throw new Error('Web Speech API no implementado aún')
+      }
       if (Capacitor.isNativePlatform()) {
         await VoiceRecognitionNative.requestPermission()
         const result = await VoiceRecognitionNative.start(options)
@@ -36,12 +41,13 @@ export function useVoiceCommand() {
   }
   
   async function stopListening() {
+    auth.registrarActividad()
     if (Capacitor.isNativePlatform()) {
       await VoiceRecognitionNative.stop()
     }
     estado.value = 'idle'
   }
-  
+
   function reset() {
     estado.value = 'idle'
     transcript.value = ''
