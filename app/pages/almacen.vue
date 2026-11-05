@@ -267,6 +267,11 @@
     </template>
 
     <InventarioDialogoEntrada v-model="showEntrada" :producto-id="productoEntrada" @guardado="recargar" />
+    <div class="flex justify-end mb-3">
+      <UButton icon="i-lucide-mic" color="primary" variant="soft" size="sm" :loading="voiceRunning" @click="venderPorVoz">
+        Vender por voz
+      </UButton>
+    </div>
     <InventarioDialogoTraspaso v-model="showTraspaso" :producto-id="productoTraspaso" @guardado="recargar" />
     <InventarioDialogoAjuste
       v-model="showAjuste"
@@ -286,6 +291,7 @@
       :producto="productoVenta"
       ubicacion="almacen"
       :modo="modoVenta"
+      :prefill="voicePrefill"
       @guardado="recargar"
     />
   </BaseHeaderPage>
@@ -307,6 +313,13 @@ const {
   showCorreccion, loteCorreccion, showDetalleLote, loteDetalle,
   abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
+
+const toast = useToast()
+import { parseVoiceCommand } from '~/utils/voice/parseVoiceCommand'
+import { fuzzyMatchProducts } from '~/utils/voice/fuzzyMatchProducts'
+const voice = useVoiceCommand()
+const voiceRunning = ref(false)
+const voicePrefill = ref(null)
 
 const tab = ref('stock')
 const tabs = [
@@ -342,5 +355,36 @@ function abrirEntradaDe(productoId) {
 function abrirTraspasoDe(productoId) {
   productoTraspaso.value = productoId
   showTraspaso.value = true
+}
+function venderPorVoz() {
+  voiceRunning.value = true
+  voicePrefill.value = null
+  try {
+    voice.startListening({ language: 'es-ES' }).then(async () => {
+      const text = voice.transcript.value
+      if (!text) throw new Error('Sin transcript')
+      const parsed = parseVoiceCommand(text)
+      const base = filas.value.map((f) => ({ id: f.productoId, name: f.nombre, canonicalSpeak: f.nombre }))
+      const opts = fuzzyMatchProducts(parsed.lines[0].productoHint, base)
+      const best = opts && opts[0]
+      const row = (best && filas.value.find((f) => f.productoId === best.product.id)) || filas.value[0]
+      if (!row) throw new Error('Sin fil as de inventario')
+      const mappedModo = { regalo: "regalo", casa: "casa", familiar: "familiar", directa: "venta" }[parsed.lines[0].tipoVenta] || "venta"
+      voicePrefill.value = {
+        modo: mappedModo,
+        cantidad: parsed.lines[0].cantidad,
+        tipoVenta: parsed.lines[0].tipoVenta,
+        precioVentaUsado:
+          parsed.lines[0].precioUnitario == null ? null : Number(parsed.lines[0].precioVentaUsado ?? parsed.lines[0].precioUnitario),
+        clienteHint: parsed.lines[0].clienteHint || null
+      }
+      abrirVenta(row, mappedModo)
+    }).catch((e) => {
+      toast.add({ title: "Voz", description: e?.message || "Error", color: "error" })
+    }).finally(() => (voiceRunning.value = false))
+  } catch (e) {
+    toast.add({ title: "Voz", description: e?.message || "Error", color: "error" })
+    voiceRunning.value = false
+  }
 }
 </script>
