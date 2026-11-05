@@ -316,11 +316,11 @@ export function desgloseDeLote({
   const cuentasDirectas = (cuentas ?? []).filter(c => !c.cuadreOrigenId)
   const movsFiado = movsDelLote.filter(
     m =>
-      !m.anulado &&
-      m.tipo === 'venta' &&
-      !m.cuadreId &&
-      !m.ventaDirectaId &&
-      (m.cuentaFiadoItemId || String(m.motivo ?? '').startsWith('deuda_directa'))
+      !m.anulado
+      && m.tipo === 'venta'
+      && !m.cuadreId
+      && !m.ventaDirectaId
+      && (m.cuentaFiadoItemId || String(m.motivo ?? '').startsWith('deuda_directa'))
   )
 
   function resolverCuentaFiado(m) {
@@ -446,25 +446,25 @@ export function desgloseDeLote({
   }
 
   const ingresoVentas = redondear2(
-    resumen.quiosco.ingreso +
-    resumen.directa.ingreso +
-    resumen.casa.ingreso +
-    resumen.familiar.ingreso
+    resumen.quiosco.ingreso
+    + resumen.directa.ingreso
+    + resumen.casa.ingreso
+    + resumen.familiar.ingreso
   )
   const costoVentas = redondear2(
-    resumen.quiosco.costo +
-    resumen.directa.costo +
-    resumen.casa.costo +
-    resumen.familiar.costo
+    resumen.quiosco.costo
+    + resumen.directa.costo
+    + resumen.casa.costo
+    + resumen.familiar.costo
   )
   const gananciaVentas = redondear2(ingresoVentas - costoVentas)
   // El resultado incluye TODO lo que salió del lote: ventas, fiado (aunque no
   // esté cobrado), regalos y mermas. El flujo de caja se muestra aparte.
   const resultado = redondear2(
-    gananciaVentas +
-    resumen.fiado.ganancia +
-    resumen.regalo.ganancia +
-    resumen.merma.ganancia
+    gananciaVentas
+    + resumen.fiado.ganancia
+    + resumen.regalo.ganancia
+    + resumen.merma.ganancia
   )
 
   return {
@@ -493,10 +493,10 @@ export function desgloseDeLote({
       unidadesEntrada: cantidadEntrada,
       unidadesEnStock: saldo.almacen + saldo.quiosco,
       unidadesVendidas:
-        resumen.quiosco.unidades +
-        resumen.directa.unidades +
-        resumen.casa.unidades +
-        resumen.familiar.unidades,
+        resumen.quiosco.unidades
+        + resumen.directa.unidades
+        + resumen.casa.unidades
+        + resumen.familiar.unidades,
       ingresoVentas,
       costoVentas,
       gananciaVentas,

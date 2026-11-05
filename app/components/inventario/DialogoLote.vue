@@ -27,7 +27,13 @@
         <span class="font-medium">{{ loteInfo.nombreProducto ?? '—' }}</span>
         <span class="text-muted">Entrada: {{ loteInfo.fechaEntrada ? fmtDate(loteInfo.fechaEntrada) : '—' }}</span>
         <span v-if="loteInfo.proveedor" class="text-muted">Proveedor: {{ loteInfo.proveedor }}</span>
-        <UBadge v-if="loteInfo.anulado" color="error" variant="soft" size="sm" label="Anulado" />
+        <UBadge
+          v-if="loteInfo.anulado"
+          color="error"
+          variant="soft"
+          size="sm"
+          label="Anulado"
+        />
       </div>
 
       <p
@@ -43,27 +49,43 @@
       <div v-if="tabActiva === 'resumen'" class="space-y-4">
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div class="rounded-md border border-default p-3">
-            <p class="text-xs text-muted">Compra</p>
-            <p class="text-lg font-semibold">{{ resumen.unidadesEntrada }} u.</p>
-            <p class="text-xs text-muted">{{ fmtPrecio(loteInfo.valorCompra) }}</p>
+            <p class="text-xs text-muted">
+              Compra
+            </p>
+            <p class="text-lg font-semibold">
+              {{ resumen.unidadesEntrada }} u.
+            </p>
+            <p class="text-xs text-muted">
+              {{ fmtPrecio(loteInfo.valorCompra) }}
+            </p>
           </div>
           <div class="rounded-md border border-default p-3">
-            <p class="text-xs text-muted">En stock</p>
-            <p class="text-lg font-semibold">{{ resumen.unidadesEnStock }} u.</p>
+            <p class="text-xs text-muted">
+              En stock
+            </p>
+            <p class="text-lg font-semibold">
+              {{ resumen.unidadesEnStock }} u.
+            </p>
             <p class="text-xs text-muted">
               {{ fmtPrecio(valorEnStock) }}
               <span class="block">Alm {{ saldos.almacen }} · Quiosco {{ saldos.quiosco }}</span>
             </p>
           </div>
           <div class="rounded-md border border-default p-3">
-            <p class="text-xs text-muted">Vendido</p>
-            <p class="text-lg font-semibold">{{ resumen.unidadesVendidas }} u.</p>
+            <p class="text-xs text-muted">
+              Vendido
+            </p>
+            <p class="text-lg font-semibold">
+              {{ resumen.unidadesVendidas }} u.
+            </p>
             <p class="text-xs text-muted">
               {{ fmtPrecio(resumen.ingresoVentas) }} cobrados · costo {{ fmtPrecio(resumen.costoVentas) }}
             </p>
           </div>
           <div class="rounded-md border border-default p-3">
-            <p class="text-xs text-muted">Resultado del lote</p>
+            <p class="text-xs text-muted">
+              Resultado del lote
+            </p>
             <p class="text-lg font-semibold" :class="colorGanancia(resumen.resultado)">
               {{ fmtPrecio(resumen.resultado) }}
             </p>
@@ -78,15 +100,25 @@
           class="grid grid-cols-2 gap-2 sm:grid-cols-3"
         >
           <div class="rounded-md bg-elevated/50 p-3">
-            <p class="text-xs text-muted">Ingreso cobrado</p>
-            <p class="text-base font-semibold">{{ fmtPrecio(resumen.ingresoCobrado) }}</p>
+            <p class="text-xs text-muted">
+              Ingreso cobrado
+            </p>
+            <p class="text-base font-semibold">
+              {{ fmtPrecio(resumen.ingresoCobrado) }}
+            </p>
           </div>
           <div v-if="resumen.porCobrar > 0" class="rounded-md bg-elevated/50 p-3">
-            <p class="text-xs text-muted">Fiado por cobrar</p>
-            <p class="text-base font-semibold text-warning">{{ fmtPrecio(resumen.porCobrar) }}</p>
+            <p class="text-xs text-muted">
+              Fiado por cobrar
+            </p>
+            <p class="text-base font-semibold text-warning">
+              {{ fmtPrecio(resumen.porCobrar) }}
+            </p>
           </div>
           <div class="rounded-md bg-elevated/50 p-3">
-            <p class="text-xs text-muted">Pérdidas</p>
+            <p class="text-xs text-muted">
+              Pérdidas
+            </p>
             <p class="text-base font-semibold text-error">
               {{ fmtPrecio(resumen.perdidaRegalo + resumen.perdidaMerma) }}
             </p>
@@ -97,7 +129,9 @@
         </div>
 
         <div v-if="tiposConDatos.length" class="space-y-2">
-          <p class="text-sm font-medium">Desglose por tipo de salida</p>
+          <p class="text-sm font-medium">
+            Desglose por tipo de salida
+          </p>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <button
               v-for="tipo in tiposConDatos"
@@ -111,7 +145,12 @@
                   <UIcon :name="tipo.icon" class="size-4 text-muted" />
                   {{ tipo.label }}
                 </span>
-                <UBadge color="neutral" variant="soft" size="sm" :label="`${tipo.cantidad} u.`" />
+                <UBadge
+                  color="neutral"
+                  variant="soft"
+                  size="sm"
+                  :label="`${tipo.cantidad} u.`"
+                />
               </div>
               <p class="mt-1 text-xs text-muted">
                 {{ tipo.lineas }} salida{{ tipo.lineas === 1 ? '' : 's' }}
@@ -142,7 +181,12 @@
       <!-- ---------- Pestaña de un tipo de salida ---------- -->
       <template v-else>
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <UBadge color="neutral" variant="soft" size="sm" :label="`${filasActivas.length} salida${filasActivas.length === 1 ? '' : 's'}`" />
+          <UBadge
+            color="neutral"
+            variant="soft"
+            size="sm"
+            :label="`${filasActivas.length} salida${filasActivas.length === 1 ? '' : 's'}`"
+          />
           <TableToolbar
             v-model:visible-headers="visiblesActivas"
             :column-headers="columnHeadersActivas"
