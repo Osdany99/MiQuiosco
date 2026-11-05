@@ -370,6 +370,10 @@ async function onSubmit() {
       <NuxtLink to="/dev/voice-spike" class="underline opacity-70">
         Spike STT nativo
       </NuxtLink>
+      &nbsp;·&nbsp;
+      <NuxtLink to="/dev/voice-command" class="underline opacity-70">
+        MVP parser
+      </NuxtLink>
     </p>
   </div>
 </template>
