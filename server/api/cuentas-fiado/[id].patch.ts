@@ -18,83 +18,92 @@ export default defineEventHandler(async (event) => {
   }
   const { items } = parsed.data
 
-  // 404 si no existe O si es de otro puesto (misma respuesta).
-  const cuenta = await exigirPuesto(auth, 'cuentas_fiado', id, 'Cuenta de fiado')
-  if (cuenta.estado === 'pagada') {
-    throw createError({ statusCode: 400, statusMessage: 'La cuenta ya está pagada y no se puede editar.' })
-  }
+  try {
+    // 404 si no existe O si es de otro puesto (misma respuesta).
+    const cuenta = await exigirPuesto(auth, 'cuentas_fiado', id, 'Cuenta de fiado')
+    if (cuenta.estado === 'pagada') {
+      throw createError({ statusCode: 400, statusMessage: 'La cuenta ya está pagada y no se puede editar.' })
+    }
 
-  // Precios congelados: los productos que siguen en la cuenta conservan su
-  // precio original; productos nuevos toman el precio de venta actual.
-  const itemsActuales = await db
-    .select()
-    .from(cuentasFiadoItems)
-    .where(eq(cuentasFiadoItems.cuentaFiadoId, id))
+    // Asegurar que montoPagado nunca sea NULL para cálculos seguros.
+    const montoPagado = Number(cuenta.montoPagado ?? 0)
 
-  const preciosAnteriores = new Map(itemsActuales.map(i => [i.productoId, i.precioVentaUsado]))
-  const productoIdsNuevos = items.filter(i => !preciosAnteriores.has(i.productoId)).map(i => i.productoId)
-  const preciosActuales = new Map<string, number>()
-  if (productoIdsNuevos.length > 0) {
-    const filas = await db
-      .select({ id: productos.id, precio: productos.precioVentaActual })
-      .from(productos)
-      .where(sql`${productos.id} in (${sql.join(productoIdsNuevos.map(p => sql`${p}`), sql`, `)})`)
-    for (const f of filas) preciosActuales.set(f.id, Number(f.precio))
-  }
+    // Precios congelados: los productos que siguen en la cuenta conservan su
+    // precio original; productos nuevos toman el precio de venta actual.
+    const itemsActuales = await db
+      .select()
+      .from(cuentasFiadoItems)
+      .where(eq(cuentasFiadoItems.cuentaFiadoId, id))
 
-  const itemsFinales = items.map((it) => {
-    const congelado = preciosAnteriores.get(it.productoId)
-    const precio = congelado != null ? congelado : (preciosActuales.get(it.productoId) ?? it.precioVentaUsado)
-    return { ...it, precioVentaUsado: precio, subtotal: it.cantidad * precio }
-  })
+    const preciosAnteriores = new Map(itemsActuales.map(i => [i.productoId, i.precioVentaUsado]))
+    const productoIdsNuevos = items.filter(i => !preciosAnteriores.has(i.productoId)).map(i => i.productoId)
+    const preciosActuales = new Map<string, number>()
+    if (productoIdsNuevos.length > 0) {
+      const filas = await db
+        .select({ id: productos.id, precio: productos.precioVentaActual })
+        .from(productos)
+        .where(sql`${productos.id} in (${sql.join(productoIdsNuevos.map(p => sql`${p}`), sql`, `)})`)
+      for (const f of filas) preciosActuales.set(f.id, Number(f.precio))
+    }
 
-  const nuevoTotal = itemsFinales.reduce((s, it) => s + it.subtotal, 0)
-  if (nuevoTotal < cuenta.montoPagado) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: `El nuevo total (${nuevoTotal}) no puede ser menor a lo ya pagado (${cuenta.montoPagado}).`
+    const itemsFinales = items.map((it) => {
+      const congelado = preciosAnteriores.get(it.productoId)
+      const precio = congelado != null ? congelado : (preciosActuales.get(it.productoId) ?? it.precioVentaUsado)
+      return { ...it, precioVentaUsado: precio, subtotal: it.cantidad * precio }
     })
-  }
 
-  const pendienteAnterior = cuenta.montoTotal - cuenta.montoPagado
-  const pendienteNuevo = nuevoTotal - cuenta.montoPagado
-
-  // Una deuda directa no tiene cuadre de origen y sus líneas no pasan por el
-  // tope: se edita como cualquier otra, sin tocar ningún cuadre.
-  if (cuenta.cuadreOrigenId) {
-    await validarTopeFiado(cuenta.cuadreOrigenId, items, [id])
-  }
-
-  await db.transaction(async (tx) => {
-    await tx.delete(cuentasFiadoItems).where(eq(cuentasFiadoItems.cuentaFiadoId, id))
-    for (const it of itemsFinales) {
-      await tx.insert(cuentasFiadoItems).values({
-        cuentaFiadoId: id,
-        productoId: it.productoId,
-        cantidad: it.cantidad,
-        precioVentaUsado: it.precioVentaUsado,
-        subtotal: it.subtotal
+    const nuevoTotal = itemsFinales.reduce((s, it) => s + it.subtotal, 0)
+    if (nuevoTotal < montoPagado) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `El nuevo total (${nuevoTotal}) no puede ser menor a lo ya pagado (${montoPagado}).`
       })
     }
 
-    await tx
-      .update(cuentasFiado)
-      .set({
-        montoTotal: nuevoTotal,
-        estado: cuenta.montoPagado >= nuevoTotal ? 'pagada' : cuenta.montoPagado > 0 ? 'parcial' : 'pendiente',
-        actualizadoEn: new Date()
-      })
-      .where(eq(cuentasFiado.id, id))
+    const pendienteAnterior = Number(cuenta.montoTotal ?? 0) - montoPagado
+    const pendienteNuevo = nuevoTotal - montoPagado
 
-    // Ajustar el fiado pendiente del cuadre de origen en el delta (piso 0).
-    const delta = pendienteNuevo - pendienteAnterior
-    if (delta !== 0 && cuenta.cuadreOrigenId) {
+    // Una deuda directa no tiene cuadre de origen y sus líneas no pasan por el
+    // tope: se edita como cualquier otra, sin tocar ningún cuadre.
+    if (cuenta.cuadreOrigenId) {
+      await validarTopeFiado(cuenta.cuadreOrigenId, items, [id])
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(cuentasFiadoItems).where(eq(cuentasFiadoItems.cuentaFiadoId, id))
+      for (const it of itemsFinales) {
+        await tx.insert(cuentasFiadoItems).values({
+          cuentaFiadoId: id,
+          productoId: it.productoId,
+          cantidad: it.cantidad,
+          precioVentaUsado: it.precioVentaUsado,
+          subtotal: it.subtotal
+        })
+      }
+
       await tx
-        .update(cuadres)
-        .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} + ${delta}, 0)` })
-        .where(eq(cuadres.id, cuenta.cuadreOrigenId))
-    }
-  })
+        .update(cuentasFiado)
+        .set({
+          montoTotal: nuevoTotal,
+          estado: montoPagado >= nuevoTotal ? 'pagada' : montoPagado > 0 ? 'parcial' : 'pendiente',
+          actualizadoEn: new Date()
+        })
+        .where(eq(cuentasFiado.id, id))
 
-  return { id, montoTotal: nuevoTotal, estado: cuenta.montoPagado >= nuevoTotal ? 'pagada' : cuenta.montoPagado > 0 ? 'parcial' : 'pendiente' }
+      // Ajustar el fiado pendiente del cuadre de origen en el delta (piso 0).
+      const delta = pendienteNuevo - pendienteAnterior
+      if (delta !== 0 && cuenta.cuadreOrigenId) {
+        await tx
+          .update(cuadres)
+          .set({ montoFiado: sql`GREATEST(${cuadres.montoFiado} + ${delta}, 0)` })
+          .where(eq(cuadres.id, cuenta.cuadreOrigenId))
+      }
+    })
+
+    const estadoFinal = montoPagado >= nuevoTotal ? 'pagada' : montoPagado > 0 ? 'parcial' : 'pendiente'
+    return { id, montoTotal: nuevoTotal, estado: estadoFinal }
+  } catch (err: any) {
+    if (err?.statusCode) throw err
+    throw createError({ statusCode: 500, statusMessage: `Error editando cuenta de fiado: ${err?.message ?? err}` })
+  }
 })

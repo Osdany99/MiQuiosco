@@ -103,7 +103,7 @@ export default defineEventHandler(async (event) => {
         clienteId: datos.clienteId,
         cuadreOrigenId: null,
         montoTotal: venta.montoTotal,
-        montoPagado: datos.montoPagadoInicial,
+        montoPagado: datos.montoPagadoInicial ?? 0,
         costoTotal: venta.costoTotal,
         ganancia: venta.ganancia,
         estado: !datos.montoPagadoInicial
