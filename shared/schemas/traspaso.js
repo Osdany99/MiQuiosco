@@ -8,7 +8,8 @@ export const traspasoSchema = z.object({
     .array(
       z.object({
         productoId: z.string().uuid('ID de producto inválido'),
-        cantidad: z.number().int().min(1, 'La cantidad debe ser al menos 1')
+        cantidad: z.number().int().min(1, 'La cantidad debe ser al menos 1'),
+        loteId: z.string().uuid('ID de lote inválido').nullable().optional()
       })
     )
     .min(1, 'Agrega al menos un producto')
@@ -21,5 +22,6 @@ export const ajusteInventarioSchema = z.object({
   ubicacion: z.enum(['quiosco', 'almacen'], { message: 'Ubicación inválida' }),
   cantidad: z.number().int().min(1, 'La cantidad debe ser al menos 1'),
   motivo: z.string().min(1, 'El motivo es obligatorio').max(200),
-  nota: z.string().nullable().optional()
+  nota: z.string().nullable().optional(),
+  loteId: z.string().uuid('ID de lote inválido').nullable().optional()
 })

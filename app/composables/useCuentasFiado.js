@@ -144,7 +144,7 @@ export function useCuentasFiado() {
     return `Tope excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}, incluye fiado).`
   }
 
-  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoPagadoInicial, formaPagoInicial, puestoId }) {
+  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoTotal: montoDirecto, montoPagadoInicial, formaPagoInicial, puestoId }) {
     cargando.value = true
     try {
       const topeMsg = await validarTopeLocal(cuadreId, items)
@@ -156,11 +156,13 @@ export function useCuentasFiado() {
         // Endpoint transaccional del servidor (cuenta + items + pago inicial + cuadre)
         await $api('/api/cuentas-fiado', {
           method: 'POST',
-          body: { clienteId, cuadreOrigenId: cuadreId, items, montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
+          body: { clienteId, cuadreOrigenId: cuadreId, items, montoTotal: Number(montoDirecto ?? 0), montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
           headers: apiHeaders()
         })
       } else {
-        const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+        const montoTotal = (items ?? []).length > 0
+          ? (items ?? []).reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+          : Number(montoDirecto ?? 0)
         // El servidor rechaza esto con 400; en local se guardaba una deuda
         // 'pagada' con un abono mayor que la deuda. Con el formulario de fiado
         // por fila (cantidad + pago inicial juntos) el despiste es de un clic.
@@ -177,7 +179,7 @@ export function useCuentasFiado() {
           montoPagado: montoPagadoInicial || 0,
           estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= montoTotal ? 'pagada' : 'parcial'
         })
-        for (const it of items) {
+        for (const it of (items ?? [])) {
           await r(itemsRepo).create({
             cuentaFiadoId: nueva.id,
             productoId: it.productoId,

@@ -19,7 +19,7 @@
           size="sm"
           variant="soft"
           color="neutral"
-          :icon="ubicacion === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
+          :icon="ubicacionEfectiva === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
           :label="etiquetaUbicacion"
         />
       </div>
@@ -32,6 +32,17 @@
           class="w-full"
         />
       </UFormField>
+
+      <UFormField v-if="lotes.length > 1" label="Lote">
+        <USelectMenu
+          v-model="form.loteId"
+          :items="opcionesLote"
+          value-key="id"
+          label-key="label"
+          class="w-full"
+        />
+      </UFormField>
+
       <UFormField label="Cantidad">
         <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
       </UFormField>
@@ -59,13 +70,15 @@ const toast = useToast()
 
 const nombreProducto = ref('')
 const saldosMap = ref(new Map())
+const lotes = ref([])
 const guardando = ref(false)
 
 const tipos = [{ id: 'merma', nombre: 'Merma' }, { id: 'devolucion', nombre: 'Devolución al almacén' }]
 
-const form = ref({ productoId: null, tipo: 'merma', cantidad: 0, motivo: '' })
+const form = ref({ productoId: null, tipo: 'merma', cantidad: 0, motivo: '', loteId: null })
 
 const esDevolucion = computed(() => form.value.tipo === 'devolucion')
+const ubicacionEfectiva = computed(() => esDevolucion.value ? 'quiosco' : props.ubicacion)
 
 /**
  * La devolución siempre sale del quiosco, así que solo tiene sentido pedirla
@@ -74,11 +87,20 @@ const esDevolucion = computed(() => form.value.tipo === 'devolucion')
 const permiteElegirTipo = computed(() => props.ubicacion === 'quiosco')
 
 const etiquetaUbicacion = computed(() => esDevolucion.value ? 'Quiosco' : (props.ubicacion === 'almacen' ? 'Almacén' : 'Quiosco'))
-const disponible = computed(() => {
-  const s = saldosMap.value.get(form.value.productoId)
-  if (!s) return 0
-  return props.ubicacion === 'almacen' ? s.almacen : s.quiosco
-})
+
+const opcionesLote = computed(() =>
+  lotes.value.map(l => ({
+    id: l.id,
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}`
+  }))
+)
+
+const loteSeleccionado = computed(() =>
+  (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
+)
+
+const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
+
 const valida = computed(() =>
   form.value.productoId
   && Number(form.value.cantidad) >= 1
@@ -86,15 +108,28 @@ const valida = computed(() =>
   && form.value.motivo.trim().length > 0
 )
 
+async function cargarLotes() {
+  const ls = await inv.lotesConStock(form.value.productoId, ubicacionEfectiva.value)
+  lotes.value = ls ?? []
+  form.value.loteId = lotes.value[0]?.id ?? null
+}
+
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { productoId: props.productoId, tipo: 'merma', cantidad: 0, motivo: '' }
+  form.value = { productoId: props.productoId, tipo: 'merma', cantidad: 0, motivo: '', loteId: null }
   const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
   nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
   saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
+  await cargarLotes()
+})
+
+watch(() => form.value.tipo, async () => {
+  if (!isOpen.value) return
+  await cargarLotes()
 })
 
 async function confirmar() {
+  const loteId = form.value.loteId ?? lotes.value[0]?.id ?? null
   guardando.value = true
   try {
     await inv.registrarAjuste({
@@ -103,7 +138,8 @@ async function confirmar() {
       ubicacion: esDevolucion.value ? 'quiosco' : props.ubicacion,
       cantidad: Math.trunc(Number(form.value.cantidad)),
       motivo: form.value.motivo.trim(),
-      nota: null
+      nota: null,
+      loteId
     })
     toast.add({ title: 'Ajuste guardado', color: 'success' })
     isOpen.value = false

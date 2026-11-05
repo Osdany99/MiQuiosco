@@ -175,12 +175,17 @@ export function construirTraspaso({ lineas, lotesPorProducto, meta }) {
     let pendiente = Math.trunc(Number(linea.cantidad) || 0)
     if (pendiente <= 0) continue
     const disponibles = lotesPorProducto.get(linea.productoId) ?? []
-    const total = disponibles.reduce((s, l) => s + l.saldo, 0)
+    // Si la línea indica un lote concreto, solo se consume de ese lote; si no,
+    // se conserva el consumo FIFO por antigüedad.
+    const candidatos = linea.loteId
+      ? disponibles.filter(l => l.id === linea.loteId)
+      : disponibles
+    const total = candidatos.reduce((s, l) => s + l.saldo, 0)
     if (total < pendiente) {
       faltantes.push({ productoId: linea.productoId, pedido: pendiente, disponible: total })
       continue
     }
-    for (const lote of disponibles) {
+    for (const lote of candidatos) {
       if (pendiente <= 0) break
       const toma = Math.min(lote.saldo, pendiente)
       movimientos.push({
@@ -312,7 +317,13 @@ export function construirVentaDirecta({
     const cant = Math.trunc(Number(l.cantidad) || 0)
     const precioPedido = Number(l.precioVentaUsado) || 0
 
-    const disponibles = (lotesPorProducto.get(l.productoId) ?? []).map(x => ({
+    const lotesDelProducto = lotesPorProducto.get(l.productoId) ?? []
+    // Si la línea declara un lote concreto, solo se consume de ese lote;
+    // si no, se mantiene el FIFO por antigüedad.
+    const candidatos = l.loteId
+      ? lotesDelProducto.filter(x => x.id === l.loteId)
+      : lotesDelProducto
+    const disponibles = candidatos.map(x => ({
       id: x.id,
       precioUnitario: x.precioUnitario,
       saldoDisponible: x.saldo
@@ -534,15 +545,19 @@ export function auditarAnulacionesCuadre(movimientos = []) {
  * Para merma en almacén se usa lotesOrdenados del almacén; para merma en
  * quiosco o devolución, los del quiosco.
  */
-export function construirAjuste({ productoId, tipo, ubicacion, cantidad, motivo, nota, lotesOrdenados, meta }) {
+export function construirAjuste({ productoId, tipo, ubicacion, cantidad, motivo, nota, loteId, lotesOrdenados, meta }) {
   const ahora = meta.ahora ?? Date.now()
   let pendiente = Math.trunc(Number(cantidad) || 0)
   const movimientos = []
-  const total = (lotesOrdenados ?? []).reduce((s, l) => s + l.saldo, 0)
+  // Lote elegido a mano: si viene, solo se toma de ese lote; si no, FIFO.
+  const disponibles = loteId
+    ? (lotesOrdenados ?? []).filter(l => l.id === loteId)
+    : (lotesOrdenados ?? [])
+  const total = disponibles.reduce((s, l) => s + l.saldo, 0)
   if (total < pendiente) {
     return { movimientos, faltante: { productoId, pedido: pendiente, disponible: total } }
   }
-  for (const lote of lotesOrdenados) {
+  for (const lote of disponibles) {
     if (pendiente <= 0) break
     const toma = Math.min(lote.saldo, pendiente)
     const esDevolucion = tipo === 'devolucion'

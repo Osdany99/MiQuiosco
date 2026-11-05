@@ -35,6 +35,16 @@
         />
       </div>
 
+      <UFormField v-if="lotes.length > 1" label="Lote">
+        <USelectMenu
+          v-model="form.loteId"
+          :items="opcionesLote"
+          value-key="id"
+          label-key="label"
+          class="w-full"
+        />
+      </UFormField>
+
       <div class="grid gap-2" :class="esRegalo ? 'grid-cols-1' : 'grid-cols-2'">
         <UFormField label="Cantidad">
           <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
@@ -90,9 +100,10 @@ const toast = useToast()
 const auth = useAuth()
 
 const clientes = ref([])
+const lotes = ref([])
 const guardando = ref(false)
 
-const form = ref({ clienteId: null, cantidad: 1, precioVentaUsado: 0 })
+const form = ref({ clienteId: null, cantidad: 1, precioVentaUsado: 0, loteId: null })
 
 /**
  * Cada modo comparte el mismo flujo; solo cambian textos y la política del
@@ -152,7 +163,7 @@ const esRegalo = computed(() => props.modo === 'regalo')
 const precioFijo = computed(() => cfg.value.precio === 'fijo')
 
 const etiquetaUbicacion = computed(() => props.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén')
-const disponible = computed(() => Number(props.producto?.[props.ubicacion] ?? 0))
+const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
 const superaDisponible = computed(() =>
   Number(form.value.cantidad) > disponible.value
 )
@@ -160,6 +171,17 @@ const total = computed(() =>
   esRegalo.value
     ? 0
     : (Number(form.value.cantidad) || 0) * (Number(form.value.precioVentaUsado) || 0)
+)
+
+const opcionesLote = computed(() =>
+  (lotes.value ?? []).map(l => ({
+    id: l.id,
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}`
+  }))
+)
+
+const loteSeleccionado = computed(() =>
+  (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
 )
 
 const valida = computed(() =>
@@ -188,14 +210,23 @@ watch(isOpen, async (open) => {
   form.value = {
     clienteId: null,
     cantidad: 1,
-    precioVentaUsado: precioInicial()
+    precioVentaUsado: precioInicial(),
+    loteId: null
   }
   // El cliente es opcional en todos los modos menos en la deuda, pero se
   // ofrece en todos para poder asociar la salida a una persona.
   try {
-    clientes.value = await fiado.cargarClientes(auth.usuarioActual.value?.puestoId) ?? []
+    const pid = auth.usuarioActual.value?.puestoId
+    const [cls, ls] = await Promise.all([
+      fiado.cargarClientes(pid) ?? [],
+      inv.lotesConStock(props.producto?.productoId, props.ubicacion)
+    ])
+    clientes.value = cls ?? []
+    lotes.value = ls ?? []
+    form.value.loteId = lotes.value[0]?.id ?? null
   } catch {
     clientes.value = []
+    lotes.value = []
   }
 })
 
@@ -204,7 +235,8 @@ async function confirmar() {
     productoId: props.producto.productoId,
     cantidad: Math.trunc(Number(form.value.cantidad) || 0),
     precioVentaUsado: esRegalo.value ? 0 : (Number(form.value.precioVentaUsado) || 0),
-    secuencia: 0
+    secuencia: 0,
+    loteId: form.value.loteId ?? lotes.value[0]?.id ?? null
   }]
   guardando.value = true
   try {

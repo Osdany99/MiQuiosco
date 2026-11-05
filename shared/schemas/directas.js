@@ -5,7 +5,8 @@ const lineaDirecta = z.object({
   productoId: z.string().uuid('ID de producto inválido'),
   cantidad: z.number().int().min(0, 'La cantidad no puede ser negativa'),
   precioVentaUsado: z.number().min(0, 'El precio no puede ser negativo'),
-  secuencia: z.number().int().min(0).optional().default(0)
+  secuencia: z.number().int().min(0).optional().default(0),
+  loteId: z.string().uuid('ID de lote inválido').nullable().optional()
 })
 
 /**

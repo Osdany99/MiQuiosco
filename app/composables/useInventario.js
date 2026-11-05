@@ -256,6 +256,7 @@ export function useInventario() {
         cantidad: parsed.data.cantidad,
         motivo: parsed.data.motivo,
         nota: parsed.data.nota ?? null,
+        loteId: parsed.data.loteId ?? null,
         lotesOrdenados: disponibles,
         meta: { puestoId: pid, usuarioId, ahora }
       })
@@ -591,6 +592,19 @@ export function useInventario() {
       .map(p => ({ ...p, seVende: p.activoQuiosco !== false }))
   }
 
+  /**
+   * Lotes con stock positivo para un producto/ubicacion, ordenados del mas
+   * viejo al mas nuevo. Se usa para poblar los selectores de lote.
+   */
+  async function lotesConStock(productoId, ubicacion = 'almacen') {
+    const pid = puestoIdActual()
+    const [filasLotes, movs] = await Promise.all([
+      filasPuesto(lotesRepo, pid),
+      filasPuesto(movimientosRepo, pid)
+    ])
+    const lotesProducto = (filasLotes ?? []).filter(l => !productoId || l.productoId === productoId)
+    return lotesConSaldo(lotesProducto, movs ?? [], productoId, ubicacion)
+  }
   return {
     cargando,
     saldos,
@@ -614,6 +628,7 @@ export function useInventario() {
     cargarVentasDirectas,
     cargarDesgloseLote,
     corregirLote,
-    sugerenciaParaManana
+    sugerenciaParaManana,
+    lotesConStock
   }
 }

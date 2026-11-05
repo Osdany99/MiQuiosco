@@ -46,6 +46,7 @@ export default defineEventHandler(async (event) => {
     cantidad: datos.cantidad,
     motivo: datos.motivo,
     nota: datos.nota ?? null,
+    loteId: datos.loteId ?? null,
     lotesOrdenados: disponibles,
     meta: { puestoId, usuarioId, ahora: ahoraMs }
   })

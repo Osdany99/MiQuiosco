@@ -5,6 +5,22 @@
         Fiado del día
       </h3>
     </template>
+    <div v-if="!readonly" class="flex gap-2 mb-3">
+      <UButton
+        size="sm"
+        variant="outline"
+        icon="i-lucide-coins"
+        label="Deuda por monto"
+        @click="abrirDeudaMonto"
+      />
+      <UButton
+        size="sm"
+        variant="outline"
+        icon="i-lucide-list"
+        label="Deuda con productos"
+        @click="abrirDeudaProductos"
+      />
+    </div>
     <div class="space-y-3 text-sm">
       <div class="flex justify-between">
         <span>Fiado nuevo generado:</span>
@@ -89,6 +105,31 @@
     </BaseDialog>
 
     <BaseDialog
+      v-model="deudaMontoOpen"
+      title="Deuda por monto"
+      confirm-text="Registrar"
+      :loading="cargando"
+      @confirm="confirmarDeudaMonto"
+      @cancel="cerrarDeudaMonto"
+    >
+      <div class="space-y-4">
+        <UFormField label="Cliente" required>
+          <USelectMenu
+            v-model="montoDeudaForm.clienteId"
+            :items="clientes"
+            value-key="id"
+            label-key="nombre"
+            placeholder="Seleccionar cliente..."
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField label="Monto que debe" required>
+          <BaseInputNumber v-model="montoDeudaForm.montoTotal" :min="0" />
+        </UFormField>
+      </div>
+    </BaseDialog>
+
+    <BaseDialog
       v-model="eliminarOpen"
       title="Eliminar deuda"
       confirm-text="Eliminar"
@@ -125,6 +166,14 @@ const {
 } = useCuentasFiado()
 
 const nuevaDeudaOpen = ref(false)
+const deudaMontoOpen = ref(false)
+const MONTODEUDA_VACIO = () => ({
+  clienteId: null,
+  montoTotal: 0,
+  montoPagadoInicial: 0,
+  formaPagoInicial: 'efectivo'
+})
+const montoDeudaForm = ref(MONTODEUDA_VACIO())
 const eliminarOpen = ref(false)
 const FIADO_VACIO = () => ({
   clienteId: null,
@@ -166,6 +215,7 @@ function nombreProducto(productoId) {
 
 /** "Aceite ×1", o "Aceite ×2, Sal ×1" si la deuda trae varias líneas. */
 function resumenItems(cuenta) {
+  if (!(cuenta.items ?? []).length) return 'Monto directo'
   return (cuenta.items ?? [])
     .map(it => `${nombreProducto(it.productoId)} ×${Number(it.cantidad) || 0}`)
     .join(', ')
@@ -214,6 +264,49 @@ function abrirNuevaDeuda(linea) {
     items: [{ productoId: linea.productoId, cantidad: 0, precioVentaUsado: precio }]
   }
   nuevaDeudaOpen.value = true
+}
+
+function abrirDeudaProductos() {
+  productoFijo.value = null
+  fiadoForm.value = {
+    ...FIADO_VACIO(),
+    items: [{ productoId: '', cantidad: 0, precioVentaUsado: 0 }]
+  }
+  nuevaDeudaOpen.value = true
+}
+
+function abrirDeudaMonto() {
+  montoDeudaForm.value = MONTODEUDA_VACIO()
+  deudaMontoOpen.value = true
+}
+
+function cerrarDeudaMonto() {
+  deudaMontoOpen.value = false
+  montoDeudaForm.value = MONTODEUDA_VACIO()
+}
+
+async function confirmarDeudaMonto() {
+  const f = montoDeudaForm.value
+  if (!f.clienteId) {
+    toast.add({ title: 'Error', description: 'Elige el cliente que debe.', color: 'error' })
+    return
+  }
+  if (Number(f.montoTotal) <= 0) {
+    toast.add({ title: 'Error', description: 'El monto debe ser mayor a cero.', color: 'error' })
+    return
+  }
+  const r = await registrarNuevaDeuda({
+    clienteId: f.clienteId,
+    cuadreId: props.cuadreId,
+    puestoId: props.puestoId,
+    items: [],
+    montoTotal: Number(f.montoTotal),
+    montoPagadoInicial: Number(f.montoPagadoInicial) || 0,
+    formaPagoInicial: f.formaPagoInicial
+  })
+  if (!r?.ok) return
+  cerrarDeudaMonto()
+  emit('actualizado')
 }
 
 function cerrarNuevaDeuda() {

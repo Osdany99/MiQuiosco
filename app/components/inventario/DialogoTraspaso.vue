@@ -22,6 +22,16 @@
         />
       </div>
 
+      <UFormField v-if="lotes.length > 1" label="Lote">
+        <USelectMenu
+          v-model="form.loteId"
+          :items="opcionesLote"
+          value-key="id"
+          label-key="label"
+          class="w-full"
+        />
+      </UFormField>
+
       <UFormField label="Cantidad">
         <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
       </UFormField>
@@ -46,38 +56,52 @@ const inv = useInventario()
 const toast = useToast()
 
 const nombreProducto = ref('')
-const saldosMap = ref(new Map())
+const lotes = ref([])
 const guardando = ref(false)
 
-const form = ref({ cantidad: 0 })
+const form = ref({ cantidad: 0, loteId: null })
 
-const disponible = computed(() => saldosMap.value.get(props.productoId)?.almacen ?? 0)
+const opcionesLote = computed(() =>
+  lotes.value.map(l => ({
+    id: l.id,
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}`
+  }))
+)
+
+const loteSeleccionado = computed(() =>
+  (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
+)
+
+const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
 const superaDisponible = computed(() => Number(form.value.cantidad) > disponible.value)
 
 const valida = computed(() =>
   Boolean(props.productoId)
+  && Boolean(form.value.loteId || lotes.value.length === 1)
   && Number(form.value.cantidad) >= 1
   && !superaDisponible.value
 )
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { cantidad: 0 }
-  const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
+  form.value = { cantidad: 1, loteId: null }
+  const [prods, ls] = await Promise.all([inv.cargarProductos(), inv.lotesConStock(props.productoId, 'almacen')])
   nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
-  saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
+  lotes.value = ls ?? []
+  form.value.loteId = lotes.value[0]?.id ?? null
 })
 
 async function confirmar() {
+  const loteId = form.value.loteId ?? lotes.value[0]?.id ?? null
   guardando.value = true
   try {
     await inv.registrarTraspaso({
-      // El traspaso se fecha solo: hoy es el día en que se repone.
       fecha: hoyLocal(),
       notas: null,
       lineas: [{
         productoId: props.productoId,
-        cantidad: Math.trunc(Number(form.value.cantidad))
+        cantidad: Math.trunc(Number(form.value.cantidad)),
+        loteId
       }]
     })
     toast.add({ title: 'Traspaso listo', description: 'El quiosco quedó repuesto.', color: 'success' })

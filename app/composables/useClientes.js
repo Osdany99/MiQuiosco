@@ -71,6 +71,14 @@ export function useClientes() {
         && !c.fusionadoEn
         && (incluirSinCliente || c.id !== CLIENTE_SIN_CLIENTE_ID_FIJO)
       )
+      // Sin cliente (centinela) siempre de primero cuando esta incluido.
+      clientes.value.sort((a, b) => {
+        const aSin = a.id === CLIENTE_SIN_CLIENTE_ID_FIJO
+        const bSin = b.id === CLIENTE_SIN_CLIENTE_ID_FIJO
+        if (aSin && !bSin) return -1
+        if (!aSin && bSin) return 1
+        return String(a.nombre ?? '').localeCompare(String(b.nombre ?? ''), 'es')
+      })
       return clientes.value
     } finally {
       cargando.value = false

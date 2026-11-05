@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'El pago inicial no puede superar el monto total.' })
   }
 
-  await validarTopeFiado(cuadreOrigenId, items)
+  if ((items ?? []).length > 0) await validarTopeFiado(cuadreOrigenId, items)
 
   const result = await db.transaction(async (tx) => {
     const [cuenta] = await tx
