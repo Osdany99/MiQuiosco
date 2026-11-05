@@ -84,7 +84,7 @@ export function parseVoiceCommand(transcript) {
   work = work
     .replace(/\ben\s+(kiosco|quiosco|almacen|almac[eé]n)\b/giu, '')
     .replace(/\b(normal|regalo|casa|familiar)\b/giu, '')
-    .replace(/\ba\s+precio\s+de\s+\d+|[a-záéíóúñ]+\b/giu, '')
+    .replace(/\ba\s+precio\s+de\s+(?:\d+|[a-záéíóúñ]+)\b/giu, '')
     .replace(/\s+/g, ' ')
     .trim()
 
