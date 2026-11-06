@@ -14,6 +14,7 @@ import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
 import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
+import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../../shared/constants'
 
 const DB_NAME = 'miquiosco'
 
@@ -223,6 +224,21 @@ const COLUMNAS_OBSOLETAS = {
   sms_etecsa: ['procesado']
 }
 
+/**
+ * Rellenos de datos para instalaciones existentes. Se ejecutan DESPUÉS de
+ * `añadirColumnasFaltantes` (la columna tiene que existir ya) y son
+ * idempotentes, así que pueden correr en cada arranque.
+ */
+const BACKFILLS = [
+  // El cliente centinela ("Sin cliente") se reconocía por su ID fijo; ahora
+  // se reconoce por bandera. Sin este relleno, `useClientes` no lo vería como
+  // centinela y crearía un segundo "Sin cliente" al abrir la app.
+  {
+    sql: 'UPDATE clientes SET es_centinela = 1 WHERE id = ?',
+    params: [CLIENTE_SIN_CLIENTE_ID_FIJO]
+  }
+]
+
 async function marcarMigracion(conn, name) {
   await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [name, Date.now()])
 }
@@ -249,11 +265,27 @@ async function aplicarMigracionesLegacy(conn) {
 }
 
 /**
+ * Rellenos de datos idempotentes para instalaciones existentes (ver BACKFILLS).
+ * Se ejecutan después de añadir columnas: si la columna aún no existe, el
+ * catch evita romper el arranque.
+ */
+async function aplicarBackfills(conn) {
+  for (const b of BACKFILLS) {
+    try {
+      await conn.run(b.sql, b.params)
+    } catch {
+      // mejor esfuerzo: la tabla o la columna pueden no existir todavía
+    }
+  }
+}
+
+/**
  * Reconciliación idempotente de una instalación existente contra el schema actual:
  * - Crea tablas que faltan (CREATE TABLE IF NOT EXISTS).
  * - Añade columnas que faltan en tablas existentes (ALTER TABLE ADD COLUMN).
+ * - Rellena datos derivados de columnas nuevas (BACKFILLS).
  * - Crea índices que faltan (CREATE [UNIQUE] INDEX IF NOT EXISTS).
- * Nunca borra ni modifica filas: los datos de la instalación se preservan.
+ * Nunca borra filas: los datos de la instalación se preservan.
  * La lógica pura vive en ./esquema para poder testearla en node.
  */
 async function initializeSchema(conn) {
@@ -275,6 +307,7 @@ async function initializeSchema(conn) {
   await marcarMigracion(conn, NOMBRE_BASELINE)
   await crearTablasFaltantes(conn, BASELINE_SQL)
   await añadirColumnasFaltantes(conn, COLUMN_DEFS)
+  await aplicarBackfills(conn)
   // Antes de crear índices: quitar columnas puede reconstruir la tabla.
   for (const [tabla, obsoletas] of Object.entries(COLUMNAS_OBSOLETAS)) {
     await eliminarColumnasObsoletas(conn, tabla, COLUMN_DEFS, obsoletas)
