@@ -9,7 +9,8 @@ import {
   date,
   pgEnum,
   index,
-  uniqueIndex
+  uniqueIndex,
+  jsonb
 } from 'drizzle-orm/pg-core'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 
@@ -1146,6 +1147,62 @@ export const accesos = pgTable(
 )
 
 /**
+ * Fallos de sincronización reportados por los dispositivos (Fase 3).
+ *
+ * Es el registro CENTRAL que el super admin revisa: por puesto y por
+ * dispositivo, agrupados por `clave_hash` (se incrementa `intentos` en vez de
+ * crear una fila por cada reintento). No tiene FKs a tablas de negocio a
+ * propósito: un fallo puede referirse a una fila que nunca llegó a existir.
+ *
+ * `fila` y `contexto` llegan ya redactados por el cliente (sin PIN/token); el
+ * servidor los vuelve a recortar y redactar antes de guardarlos.
+ */
+export const syncFallos = pgTable(
+  'sync_fallos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    /** sha256 de tipo|fase|tabla|registro|motivo|codigo. Deduplica por puesto. */
+    claveHash: text('clave_hash').notNull(),
+    /** push_rechazo | sync_error | pull_error | login_offline | otro */
+    tipo: text('tipo').notNull(),
+    fase: text('fase'),
+    tabla: text('tabla'),
+    registroId: text('registro_id'),
+    loteId: text('lote_id'),
+    codigoHttp: integer('codigo_http'),
+    /** padre_ausente | validacion | duplicado | servidor | ... */
+    motivo: text('motivo'),
+    mensaje: text('mensaje'),
+    fila: jsonb('fila'),
+    contexto: jsonb('contexto'),
+    appVersion: text('app_version'),
+    /** Modelo del aparato, tal cual lo reporta el propio equipo. */
+    dispositivo: text('dispositivo'),
+    intentos: integer('intentos').notNull().default(1),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ultimoEn: timestamp('ultimo_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** null = abierto. El panel lo marca al corregirlo. */
+    resueltoEn: timestamp('resuelto_en', { withTimezone: true }),
+    resueltoPor: uuid('resuelto_por'),
+    nota: text('nota')
+  },
+  table => ({
+    puestoClaveUk: uniqueIndex('sync_fallos_puesto_clave_uk').on(table.puestoId, table.claveHash),
+    puestoEstadoIdx: index('sync_fallos_puesto_estado_idx').on(table.puestoId, table.resueltoEn),
+    dispositivoIdx: index('sync_fallos_dispositivo_idx').on(table.dispositivoId, table.ultimoEn),
+    ultimoEnIdx: index('sync_fallos_ultimo_en_idx').on(table.ultimoEn)
+  })
+)
+
+/**
  * Tipos inferidos de las tablas para uso en el código de la app.
  */
 export type Puesto = typeof puestos.$inferSelect
@@ -1199,6 +1256,8 @@ export type NuevoDispositivo = typeof dispositivos.$inferInsert
 export type Acceso = typeof accesos.$inferSelect
 export type NuevoAcceso = typeof accesos.$inferInsert
 export type TipoAcceso = (typeof tipoAccesoEnum.enumValues)[number]
+export type FalloSync = typeof syncFallos.$inferSelect
+export type NuevoFalloSync = typeof syncFallos.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'

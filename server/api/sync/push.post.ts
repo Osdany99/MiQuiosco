@@ -3,9 +3,11 @@ import { eq, inArray, getTableName, getTableColumns, and, isNull, ne, sql } from
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
-import { exigirDispositivoActivo } from '../../utils/dispositivo'
+import { exigirDispositivoActivo, HEADER_VERSION_CODE } from '../../utils/dispositivo'
+import { registrarFallos } from '../../utils/syncFallos'
 import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { pushSyncSchema } from '#shared/schemas/pushSync'
+import { clasificarRechazo } from '#shared/syncFallos'
 import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
@@ -17,6 +19,44 @@ const TABLAS_SYNC_SET = new Set(SYNC_TABLES.map(t => t.tabla))
  * vez y agote el tiempo de ejecución (que era justo el fallo original).
  */
 const MAX_FILAS_POR_PUSH = 1000
+
+/**
+ * Nombre fijo del savepoint por fila. No se anida (cada fila lo abre y lo
+ * cierra), así que reutilizar el nombre es seguro y evita construir SQL
+ * dinámico.
+ */
+const SAVEPOINT_FILA = 'sync_fila'
+
+interface Rechazo {
+  tabla: string
+  id: string
+  codigo: string
+  motivo: string
+  detalle: string
+  transitorio: boolean
+  /** Fila original; solo se usa para el registro central, no se devuelve. */
+  fila?: any
+}
+
+/**
+ * Ejecuta `fn` dentro de un savepoint. Si falla, revierte SOLO esa fila y
+ * devuelve el error para clasificarlo; la transacción grande sigue viva.
+ *
+ * Los errores 401/403 (puesto ajeno) los relanza el llamador: son de seguridad
+ * y deben abortar todo el push (fail-closed).
+ */
+async function enSavepoint(tx: any, fn: () => Promise<void>): Promise<unknown | null> {
+  await tx.execute(sql.raw(`SAVEPOINT ${SAVEPOINT_FILA}`))
+  try {
+    await fn()
+    await tx.execute(sql.raw(`RELEASE SAVEPOINT ${SAVEPOINT_FILA}`))
+    return null
+  } catch (err) {
+    await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${SAVEPOINT_FILA}`))
+    await tx.execute(sql.raw(`RELEASE SAVEPOINT ${SAVEPOINT_FILA}`))
+    return err
+  }
+}
 
 /**
  * Regla del dominio aplicada en la frontera: un producto tiene UNA sola fila de
@@ -85,6 +125,7 @@ export default defineEventHandler(async (event) => {
   const aceptados: string[] = []
   const deletesAceptados: { tabla: string, id: string }[] = []
   const conflictos: Record<string, any[]> = {}
+  const rechazos: Rechazo[] = []
 
   const totalFilas = SYNC_TABLES.reduce((s, c) => s + (data[c.tabla]?.length ?? 0), 0)
   if (totalFilas > MAX_FILAS_POR_PUSH) {
@@ -94,14 +135,17 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Padres ya comprobados en esta transacción (tabla:fk → fila o null). Sin
-  // esta caché cada fila hija hacía su propio SELECT: en un push de miles de
-  // líneas eso era la mayor parte del tiempo de la función.
+  // Padres ya comprobados en esta transacción (tabla:fk → fila). Sin esta caché
+  // cada fila hija hacía su propio SELECT: en un push de miles de líneas eso
+  // era la mayor parte del tiempo de la función. Solo se cachean los padres
+  // ENCONTRADOS: cachear un null envenenaría las filas siguientes si el padre
+  // se inserta más adelante en el mismo push.
   const cachePadres = new Map<string, any>()
 
-  // Todo el push se aplica en una única transacción: o se completa entero,
-  // o no deja estado parcial en el servidor. Las validaciones de puesto van
-  // DENTRO de la tx y antes de cada escritura: un 403 aborta todo el push.
+  // Todo el push se aplica en una única transacción: los lotes aceptados se
+  // confirman juntos y las filas rechazadas se revierten con un savepoint, sin
+  // tumbar el resto del lote. Las validaciones de puesto van DENTRO de la tx y
+  // siguen siendo fail-closed (403 aborta todo).
   await db.transaction(async (tx) => {
     for (const syncConfig of SYNC_TABLES) {
       const table = schemaByTabla[syncConfig.tabla] as Table | undefined
@@ -122,76 +166,34 @@ export default defineEventHandler(async (event) => {
       for (const row of rows) {
         if (typeof row.id !== 'string' || !row.id) continue
 
-        const clientTs = row.actualizadoEn
-          ? new Date(row.actualizadoEn).getTime()
-          : row.creadoEn
-            ? new Date(row.creadoEn).getTime()
-            : 0
+        const error = await enSavepoint(tx, () => aplicarFila({
+          tx,
+          syncConfig,
+          table,
+          tableName,
+          columns,
+          row,
+          existingById,
+          puestoId,
+          cachePadres,
+          aceptados,
+          conflictos
+        }))
 
-        const existing = existingById.get(row.id)
+        if (!error) continue
 
-        if (!existing) {
-          // INSERT: la fila debe pertenecer al puesto del JWT.
-          if (tableName === 'usuarios' && (row.pinHash == null || row.pinHash === '')) {
-            // Fail-fast con 422 en vez del 500 opaco por NOT NULL: el cliente
-            // debe mandar pinHash (bcrypt) al crear usuarios desde el
-            // dispositivo. Sin esto, un solo usuario nuevo aborta todo el push.
-            throw createError({
-              statusCode: 422,
-              statusMessage: 'Falta pinHash en la fila de usuarios.'
-            })
-          }
-          if (syncConfig.puestoScoped) {
-            if (row.puestoId && row.puestoId !== puestoId) {
-              throw createError({
-                statusCode: 403,
-                statusMessage: `La fila ${row.id} de ${tableName} pertenece a otro puesto.`
-              })
-            }
-            // Espejo de crudCreate: si no trae puesto, es del que sincroniza.
-            if (!row.puestoId) row.puestoId = puestoId
-          } else {
-            // Hija sin puestoId propio: el padre debe existir y ser propio.
-            // Se lee en la tx para ver tambien padres del mismo push.
-            await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, undefined, cachePadres)
-          }
-          // Coercionado aquí y no en el insert: el guard necesita los valores ya
-          // convertidos (el vigenteDesde llega como ISO y la columna es timestamp).
-          const valores = coerceRow(row, syncConfig, columns)
-          await cerrarVigentesPrevias(tx, table, tableName, columns, row, valores)
-          await tx.insert(table).values(valores)
-          aceptados.push(row.id)
-          continue
-        }
+        const clasificado = clasificarRechazo(error)
+        if (clasificado.fatal) throw error
 
-        // UPDATE o conflicto: la fila existente debe ser del puesto. Esto
-        // tambien cierra el oraculo de la rama de conflicto (antes, pushear un
-        // id adivinado devolvia la fila completa del servidor).
-        if (syncConfig.puestoScoped) {
-          if ((existing as any).puestoId !== puestoId) {
-            throw createError({
-              statusCode: 403,
-              statusMessage: `La fila ${row.id} de ${tableName} pertenece a otro puesto.`
-            })
-          }
-        } else {
-          await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, existing, cachePadres)
-        }
-
-        if (syncConfig.insertOnly) {
-          // Tablas inmutables: la versión del servidor es autoritativa.
-          // Se reporta como conflicto para que el cliente absorba la versión del servidor.
-          registrarConflicto(conflictos, tableName, existing, row, syncConfig)
-          continue
-        }
-
-        const serverTs = (existing as any)?.actualizadoEn ? new Date((existing as any).actualizadoEn).getTime() : 0
-        if (clientTs > serverTs) {
-          await tx.update(table).set(coerceRow(row, syncConfig, columns)).where(eq(columns.id!, row.id))
-          aceptados.push(row.id)
-        } else {
-          registrarConflicto(conflictos, tableName, existing, row, syncConfig)
-        }
+        rechazos.push({
+          tabla: tableName,
+          id: row.id,
+          codigo: String(clasificado.codigo),
+          motivo: clasificado.motivo,
+          detalle: clasificado.mensaje,
+          transitorio: clasificado.transitorio,
+          fila: row
+        })
       }
     }
 
@@ -203,44 +205,198 @@ export default defineEventHandler(async (event) => {
       const columns = getTableColumns(table) as Record<string, Column>
       if (!columns.id) continue
 
-      const [existing] = await tx.select().from(table).where(eq(columns.id!, del.id)).limit(1)
-      if (!existing) {
-        // Idempotente: borrar lo que no existe se acepta sin tombstone (no hay
-        // nada que propagar a otros dispositivos).
-        deletesAceptados.push({ tabla: del.tabla, id: del.id })
-        continue
-      }
-
-      // Borrar filas ajenas: 403 fail-closed.
       const syncConfig = SYNC_TABLES.find(t => t.tabla === del.tabla)
-      if (syncConfig?.puestoScoped) {
-        if ((existing as any).puestoId !== puestoId) {
-          throw createError({
-            statusCode: 403,
-            statusMessage: `La fila ${del.id} de ${del.tabla} pertenece a otro puesto.`
-          })
-        }
-      } else if (syncConfig) {
-        await exigirPadrePropio(tx, syncConfig.tabla, existing, puestoId, existing, cachePadres)
-      }
 
-      await tx.delete(table).where(eq(columns.id!, del.id))
-      await tx.insert(deletedRecords).values({
-        puestoId,
-        tabla: del.tabla,
-        registroId: del.id
+      const error = await enSavepoint(tx, async () => {
+        const [existing] = await tx.select().from(table).where(eq(columns.id!, del.id)).limit(1)
+        if (!existing) {
+          // Idempotente: borrar lo que no existe se acepta sin tombstone (no hay
+          // nada que propagar a otros dispositivos).
+          deletesAceptados.push({ tabla: del.tabla, id: del.id })
+          return
+        }
+
+        // Borrar filas ajenas: 403 fail-closed.
+        if (syncConfig?.puestoScoped) {
+          if ((existing as any).puestoId !== puestoId) {
+            throw createError({
+              statusCode: 403,
+              statusMessage: `La fila ${del.id} de ${del.tabla} pertenece a otro puesto.`
+            })
+          }
+        } else if (syncConfig) {
+          await exigirPadrePropio(tx, syncConfig.tabla, existing, puestoId, existing, cachePadres)
+        }
+
+        await tx.delete(table).where(eq(columns.id!, del.id))
+        await tx.insert(deletedRecords).values({
+          puestoId,
+          tabla: del.tabla,
+          registroId: del.id
+        })
+        deletesAceptados.push({ tabla: del.tabla, id: del.id })
       })
-      deletesAceptados.push({ tabla: del.tabla, id: del.id })
+
+      if (!error) continue
+
+      const clasificado = clasificarRechazo(error)
+      if (clasificado.fatal) throw error
+
+      rechazos.push({
+        tabla: del.tabla,
+        id: del.id,
+        codigo: String(clasificado.codigo),
+        motivo: clasificado.motivo,
+        detalle: clasificado.mensaje,
+        transitorio: clasificado.transitorio
+      })
     }
   })
 
-  return { aceptados, conflictos, deletesAceptados }
+  // Registro central de fallos (best-effort): si falla, el push ya está hecho y
+  // el cliente igualmente guarda su copia local en el buzón.
+  if (rechazos.length) {
+    await registrarFallos(
+      puestoId,
+      auth.dispositivoId,
+      rechazos.map(r => ({
+        tipo: 'push_rechazo',
+        fase: 'push',
+        tabla: r.tabla,
+        registroId: r.id,
+        codigoHttp: Number(r.codigo) || null,
+        motivo: r.motivo,
+        mensaje: r.detalle,
+        fila: r.fila ?? null,
+        contexto: { transitorio: r.transitorio }
+      })),
+      { appVersion: getHeader(event, HEADER_VERSION_CODE) }
+    ).catch((err) => {
+      console.error('[sync_fallos] no se pudieron registrar los rechazos:', err)
+    })
+  }
+
+  // `fila` no se devuelve: puede llevar datos del negocio (y el panel ya la
+  // recibe por el buzón si hace falta).
+  return {
+    aceptados,
+    conflictos,
+    rechazos: rechazos.map(r => ({
+      tabla: r.tabla,
+      id: r.id,
+      codigo: r.codigo,
+      motivo: r.motivo,
+      detalle: r.detalle,
+      transitorio: r.transitorio
+    })),
+    deletesAceptados
+  }
 })
+
+/**
+ * Aplica una sola fila. Se ejecuta dentro de un savepoint: cualquier error se
+ * revierte sin afectar a las demás filas del lote.
+ */
+async function aplicarFila({
+  tx,
+  syncConfig,
+  table,
+  tableName,
+  columns,
+  row,
+  existingById,
+  puestoId,
+  cachePadres,
+  aceptados,
+  conflictos
+}: {
+  tx: any
+  syncConfig: { tabla: string, syncNumeric: string[], insertOnly: boolean, puestoScoped: boolean }
+  table: Table
+  tableName: string
+  columns: Record<string, Column>
+  row: any
+  existingById: Map<any, any>
+  puestoId: string
+  cachePadres: Map<string, any>
+  aceptados: string[]
+  conflictos: Record<string, any[]>
+}): Promise<void> {
+  const clientTs = row.actualizadoEn
+    ? new Date(row.actualizadoEn).getTime()
+    : row.creadoEn
+      ? new Date(row.creadoEn).getTime()
+      : 0
+
+  const existing = existingById.get(row.id)
+
+  if (!existing) {
+    // INSERT: la fila debe pertenecer al puesto del JWT.
+    if (tableName === 'usuarios' && (row.pinHash == null || row.pinHash === '')) {
+      // Fail-fast 422: el cliente debe mandar pinHash (bcrypt) al crear
+      // usuarios desde el dispositivo. Ahora se rechaza solo esa fila.
+      throw createError({
+        statusCode: 422,
+        statusMessage: 'Falta pinHash en la fila de usuarios.'
+      })
+    }
+    if (syncConfig.puestoScoped) {
+      if (row.puestoId && row.puestoId !== puestoId) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: `La fila ${row.id} de ${tableName} pertenece a otro puesto.`
+        })
+      }
+      // Espejo de crudCreate: si no trae puesto, es del que sincroniza.
+      if (!row.puestoId) row.puestoId = puestoId
+    } else {
+      // Hija sin puestoId propio: el padre debe existir y ser propio.
+      // Se lee en la tx para ver tambien padres del mismo push.
+      await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, undefined, cachePadres)
+    }
+    // Coercionado aquí y no en el insert: el guard necesita los valores ya
+    // convertidos (el vigenteDesde llega como ISO y la columna es timestamp).
+    const valores = coerceRow(row, syncConfig, columns)
+    await cerrarVigentesPrevias(tx, table, tableName, columns, row, valores)
+    await tx.insert(table).values(valores)
+    aceptados.push(row.id)
+    return
+  }
+
+  // UPDATE o conflicto: la fila existente debe ser del puesto. Esto tambien
+  // cierra el oraculo de la rama de conflicto (antes, pushear un id adivinado
+  // devolvia la fila completa del servidor).
+  if (syncConfig.puestoScoped) {
+    if ((existing as any).puestoId !== puestoId) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: `La fila ${row.id} de ${tableName} pertenece a otro puesto.`
+      })
+    }
+  } else {
+    await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, existing, cachePadres)
+  }
+
+  if (syncConfig.insertOnly) {
+    // Tablas inmutables: la versión del servidor es autoritativa.
+    // Se reporta como conflicto para que el cliente absorba la versión del servidor.
+    registrarConflicto(conflictos, tableName, existing, row, syncConfig)
+    return
+  }
+
+  const serverTs = (existing as any)?.actualizadoEn ? new Date((existing as any).actualizadoEn).getTime() : 0
+  if (clientTs > serverTs) {
+    await tx.update(table).set(coerceRow(row, syncConfig, columns)).where(eq(columns.id!, row.id))
+    aceptados.push(row.id)
+  } else {
+    registrarConflicto(conflictos, tableName, existing, row, syncConfig)
+  }
+}
 
 /**
  * Verifica que el padre de una fila hija exista y sea del puesto que
  * sincroniza. Lee en la tx para ver padres del mismo push. 404 si el padre no
- * existe (antes era un 500 opaco por violacion de FK), 403 si es ajeno.
+ * existe (rechazo transitorio: puede llegar en otro lote), 403 si es ajeno.
  */
 async function exigirPadrePropio(
   tx: any,
@@ -274,7 +430,7 @@ async function exigirPadrePropio(
       .where(eq(parentCols.id!, fk))
       .limit(1)
     parent = encontrado ?? null
-    cachePadres?.set(clave, parent)
+    if (parent) cachePadres?.set(clave, parent)
   }
   if (!parent) {
     throw createError({ statusCode: 404, statusMessage: 'Registro padre no encontrado.' })

@@ -927,6 +927,50 @@ export const syncLog = sqliteTable(
 )
 
 /**
+ * Buzón local de fallos de sincronización (Fase 3).
+ *
+ * Cada fallo se guarda aquí hasta que puede subirse a `POST /api/sync/fallos`
+ * (`subido_en` lo marca). Se deduplica por `clave`: un mismo rechazo repetido
+ * incrementa `intentos` en vez de llenar el teléfono. NO entra en SYNC_TABLES.
+ */
+export const syncFallos = sqliteTable(
+  'sync_fallos',
+  {
+    id: text('id').primaryKey(),
+    /** Clave estable: tipo|fase|tabla|registro|motivo|codigo. */
+    clave: text('clave').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    ultimoEn: integer('ultimo_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    tipo: text('tipo').notNull(),
+    fase: text('fase'),
+    tabla: text('tabla'),
+    registroId: text('registro_id'),
+    loteId: text('lote_id'),
+    codigoHttp: integer('codigo_http'),
+    motivo: text('motivo'),
+    mensaje: text('mensaje'),
+    /** JSON ya redactado. */
+    fila: text('fila'),
+    /** JSON ya redactado y recortado. */
+    contexto: text('contexto'),
+    appVersion: text('app_version'),
+    dispositivo: text('dispositivo'),
+    intentos: integer('intentos').notNull().default(1),
+    /** null = pendiente de subir. */
+    subidoEn: integer('subido_en', { mode: 'timestamp_ms' })
+  },
+  table => ({
+    claveUk: uniqueIndex('sync_fallos_clave_uk').on(table.clave),
+    subidoIdx: index('sync_fallos_subido_idx').on(table.subidoEn),
+    creadoEnIdx: index('sync_fallos_creado_en_idx').on(table.creadoEn)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect

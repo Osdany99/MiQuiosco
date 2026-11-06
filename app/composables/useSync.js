@@ -7,6 +7,7 @@ import { removePendingDeletesAccepted, enrichForSync } from '../server-offline/a
 import { useDb } from '../server-offline/db/client'
 import { mergeFields } from '../utils/syncMerge.js'
 import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
+import { registrarFallosLocales, subirFallosPendientes } from '../utils/syncFallos'
 import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 
@@ -199,6 +200,23 @@ export function useSync() {
           // uno por fila.
           await marcarAceptados(lote.tabla, res.aceptados)
           await absorberConflictos(res.conflictos, signal)
+
+          // Rechazos por fila: se quedan pendientes en el dispositivo y se
+          // guardan en el buzón para que el panel sepa qué fila y por qué.
+          if (res.rechazos?.length) {
+            await registrarFallosLocales(res.rechazos.map(rechazo => ({
+              tipo: 'push_rechazo',
+              fase: 'push',
+              tabla: rechazo.tabla ?? lote.tabla,
+              registroId: rechazo.id,
+              codigoHttp: rechazo.codigo,
+              motivo: rechazo.motivo,
+              mensaje: rechazo.detalle,
+              fila: lote.filas.find(f => f.id === rechazo.id),
+              contexto: { transitorio: !!rechazo.transitorio }
+            })))
+          }
+
           enviados += lote.filas.length
         }
       } catch (err) {
@@ -360,6 +378,15 @@ export function useSync() {
             fase: faseSync.value
           }
         })
+        // Además de la traza local, el fallo va al buzón que sube al servidor.
+        await registrarFallosLocales([{
+          tipo: 'sync_error',
+          fase: 'sync',
+          codigoHttp: err?.status ?? err?.statusCode ?? null,
+          motivo: err?.timeout ? 'red' : (err?.status || err?.statusCode ? 'http' : 'red'),
+          mensaje: mensajeDeError(err),
+          contexto: { timeout: !!err?.timeout, fase: faseSync.value }
+        }])
         toast.add({
           title: 'Error en sincronización',
           description:
@@ -373,6 +400,9 @@ export function useSync() {
       } finally {
         sincronizando.value = false
         await actualizarPendientesCount().catch(() => {})
+        // Sube el buzón de fallos (lotes de 100). Best-effort: si no hay red se
+        // queda pendiente para la próxima sync.
+        await subirFallosPendientes(fetch).catch(() => {})
         await reportarEstadoSync(exito).catch(() => {})
       }
     }))
@@ -423,6 +453,14 @@ export function useSync() {
           mensaje: mensajeDeError(err),
           datos: { desde: ultimaSync.value, timeout: !!err?.timeout }
         })
+        await registrarFallosLocales([{
+          tipo: 'pull_error',
+          fase: 'pull',
+          codigoHttp: err?.status ?? err?.statusCode ?? null,
+          motivo: 'red',
+          mensaje: mensajeDeError(err),
+          contexto: { desde: ultimaSync.value, timeout: !!err?.timeout }
+        }])
         if (!silent) {
           toast.add({
             title: 'Error en sincronización',

@@ -169,6 +169,13 @@
       "when": 1793999808002,
       "tag": "0023_plain_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794000805545,
+      "tag": "0024_jazzy_logan",
+      "breakpoints": true
     }
   ]
 }

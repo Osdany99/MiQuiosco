@@ -11,5 +11,6 @@ export const API_ROUTES = {
   syncProductosActivos: '/api/sync/productos-activos',
   syncPush: '/api/sync/push',
   syncPull: '/api/sync/pull',
-  syncEstado: '/api/sync/estado'
+  syncEstado: '/api/sync/estado',
+  syncFallos: '/api/sync/fallos'
 }
