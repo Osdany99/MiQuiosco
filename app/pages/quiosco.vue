@@ -181,7 +181,14 @@
     </template>
 
     <div class="flex justify-end mb-3">
-      <UButton icon="i-lucide-mic" color="primary" variant="soft" size="sm" :loading="voiceRunning" @click="venderPorVoz">
+      <UButton
+        icon="i-lucide-mic"
+        color="primary"
+        variant="soft"
+        size="sm"
+        :loading="voiceRunning"
+        @click="venderPorVoz"
+      >
         Vender por voz
       </UButton>
     </div>
@@ -228,6 +235,9 @@
 </template>
 
 <script setup>
+import { parseVoiceCommand } from '~/utils/voice/parseVoiceCommand'
+import { fuzzyMatchProducts } from '~/utils/voice/fuzzyMatchProducts'
+
 definePageMeta({
   middleware: ['jefe']
 })
@@ -241,8 +251,6 @@ const {
 } = useVistaInventario('quiosco')
 
 const toast = useToast()
-import { parseVoiceCommand } from '~/utils/voice/parseVoiceCommand'
-import { fuzzyMatchProducts } from '~/utils/voice/fuzzyMatchProducts'
 const voice = useVoiceCommand()
 
 const showTraspaso = ref(false)
@@ -316,17 +324,17 @@ async function venderPorVoz() {
     const line = validation.data.lines?.[0]
     if (!line) throw new Error('Sin linea de venta reconocida')
 
-    const base = filas.value.map((f) => ({
+    const base = filas.value.map(f => ({
       id: f.productoId,
       name: f.nombre,
       canonicalSpeak: f.nombre
     }))
     const candidates = fuzzyMatchProducts(line.productoHint, base)
-      .map((candidate) => ({
+      .map(candidate => ({
         ...candidate,
-        row: filas.value.find((f) => f.productoId === candidate.product.id)
+        row: filas.value.find(f => f.productoId === candidate.product.id)
       }))
-      .filter((candidate) => candidate.row)
+      .filter(candidate => candidate.row)
 
     if (!candidates.length) throw new Error('No encontre productos que coincidan')
 

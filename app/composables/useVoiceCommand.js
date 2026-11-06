@@ -9,17 +9,17 @@ export function useVoiceCommand() {
   const estado = ref('idle') // idle, listening, parsing, ready, error
   const transcript = ref('')
   const error = ref(null)
-  
+
   // Interfaz pública
   const isListening = computed(() => estado.value === 'listening')
-  
+
   async function startListening(options = { language: 'es-ES' }) {
     if (estado.value === 'listening') return
-    
+
     estado.value = 'listening'
     transcript.value = ''
     error.value = null
-    
+
     try {
       auth.registrarActividad()
       if (!Capacitor.isNativePlatform()) {
@@ -39,7 +39,7 @@ export function useVoiceCommand() {
       estado.value = 'error'
     }
   }
-  
+
   async function stopListening() {
     auth.registrarActividad()
     if (Capacitor.isNativePlatform()) {
@@ -53,7 +53,7 @@ export function useVoiceCommand() {
     transcript.value = ''
     error.value = null
   }
-  
+
   return {
     estado,
     transcript,

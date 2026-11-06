@@ -27,7 +27,7 @@ export function fuzzyMatchProducts(productHint, catalog) {
   if (!target) return []
   const scored = (catalog || []).map((p) => {
     const variants = [p.name || '', p.canonicalSpeak || ''].filter(Boolean)
-    const best = variants.length ? Math.min(...variants.map((v) => levenshtein(target, normal(v)))) : 999
+    const best = variants.length ? Math.min(...variants.map(v => levenshtein(target, normal(v)))) : 999
     const score = Math.max(0, 1 - best / Math.max(target.length, 1))
     return { product: p, distance: best, score }
   })

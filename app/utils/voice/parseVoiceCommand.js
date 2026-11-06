@@ -70,9 +70,9 @@ export function parseVoiceCommand(transcript) {
 
   // Cliente hint (don/deña + nombre o últimas 1-2 palabras)
   let customer = null
-  const customerMatch =
-    work.match(/ (?:a|para)\s+(?:don|doña|señor|señora)\s+([a-záéíóúñ]+)\s*$/u) ||
-    work.match(/ (?:a|para)\s+([a-záéíóúñ]+)\s*$/u)
+  const customerMatch
+    = work.match(/ (?:a|para)\s+(?:don|doña|señor|señora)\s+([a-záéíóúñ]+)\s*$/u)
+      || work.match(/ (?:a|para)\s+([a-záéíóúñ]+)\s*$/u)
   if (customerMatch) {
     customer = normalize(customerMatch[0].replace(/\ba\b|\bpara\b/g, ''))
     // Limpiamos tokens específicos
