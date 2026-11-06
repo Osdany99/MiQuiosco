@@ -3,6 +3,7 @@ import { and, eq, gt, inArray, getTableName, getTableColumns } from 'drizzle-orm
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
+import { exigirDispositivoActivo } from '../../utils/dispositivo'
 import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { deletedRecords } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
@@ -10,6 +11,7 @@ import type { Table, Column } from 'drizzle-orm'
 export default defineEventHandler(async (event) => {
   const auth = await requireAuth(event, 'sync')
   const puestoId = auth.usuario.puestoId
+  await exigirDispositivoActivo(event, puestoId)
 
   const query = getQuery(event)
   const desdeRaw = query.desde

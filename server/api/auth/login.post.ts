@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { puestos, usuarios } from '../../database/schema'
 import { verifyPin, signToken } from '../../utils/auth'
+import { leerDispositivoId, registrarAccesoDispositivo } from '../../utils/dispositivo'
 import { loginSchema } from '#shared/schemas/login'
 import type { LoginResponse, Rol } from '#shared/types'
 
@@ -88,12 +89,28 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     .where(eq(puestos.id, usuario.puestoId))
     .limit(1)
 
+  // Identidad del APK (header x-dispositivo-id). El primer login online es el
+  // aprovisionamiento: crea la fila de `dispositivos` y deja la traza de
+  // acceso. Un fallo aquí NO bloquea el login: `/api/sync/estado` reintenta la
+  // provisión en la siguiente sync.
+  const dispositivoId = leerDispositivoId(event)
+  try {
+    await registrarAccesoDispositivo(event, {
+      puestoId: usuario.puestoId,
+      usuarioId: usuario.id,
+      tipo: 'login'
+    })
+  } catch (err) {
+    console.error('[login] no se pudo registrar el acceso del dispositivo:', err)
+  }
+
   // A partir de aqui el rol es 'jefe': es el unico que recibe JWT con scope
   // 'sync' (acceso a /api/sync/* y demas API).
   const { token, expiraEn } = signToken({
     sub: usuario.id,
     rol: usuario.rol as Rol,
-    scope: ['sync']
+    scope: ['sync'],
+    ...(dispositivoId ? { dispositivoId } : {})
   })
 
   return {

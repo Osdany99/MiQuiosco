@@ -6,6 +6,8 @@ import { push as pushOffline, pull as pullOffline } from '../server-offline/api/
 import { removePendingDeletesAccepted, enrichForSync } from '../server-offline/api/_factory'
 import { useDb } from '../server-offline/db/client'
 import { mergeFields } from '../utils/syncMerge.js'
+import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
+import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
@@ -169,31 +171,61 @@ export function useSync() {
     for (const lote of lotes) {
       if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-      if (lote.deletes) {
-        const res = await fetch(API_ROUTES.syncPush, {
-          method: 'POST',
-          body: { deletes: lote.deletes },
-          signal,
-          timeoutMs: TIMEOUT_PUSH_MS
-        })
-        if (res.deletesAceptados?.length) {
-          await removePendingDeletesAccepted(res.deletesAceptados)
+      const tablaLote = lote.deletes ? 'deletes' : lote.tabla
+      const filasLote = lote.deletes ? lote.deletes.length : lote.filas.length
+      const inicioLote = Date.now()
+
+      try {
+        if (lote.deletes) {
+          const res = await fetch(API_ROUTES.syncPush, {
+            method: 'POST',
+            body: { deletes: lote.deletes },
+            signal,
+            timeoutMs: TIMEOUT_PUSH_MS
+          })
+          if (res.deletesAceptados?.length) {
+            await removePendingDeletesAccepted(res.deletesAceptados)
+          }
+          enviados += lote.deletes.length
+        } else {
+          const res = await fetch(API_ROUTES.syncPush, {
+            method: 'POST',
+            body: { [lote.tabla]: lote.filas },
+            signal,
+            timeoutMs: TIMEOUT_PUSH_MS
+          })
+          // Cierre inmediato del lote: si el siguiente falla, lo ya aceptado no
+          // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
+          // uno por fila.
+          await marcarAceptados(lote.tabla, res.aceptados)
+          await absorberConflictos(res.conflictos, signal)
+          enviados += lote.filas.length
         }
-        enviados += lote.deletes.length
-      } else {
-        const res = await fetch(API_ROUTES.syncPush, {
-          method: 'POST',
-          body: { [lote.tabla]: lote.filas },
-          signal,
-          timeoutMs: TIMEOUT_PUSH_MS
-        })
-        // Cierre inmediato del lote: si el siguiente falla, lo ya aceptado no
-        // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
-        // uno por fila.
-        await marcarAceptados(lote.tabla, res.aceptados)
-        await absorberConflictos(res.conflictos, signal)
-        enviados += lote.filas.length
+      } catch (err) {
+        // El lote que falla es el dato más útil del log: sin esto solo se sabe
+        // "falló la sync", no dónde. La cancelación del usuario no es un error.
+        if (!fueCancelada(signal)) {
+          await registrarSyncLog({
+            nivel: 'error',
+            evento: 'push_lote_error',
+            tabla: tablaLote,
+            filas: filasLote,
+            duracionMs: Date.now() - inicioLote,
+            http: err?.status ?? err?.statusCode ?? null,
+            mensaje: mensajeDeError(err),
+            datos: { timeout: !!err?.timeout }
+          })
+        }
+        throw err
       }
+
+      await registrarSyncLog({
+        evento: 'push_lote',
+        tabla: tablaLote,
+        filas: filasLote,
+        duracionMs: Date.now() - inicioLote,
+        http: 200
+      })
 
       informarFase('subiendo', enviados, total)
     }
@@ -204,6 +236,7 @@ export function useSync() {
   async function _ejecutarPull(signal) {
     const desde = ultimaSync.value ?? 0
     informarFase('bajando')
+    const inicioPull = Date.now()
     const pullResult = await fetch(API_ROUTES.syncPull + '?desde=' + desde, {
       signal,
       timeoutMs: TIMEOUT_PULL_MS
@@ -211,6 +244,14 @@ export function useSync() {
     if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
     const total = contarPayload(pullResult)
+    await registrarSyncLog({
+      evento: 'pull',
+      filas: total,
+      duracionMs: Date.now() - inicioPull,
+      http: 200,
+      datos: { desde }
+    })
+
     informarFase('aplicando', 0, total)
     await pullOffline(pullResult, {
       signal,
@@ -259,14 +300,21 @@ export function useSync() {
 
     sincronizando.value = true
     return enColaSync(() => conSenalSync(async (signal) => {
+      const inicioMs = Date.now()
+      let exito = false
       try {
         informarFase('preparando')
+        await registrarSyncLog({
+          evento: 'sync_inicio',
+          datos: { desde: ultimaSync.value, pendientes: pendientesCount.value }
+        })
+
         // `pushOffline` lee las filas crudas y con `sincronizado = 0`. Se pasa
         // el auth para filtrar por puesto antes de partir los lotes.
         const pendientes = await pushOffline({}, auth)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-        await _subirPendientes(pendientes, signal)
+        const subida = await _subirPendientes(pendientes, signal)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
         for (let intento = 0; intento < 2; intento++) {
@@ -279,9 +327,21 @@ export function useSync() {
           }
         }
 
+        exito = true
+        await registrarSyncLog({
+          evento: 'sync_fin',
+          duracionMs: Date.now() - inicioMs,
+          filas: subida.enviados,
+          datos: { enviados: subida.enviados, total: subida.total }
+        })
         return true
       } catch (err) {
         if (fueCancelada(signal) || err?.cancelacionUsuario) {
+          await registrarSyncLog({
+            nivel: 'warn',
+            evento: 'sync_cancelada',
+            duracionMs: Date.now() - inicioMs
+          })
           toast.add({
             title: 'Sincronización cancelada',
             description: 'Puedes reintentarlo cuando quieras: no se perdió ningún cambio.',
@@ -289,6 +349,17 @@ export function useSync() {
           })
           return false
         }
+        await registrarSyncLog({
+          nivel: 'error',
+          evento: 'sync_error',
+          duracionMs: Date.now() - inicioMs,
+          http: err?.status ?? err?.statusCode ?? null,
+          mensaje: mensajeDeError(err),
+          datos: {
+            timeout: !!err?.timeout,
+            fase: faseSync.value
+          }
+        })
         toast.add({
           title: 'Error en sincronización',
           description:
@@ -302,6 +373,7 @@ export function useSync() {
       } finally {
         sincronizando.value = false
         await actualizarPendientesCount().catch(() => {})
+        await reportarEstadoSync(exito).catch(() => {})
       }
     }))
   }
@@ -342,6 +414,15 @@ export function useSync() {
           }
           return false
         }
+        // El primer pull (aprovisionamiento) es el que más interesa diagnosticar
+        // si falla: de él depende que el aparato quede usable.
+        await registrarSyncLog({
+          nivel: 'error',
+          evento: 'pull_error',
+          http: err?.status ?? err?.statusCode ?? null,
+          mensaje: mensajeDeError(err),
+          datos: { desde: ultimaSync.value, timeout: !!err?.timeout }
+        })
         if (!silent) {
           toast.add({
             title: 'Error en sincronización',
@@ -425,6 +506,27 @@ export function useSync() {
       }
     }
     pendientesCount.value = total
+  }
+
+  /**
+   * Latido al servidor (`POST /api/sync/estado`): pendientes locales y si la
+   * última sync completa terminó bien. Alimenta el panel de dispositivos.
+   *
+   * Es telemetría: el llamador la envuelve en `.catch()` y nunca bloquea la UI.
+   */
+  async function reportarEstadoSync(syncOk) {
+    if (!auth.jwtSync.value || !hayRed.value) return
+    const info = infoDispositivo()
+    await fetch(API_ROUTES.syncEstado, {
+      method: 'POST',
+      body: {
+        pendientes: pendientesCount.value,
+        syncOk: syncOk === true,
+        modelo: info.modelo,
+        android: info.android
+      },
+      timeoutMs: 15000
+    })
   }
 
   async function descargarCatalogo() {

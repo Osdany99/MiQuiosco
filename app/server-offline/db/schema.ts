@@ -889,6 +889,44 @@ export const cuadresRecarga = sqliteTable(
 )
 
 /**
+ * Trazas locales de sincronización (ring buffer, no se sincroniza).
+ *
+ * Sirve para diagnosticar fallos en el propio teléfono y para adjuntar el
+ * contexto de las últimas líneas cuando se sube un fallo al servidor (fase 3).
+ * NO entra en SYNC_TABLES: es telemetría del aparato, no un dato de negocio.
+ *
+ * Nunca debe contener PIN, token, `pinHash` ni cabeceras Authorization; el
+ * escritor (`app/utils/syncLog.js`) redacta esos campos antes de insertar.
+ */
+export const NIVELES_SYNC_LOG = ['info', 'warn', 'error'] as const
+export type NivelSyncLog = (typeof NIVELES_SYNC_LOG)[number]
+
+export const syncLog = sqliteTable(
+  'sync_log',
+  {
+    id: text('id').primaryKey(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    nivel: text('nivel', { enum: NIVELES_SYNC_LOG }).notNull().default('info'),
+    /** sync_inicio, sync_fin, sync_error, push_lote, pull, ... */
+    evento: text('evento').notNull(),
+    tabla: text('tabla'),
+    loteId: text('lote_id'),
+    filas: integer('filas'),
+    duracionMs: integer('duracion_ms'),
+    http: integer('http'),
+    mensaje: text('mensaje'),
+    /** JSON ya redactado y truncado. */
+    datos: text('datos')
+  },
+  table => ({
+    creadoEnIdx: index('sync_log_creado_en_idx').on(table.creadoEn),
+    nivelIdx: index('sync_log_nivel_idx').on(table.nivel)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect

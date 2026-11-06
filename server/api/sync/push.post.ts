@@ -3,6 +3,7 @@ import { eq, inArray, getTableName, getTableColumns, and, isNull, ne, sql } from
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
+import { exigirDispositivoActivo } from '../../utils/dispositivo'
 import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { pushSyncSchema } from '#shared/schemas/pushSync'
 import { deletedRecords } from '../../database/schema'
@@ -67,6 +68,7 @@ async function cerrarVigentesPrevias(
 export default defineEventHandler(async (event) => {
   const auth = await requireAuth(event, 'sync')
   const puestoId = auth.usuario.puestoId
+  await exigirDispositivoActivo(event, puestoId)
 
   const body = await readBody(event)
   const parsed = pushSyncSchema.safeParse(body)

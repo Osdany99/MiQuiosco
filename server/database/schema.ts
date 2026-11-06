@@ -1058,6 +1058,94 @@ export const cuadresRecarga = pgTable(
 )
 
 /**
+ * Dispositivos (APKs) que sincronizan contra el servidor.
+ *
+ * El `id` lo genera el propio dispositivo en su primer arranque y viaja en el
+ * header `x-dispositivo-id`, así que la fila se crea en el primer login online
+ * (aprovisionamiento) y sobrevive a cierres de sesión. El panel de super admin
+ * la usa para saber qué equipos hay por puesto, con qué usuarios entraron y
+ * cuándo sincronizaron por última vez.
+ */
+export const dispositivos = pgTable(
+  'dispositivos',
+  {
+    id: uuid('id').primaryKey(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    /** Nombre editable desde el panel (ej. "Caja 1"). */
+    nombre: text('nombre'),
+    modelo: text('modelo'),
+    android: text('android'),
+    /** versionCode de la APK, tal cual llega en `x-app-version-code`. */
+    appVersion: text('app_version'),
+    ultimaConexionEn: timestamp('ultima_conexion_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Última sync COMPLETA (push + pull) confirmada por el propio aparato. */
+    ultimaSyncOkEn: timestamp('ultima_sync_ok_en', { withTimezone: true }),
+    /** Pendientes que el aparato reportó en su último contacto. */
+    pendientes: integer('pendientes').notNull().default(0),
+    /** Revocado desde el panel: sus syncs se rechazan con 403. */
+    revocado: boolean('revocado').notNull().default(false),
+    provisionadoEn: timestamp('provisionado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('dispositivos_puesto_idx').on(table.puestoId),
+    ultimaConexionIdx: index('dispositivos_ultima_conexion_idx').on(table.ultimaConexionEn),
+    actualizadoEnIdx: index('dispositivos_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Auditoría de accesos por dispositivo.
+ *
+ * Responde a "con qué usuarios accedió este equipo". Los logins ONLINE los
+ * escribe el servidor aquí; los OFFLINE viajan por el buzón local (fase 3).
+ */
+export const tipoAccesoEnum = pgEnum('tipo_acceso', [
+  'login',
+  'logout',
+  'activacion',
+  'reset_pin'
+])
+
+export const accesos = pgTable(
+  'accesos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    /**
+     * Nullable: un login desde la web no trae dispositivo. No se pone FK a
+     * `usuarios` con cascade para no perder la traza al borrar un usuario.
+     */
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    usuarioId: uuid('usuario_id').references(() => usuarios.id),
+    tipo: tipoAccesoEnum('tipo').notNull(),
+    appVersion: text('app_version'),
+    ip: text('ip'),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('accesos_puesto_idx').on(table.puestoId, table.creadoEn),
+    dispositivoIdx: index('accesos_dispositivo_idx').on(table.dispositivoId, table.creadoEn),
+    usuarioIdx: index('accesos_usuario_idx').on(table.usuarioId, table.creadoEn)
+  })
+)
+
+/**
  * Tipos inferidos de las tablas para uso en el código de la app.
  */
 export type Puesto = typeof puestos.$inferSelect
@@ -1106,6 +1194,11 @@ export type CobroRecarga = typeof cobrosRecarga.$inferSelect
 export type NuevoCobroRecarga = typeof cobrosRecarga.$inferInsert
 export type CuadreRecarga = typeof cuadresRecarga.$inferSelect
 export type NuevoCuadreRecarga = typeof cuadresRecarga.$inferInsert
+export type Dispositivo = typeof dispositivos.$inferSelect
+export type NuevoDispositivo = typeof dispositivos.$inferInsert
+export type Acceso = typeof accesos.$inferSelect
+export type NuevoAcceso = typeof accesos.$inferInsert
+export type TipoAcceso = (typeof tipoAccesoEnum.enumValues)[number]
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'

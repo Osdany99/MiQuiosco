@@ -3,6 +3,7 @@ import type { H3Event } from 'h3'
 import { db } from '../database/client'
 import { puestos, usuarios, webauthnChallenges } from '../database/schema'
 import { signToken, verifyPin } from './auth'
+import { leerDispositivoId, registrarAccesoDispositivo } from './dispositivo'
 import type { Rol } from '#shared/types'
 
 export const WEBAUTHN_CHALLENGE_MINUTOS = 5
@@ -129,6 +130,25 @@ export async function emitirRespuestaLogin(event: H3Event, usuario: UsuarioWebau
     const horasExp = Number(config.public.sessionExpirationTrabajadorHoras) || 24
     return { ...baseResponse, puesto, expiraEn: Date.now() + horasExp * 60 * 60 * 1000 }
   }
-  const { token, expiraEn } = signToken({ sub: usuario.id, rol: usuario.rol as Rol, scope: ['sync'] })
+
+  // Mismo aprovisionamiento que el login con PIN: el primer acceso de la APK
+  // crea la fila de `dispositivos` y deja la traza de acceso.
+  const dispositivoId = leerDispositivoId(event)
+  try {
+    await registrarAccesoDispositivo(event, {
+      puestoId: usuario.puestoId,
+      usuarioId: usuario.id,
+      tipo: 'login'
+    })
+  } catch (err) {
+    console.error('[webauthn] no se pudo registrar el acceso del dispositivo:', err)
+  }
+
+  const { token, expiraEn } = signToken({
+    sub: usuario.id,
+    rol: usuario.rol as Rol,
+    scope: ['sync'],
+    ...(dispositivoId ? { dispositivoId } : {})
+  })
   return { token, expiraEn: expiraEn * 1000, puesto, ...baseResponse }
 }

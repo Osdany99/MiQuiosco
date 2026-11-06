@@ -162,6 +162,13 @@
       "when": 1793998239520,
       "tag": "0022_sharp_dracula",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793999808002,
+      "tag": "0023_plain_valeria_richards",
+      "breakpoints": true
     }
   ]
 }

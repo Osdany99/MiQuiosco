@@ -4,6 +4,7 @@ import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { db } from '../database/client'
 import { usuarios } from '../database/schema'
+import { leerDispositivoId } from './dispositivo'
 import type { Rol } from '#shared/types'
 
 /**
@@ -18,6 +19,8 @@ export interface AuthContext {
     puestoId: string
   }
   scope: ('sync')[]
+  /** Identidad del APK que hace la petición (header x-dispositivo-id). */
+  dispositivoId: string | null
 }
 
 /**
@@ -28,6 +31,8 @@ interface JwtPayload {
   rol: Rol
   scope: ('sync')[]
   expiraEn: number
+  /** Dispositivo que pidió el token. Opcional: tokens previos no lo traen. */
+  dispositivoId?: string
 }
 
 const JWT_EXPIRATION_SYNC_SEC = 60 * 60 * 24
@@ -56,7 +61,6 @@ export function signToken(
   )
   return { token, expiraEn }
 }
-
 export function verifyToken(token: string): JwtPayload | null {
   if (tokenBlacklist.has(token)) return null
 
@@ -101,6 +105,17 @@ export async function requireAuth(
     })
   }
 
+  // Binding dispositivo↔token: si el JWT se emitió para un dispositivo y la
+  // petición trae OTRO, se rechaza. Los tokens antiguos (sin claim) y las
+  // peticiones sin header (web) siguen pasando.
+  const dispositivoId = leerDispositivoId(event)
+  if (payload.dispositivoId && dispositivoId && payload.dispositivoId !== dispositivoId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El token pertenece a otro dispositivo.'
+    })
+  }
+
   verificarVersionMinima(event)
 
   const result = await db
@@ -130,7 +145,8 @@ export async function requireAuth(
       rol: usuario.rol,
       puestoId: usuario.puestoId
     },
-    scope: payload.scope
+    scope: payload.scope,
+    dispositivoId
   }
 }
 

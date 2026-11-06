@@ -516,6 +516,30 @@ export function useDb() {
     return marcados
   }
 
+  /**
+   * Deja solo las `maximo` filas más recientes de una tabla.
+   *
+   * Lo usa `sync_log`, que es un ring buffer de diagnóstico: guardar trazas sin
+   * límite llenaría el teléfono. Se hace en SQL (no leyendo las 500 filas al
+   * puente nativo) salvo en el fallback en memoria.
+   */
+  async function recortarTabla(tabla, maximo) {
+    const limite = Math.max(0, Number(maximo) || 0)
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      const filas = [...conn.all(tabla)].sort((a, b) => (a.creado_en ?? 0) - (b.creado_en ?? 0))
+      const sobran = Math.max(0, filas.length - limite)
+      for (let i = 0; i < sobran; i++) conn.remove(tabla, filas[i].id)
+      return sobran
+    }
+    await runEscritura(
+      conn,
+      `DELETE FROM ${tabla} WHERE id NOT IN (SELECT id FROM ${tabla} ORDER BY creado_en DESC LIMIT ?)`,
+      [limite]
+    )
+    return 0
+  }
+
   async function resetLocalDatabase() {
     const conn = await getConnection()
     const tableNames = [...deriveTableNames(schemaSqlite), '_migrations']
@@ -629,6 +653,7 @@ export function useDb() {
     getById,
     contarPendientes,
     marcarSincronizados,
+    recortarTabla,
     resetLocalDatabase,
     cerrarParaCopia,
     reabrirTrasCopia,
