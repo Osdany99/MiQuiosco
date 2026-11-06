@@ -148,6 +148,7 @@ export async function listarPuestosAdmin() {
       telefono: usuarios.telefono,
       notas: usuarios.notas,
       activo: usuarios.activo,
+      salario: usuarios.salario,
       creadoEn: usuarios.creadoEn,
       actualizadoEn: usuarios.actualizadoEn
     })

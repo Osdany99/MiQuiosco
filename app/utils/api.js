@@ -128,8 +128,12 @@ export async function $api(path, opts = {}) {
     : {}
 
   // Identidad estable del aparato: provisiona `dispositivos`, audita accesos y
-  // permite revocarlo desde el panel. Se manda en TODAS las peticiones.
-  const dispositivoId = await getDispositivoId().catch(() => null)
+  // permite revocarlo desde el panel. Solo el APK la envía: un navegador (dev,
+  // panel /admin o web) no es un equipo del negocio y llenaría el panel de
+  // filas "Equipo sin nombre" que nunca sincronizan.
+  const dispositivoId = Capacitor.isNativePlatform()
+    ? await getDispositivoId().catch(() => null)
+    : null
   const headersBase = {
     ...versionHeaders,
     ...(dispositivoId ? { [HEADER_DISPOSITIVO]: dispositivoId } : {})
