@@ -103,11 +103,18 @@ const auth = useAuth()
 
 const clientes = ref([])
 const lotes = ref([])
+
+function normalizeVoiceText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/\\s+/g, ' ')
+    .trim()
+}
 const guardando = ref(false)
 
 const form = ref({ clienteId: null, cantidad: 1, precioVentaUsado: 0, loteId: null })
-
-const propsConPrefill = computed(() => props.prefill ?? null)
 
 /**
  * Cada modo comparte el mismo flujo; solo cambian textos y la política del
@@ -229,6 +236,15 @@ watch(isOpen, async (open) => {
     clientes.value = cls ?? []
     lotes.value = ls ?? []
     form.value.loteId = lotes.value[0]?.id ?? null
+
+    if (props.prefill?.clienteHint && !props.prefill?.clienteId) {
+      const wanted = normalizeVoiceText(props.prefill.clienteHint)
+      const matched = (clientes.value ?? []).find((c) => {
+        const name = normalizeVoiceText(c?.nombre)
+        return name.includes(wanted) || wanted.includes(name)
+      })
+      if (matched) form.value.clienteId = matched.id
+    }
 
     if (props.prefill) {
       if (props.prefill.clienteId) form.value.clienteId = props.prefill.clienteId

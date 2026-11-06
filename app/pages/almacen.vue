@@ -294,6 +294,29 @@
       :prefill="voicePrefill"
       @guardado="recargar"
     />
+
+    <BaseDialog
+      v-model="showVoiceCandidates"
+      title="Elegir producto"
+      description="El reconocimiento no fue suficientemente claro. Confirma qué producto corresponde."
+      hide-confirm
+      @cancel="cancelarVoz"
+    >
+      <div class="space-y-2">
+        <UButton
+          v-for="candidate in voiceCandidates"
+          :key="candidate.product.id"
+          block
+          variant="ghost"
+          color="neutral"
+          class="justify-start"
+          @click="seleccionarCandidatoVoz(candidate)"
+        >
+          {{ candidate.row?.nombre ?? candidate.product.name }}
+          <span class="ml-auto text-xs text-muted">{{ Math.round(candidate.score * 100) }}%</span>
+        </UButton>
+      </div>
+    </BaseDialog>
   </BaseHeaderPage>
 </template>
 
@@ -320,6 +343,9 @@ import { fuzzyMatchProducts } from '~/utils/voice/fuzzyMatchProducts'
 const voice = useVoiceCommand()
 const voiceRunning = ref(false)
 const voicePrefill = ref(null)
+const voiceCandidates = ref([])
+const showVoiceCandidates = ref(false)
+const pendingVoiceCommand = ref(null)
 
 const tab = ref('stock')
 const tabs = [
@@ -356,35 +382,93 @@ function abrirTraspasoDe(productoId) {
   productoTraspaso.value = productoId
   showTraspaso.value = true
 }
-function venderPorVoz() {
+const VOICE_PRODUCT_THRESHOLD = 0.75
+
+function abrirVentaPrefillPorVoz(fila, line) {
+  const mappedModo = {
+    regalo: 'regalo',
+    casa: 'casa',
+    familiar: 'familiar',
+    directa: 'venta'
+  }[line?.tipoVenta] || 'venta'
+
+  voicePrefill.value = {
+    modo: mappedModo,
+    cantidad: Number(line?.cantidad) || 1,
+    tipoVenta: line?.tipoVenta || 'directa',
+    precioVentaUsado:
+      line?.precioUnitario == null ? null : Number(line.precioUnitario),
+    clienteHint: line?.clienteHint || null
+  }
+  abrirVenta(fila, mappedModo)
+}
+
+async function venderPorVoz() {
   voiceRunning.value = true
   voicePrefill.value = null
+  voiceCandidates.value = []
+  showVoiceCandidates.value = false
+  pendingVoiceCommand.value = null
   try {
-    voice.startListening({ language: 'es-ES' }).then(async () => {
-      const text = voice.transcript.value
-      if (!text) throw new Error('Sin transcript')
-      const parsed = parseVoiceCommand(text)
-      const base = filas.value.map((f) => ({ id: f.productoId, name: f.nombre, canonicalSpeak: f.nombre }))
-      const opts = fuzzyMatchProducts(parsed.lines[0].productoHint, base)
-      const best = opts && opts[0]
-      const row = (best && filas.value.find((f) => f.productoId === best.product.id)) || filas.value[0]
-      if (!row) throw new Error('Sin fil as de inventario')
-      const mappedModo = { regalo: "regalo", casa: "casa", familiar: "familiar", directa: "venta" }[parsed.lines[0].tipoVenta] || "venta"
-      voicePrefill.value = {
-        modo: mappedModo,
-        cantidad: parsed.lines[0].cantidad,
-        tipoVenta: parsed.lines[0].tipoVenta,
-        precioVentaUsado:
-          parsed.lines[0].precioUnitario == null ? null : Number(parsed.lines[0].precioVentaUsado ?? parsed.lines[0].precioUnitario),
-        clienteHint: parsed.lines[0].clienteHint || null
-      }
-      abrirVenta(row, mappedModo)
-    }).catch((e) => {
-      toast.add({ title: "Voz", description: e?.message || "Error", color: "error" })
-    }).finally(() => (voiceRunning.value = false))
+    await voice.startListening({ language: 'es-ES' })
+    const text = voice.transcript.value
+    if (!text) throw new Error('Sin transcript')
+
+    const client = await import('#shared/schemas/voiceCommand')
+    const validation = client.voiceCommandSchema.safeParse({
+      ...parseVoiceCommand(text),
+      estado: 'ready'
+    })
+    if (!validation.success) throw new Error('Comando de voz no valido')
+    const line = validation.data.lines?.[0]
+    if (!line) throw new Error('Sin linea de venta reconocida')
+
+    const base = filas.value.map((f) => ({
+      id: f.productoId,
+      name: f.nombre,
+      canonicalSpeak: f.nombre
+    }))
+    const candidates = fuzzyMatchProducts(line.productoHint, base)
+      .map((candidate) => ({
+        ...candidate,
+        row: filas.value.find((f) => f.productoId === candidate.product.id)
+      }))
+      .filter((candidate) => candidate.row)
+
+    if (!candidates.length) throw new Error('No encontre productos que coincidan')
+
+    const best = candidates[0]
+    if (best.score < VOICE_PRODUCT_THRESHOLD) {
+      pendingVoiceCommand.value = line
+      voiceCandidates.value = candidates
+      showVoiceCandidates.value = true
+      return
+    }
+
+    abrirVentaPrefillPorVoz(best.row, line)
   } catch (e) {
-    toast.add({ title: "Voz", description: e?.message || "Error", color: "error" })
+    toast.add({ title: 'Voz', description: e?.message || 'Error', color: 'error' })
+  } finally {
     voiceRunning.value = false
   }
 }
+
+function seleccionarCandidatoVoz(candidate) {
+  showVoiceCandidates.value = false
+  const line = pendingVoiceCommand.value
+  pendingVoiceCommand.value = null
+  if (!candidate?.row || !line) return
+  abrirVentaPrefillPorVoz(candidate.row, line)
+}
+
+function cancelarVoz() {
+  showVoiceCandidates.value = false
+  voiceCandidates.value = []
+  pendingVoiceCommand.value = null
+  voicePrefill.value = null
+}
+
+watch(showVenta, (open) => {
+  if (!open) voicePrefill.value = null
+})
 </script>
