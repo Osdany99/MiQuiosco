@@ -11,7 +11,7 @@
 --   Authorization: Bearer <token del login>
 --   { "pin": "tu-pin-nuevo" }
 --
--- (En la Fase 5 el mismo reset estará en el panel /admin.)
+-- (El panel /admin también lo permite: Puestos → icono de llave del jefe.)
 --
 -- Si quieres otro PIN desde el principio, genera el hash en tu máquina y
 -- sustituye el valor de `pin_hash`:
