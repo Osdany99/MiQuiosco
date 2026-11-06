@@ -256,6 +256,8 @@ const voicePrefill = ref(null)
 const voiceCandidates = ref([])
 const showVoiceCandidates = ref(false)
 const pendingVoiceCommand = ref(null)
+const route = useRoute()
+const voiceAutoDisparada = ref(false)
 
 function vender(fila, modo) {
   menuVentaId.value = null
@@ -362,4 +364,11 @@ function cancelarVoz() {
 watch(showVenta, (open) => {
   if (!open) voicePrefill.value = null
 })
+
+watch([cargando, () => route.query.voice], ([estaCargando, query]) => {
+  if (estaCargando) return
+  if (query !== '1' || voiceAutoDisparada.value || voiceRunning.value) return
+  voiceAutoDisparada.value = true
+  venderPorVoz()
+}, { immediate: true })
 </script>

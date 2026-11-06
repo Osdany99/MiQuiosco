@@ -6,6 +6,7 @@ import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaB
 
 const toast = useToast()
 const conexion = useModoConexion()
+const tts = useTts()
 const update = useAppUpdate()
 const auth = useAuth()
 // --- Permisos de recarga (solo Android) ---
@@ -292,6 +293,11 @@ async function confirmarRestauracion() {
     restaurando.value = false
   }
 }
+
+const ttsActivo = computed({
+  get: () => tts.habilitado.value,
+  set: (value) => { void tts.setHabilitado(value) }
+})
 
 async function comprobarUpdates() {
   comprobandoUpdates.value = true
@@ -793,5 +799,26 @@ async function whOlvidarEste() {
         </div>
       </div>
     </UCard>
+
+    <UCard>
+      <div class="space-y-3">
+        <div>
+          <h2 class="text-sm font-medium">
+            Confirmación por voz (TTS)
+          </h2>
+          <p class="text-sm text-muted">
+            Lee el resultado cuando registras una venta o deuda con el micrófono.
+          </p>
+        </div>
+
+        <USwitch v-model="ttsActivo" :disabled="!tts.disponible.value">
+          Confirmar vendido por voz
+        </USwitch>
+
+        <p v-if="!tts.disponible.value" class="text-xs text-warning">
+          Síntesis de voz no disponible en este dispositivo.
+        </p>
+      </div>
+    </UCard>
   </div>
-</template>
+</template

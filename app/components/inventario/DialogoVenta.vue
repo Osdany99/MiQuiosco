@@ -100,6 +100,7 @@ const inv = useInventario()
 const fiado = useCuentasFiado()
 const toast = useToast()
 const auth = useAuth()
+const tts = useTts()
 
 const clientes = ref([])
 const lotes = ref([])
@@ -287,6 +288,7 @@ async function confirmar() {
       })
       if (!r?.ok) return
       toast.add({ title: cfg.value.ok, color: 'success' })
+      void tts.speak(cfg.value.ok)
     } else {
       await inv.registrarVentaDirecta({
         ubicacion: props.ubicacion,
@@ -295,6 +297,7 @@ async function confirmar() {
         lineas
       })
       toast.add({ title: cfg.value.ok, color: 'success' })
+      void tts.speak(cfg.value.ok)
     }
     isOpen.value = false
     emit('guardado')
