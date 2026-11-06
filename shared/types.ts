@@ -100,6 +100,16 @@ export interface LoginResponse {
     rol: Rol
     puestoId: string
   }
+  /**
+   * Puesto del usuario. El dispositivo lo necesita para crear su fila local y
+   * hacer el pull completo: el login es solo por nombre y no conoce el puesto
+   * de antemano.
+   */
+  puesto?: {
+    id: string
+    nombre: string
+    activo: boolean
+  }
   expiraEn?: number
 }
 

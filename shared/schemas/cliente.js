@@ -10,5 +10,10 @@ export const clienteSchema = z.object({
   nombre: z.string().min(1, 'El nombre es requerido').max(100, 'Máximo 100 caracteres'),
   notas: z.string().max(500, 'Máximo 500 caracteres').nullable().optional(),
   activo: z.boolean().default(true),
+  /**
+   * Cliente centinela del puesto ("Sin cliente"). Solo lo pone la app al
+   * asegurar el centinela; el usuario no lo edita.
+   */
+  esCentinela: z.boolean().optional(),
   puestoId: z.string().optional()
 })

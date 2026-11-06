@@ -103,7 +103,10 @@ export const usuarios = pgTable(
   table => ({
     rolIdx: index('usuarios_rol_idx').on(table.rol),
     activoIdx: index('usuarios_activo_idx').on(table.activo),
-    puestoNombreUk: uniqueIndex('usuarios_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    // Nombre único GLOBAL: con varios puestos el login busca solo por nombre
+    // (el dispositivo no sabe su puesto antes de entrar), así que dos "Ana" en
+    // locales distintos no pueden coexistir.
+    nombreUk: uniqueIndex('usuarios_nombre_uk').on(table.nombre),
     actualizadoEnIdx: index('usuarios_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
@@ -749,6 +752,12 @@ export const deletedRecords = pgTable(
   'deleted_records',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * Puesto al que pertenece el registro borrado. Nullable solo por las filas
+     * antiguas (se rellenan en la migración): sin esto cualquier dispositivo
+     * recibía los borrados de TODOS los puestos.
+     */
+    puestoId: uuid('puesto_id').references(() => puestos.id),
     tabla: text('tabla').notNull(),
     registroId: text('registro_id').notNull(),
     eliminadoEn: timestamp('eliminado_en', { withTimezone: true })
@@ -757,6 +766,7 @@ export const deletedRecords = pgTable(
   },
   table => ({
     tablaIdx: index('deleted_records_tabla_idx').on(table.tabla),
+    puestoEliminadoIdx: index('deleted_records_puesto_idx').on(table.puestoId, table.eliminadoEn),
     eliminadoEnIdx: index('deleted_records_eliminado_en_idx').on(table.eliminadoEn)
   })
 )
@@ -842,6 +852,12 @@ export const clientes = pgTable(
      * principal y aquí queda la trazabilidad de qué pasó.
      */
     fusionadoEn: uuid('fusionado_en').references((): AnyPgColumn => clientes.id),
+    /**
+     * Cliente centinela del puesto ("Sin cliente"), usado en las transferencias
+     * cuyo cliente no se conoce. Antes era un ID fijo global; con varios puestos
+     * cada uno tiene el suyo (el ID fijo chocaba entre puestos).
+     */
+    esCentinela: boolean('es_centinela').notNull().default(false),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -854,6 +870,7 @@ export const clientes = pgTable(
     puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
     activoIdx: index('clientes_activo_idx').on(table.activo),
     fusionadoIdx: index('clientes_fusionado_idx').on(table.fusionadoEn),
+    centinelaIdx: index('clientes_centinela_idx').on(table.puestoId, table.esCentinela),
     actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn)
   })
 )

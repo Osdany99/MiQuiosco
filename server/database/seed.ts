@@ -83,13 +83,18 @@ async function main() {
 
   if (existingCentinela.length > 0) {
     console.log(`✔ Cliente "${CLIENTE_SIN_CLIENTE_NOMBRE}" ya existe (id=${CLIENTE_SIN_CLIENTE_ID_FIJO})`)
+    if (!existingCentinela[0]!.esCentinela) {
+      await db.update(clientes).set({ esCentinela: true }).where(eq(clientes.id, CLIENTE_SIN_CLIENTE_ID_FIJO))
+      console.log('  ✔ marcado como centinela del puesto')
+    }
   } else {
     await db.insert(clientes).values({
       id: CLIENTE_SIN_CLIENTE_ID_FIJO,
       puestoId: PUESTO_PRINCIPAL_ID_FIJO,
       nombre: CLIENTE_SIN_CLIENTE_NOMBRE,
       notas: CLIENTE_SIN_CLIENTE_NOTAS,
-      activo: true
+      activo: true,
+      esCentinela: true
     })
     console.log(`✔ Cliente "${CLIENTE_SIN_CLIENTE_NOMBRE}" creado (id=${CLIENTE_SIN_CLIENTE_ID_FIJO})`)
   }

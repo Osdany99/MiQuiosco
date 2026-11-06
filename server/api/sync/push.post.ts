@@ -224,6 +224,7 @@ export default defineEventHandler(async (event) => {
 
       await tx.delete(table).where(eq(columns.id!, del.id))
       await tx.insert(deletedRecords).values({
+        puestoId,
         tabla: del.tabla,
         registroId: del.id
       })

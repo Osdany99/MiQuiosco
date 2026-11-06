@@ -25,6 +25,23 @@ export default defineEventHandler(async (event) => {
     auth,
     hooks: {
       beforeUpdate: async (cambios, authUser) => {
+        // Nombre único GLOBAL (ver index.post.ts).
+        const nombre = cambios.nombre != null ? String(cambios.nombre).trim() : null
+        if (nombre) {
+          const [duplicado] = await db
+            .select({ id: usuarios.id })
+            .from(usuarios)
+            .where(and(eq(usuarios.nombre, nombre), ne(usuarios.id, id)))
+            .limit(1)
+          if (duplicado) {
+            throw createError({
+              statusCode: 409,
+              statusMessage: `Ya existe un usuario con el nombre «${nombre}».`
+            })
+          }
+          cambios = { ...cambios, nombre }
+        }
+
         // Guard: no permitir que el último jefe se quite el rol o se desactive a sí mismo
         const esAutocambio = authUser?.usuario?.id === id
         const intentaQuitarJefe = cambios.rol != null && cambios.rol !== 'jefe'

@@ -357,6 +357,10 @@ async function onSubmit() {
         >
           Entrar
         </UButton>
+
+        <p class="text-center text-xs text-muted">
+          El primer inicio de sesión en un dispositivo requiere conexión a internet.
+        </p>
       </UForm>
     </UCard>
 

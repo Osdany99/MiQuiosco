@@ -2,7 +2,6 @@ import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
 import { clientesSimilares } from '#shared/clientes'
 import {
-  CLIENTE_SIN_CLIENTE_ID_FIJO,
   CLIENTE_SIN_CLIENTE_NOMBRE,
   CLIENTE_SIN_CLIENTE_NOTAS
 } from '../../shared/constants'
@@ -55,13 +54,13 @@ export function useClientes() {
     try {
       const filas = [...((await clientesRepo.value.readAll()) || [])]
 
-      if (!filas.some(c => c.id === CLIENTE_SIN_CLIENTE_ID_FIJO && c.puestoId === puestoId)) {
+      if (!filas.some(c => c.esCentinela && c.puestoId === puestoId)) {
         filas.push(await clientesRepo.value.create({
-          id: CLIENTE_SIN_CLIENTE_ID_FIJO,
           puestoId,
           nombre: CLIENTE_SIN_CLIENTE_NOMBRE,
           notas: CLIENTE_SIN_CLIENTE_NOTAS,
-          activo: true
+          activo: true,
+          esCentinela: true
         }))
       }
 
@@ -69,12 +68,12 @@ export function useClientes() {
         c.puestoId === puestoId
         && (incluirInactivos || c.activo)
         && !c.fusionadoEn
-        && (incluirSinCliente || c.id !== CLIENTE_SIN_CLIENTE_ID_FIJO)
+        && (incluirSinCliente || !c.esCentinela)
       )
       // Sin cliente (centinela) siempre de primero cuando esta incluido.
       clientes.value.sort((a, b) => {
-        const aSin = a.id === CLIENTE_SIN_CLIENTE_ID_FIJO
-        const bSin = b.id === CLIENTE_SIN_CLIENTE_ID_FIJO
+        const aSin = !!a.esCentinela
+        const bSin = !!b.esCentinela
         if (aSin && !bSin) return -1
         if (!aSin && bSin) return 1
         return String(a.nombre ?? '').localeCompare(String(b.nombre ?? ''), 'es')

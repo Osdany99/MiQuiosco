@@ -17,6 +17,12 @@ import { sembrarJefeLocal } from './seed'
 
 const DB_NAME = 'miquiosco'
 
+// El usuario por defecto (jefe / PIN 1234) solo se siembra en desarrollo.
+// En producción el APK nace vacío y se aprovisiona con el primer login ONLINE:
+// el servidor devuelve el puesto y se hace un pull completo. Con varios puestos
+// un jefe sembrado localmente pertenecería al puesto equivocado.
+const SEMBRAR_DEMO = import.meta.dev
+
 let dbConnection = null
 let dbConnectionPromise = null
 let inMemoryDb = null
@@ -125,7 +131,7 @@ async function abrirConexionNativa() {
   const conn = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
   await conn.open()
   await initializeSchema(conn)
-  await sembrarJefeLocal(conn)
+  if (SEMBRAR_DEMO) await sembrarJefeLocal(conn)
   return conn
 }
 
@@ -155,7 +161,7 @@ async function getConnection() {
       inMemoryDbPromise = (async () => {
         inMemoryDb = new InMemoryDb()
         initializeSchemaMemory(inMemoryDb)
-        await sembrarJefeLocal(inMemoryDb)
+        if (SEMBRAR_DEMO) await sembrarJefeLocal(inMemoryDb)
       })().catch((error) => {
         inMemoryDbPromise = null
         throw error

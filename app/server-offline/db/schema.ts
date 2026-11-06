@@ -79,7 +79,9 @@ export const usuarios = sqliteTable(
   table => ({
     rolIdx: index('usuarios_rol_idx').on(table.rol),
     activoIdx: index('usuarios_activo_idx').on(table.activo),
-    puestoNombreUk: uniqueIndex('usuarios_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    // Nombre único GLOBAL (espejo de Postgres): el login busca solo por nombre,
+    // porque el dispositivo no conoce su puesto antes de entrar.
+    nombreUk: uniqueIndex('usuarios_nombre_uk').on(table.nombre),
     actualizadoEnIdx: index('usuarios_actualizado_en_idx').on(table.actualizadoEn),
     rolCheck: check('usuarios_rol_check', sql`${table.rol} IN ('jefe', 'trabajador', 'cliente')`)
   })
@@ -768,6 +770,14 @@ export const clientes = sqliteTable(
      * no romper el historial que los referencia.
      */
     fusionadoEn: text('fusionado_en'),
+    /**
+     * Cliente centinela del puesto ("Sin cliente"). Antes se reconocía por un
+     * ID fijo global, que chocaba entre puestos. Ahora cada puesto tiene el
+     * suyo y se identifica por esta bandera.
+     */
+    esCentinela: integer('es_centinela', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -782,6 +792,7 @@ export const clientes = sqliteTable(
     puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
     puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
     fusionadoIdx: index('clientes_fusionado_idx').on(table.fusionadoEn),
+    centinelaIdx: index('clientes_centinela_idx').on(table.puestoId, table.esCentinela),
     actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn),
     sincIdx: index('clientes_sincronizado_idx').on(table.sincronizado)
   })

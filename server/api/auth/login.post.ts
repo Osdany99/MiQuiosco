@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
-import { usuarios } from '../../database/schema'
+import { puestos, usuarios } from '../../database/schema'
 import { verifyPin, signToken } from '../../utils/auth'
 import { loginSchema } from '#shared/schemas/login'
 import type { LoginResponse, Rol } from '#shared/types'
@@ -79,6 +79,15 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     }
   }
 
+  // El dispositivo no conoce su puesto antes de entrar (el login es solo por
+  // nombre), así que el puesto viaja en la respuesta para que el APK pueda
+  // crear la fila local y hacer el pull completo del puesto correcto.
+  const [puesto] = await db
+    .select({ id: puestos.id, nombre: puestos.nombre, activo: puestos.activo })
+    .from(puestos)
+    .where(eq(puestos.id, usuario.puestoId))
+    .limit(1)
+
   // A partir de aqui el rol es 'jefe': es el unico que recibe JWT con scope
   // 'sync' (acceso a /api/sync/* y demas API).
   const { token, expiraEn } = signToken({
@@ -90,6 +99,7 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
   return {
     token,
     expiraEn: expiraEn * 1000,
+    puesto,
     ...baseResponse
   }
 })

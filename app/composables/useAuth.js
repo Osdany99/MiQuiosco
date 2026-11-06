@@ -4,6 +4,7 @@ import { Preferences } from '@capacitor/preferences'
 import { $api, esErrorDeRed } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
 import { login as loginOfflineApi } from '../server-offline/api/auth/login'
+import { useDb } from '../server-offline/db/client'
 
 /**
  * Dos contextos de autenticación, completamente aislados:
@@ -157,17 +158,60 @@ export function useAuth() {
     }
   }
 
+  /**
+   * Crea o actualiza la fila local de `puestos` con los datos del login.
+   *
+   * El dispositivo ya no lleva un puesto sembrado: lo descubre al entrar. Sin
+   * esta fila, el modo offline no puede filtrar por puesto. En una instalación
+   * nueva es también la señal de que hay que hacer el pull completo.
+   */
+  async function guardarPuestoLocal(puesto, puestoId) {
+    const id = puesto?.id ?? puestoId
+    if (!id) throw new Error('El servidor no devolvió el puesto del usuario.')
+
+    const db = useDb()
+    const existente = await db.getById('puestos', id)
+    if (existente) {
+      await db.update('puestos', id, {
+        nombre: puesto?.nombre ?? existente.nombre,
+        activo: puesto?.activo !== false
+      })
+      return
+    }
+
+    await db.insert('puestos', {
+      id,
+      nombre: puesto?.nombre ?? 'Puesto',
+      activo: puesto?.activo !== false,
+      creadoEn: Date.now()
+    })
+  }
+
   async function procesarRespuestaLogin(response) {
     if (!response.usuario) {
       throw new Error('Respuesta del servidor sin datos de usuario.')
     }
-    usuarioActual.value = response.usuario
 
     // Sin token no hay sesion: el servidor solo emite JWT para el jefe y el
     // login offline tambien rechaza al trabajador (decision de producto).
     if (!response.token) {
       throw new Error('Respuesta del servidor sin token.')
     }
+
+    // Primer uso en este dispositivo = el usuario todavía no existe en la base
+    // local. Solo entonces se exige red y se espera el pull completo.
+    let primerUso = false
+    if (import.meta.client) {
+      try {
+        const local = await useDb().getUsuarioPorNombreLocal(response.usuario.nombre)
+        primerUso = !local
+      } catch {
+        // Si no se puede consultar, se comporta como login normal.
+        primerUso = false
+      }
+    }
+
+    usuarioActual.value = response.usuario
 
     const ahora = Date.now()
 
@@ -188,15 +232,35 @@ export function useAuth() {
     })
     sesionLocal.value = sesion
 
-    // Hidratar caché local con datos del servidor (pinHash incluido)
-    // No bloqueante — si falla (sin red, etc.), el login igual es exitoso.
-    // Llamamos directamente: procesarRespuestaLogin se invoca desde login() que está en setup context.
+    if (import.meta.client) {
+      try {
+        await guardarPuestoLocal(response.puesto, response.usuario.puestoId)
+      } catch {
+        if (primerUso) {
+          await invalidarSesionLocal()
+          throw new Error('No se pudo preparar la base local del puesto. Revisa tu conexión e inténtalo de nuevo.')
+        }
+      }
+    }
+
+    // Hidratar caché local con datos del servidor (pinHash incluido).
+    // Primer uso: se ESPERA el pull completo antes de dejar entrar, porque el
+    // APK arranca sin datos y el modo local no tendría nada que mostrar. Los
+    // logins siguientes lo lanzan en segundo plano.
     if (import.meta.client) {
       try {
         const { pullServidor } = useSync()
-        pullServidor({ silent: true }).catch(() => {})
-      } catch {
-        // noop
+        if (primerUso) {
+          const ok = await pullServidor({ silent: true })
+          if (!ok) {
+            await invalidarSesionLocal()
+            throw new Error('No se pudieron descargar los datos del puesto. Revisa tu conexión e inténtalo de nuevo.')
+          }
+        } else {
+          pullServidor({ silent: true }).catch(() => {})
+        }
+      } catch (err) {
+        if (primerUso) throw err
       }
     }
   }
@@ -212,6 +276,9 @@ export function useAuth() {
       }
       if (resultado.motivo === 'cliente_no_puede_loguearse' || resultado.motivo === 'solo_jefe') {
         throw new Error('Solo el jefe puede iniciar sesión.')
+      }
+      if (resultado.motivo === 'usuario_no_existe') {
+        throw new Error('Este dispositivo aún no está activado. Conéctate a internet e inicia sesión por primera vez.')
       }
       throw new Error('Credenciales inválidas.')
     }

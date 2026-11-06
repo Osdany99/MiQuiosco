@@ -1,8 +1,14 @@
 /**
  * server-offline/db/seed.js — Siembra inicial del jefe por defecto.
  *
- * Llamado automáticamente la primera vez que se abre la DB local,
- * tanto en Android nativo como en el fallback en memoria del navegador.
+ * SOLO DESARROLLO. `client.js` lo ejecuta únicamente cuando `import.meta.dev`
+ * es true. En producción el APK nace sin usuarios y se aprovisiona con el
+ * primer login online (el puesto y los usuarios llegan del servidor). Sembrar
+ * un jefe local en un dispositivo real crearía un usuario del puesto equivocado
+ * y un PIN conocido.
+ *
+ * Llamado la primera vez que se abre la DB local en dev, tanto en Android como
+ * en el fallback en memoria del navegador.
  *
  * Importante: el jefe sembrado se marca sincronizado=1 para NO empujarlo
  * al servidor en el primer sync (el servidor se siembra aparte con

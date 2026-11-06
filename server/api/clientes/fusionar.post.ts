@@ -10,7 +10,6 @@ import {
   transferencias
 } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '#shared/constants'
 import { fusionClienteSchema } from '#shared/schemas/fusionCliente'
 import { planificarFusion } from '#shared/clientes'
 
@@ -56,7 +55,7 @@ export default defineEventHandler(async (event) => {
         statusMessage: 'Alguno de los clientes ya no existe o ya fue fusionado.'
       })
     }
-    if (elegidos.some(c => c.id === CLIENTE_SIN_CLIENTE_ID_FIJO)) {
+    if (elegidos.some(c => c.esCentinela)) {
       throw createError({
         statusCode: 400,
         statusMessage: 'El cliente "Sin cliente" no se puede fusionar.'

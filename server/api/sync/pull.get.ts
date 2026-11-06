@@ -73,7 +73,9 @@ export default defineEventHandler(async (event) => {
   const deletes = await db
     .select({ tabla: deletedRecords.tabla, id: deletedRecords.registroId, eliminadoEn: deletedRecords.eliminadoEn })
     .from(deletedRecords)
-    .where(gt(deletedRecords.eliminadoEn, desde))
+    // Aislamiento por puesto: antes un dispositivo recibía los borrados de
+    // TODOS los puestos (las filas antiguas sin puesto no se envían).
+    .where(and(gt(deletedRecords.eliminadoEn, desde), eq(deletedRecords.puestoId, puestoId)))
 
   for (const del of deletes) {
     if (del.eliminadoEn) {

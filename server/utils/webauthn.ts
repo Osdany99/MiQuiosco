@@ -1,7 +1,7 @@
 import { and, eq, lt } from 'drizzle-orm'
 import type { H3Event } from 'h3'
 import { db } from '../database/client'
-import { usuarios, webauthnChallenges } from '../database/schema'
+import { puestos, usuarios, webauthnChallenges } from '../database/schema'
 import { signToken, verifyPin } from './auth'
 import type { Rol } from '#shared/types'
 
@@ -117,11 +117,18 @@ export async function emitirRespuestaLogin(event: H3Event, usuario: UsuarioWebau
       puestoId: usuario.puestoId
     }
   }
+  // Mismo contrato que /api/auth/login: el puesto viaja para que el APK pueda
+  // crear su fila local y hacer el pull completo.
+  const [puesto] = await db
+    .select({ id: puestos.id, nombre: puestos.nombre, activo: puestos.activo })
+    .from(puestos)
+    .where(eq(puestos.id, usuario.puestoId))
+    .limit(1)
   if (usuario.rol === 'trabajador') {
     const config = useRuntimeConfig(event)
     const horasExp = Number(config.public.sessionExpirationTrabajadorHoras) || 24
-    return { ...baseResponse, expiraEn: Date.now() + horasExp * 60 * 60 * 1000 }
+    return { ...baseResponse, puesto, expiraEn: Date.now() + horasExp * 60 * 60 * 1000 }
   }
   const { token, expiraEn } = signToken({ sub: usuario.id, rol: usuario.rol as Rol, scope: ['sync'] })
-  return { token, expiraEn: expiraEn * 1000, ...baseResponse }
+  return { token, expiraEn: expiraEn * 1000, puesto, ...baseResponse }
 }
