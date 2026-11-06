@@ -198,6 +198,12 @@ export function useAuth() {
       throw new Error('Respuesta del servidor sin token.')
     }
 
+    // La cuenta de administración no opera el negocio: su panel es la web.
+    // Evita que un super admin quede dentro del APK con vistas de jefe.
+    if (response.usuario.rol === 'super_admin') {
+      throw new Error('Esta cuenta es de administración. Usa el panel web.')
+    }
+
     // Primer uso en este dispositivo = el usuario todavía no existe en la base
     // local. Solo entonces se exige red y se espera el pull completo.
     let primerUso = false

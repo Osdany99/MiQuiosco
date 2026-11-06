@@ -328,6 +328,15 @@ async function aplicarFila({
       ? new Date(row.creadoEn).getTime()
       : 0
 
+  // El super admin solo nace desde el panel (bootstrap/manual). Un dispositivo
+  // nunca puede crear ni promover una cuenta de plataforma por sync.
+  if (tableName === 'usuarios' && row.rol === 'super_admin') {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El rol super_admin solo se crea desde el panel de administración.'
+    })
+  }
+
   const existing = existingById.get(row.id)
 
   if (!existing) {

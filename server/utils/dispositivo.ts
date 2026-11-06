@@ -182,6 +182,29 @@ export async function exigirDispositivoActivo(
 }
 
 /**
+ * Variante solo para el login: bloquea un equipo revocado sin exigir que ya
+ * pertenezca al puesto. En el primer login la fila aún no existe y en un
+ * traslado el login es justo el momento de reasignarlo.
+ */
+export async function exigirDispositivoNoRevocado(event: H3Event): Promise<void> {
+  const dispositivoId = leerDispositivoId(event)
+  if (!dispositivoId) return
+
+  const [dispositivo] = await db
+    .select({ revocado: dispositivos.revocado })
+    .from(dispositivos)
+    .where(eq(dispositivos.id, dispositivoId))
+    .limit(1)
+
+  if (dispositivo?.revocado) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Este dispositivo fue revocado. Contacta al administrador.'
+    })
+  }
+}
+
+/**
  * Actualiza el estado que el aparato reporta tras sincronizar
  * (`POST /api/sync/estado`): conexión, pendientes y última sync OK.
  *

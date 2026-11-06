@@ -6,7 +6,7 @@
  * estructuras sin importar de dónde vienen.
  */
 
-export type Rol = 'jefe' | 'trabajador' | 'cliente'
+export type Rol = 'jefe' | 'trabajador' | 'cliente' | 'super_admin'
 
 export interface Usuario {
   id: string

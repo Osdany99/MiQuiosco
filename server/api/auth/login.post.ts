@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { puestos, usuarios } from '../../database/schema'
 import { verifyPin, signToken } from '../../utils/auth'
-import { leerDispositivoId, registrarAccesoDispositivo } from '../../utils/dispositivo'
+import { leerDispositivoId, registrarAccesoDispositivo, exigirDispositivoNoRevocado } from '../../utils/dispositivo'
 import { loginSchema } from '#shared/schemas/login'
 import type { LoginResponse, Rol } from '#shared/types'
 
@@ -11,6 +11,7 @@ import type { LoginResponse, Rol } from '#shared/types'
  *
  * Estrategia:
  * - jefe: recibe JWT con scope 'sync' (acceso a /api/sync/* y demás API)
+ * - super_admin: recibe JWT solo para el panel /api/admin/* (no usa el APK)
  * - trabajador: NO recibe token (la app usa la sesión local y el hash del PIN)
  */
 export default defineEventHandler(async (event): Promise<LoginResponse> => {
@@ -35,7 +36,8 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
       rol: usuarios.rol,
       puestoId: usuarios.puestoId,
       pinHash: usuarios.pinHash,
-      activo: usuarios.activo
+      activo: usuarios.activo,
+      tokenVersion: usuarios.tokenVersion
     })
     .from(usuarios)
     .where(eq(usuarios.nombre, nombre_usuario))
@@ -59,10 +61,10 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     })
   }
 
-  // Solo el jefe entra a la app: el trabajador no se loguea (decision de
-  // producto, Fase 3). Sin esto, el trabajador quedaba en modo online sin
+  // Solo el jefe y el super admin entran: el trabajador no se loguea (decisión
+  // de producto, Fase 3). Sin esto, el trabajador quedaba en modo online sin
   // token y cada pantalla daba 401 sin Authorization.
-  if (usuario.rol !== 'jefe') {
+  if (usuario.rol !== 'jefe' && usuario.rol !== 'super_admin') {
     throw createError({
       statusCode: 403,
       statusMessage: usuario.rol === 'cliente'
@@ -89,10 +91,22 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     .where(eq(puestos.id, usuario.puestoId))
     .limit(1)
 
-  // Identidad del APK (header x-dispositivo-id). El primer login online es el
-  // aprovisionamiento: crea la fila de `dispositivos` y deja la traza de
-  // acceso. Un fallo aquí NO bloquea el login: `/api/sync/estado` reintenta la
-  // provisión en la siguiente sync.
+  // Un puesto desactivado no emite tokens nuevos. Las sesiones ya abiertas las
+  // corta requireAuth en la siguiente petición.
+  if (!puesto?.activo) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El puesto está desactivado. Contacta al administrador.'
+    })
+  }
+
+  // Identidad del APK (header x-dispositivo-id). Un equipo revocado no puede
+  // volver a entrar ni sincronizar.
+  await exigirDispositivoNoRevocado(event)
+
+  // El primer login online es el aprovisionamiento: crea la fila de
+  // `dispositivos` y deja la traza de acceso. Un fallo aquí NO bloquea el
+  // login: `/api/sync/estado` reintenta la provisión en la siguiente sync.
   const dispositivoId = leerDispositivoId(event)
   try {
     await registrarAccesoDispositivo(event, {
@@ -104,12 +118,13 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     console.error('[login] no se pudo registrar el acceso del dispositivo:', err)
   }
 
-  // A partir de aqui el rol es 'jefe': es el unico que recibe JWT con scope
-  // 'sync' (acceso a /api/sync/* y demas API).
+  // A partir de aquí el rol es 'jefe' o 'super_admin': los únicos que reciben
+  // JWT con scope 'sync'. El super admin lo usa solo para /api/admin/*.
   const { token, expiraEn } = signToken({
     sub: usuario.id,
     rol: usuario.rol as Rol,
     scope: ['sync'],
+    tokenVersion: usuario.tokenVersion,
     ...(dispositivoId ? { dispositivoId } : {})
   })
 

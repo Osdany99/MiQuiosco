@@ -32,6 +32,7 @@ export interface UsuarioWebauthn {
   puestoId: string
   pinHash: string
   activo: boolean
+  tokenVersion: number
 }
 
 export async function buscarUsuarioPorNombre(nombre: string): Promise<UsuarioWebauthn | null> {
@@ -42,7 +43,8 @@ export async function buscarUsuarioPorNombre(nombre: string): Promise<UsuarioWeb
       rol: usuarios.rol,
       puestoId: usuarios.puestoId,
       pinHash: usuarios.pinHash,
-      activo: usuarios.activo
+      activo: usuarios.activo,
+      tokenVersion: usuarios.tokenVersion
     })
     .from(usuarios)
     .where(eq(usuarios.nombre, nombre))
@@ -148,6 +150,7 @@ export async function emitirRespuestaLogin(event: H3Event, usuario: UsuarioWebau
     sub: usuario.id,
     rol: usuario.rol as Rol,
     scope: ['sync'],
+    tokenVersion: usuario.tokenVersion,
     ...(dispositivoId ? { dispositivoId } : {})
   })
   return { token, expiraEn: expiraEn * 1000, puesto, ...baseResponse }

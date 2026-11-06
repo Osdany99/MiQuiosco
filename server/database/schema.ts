@@ -17,7 +17,14 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 /**
  * Enumeraciones de la base de datos.
  */
-export const rolEnum = pgEnum('rol', ['jefe', 'trabajador', 'cliente'])
+/**
+ * Roles del servidor.
+ *
+ * `super_admin` vive en el puesto marcado `central` y solo administra puestos,
+ * dispositivos y fallos (panel web). No tiene vistas operativas: los endpoints
+ * de negocio siguen exigiendo `jefe`.
+ */
+export const rolEnum = pgEnum('rol', ['jefe', 'trabajador', 'cliente', 'super_admin'])
 export const estadoCuadreEnum = pgEnum('estado_cuadre', ['abierto', 'cerrado'])
 export const tipoLineaEnum = pgEnum('tipo_linea', [
   'normal',
@@ -71,6 +78,16 @@ export const puestos = pgTable('puestos', {
   id: uuid('id').primaryKey().defaultRandom(),
   nombre: text('nombre').notNull(),
   activo: boolean('activo').notNull().default(true),
+  /**
+   * Puesto "central": aloja al super admin. Solo puede haber uno en la
+   * práctica; el panel lo ignora al crear/editar puestos normales.
+   */
+  central: boolean('central').notNull().default(false),
+  /**
+   * Base para los permisos por puesto (Fase 7). Se reserva ya para no tener que
+   * migrar `puestos` otra vez; por ahora el APK lo ignora.
+   */
+  permisos: jsonb('permisos').notNull().default({}),
   creadoEn: timestamp('creado_en', { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -93,6 +110,12 @@ export const usuarios = pgTable(
     rol: rolEnum('rol').notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: boolean('activo').notNull().default(true),
+    /**
+     * Se incrementa al resetear el PIN. Los JWT llevan el valor vigente y
+     * `requireAuth` rechaza los que quedaron atrás: así un reset invalida los
+     * tokens abiertos sin esperar a que expiren.
+     */
+    tokenVersion: integer('token_version').notNull().default(0),
     salario: doublePrecision('salario'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()

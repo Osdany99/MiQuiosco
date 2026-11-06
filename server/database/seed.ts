@@ -27,6 +27,17 @@ const PUESTO_NOMBRE = 'Puesto principal'
 const ADMIN_NOMBRE = 'jefe'
 const ADMIN_PIN_TEMPORAL = '1234'
 
+/**
+ * Puesto central + super admin (Fase 4). En producción se crean con
+ * `drizzle/manual/0025_bootstrap_admin.sql`; esto solo facilita el desarrollo.
+ * El super admin no usa el APK: su panel es `/admin` en la web.
+ */
+const PUESTO_CENTRAL_ID_FIJO = '00000000-0000-4000-8000-0000000000c1'
+const SUPER_ADMIN_ID_FIJO = '00000000-0000-4000-8000-0000000000a1'
+const CENTRAL_NOMBRE = 'Central'
+const SUPER_ADMIN_NOMBRE = 'superadmin'
+const SUPER_ADMIN_PIN_TEMPORAL = '123456'
+
 async function main() {
   console.log('Iniciando seed de MiQuiosco...')
 
@@ -72,8 +83,56 @@ async function main() {
     console.log(`  PIN temporal: ${ADMIN_PIN_TEMPORAL}`)
   }
 
-  // 3. Cliente centinela de las transferencias sin cliente conocido (ID fijo).
-  //    Va sembrado para que el FK transferencias.cliente_id ya exista cuando
+  // 3. Puesto central + super admin del panel.
+  const existingCentral = await db
+    .select()
+    .from(puestos)
+    .where(eq(puestos.id, PUESTO_CENTRAL_ID_FIJO))
+    .limit(1)
+
+  if (existingCentral.length > 0) {
+    if (!existingCentral[0]!.central) {
+      await db
+        .update(puestos)
+        .set({ central: true })
+        .where(eq(puestos.id, PUESTO_CENTRAL_ID_FIJO))
+      console.log(`✔ Puesto "${CENTRAL_NOMBRE}" marcado como central`)
+    } else {
+      console.log(`✔ Puesto "${CENTRAL_NOMBRE}" ya existe (id=${PUESTO_CENTRAL_ID_FIJO})`)
+    }
+  } else {
+    await db.insert(puestos).values({
+      id: PUESTO_CENTRAL_ID_FIJO,
+      nombre: CENTRAL_NOMBRE,
+      activo: true,
+      central: true
+    })
+    console.log(`✔ Puesto "${CENTRAL_NOMBRE}" creado (id=${PUESTO_CENTRAL_ID_FIJO})`)
+  }
+
+  const existingSuperAdmin = await db
+    .select({ id: usuarios.id })
+    .from(usuarios)
+    .where(eq(usuarios.nombre, SUPER_ADMIN_NOMBRE))
+    .limit(1)
+
+  if (existingSuperAdmin.length > 0) {
+    console.log(`✔ Super admin "${SUPER_ADMIN_NOMBRE}" ya existe`)
+  } else {
+    const pinHash = await hashPin(SUPER_ADMIN_PIN_TEMPORAL)
+    await db.insert(usuarios).values({
+      id: SUPER_ADMIN_ID_FIJO,
+      puestoId: PUESTO_CENTRAL_ID_FIJO,
+      nombre: SUPER_ADMIN_NOMBRE,
+      rol: 'super_admin',
+      pinHash,
+      activo: true
+    })
+    console.log(`✔ Super admin creado (usuario: ${SUPER_ADMIN_NOMBRE})`)
+    console.log(`  PIN temporal: ${SUPER_ADMIN_PIN_TEMPORAL} — cámbialo al entrar.`)
+  }
+
+  // 4. Cliente centinela de las transferencias sin cliente conocido (ID fijo).  //    Va sembrado para que el FK transferencias.cliente_id ya exista cuando
   //    llegue la primera transferencia que lo apunte desde un dispositivo.
   const existingCentinela = await db
     .select()
