@@ -386,6 +386,20 @@ async function aplicarFila({
     await exigirPadrePropio(tx, syncConfig.tabla, row, puestoId, existing, cachePadres)
   }
 
+  // Concurrencia optimista (Fase 9): si el dispositivo conoce la versión
+  // (timestamp del servidor) anterior de esta fila y el servidor ya tiene una
+  // posterior, se registra como conflicto (se absorbe el servidor) en vez de
+  // sobrescribir silenciosamente. La ausencia de `baseActualizadoEn` deja el
+  // comportamiento LWW anterior (APKs viejas), así que es compatible.
+  if ((row as any)?.baseActualizadoEn != null && (existing as any)?.actualizadoEn) {
+    const baseMs = Number((row as any).baseActualizadoEn)
+    const serverMs = new Date((existing as any).actualizadoEn).getTime()
+    if (Number.isFinite(baseMs) && Number.isFinite(serverMs) && baseMs > 0 && baseMs < serverMs) {
+      registrarConflicto(conflictos, tableName, existing, row, syncConfig)
+      return
+    }
+  }
+
   if (syncConfig.insertOnly) {
     // Tablas inmutables: la versión del servidor es autoritativa.
     // Se reporta como conflicto para que el cliente absorba la versión del servidor.

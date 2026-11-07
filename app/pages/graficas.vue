@@ -34,6 +34,8 @@ definePageMeta({
 })
 const productoRepo = useRepo(productoConfig, { toast: false })
 
+const perms = usePermisos()
+
 const COMPONENTES = {
   'bar': BarChart,
   'bar-horizontal': BarChart,
@@ -50,6 +52,8 @@ const SECCIONES = [
   { value: 'deudas', label: 'Deudas' },
   { value: 'recargas', label: 'Recargas' }
 ]
+
+const SECCIONES_FILTRADAS = computed(() => SECCIONES.filter(s => perms.puedeAccion('graficas', 'seccion_' + s.value)))
 
 const graficas = [
   // ---------- Ganancia y caja ----------
@@ -367,7 +371,7 @@ function getChartConfig(g) {
     <!-- Secciones: son más de 40 gráficas, una lista sola ya no ayuda a elegir -->
     <UTabs
       :model-value="seccionActiva"
-      :items="SECCIONES"
+      :items="SECCIONES_FILTRADAS"
       @update:model-value="cambiarSeccion"
     />
 

@@ -86,7 +86,7 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
   // nombre), así que el puesto viaja en la respuesta para que el APK pueda
   // crear la fila local y hacer el pull completo del puesto correcto.
   const [puesto] = await db
-    .select({ id: puestos.id, nombre: puestos.nombre, activo: puestos.activo })
+    .select({ id: puestos.id, nombre: puestos.nombre, activo: puestos.activo, permisos: puestos.permisos })
     .from(puestos)
     .where(eq(puestos.id, usuario.puestoId))
     .limit(1)
@@ -131,7 +131,12 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
   return {
     token,
     expiraEn: expiraEn * 1000,
-    puesto,
+    puesto: {
+      id: puesto.id,
+      nombre: puesto.nombre,
+      activo: puesto.activo,
+      permisos: (puesto.permisos ?? {}) as Record<string, boolean>
+    },
     ...baseResponse
   }
 })

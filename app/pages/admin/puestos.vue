@@ -5,6 +5,7 @@ import {
   crearPuestoAdminSchema,
   resetPinAdminSchema
 } from '#shared/schemas/admin'
+import { resumenRestricciones } from '#shared/permisos'
 
 definePageMeta({
   layout: 'admin',
@@ -34,6 +35,7 @@ const columnas = [
   { accessorKey: 'dispositivos', header: 'Dispositivos' },
   { accessorKey: 'fallosAbiertos', header: 'Fallos' },
   { accessorKey: 'ultimaSyncOkEn', header: 'Última sync' },
+  { accessorKey: 'acceso', header: 'Acceso' },
   { accessorKey: 'acciones', header: '' }
 ]
 
@@ -97,6 +99,12 @@ function abrirAlta() {
   formAlta.value = vacioAlta()
   errorAlta.value = null
   dialogoAlta.value = true
+}
+
+function resumenAcceso(permisos) {
+  const r = resumenRestricciones(permisos || {})
+  if (r.vistasOff === 0 && r.accionesOff === 0) return 'Completo'
+  return `${r.vistasOff} vistas y ${r.accionesOff} acciones ocultas`
 }
 
 async function guardarAlta() {
@@ -242,6 +250,31 @@ async function guardarJefe() {
     errorJefe.value = err.message
   } finally {
     guardando.value = false
+  }
+}
+
+// --- Permisos ---
+const dialogoPermisos = ref(false)
+const puestoPermisos = ref(null)
+const guardandoPermisos = ref(false)
+
+function abrirPermisos(puesto) {
+  puestoPermisos.value = puesto
+  dialogoPermisos.value = true
+}
+
+async function guardarPermisos(permisos) {
+  if (!puestoPermisos.value) return
+  guardandoPermisos.value = true
+  try {
+    await api.actualizarPuesto(puestoPermisos.value.id, { permisos })
+    toast.add({ title: 'Permisos guardados', color: 'success', icon: 'i-lucide-check' })
+    dialogoPermisos.value = false
+    await cargar()
+  } catch (err) {
+    toast.add({ title: 'No se guardaron los permisos', description: err?.message, color: 'error' })
+  } finally {
+    guardandoPermisos.value = false
   }
 }
 
@@ -425,6 +458,23 @@ async function guardarPin() {
         </span>
       </template>
 
+      <template #acceso-cell="{ row }">
+        <UBadge
+          v-if="row.original.central"
+          color="neutral"
+          variant="outline"
+          size="sm"
+          label="Central"
+        />
+        <UBadge
+          v-else
+          :color="(row.original.permisos && Object.keys(row.original.permisos).length) ? 'warning' : 'neutral'"
+          variant="soft"
+          size="sm"
+          :label="resumenAcceso(row.original.permisos)"
+        />
+      </template>
+
       <template #acciones-cell="{ row }">
         <div class="flex justify-end gap-1">
           <UTooltip text="Editar puesto" :delay-duration="0">
@@ -435,6 +485,17 @@ async function guardarPin() {
               variant="ghost"
               aria-label="Editar puesto"
               @click="abrirPuesto(row.original)"
+            />
+          </UTooltip>
+          <UTooltip text="Permisos del puesto" :delay-duration="0">
+            <UButton
+              icon="i-lucide-shield-check"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              aria-label="Permisos del puesto"
+              :disabled="row.original.central"
+              @click="abrirPermisos(row.original)"
             />
           </UTooltip>
           <UTooltip text="Ver dispositivos" :delay-duration="0">
@@ -520,6 +581,13 @@ async function guardarPin() {
         <BaseForm v-model="formJefe" :fields="camposJefe" />
       </div>
     </BaseDialog>
+
+    <PermisosPuesto
+      v-model="dialogoPermisos"
+      :puesto="puestoPermisos"
+      :otros-puestos="filas.filter(p => p.id !== puestoPermisos?.id)"
+      @save="guardarPermisos"
+    />
 
     <BaseDialog
       v-model="dialogoPin"

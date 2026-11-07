@@ -12,8 +12,11 @@ import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
+let _autoConfigurado = false
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
+const PREF_ULTIMA_SYNC_OK = 'ultima_sincronizacion_ok_en'
+const PREF_ULTIMO_INTENTO = 'ultimo_intento_en'
 
 // Filas por petición de push. El push era UN solo POST con todos los
 // pendientes: con miles de filas superaba el timeout del cliente (15 s) y el
@@ -70,6 +73,8 @@ export function useSync() {
   const ultimaSync = ref(null)
   const pendientesCount = ref(0)
   const hayRed = ref(true)
+  const ultimaSyncOk = ref(null)
+  const ultimoIntento = ref(null)
 
   function getHeaders() {
     const token = auth.jwtSync.value
@@ -89,6 +94,13 @@ export function useSync() {
     const stored = await Preferences.get({ key: PREF_ULTIMA_SYNC })
     if (stored.value) ultimaSync.value = Number(stored.value)
 
+    try {
+      const s1 = await Preferences.get({ key: PREF_ULTIMA_SYNC_OK })
+      if (s1.value) ultimaSyncOk.value = Number(s1.value)
+      const s2 = await Preferences.get({ key: PREF_ULTIMO_INTENTO })
+      if (s2.value) ultimoIntento.value = Number(s2.value)
+    } catch {}
+
     await actualizarPendientesCount()
 
     try {
@@ -102,10 +114,43 @@ export function useSync() {
     try {
       const handle = await Network.addListener('networkStatusChange', (s) => {
         hayRed.value = s.connected
+        if (s.connected) {
+          sincronizarAuto({ motivo: 'red', silencioso: true }).catch(() => {})
+        }
       })
       _networkListenerHandle = handle
     } catch {
       // Network no disponible (navegador / SSR)
+    }
+
+    // Validación forzada tras importar una BD reparada (ver backupBd.js).
+    try {
+      const r = await Preferences.get({ key: 'sync_revalidar_tras_importacion' })
+      if (r.value === '1') {
+        await Preferences.remove({ key: 'sync_revalidar_tras_importacion' })
+        setTimeout(() => {
+          validarSincronizacion(true).catch(() => {})
+        }, 0)
+      }
+    } catch {}
+
+    if (!_autoConfigurado) {
+      _autoConfigurado = true
+      ;(async () => {
+        try {
+          const { App } = await import('@capacitor/app')
+          await App.addListener('appStateChange', (estado) => {
+            if (estado?.isActive) {
+              sincronizarAuto({ motivo: 'primer_plano', silencioso: true }).catch(() => {})
+            }
+          })
+        } catch { /* no nativo / SSR */ }
+      })()
+      setInterval(() => {
+        if (hayRed.value && pendientesCount.value > 0) {
+          sincronizarAuto({ motivo: 'timer', silencioso: true }).catch(() => {})
+        }
+      }, 25 * 60 * 1000)
     }
   }
 
@@ -127,8 +172,7 @@ export function useSync() {
   }
 
   function informarFase(fase, actual = 0, total = 0) {
-    faseSync.value = fase
-    progresoSync.value = { actual, total }
+    faseSync.value = fase, progresoSync.value = { actual, total }
   }
 
   function fueCancelada(signal) {
@@ -199,6 +243,7 @@ export function useSync() {
           // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
           // uno por fila.
           await marcarAceptados(lote.tabla, res.aceptados)
+          await marcarBasesAceptadas(lote.tabla, lote.filas, res.aceptados)
           await absorberConflictos(res.conflictos, signal)
 
           // Rechazos por fila: se quedan pendientes en el dispositivo y se
@@ -275,6 +320,10 @@ export function useSync() {
       signal,
       onProgress: procesados => informarFase('aplicando', Math.min(procesados, total), total)
     }, null)
+    try {
+      const { usePermisos } = await import('./usePermisos.js')
+      if (pullResult?.puesto) await usePermisos().guardarDesdePuesto(pullResult.puesto)
+    } catch {}
     informarFase('aplicando', total, total)
 
     const ahora = pullResult.timestamp_servidor ?? Date.now()
@@ -284,9 +333,9 @@ export function useSync() {
     return pullResult
   }
 
-  async function sincronizarAhora() {
+  async function sincronizarAhora(silencioso = false) {
     if (!auth.sesionLocalVigente()) {
-      toast.add({
+      if (!silencioso) toast.add({
         title: 'Sesión expirada',
         description: 'Vuelve a iniciar sesión para sincronizar.',
         color: 'warning'
@@ -297,7 +346,7 @@ export function useSync() {
     }
 
     if (!hayRed.value) {
-      toast.add({
+      if (!silencioso) toast.add({
         title: 'Sin conexión',
         description: 'No hay red disponible para sincronizar.',
         color: 'error'
@@ -306,7 +355,7 @@ export function useSync() {
     }
 
     if (!auth.jwtSync.value) {
-      toast.add({
+      if (!silencioso) toast.add({
         title: 'Reautenticación',
         description: 'Necesitas volver a iniciar sesión para sincronizar.',
         color: 'warning'
@@ -346,6 +395,8 @@ export function useSync() {
         }
 
         exito = true
+        ultimaSyncOk.value = Date.now()
+        await Preferences.set({ key: PREF_ULTIMA_SYNC_OK, value: String(ultimaSyncOk.value) }).catch(() => {})
         await registrarSyncLog({
           evento: 'sync_fin',
           duracionMs: Date.now() - inicioMs,
@@ -387,7 +438,7 @@ export function useSync() {
           mensaje: mensajeDeError(err),
           contexto: { timeout: !!err?.timeout, fase: faseSync.value }
         }])
-        toast.add({
+        if (!silencioso) toast.add({
           title: 'Error en sincronización',
           description:
             err.data?.statusMessage
@@ -497,6 +548,19 @@ export function useSync() {
     }
   }
 
+  async function marcarBasesAceptadas(tabla, filas, aceptados) {
+    const set = new Set(aceptados ?? [])
+    if (!set.size) return
+    const { Preferences } = await import('@capacitor/preferences')
+    for (const fila of filas ?? []) {
+      if (!set.has(fila.id)) continue
+      try {
+        const ts = fila.actualizadoEn ? new Date(fila.actualizadoEn).getTime() : 0
+        if (ts) await Preferences.set({ key: `sync_base:${tabla}:${fila.id}`, value: String(ts) })
+      } catch {}
+    }
+  }
+
   async function absorberConflictos(conflictos, signal) {
     if (!conflictos) return
     let vistos = 0
@@ -507,7 +571,27 @@ export function useSync() {
         try {
           const server = conflicto.server ?? conflicto
           const client = conflicto.client ?? conflicto
-          const { merged, difiereDelServidor } = mergeFields(server, client)
+          let base = null
+          try {
+            const { Preferences } = await import('@capacitor/preferences')
+            const raw = await Preferences.get({ key: `sync_base_val:${tabla}:${server?.id}` })
+            base = raw?.value ? JSON.parse(raw.value) : null
+          } catch {}
+          try {
+            // Hacer visible el conflicto en el buzón central (/admin/fallos):
+            // se reporta como push_rechazo/conflicto para que el jefe lo revise.
+            await registrarFallosLocales([{
+              tipo: 'push_rechazo',
+              fase: 'push',
+              tabla: String(tabla),
+              registroId: server?.id ?? client?.id,
+              codigoHttp: 409,
+              motivo: 'conflicto',
+              mensaje: 'Conflicto resuelto por merge: el servidor tenia una version posterior.',
+              contexto: {}
+            }])
+          } catch {}
+          const { merged, difiereDelServidor } = mergeFields(server, client, base)
           // Si el merge aporta datos que el servidor no tenía (null→valor
           // del cliente), se marca no-sincronizado y se refresca el
           // timestamp para que el próximo push lo suba.
@@ -518,6 +602,12 @@ export function useSync() {
           // servidor, así que su marca de tiempo es la buena. Con
           // enrichForUpdate la fila quedaría siempre pendiente de subir.
           await useDb().update(tabla, merged.id, enrichForSync(tabla, patch))
+          try {
+            const { Preferences } = await import('@capacitor/preferences')
+            const _tsSrc = conflicto?.server?.actualizadoEn ?? conflicto?.actualizadoEn
+            const ts = _tsSrc ? new Date(_tsSrc).getTime() : 0
+            if (ts) await Preferences.set({ key: `sync_base:${tabla}:${merged.id}`, value: String(ts) })
+          } catch {}
         } catch {
           // absorber conflicto best-effort
         }
@@ -594,11 +684,65 @@ export function useSync() {
     }
   }
 
+  async function validarSincronizacion(silencioso = false) {
+    try {
+      ultimaSync.value = 0
+      ultimaSyncOk.value = null
+      ultimoIntento.value = null
+      await Preferences.set({ key: PREF_ULTIMA_SYNC, value: '0' })
+      await Preferences.remove({ key: PREF_ULTIMA_SYNC_OK }).catch(() => {})
+      await Preferences.remove({ key: PREF_ULTIMO_INTENTO }).catch(() => {})
+      for (const tabla of TABLAS_SYNC) {
+        try {
+          await useDb().marcarTodosNoSincronizados(tabla)
+        } catch { /* tabla aún no migrada */ }
+      }
+      await actualizarPendientesCount()
+    } catch { /* tolerante */ }
+    return await sincronizarAhora(silencioso)
+  }
+
+  function puedeSincronizarEnSegundoPlano() {
+    return !!auth.jwtSync.value
+  }
+
+  function esDebida() {
+    const ahora = Date.now()
+    if (ultimoIntento.value && ahora - ultimoIntento.value < 5 * 60 * 1000) return false
+    if (!ultimaSyncOk.value) return true
+    const ms = ahora - ultimaSyncOk.value
+    if (ms > 12 * 60 * 60 * 1000) return true
+    if (pendientesCount.value > 0 && ms > 30 * 60 * 1000) return true
+    return false
+  }
+
+  async function sincronizarAuto({ motivo = 'auto', silencioso = true } = {}) {
+    void motivo
+    if (!puedeSincronizarEnSegundoPlano()) return false
+    if (!hayRed.value) return false
+    if (haySyncEnCurso()) return false
+    if (!esDebida()) return false
+    ultimoIntento.value = Date.now()
+    try {
+      await Preferences.set({ key: PREF_ULTIMO_INTENTO, value: String(ultimoIntento.value) })
+    } catch {}
+    const ok = await sincronizarAhora(silencioso)
+    if (ok) {
+      ultimaSyncOk.value = Date.now()
+      try {
+        await Preferences.set({ key: PREF_ULTIMA_SYNC_OK, value: String(ultimaSyncOk.value) })
+      } catch {}
+    }
+    return ok
+  }
+
   return {
     sincronizando: readonly(sincronizando),
     faseSync: readonly(faseSync),
     progresoSync: readonly(progresoSync),
     ultimaSync: readonly(ultimaSync),
+    ultimaSyncOk: readonly(ultimaSyncOk),
+    ultimoIntento: readonly(ultimoIntento),
     pendientesCount: readonly(pendientesCount),
     hayRed: readonly(hayRed),
     cargarEstado,

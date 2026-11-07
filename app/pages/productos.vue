@@ -187,7 +187,7 @@ onBeforeUnmount(() => destruirSortable())
   <BaseHeaderPage
     :title="config.label.plural"
     description="Catálogo de productos del puesto"
-    :title-button="'Nuevo ' + config.label.singular"
+    :title-button="perms.puedeAccion('productos', 'crear') ? 'Nuevo ' + config.label.singular : ''"
     @new="nuevoProducto"
   >
     <BaseTable
@@ -198,6 +198,8 @@ onBeforeUnmount(() => destruirSortable())
       :form-ref="formRef"
       :pagination="false"
       :query="{ orderBy: 'orden', orderDir: 'asc' }"
+      :show-edit="perms.puedeAccion('productos', 'editar')"
+      :show-delete="false"
     >
       <template #form>
         <BaseForm
@@ -244,6 +246,7 @@ onBeforeUnmount(() => destruirSortable())
       <template #row-actions-extra="{ rowData }">
         <UTooltip text="Ver historial de precios" :delay-duration="0">
           <UButton
+            v-if="perms.puedeAccion('productos', 'historial')"
             icon="i-lucide-clock"
             size="sm"
             color="neutral"

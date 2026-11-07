@@ -17,6 +17,7 @@ export default defineEventHandler(async (event) => {
     puestoId: textoQuery(query.puestoId),
     dispositivoId: textoQuery(query.dispositivoId),
     tipo: textoQuery(query.tipo),
+    motivo: textoQuery(query.motivo),
     tabla: textoQuery(query.tabla),
     estado: estado === 'abierto' || estado === 'resuelto' ? estado : undefined,
     limit: numeroQuery(query.limit, 200),

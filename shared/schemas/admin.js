@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { permisosPuestoSchema } from './permisos.js'
 
 /**
  * Schemas del panel de super administración (Fase 4).
@@ -40,8 +41,8 @@ export const actualizarPuestoAdminSchema = z
   .object({
     nombre: nombre.optional(),
     activo: z.boolean().optional(),
-    /** Reservado para la Fase 7 (permisos por puesto). */
-    permisos: z.record(z.string(), z.any()).optional()
+    /** Overrides sparse de permisos (Fase 7). Solo claves del catálogo. */
+    permisos: permisosPuestoSchema.optional()
   })
   .refine(obj => Object.keys(obj).length > 0, {
     message: 'No hay cambios que aplicar.'

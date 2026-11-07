@@ -133,6 +133,18 @@ export function useAuth() {
           body: { nombre_usuario: nombreUsuario, pin }
         })
         await procesarRespuestaLogin(response)
+        try {
+          const { usePermisos } = await import('./usePermisos.js')
+          const perms = usePermisos()
+          if (response.puesto) await perms.guardarDesdePuesto(response.puesto)
+        } catch {}
+        try {
+          const { useSync } = await import('./useSync.js')
+          const sync = useSync()
+          setTimeout(() => {
+            sync.sincronizarAuto({ motivo: 'login', silencioso: true }).catch(() => {})
+          }, 0)
+        } catch {}
         intentosBiometricosFallidos.value = 0
         return response
       } catch (err) {
@@ -533,6 +545,18 @@ export function useAuth() {
         body: { nombre_usuario: nombreUsuario, respuesta: attResp }
       })
       await procesarRespuestaLogin(response)
+      try {
+        const { usePermisos } = await import('./usePermisos.js')
+        if (response.puesto) await usePermisos().guardarDesdePuesto(response.puesto)
+      } catch {}
+      try {
+        const { usePermisos } = await import('./usePermisos.js')
+        if (response.puesto) await usePermisos().guardarDesdePuesto(response.puesto)
+      } catch {}
+      try {
+        const { useSync } = await import('./useSync.js')
+        useSync().sincronizarAuto({ motivo: 'login', silencioso: true }).catch(() => {})
+      } catch {}
       intentosBiometricosFallidos.value = 0
       return { ok: true, response }
     } finally {

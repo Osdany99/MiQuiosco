@@ -2,6 +2,7 @@
 import { Capacitor } from '@capacitor/core'
 
 const auth = useAuth()
+const perms = usePermisos()
 const isCollapsed = ref(true)
 const mobileOpen = ref(false)
 
@@ -40,6 +41,7 @@ function onUserActivity() {
 }
 
 onMounted(() => {
+  perms.cargarDesdePreferencias().catch(() => {})
   cargarEstado()
   conexion.cargar().catch(() => {})
   document.addEventListener('click', onUserActivity)
@@ -68,85 +70,23 @@ const links = computed(() => {
 
   if (auth.esJefe.value) {
     items.push(
-      {
-        label: 'Cuadre del día',
-        icon: 'i-lucide-clipboard-check',
-        to: '/cuadre'
-      },
-      {
-        label: 'Historial de cuadres',
-        icon: 'i-lucide-clock',
-        to: '/cuadres'
-      },
-      {
-        label: 'Historial del quiosco',
-        icon: 'i-lucide-store',
-        to: '/historial-quiosco'
-      },
-      {
-        label: 'Deudas',
-        icon: 'i-lucide-hand-coins',
-        to: '/deudas'
-      },
-      {
-        label: 'Venta directa',
-        icon: 'i-lucide-receipt',
-        to: '/venta-directa'
-      },
-      {
-        label: 'Productos',
-        icon: 'i-lucide-package',
-        to: '/productos'
-      },
-      // Los proveedores se administran aparte; el enlace del menú se oculta con
-      // la bandera (la página /proveedores sigue viva por URL directa).
+      { label: 'Cuadre del día', icon: 'i-lucide-clipboard-check', to: '/cuadre', vista: 'cuadre' },
+      { label: 'Historial de cuadres', icon: 'i-lucide-clock', to: '/cuadres', vista: 'cuadres' },
+      { label: 'Historial del quiosco', icon: 'i-lucide-store', to: '/historial-quiosco', vista: 'historial-quiosco' },
+      { label: 'Deudas', icon: 'i-lucide-hand-coins', to: '/deudas', vista: 'deudas' },
+      { label: 'Venta directa', icon: 'i-lucide-receipt', to: '/venta-directa', vista: 'salidas' },
+      { label: 'Productos', icon: 'i-lucide-package', to: '/productos', vista: 'productos' },
       ...(MOSTRAR_PROVEEDOR
-        ? [{
-            label: 'Proveedores',
-            icon: 'i-lucide-truck',
-            to: '/proveedores'
-          }]
+        ? [{ label: 'Proveedores', icon: 'i-lucide-truck', to: '/proveedores', vista: 'proveedores' }]
         : []),
-      {
-        label: 'Quiosco',
-        icon: 'i-lucide-store',
-        to: '/quiosco'
-      },
-      {
-        label: 'Almacén',
-        icon: 'i-lucide-warehouse',
-        to: '/almacen'
-      },
-      {
-        label: 'Usuarios',
-        icon: 'i-lucide-user-cog',
-        to: '/usuarios'
-      },
-      {
-        label: 'Clientes',
-        icon: 'i-lucide-users',
-        to: '/clientes'
-      },
-      {
-        label: 'Ficha cliente',
-        icon: 'i-lucide-user-search',
-        to: '/ficha-cliente'
-      },
-      {
-        label: 'Gráficas',
-        icon: 'i-lucide-bar-chart-2',
-        to: '/graficas'
-      },
-      {
-        label: 'Recargas',
-        icon: 'i-lucide-smartphone-charging',
-        to: '/recargas'
-      },
-      {
-        label: 'Por confirmar',
-        icon: 'i-lucide-message-square-text',
-        to: '/recargas/sms'
-      }
+      { label: 'Quiosco', icon: 'i-lucide-store', to: '/quiosco', vista: 'quiosco' },
+      { label: 'Almacén', icon: 'i-lucide-warehouse', to: '/almacen', vista: 'almacen' },
+      { label: 'Usuarios', icon: 'i-lucide-user-cog', to: '/usuarios', vista: 'usuarios' },
+      { label: 'Clientes', icon: 'i-lucide-users', to: '/clientes', vista: 'clientes' },
+      { label: 'Ficha cliente', icon: 'i-lucide-user-search', to: '/ficha-cliente', vista: 'ficha-cliente' },
+      { label: 'Gráficas', icon: 'i-lucide-bar-chart-2', to: '/graficas', vista: 'graficas' },
+      { label: 'Recargas', icon: 'i-lucide-smartphone-charging', to: '/recargas', vista: 'recargas' },
+      { label: 'Por confirmar', icon: 'i-lucide-message-square-text', to: '/recargas/sms', vista: 'recargas-sms' }
     )
   } else if (auth.esTrabajador.value) {
     items.push(
@@ -157,8 +97,7 @@ const links = computed(() => {
       }
     )
   }
-
-  return items
+  return items.filter(link => !link.vista || perms.puedeVista(link.vista))
 })
 
 const userMenuItems = computed(() => {

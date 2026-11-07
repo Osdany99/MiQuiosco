@@ -9,6 +9,7 @@ const conexion = useModoConexion()
 const tts = useTts()
 const update = useAppUpdate()
 const auth = useAuth()
+const { validarSincronizacion } = useSync()
 // --- Permisos de recarga (solo Android) ---
 // Configuración es el ÚNICO sitio donde se piden. No hay asistente al arrancar:
 // la app no interrumpe a quien solo usa el quiosco, y quien sí quiere recargas
@@ -246,6 +247,7 @@ const restaurando = ref(false)
 const dialogoRestaurar = ref(false)
 const copiaElegida = ref(null)
 const errorRestaurar = ref('')
+const validandoSync = ref(false)
 
 async function prepararRestauracion() {
   if (eligiendoCopia.value || restaurando.value) return
@@ -291,6 +293,29 @@ async function confirmarRestauracion() {
     dialogoRestaurar.value = false
   } finally {
     restaurando.value = false
+  }
+}
+
+async function validarSincronizacionManual() {
+  if (validandoSync.value) return
+  validandoSync.value = true
+  try {
+    const ok = await validarSincronizacion(false)
+    toast.add({
+      title: ok ? 'Sincronización validada' : 'Validación con incidencias',
+      description: ok
+        ? 'La base local quedó reconciliada con el servidor.'
+        : 'Revisa el log de sync; se reintentará automáticamente.',
+      color: ok ? 'success' : 'warning'
+    })
+  } catch (err) {
+    toast.add({
+      title: 'Error',
+      description: err?.message || 'No se pudo validar la sincronización.',
+      color: 'error'
+    })
+  } finally {
+    validandoSync.value = false
   }
 }
 
@@ -538,6 +563,16 @@ async function whOlvidarEste() {
           @click="prepararRestauracion"
         >
           Restaurar desde un archivo
+        </UButton>
+
+        <UButton
+          :loading="validandoSync"
+          icon="i-lucide-refresh-cw"
+          variant="soft"
+          color="primary"
+          @click="validarSincronizacionManual"
+        >
+          Validar sincronización con el servidor
         </UButton>
 
         <UAlert

@@ -1,5 +1,6 @@
 <script setup>
 const auth = useAuth()
+const perms = usePermisos()
 const route = useRoute()
 const cuadreIdParam = computed(() => route.query.id || null)
 const {
@@ -73,7 +74,7 @@ onMounted(() => {
   >
     <template #trailing>
       <UButton
-        v-if="!esTrabajador && cuadre?.estado === 'cerrado'"
+        v-if="!esTrabajador && perms.puedeAccion('cuadre', 'reabrir') && cuadre?.estado === 'cerrado'"
         variant="outline"
         color="warning"
         icon="i-lucide-rotate-ccw"
@@ -81,7 +82,7 @@ onMounted(() => {
         @click="reabrirCuadre"
       />
       <UButton
-        v-if="!esTrabajador && cuadre?.estado === 'abierto'"
+        v-if="!esTrabajador && perms.puedeAccion('cuadre', 'cerrar') && cuadre?.estado === 'abierto'"
         color="success"
         icon="i-lucide-lock"
         label="Cerrar cuadre"
@@ -130,7 +131,7 @@ onMounted(() => {
         </UCard>
 
         <CuadreFiadoCard
-          v-if="!esTrabajador"
+          v-if="!esTrabajador && perms.puedeAccion('cuadre', 'fiar')"
           ref="fiadoCardRef"
           :cuadre-id="cuadre?.id ?? ''"
           :productos-activos="productosActivos"
@@ -139,7 +140,7 @@ onMounted(() => {
           @actualizado="recargar"
         />
         <CuadreTransferenciaCard
-          v-if="!esTrabajador"
+          v-if="!esTrabajador && perms.puedeAccion('cuadre', 'transferencia')"
           :cuadre-id="cuadre?.id ?? ''"
           :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
           :readonly="cuadre?.estado !== 'abierto'"

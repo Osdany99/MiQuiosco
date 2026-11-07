@@ -34,6 +34,7 @@ import {
   limpiarSyncRechazos
 } from '../_factory'
 import { useDb } from '../../db/client'
+import { Preferences } from '@capacitor/preferences'
 
 /**
  * Filtra las filas que el servidor rechazaría por pertenecer a otro puesto.
@@ -166,9 +167,21 @@ export async function push(opts, auth) {
         return copia
       })
     }
+    // adjuntar la marca de tiempo del servidor conocida (base) para la
+    // concurrencia optimista de Fase 9: el servidor rechaza con 409 si la base
+    // enviada es anterior a la que tiene, en vez de sobrescribir en silencio.
+    const conBase = await Promise.all(listas.map(async (fila) => {
+      try {
+        const stored = await Preferences.get({ key: `sync_base:${cfg.tabla}:${fila.id}` })
+        if (stored?.value) {
+          return { ...fila, baseActualizadoEn: Number(stored.value) || undefined }
+        }
+      } catch {}
+      return fila
+    }))
     // `usuarios` ya viaja con pinHash (columna real de sqlite): el servidor lo
     // exige (NOT NULL) para crear usuarios desde el dispositivo.
-    result[cfg.tabla] = listas
+    result[cfg.tabla] = conBase
   }
   result.deletes = await getPendingDeletes()
   return result

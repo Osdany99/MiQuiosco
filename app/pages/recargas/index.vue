@@ -15,6 +15,7 @@ definePageMeta({
 
 const toast = useToast()
 const auth = useAuth()
+const perms = usePermisos()
 const rec = useRecargas()
 
 const tableRef = ref(null)
@@ -279,7 +280,7 @@ onUnmounted(() => soltarResume?.())
       <template #acciones-cell="{ row }">
         <div class="flex gap-1 justify-end">
           <UButton
-            v-if="!row.original.clienteId"
+            v-if="!row.original.clienteId && perms.puedeAccion('recargas', 'asignar_cliente')"
             size="xs"
             color="neutral"
             variant="ghost"
@@ -287,7 +288,7 @@ onUnmounted(() => soltarResume?.())
             @click="abrirAsignar(row.original)"
           />
           <UButton
-            v-else-if="row.original.estadoPago !== 'pagada'"
+            v-else-if="row.original.estadoPago !== 'pagada' && perms.puedeAccion('recargas', 'cobrar')"
             size="xs"
             icon="i-lucide-hand-coins"
             color="primary"

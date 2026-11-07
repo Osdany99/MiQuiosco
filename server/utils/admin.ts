@@ -52,6 +52,7 @@ export interface FiltrosFallosAdmin {
   puestoId?: string
   dispositivoId?: string
   tipo?: string
+  motivo?: string
   tabla?: string
   estado?: EstadoFallo
   limit?: number
@@ -396,6 +397,7 @@ export async function listarFallosAdmin(filtros: FiltrosFallosAdmin) {
   if (filtros.puestoId) condiciones.push(eq(syncFallos.puestoId, filtros.puestoId))
   if (filtros.dispositivoId) condiciones.push(eq(syncFallos.dispositivoId, filtros.dispositivoId))
   if (filtros.tipo) condiciones.push(eq(syncFallos.tipo, filtros.tipo))
+  if (filtros.motivo) condiciones.push(eq(syncFallos.motivo, filtros.motivo))
   if (filtros.tabla) condiciones.push(eq(syncFallos.tabla, filtros.tabla))
   if (filtros.estado === 'abierto') condiciones.push(isNull(syncFallos.resueltoEn))
   if (filtros.estado === 'resuelto') condiciones.push(isNotNull(syncFallos.resueltoEn))

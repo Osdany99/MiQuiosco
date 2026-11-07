@@ -109,6 +109,7 @@ export interface LoginResponse {
     id: string
     nombre: string
     activo: boolean
+    permisos?: Record<string, boolean>
   }
   expiraEn?: number
 }
@@ -223,4 +224,10 @@ export interface PullResponse {
   transferencia_items: TransferenciaItem[]
   ajustes: Ajuste[]
   timestamp_servidor: number
+  puesto?: {
+    id: string
+    nombre: string
+    activo: boolean
+    permisos?: Record<string, boolean>
+  }
 }

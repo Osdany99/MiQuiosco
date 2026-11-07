@@ -5,7 +5,7 @@ import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
 import { exigirDispositivoActivo } from '../../utils/dispositivo'
 import { PADRE_POR_TABLA } from '../../utils/puesto'
-import { deletedRecords } from '../../database/schema'
+import { deletedRecords, puestos } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
@@ -89,7 +89,20 @@ export default defineEventHandler(async (event) => {
   const results = await Promise.all(queries)
   const payload = Object.fromEntries(results.map(r => [r.tabla, r.rows]))
 
-  return { ...payload, deletes, timestamp_servidor: maxTimestamp }
+  const [puestoFila] = await db
+    .select({ id: puestos.id, nombre: puestos.nombre, activo: puestos.activo, permisos: puestos.permisos })
+    .from(puestos)
+    .where(eq(puestos.id, puestoId))
+    .limit(1)
+
+  return {
+    ...payload,
+    deletes,
+    timestamp_servidor: maxTimestamp,
+    puesto: puestoFila
+      ? { id: puestoFila.id, nombre: puestoFila.nombre, activo: puestoFila.activo, permisos: (puestoFila.permisos ?? {}) as Record<string, boolean> }
+      : undefined
+  }
 })
 
 function serializeRow(row: Record<string, any>, syncConfig: { syncNumeric: string[] }): Record<string, any> {

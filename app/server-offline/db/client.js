@@ -517,6 +517,22 @@ export function useDb() {
   }
 
   /**
+   * Marca TODAS las filas de una tabla como no sincronizadas.
+   *
+   * Se usa en "validar sincronización": tras importar una BD reparada (o por
+   * petición manual) el dispositivo fuerza un re-push completo y deja que el
+   * servidor decida INSERT/UPDATE/conflicto por id. Un solo UPDATE por tabla.
+   */
+  async function marcarTodosNoSincronizados(tabla) {
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      conn.update(tabla, () => true, { sincronizado: 0 })
+      return
+    }
+    await runEscritura(conn, `UPDATE ${tabla} SET sincronizado = 0`, [])
+  }
+
+  /**
    * Deja solo las `maximo` filas más recientes de una tabla.
    *
    * Lo usa `sync_log`, que es un ring buffer de diagnóstico: guardar trazas sin
@@ -554,6 +570,10 @@ export function useDb() {
     inMemoryDbPromise = null
     dbConnection = null
     dbConnectionPromise = null
+    try {
+      const { Preferences } = await import('@capacitor/preferences')
+      await Preferences.remove({ key: 'permisos_puesto' })
+    } catch {}
   }
 
   /**
@@ -653,6 +673,7 @@ export function useDb() {
     getById,
     contarPendientes,
     marcarSincronizados,
+    marcarTodosNoSincronizados,
     recortarTabla,
     resetLocalDatabase,
     cerrarParaCopia,

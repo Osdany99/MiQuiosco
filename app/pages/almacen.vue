@@ -73,7 +73,7 @@
         </template>
         <template #acciones-cell="{ row }">
           <div class="flex gap-1 justify-end">
-            <UTooltip text="Traspasar al quiosco" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'traspaso')" text="Traspasar al quiosco" :delay-duration="0">
               <UButton
                 icon="i-lucide-arrow-right-left"
                 size="xs"
@@ -82,7 +82,7 @@
                 @click="abrirTraspasoDe(row.original.productoId)"
               />
             </UTooltip>
-            <UTooltip text="Merma" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'ajuste')" text="Merma" :delay-duration="0">
               <UButton
                 icon="i-lucide-wrench"
                 size="xs"
@@ -91,7 +91,7 @@
                 @click="abrirAjuste(row.original.productoId)"
               />
             </UTooltip>
-            <UTooltip text="Añadir lote (entrada)" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'entrada')" text="Añadir lote (entrada)" :delay-duration="0">
               <UButton
                 icon="i-lucide-package-plus"
                 size="xs"
@@ -100,7 +100,7 @@
                 @click="abrirEntradaDe(row.original.productoId)"
               />
             </UTooltip>
-            <UTooltip text="Ver lotes" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'ver_lotes')" text="Ver lotes" :delay-duration="0">
               <UButton
                 icon="i-lucide-package"
                 size="xs"
@@ -115,7 +115,7 @@
               :open="menuVentaId === row.original.productoId"
               @update:open="(v) => { if (!v) menuVentaId = null }"
             >
-              <UTooltip text="Vender" :delay-duration="0">
+              <UTooltip v-if="perms.puedeAccion('almacen', 'vender')" text="Vender" :delay-duration="0">
                 <UButton
                   icon="i-lucide-receipt"
                   size="xs"
@@ -128,6 +128,7 @@
               <template #content>
                 <div class="p-1 min-w-44">
                   <UButton
+                    v-if="perms.puedeVenta('contado')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -137,6 +138,7 @@
                     @click="vender(row.original, 'venta')"
                   />
                   <UButton
+                    v-if="perms.puedeVenta('fiado')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -147,6 +149,7 @@
                   />
                   <USeparator class="my-1" />
                   <UButton
+                    v-if="perms.puedeVenta('casa')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -156,6 +159,7 @@
                     @click="vender(row.original, 'casa')"
                   />
                   <UButton
+                    v-if="perms.puedeVenta('familiar')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -165,6 +169,7 @@
                     @click="vender(row.original, 'familiar')"
                   />
                   <UButton
+                    v-if="perms.puedeVenta('regalo')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -269,6 +274,7 @@
     <InventarioDialogoEntrada v-model="showEntrada" :producto-id="productoEntrada" @guardado="recargar" />
     <div class="flex justify-end mb-3">
       <UButton
+        v-if="perms.puedeAccion('almacen', 'voz')"
         icon="i-lucide-mic"
         color="primary"
         variant="soft"
