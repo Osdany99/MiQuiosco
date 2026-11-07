@@ -10,9 +10,11 @@ import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
 import { registrarFallosLocales, subirFallosPendientes } from '../utils/syncFallos'
 import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
+import { getAuthInstance } from './useAuth.js'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
 let _autoConfigurado = false
+let _toastSingleton = null
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
 const PREF_ULTIMA_SYNC_OK = 'ultima_sincronizacion_ok_en'
@@ -66,8 +68,16 @@ export function haySyncEnCurso() {
 }
 
 export function useSync() {
-  const auth = useAuth()
-  const toast = useToast()
+  const auth = (import.meta.client && getAuthInstance()) || useAuth()
+  const toast = (() => {
+    try {
+      const t = useToast()
+      _toastSingleton = t
+      return t
+    } catch {
+      return _toastSingleton
+    }
+  })()
 
   const sincronizando = ref(false)
   const ultimaSync = ref(null)
@@ -335,7 +345,7 @@ export function useSync() {
 
   async function sincronizarAhora(silencioso = false) {
     if (!auth.sesionLocalVigente()) {
-      if (!silencioso) toast.add({
+      if (!silencioso) toast?.add?.({
         title: 'Sesión expirada',
         description: 'Vuelve a iniciar sesión para sincronizar.',
         color: 'warning'
@@ -346,7 +356,7 @@ export function useSync() {
     }
 
     if (!hayRed.value) {
-      if (!silencioso) toast.add({
+      if (!silencioso) toast?.add?.({
         title: 'Sin conexión',
         description: 'No hay red disponible para sincronizar.',
         color: 'error'
@@ -355,7 +365,7 @@ export function useSync() {
     }
 
     if (!auth.jwtSync.value) {
-      if (!silencioso) toast.add({
+      if (!silencioso) toast?.add?.({
         title: 'Reautenticación',
         description: 'Necesitas volver a iniciar sesión para sincronizar.',
         color: 'warning'
@@ -411,7 +421,7 @@ export function useSync() {
             evento: 'sync_cancelada',
             duracionMs: Date.now() - inicioMs
           })
-          toast.add({
+          toast?.add?.({
             title: 'Sincronización cancelada',
             description: 'Puedes reintentarlo cuando quieras: no se perdió ningún cambio.',
             color: 'info'
@@ -438,7 +448,7 @@ export function useSync() {
           mensaje: mensajeDeError(err),
           contexto: { timeout: !!err?.timeout, fase: faseSync.value }
         }])
-        if (!silencioso) toast.add({
+        if (!silencioso) toast?.add?.({
           title: 'Error en sincronización',
           description:
             err.data?.statusMessage
@@ -462,7 +472,7 @@ export function useSync() {
   async function pullServidor({ silent = false } = {}) {
     if (!auth.sesionLocalVigente()) {
       if (!silent) {
-        toast.add({
+        toast?.add?.({
           title: 'Sesión expirada',
           description: 'Vuelve a iniciar sesión para sincronizar.',
           color: 'warning'
@@ -487,7 +497,7 @@ export function useSync() {
       } catch (err) {
         if (fueCancelada(signal) || err?.cancelacionUsuario) {
           if (!silent) {
-            toast.add({
+            toast?.add?.({
               title: 'Sincronización cancelada',
               description: 'Puedes reintentarlo cuando quieras: no se perdió ningún cambio.',
               color: 'info'
@@ -513,7 +523,7 @@ export function useSync() {
           contexto: { desde: ultimaSync.value, timeout: !!err?.timeout }
         }])
         if (!silent) {
-          toast.add({
+          toast?.add?.({
             title: 'Error en sincronización',
             description:
               err.data?.statusMessage
@@ -676,7 +686,7 @@ export function useSync() {
         }
       }
     } catch (err) {
-      toast.add({
+      toast?.add?.({
         title: 'Error',
         description: err.data?.statusMessage || err.message,
         color: 'error'
@@ -747,6 +757,8 @@ export function useSync() {
     hayRed: readonly(hayRed),
     cargarEstado,
     sincronizarAhora,
+    sincronizarAuto,
+    validarSincronizacion,
     pullServidor,
     conSenalSync,
     informarFase,

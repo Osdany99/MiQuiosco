@@ -17,6 +17,29 @@ export function useAdminAuth() {
   const expiraEn = useState('admin.expiraEn', () => null)
   const cargando = useState('admin.cargando', () => false)
 
+  /** Registra una sesión admin ya emitida por /api/auth/login sin repetir la llamada. */
+  async function registrarDesdeRespuesta(respuesta) {
+    if (!respuesta?.usuario || respuesta.usuario.rol !== 'super_admin' || !respuesta.token) {
+      throw new Error('La respuesta no es de administracion.')
+    }
+
+    token.value = respuesta.token
+    usuario.value = respuesta.usuario
+    expiraEn.value = respuesta.expiraEn ?? null
+
+    if (import.meta.client) {
+      try {
+        localStorage.setItem(PREF_ADMIN, JSON.stringify({
+          token: respuesta.token,
+          usuario: respuesta.usuario,
+          expiraEn: respuesta.expiraEn ?? null
+        }))
+      } catch {
+        // Almacenamiento no disponible; se queda en memoria.
+      }
+    }
+  }
+
   /** Hay token y no ha caducado (no comprueba validez contra el servidor). */
   function sesionVigente() {
     return Boolean(token.value && expiraEn.value && expiraEn.value > Date.now())
@@ -117,6 +140,7 @@ export function useAdminAuth() {
     sesionVigente,
     cargarDesdeAlmacen,
     iniciarSesion,
+    registrarDesdeRespuesta,
     cerrarSesion,
     limpiarSesion,
     cabeceras

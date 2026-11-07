@@ -358,7 +358,3 @@ const resumenTexto = computed(() => {
     : `${vistasOff} vistas y ${accionesOff} acciones desactivadas.`
 })
 </script>
-
-<script>
-// Import alias guard for Vue SFC: usePermisos not needed here.
-</script>

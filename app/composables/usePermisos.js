@@ -8,7 +8,9 @@ const PREF_PERMISOS = 'permisos_puesto'
 // Estado compartido a nivel de módulo, como useSync.
 const overrides = ref({})
 const puestoId = ref(null)
-let cargado = false
+// Ref (no booleano suelto): la UI necesita esperar a que cargue para no mostrar
+// acciones con el fail-open de `puede()` mientras `overrides` aún está vacío.
+const cargado = ref(false)
 
 async function cargarDesdePreferencias() {
   const auth = useAuth()
@@ -20,7 +22,7 @@ async function cargarDesdePreferencias() {
       if (sesion && sesion.puestoId === actual && sesion.permisos) {
         puestoId.value = sesion.puestoId
         overrides.value = normalizarOverrides(sesion.permisos)
-        cargado = true
+        cargado.value = true
         return
       }
     }
@@ -30,7 +32,7 @@ async function cargarDesdePreferencias() {
   // Si no coincide puesto o no hay datos: limpiar.
   puestoId.value = actual || null
   overrides.value = {}
-  cargado = true
+  cargado.value = true
 }
 
 async function guardarDesdePuesto(puesto) {

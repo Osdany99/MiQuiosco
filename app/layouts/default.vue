@@ -8,8 +8,24 @@ const mobileOpen = ref(false)
 
 const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
-const config = useRuntimeConfig()
+const route = useRoute()
+const vozQuiosco = useVentaPorVoz('quiosco')
+const vozAlmacen = useVentaPorVoz('almacen')
+const ubicacionVozActual = computed(() =>
+  route.path?.startsWith('/almacen') ? 'almacen' : 'quiosco'
+)
+const vozActiva = computed(() =>
+  ubicacionVozActual.value === 'almacen' ? vozAlmacen : vozQuiosco
+)
+const vozDialogAbierto = ref(false)
+watch(() => vozActiva.value.producto.value, (fila) => {
+  if (fila) vozDialogAbierto.value = true
+})
+watch(vozDialogAbierto, (abierto) => {
+  if (!abierto) vozActiva.value.limpiar()
+})
 
+const config = useRuntimeConfig()
 const etiquetaSync = computed(() => etiquetaFaseSync(faseSync.value, progresoSync.value))
 const mostrarBannerSync = computed(() => conexion.transicionando.value || faseSync.value !== 'inactiva')
 // Avance real de la fase en curso (subida por lotes, bajada o aplicación).
@@ -231,7 +247,56 @@ const userMenuItems = computed(() => {
       </template>
     </UDashboardSidebar>
 
+    <VoiceListeningBar
+      :visible="vozActiva.micVisible.value && vozActiva.ocupado.value"
+      :ocupado="vozActiva.ocupado.value"
+      :estado="vozActiva.estado.value"
+    />
+
     <div class="flex-1 min-w-0 w-full p-6 overflow-y-auto">
+      <VoiceDock
+        v-if="vozActiva.micVisible.value"
+        :visible="vozActiva.micVisible.value"
+        :disponible="vozActiva.disponible.value"
+        :ocupado="vozActiva.ocupado.value"
+        :estado="vozActiva.estado.value"
+        :motivo="vozActiva.motivoNoDisponible.value"
+        @activar="vozActiva.venderPorVoz()"
+        @simular="vozActiva.simular($event)"
+      />
+
+      <BaseDialog
+        v-model="vozActiva.showCandidatos.value"
+        title="Elegir producto"
+        description="El reconocimiento no fue suficientemente claro. Confirma cual corresponde."
+        hide-confirm
+        @cancel="vozActiva.cancelar()"
+      >
+        <div class="space-y-2">
+          <UButton
+            v-for="candidate in vozActiva.candidatos.value"
+            :key="candidate.product.id"
+            block
+            variant="ghost"
+            color="neutral"
+            class="justify-start"
+            @click="vozActiva.seleccionarCandidato(candidate)"
+          >
+            {{ candidate.row?.nombre ?? candidate.product.name }}
+            <span class="ml-auto text-xs text-muted">{{ Math.round(candidate.score * 100) }}%</span>
+          </UButton>
+        </div>
+      </BaseDialog>
+
+      <InventarioDialogoVenta
+        v-model="vozDialogAbierto"
+        :producto="vozActiva.producto.value"
+        :ubicacion="ubicacionVozActual"
+        :modo="vozActiva.modo.value"
+        :prefill="vozActiva.prefill.value"
+        @guardado="void vozActiva.limpiar()"
+      />
+
       <UButton
         v-if="isCollapsed"
         icon="i-lucide-menu"

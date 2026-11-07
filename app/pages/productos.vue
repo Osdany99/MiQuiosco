@@ -11,7 +11,6 @@ const fields = [
   { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre del producto', colSpan: 'sm:col-span-2', props: { class: 'w-full', maxlength: 100 } },
   { name: 'descripcion', label: 'Descripción', type: 'text', required: false, placeholder: 'Descripción opcional', colSpan: 'sm:col-span-2', props: { class: 'w-full' } },
   { name: 'precioVentaActual', label: 'Precio venta', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
-  { name: 'unidad', label: 'Unidad', type: 'text', required: false, placeholder: 'unidad, lb, paquete...', props: { class: 'w-full', maxlength: 30 } },
   { name: 'stockMinimoQuiosco', label: 'Mínimo quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'stockRecomendadoQuiosco', label: 'Recomendado quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'stockMinimoAlmacen', label: 'Mínimo almacén', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
@@ -38,8 +37,8 @@ const columns = [
 
 const tableRef = ref(null)
 const formRef = ref(null)
-const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, unidad: '', stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
-
+const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
+const perms = usePermisos()
 // Producto inactivo no se vende: al desmarcar Activo se desmarca Vende solo.
 watch(() => form.value.activo, (activo) => {
   if (!activo) form.value.activoQuiosco = false

@@ -11,6 +11,9 @@ const MS_ENFRIAMIENTO_TRAS_FALLO = 60_000
 
 const modo = ref('local')
 const transicionando = ref(false)
+// La UI que depende del modo (voz, sync manual) no debe decidir con el default:
+// hasta que `cargar()` resuelve, "local" es solo un valor provisional.
+const modoCargado = ref(false)
 
 let ultimoFalloTransicion = 0
 
@@ -86,6 +89,7 @@ export function useModoConexion() {
     const value = await readPrefAsync(PREF_MODO)
     if (value === 'online' || value === 'local') {
       modo.value = value
+      modoCargado.value = true
       return
     }
     // Sin preferencia guardada: en web (no Capacitor) siempre hay red y el
@@ -93,6 +97,7 @@ export function useModoConexion() {
     // online por defecto. En Android se conserva el default local
     // (offline-first, sqlite persistente).
     modo.value = isNative() ? 'local' : 'online'
+    modoCargado.value = true
   }
 
   async function cambiarAOnline() {
@@ -159,6 +164,7 @@ export function useModoConexion() {
 
   return {
     modo: readonly(modo),
+    cargado: readonly(modoCargado),
     transicionando: readonly(transicionando),
     cargar,
     cambiarAOnline,

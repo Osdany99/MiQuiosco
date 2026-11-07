@@ -85,6 +85,8 @@ const PREF_WEBAUTHN_CRED_ID = 'webauthn_credential_id'
 const MAX_INTENTOS_BIOMETRICOS = 3
 const MSG_CREDENCIALES_INVALIDAS = 'Credenciales inválidas.'
 
+let _authSingleton = null
+
 export function useAuth() {
   const config = useRuntimeConfig()
   const sesionLocal = useState('auth.sesionLocal', () => null)
@@ -132,7 +134,20 @@ export function useAuth() {
           method: 'POST',
           body: { nombre_usuario: nombreUsuario, pin }
         })
+        // Cuenta de administracion: mismo endpoint, scope separado.
+        if (response?.usuario?.rol === 'super_admin') {
+          if (esNativo()) {
+            throw new Error('Esta cuenta es de administracion. Usa el panel web.')
+          }
+          const { useAdminAuth } = await import('./useAdminAuth.js')
+          const admin = useAdminAuth()
+          await admin.registrarDesdeRespuesta(response)
+          intentosBiometricosFallidos.value = 0
+          return response
+        }
+
         await procesarRespuestaLogin(response)
+
         try {
           const { usePermisos } = await import('./usePermisos.js')
           const perms = usePermisos()
@@ -628,7 +643,7 @@ export function useAuth() {
     }
   }
 
-  return {
+  const api = {
     sesionLocal: readonly(sesionLocal),
     jwtSync: readonly(jwtSync),
     usuarioActual: readonly(usuarioActual),
@@ -656,4 +671,10 @@ export function useAuth() {
     borrarWebauthn,
     olvidarEsteNavegadorWebauthn
   }
+  if (import.meta.client) _authSingleton = api
+  return api
+}
+
+export function getAuthInstance() {
+  return _authSingleton
 }

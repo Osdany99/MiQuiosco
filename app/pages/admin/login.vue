@@ -17,41 +17,13 @@ const avisoSesion = computed(() => route.query.reason === 'session_expired'
 )
 
 onMounted(async () => {
-  admin.cargarDesdeAlmacen()
-  if (admin.sesionVigente()) {
-    await navigateTo('/admin')
-  }
+  await navigateTo('/login')
 })
 
 async function entrar() {
   error.value = null
-
-  if (!nombreUsuario.value.trim()) {
-    error.value = 'Ingresa tu nombre de usuario.'
-    return
-  }
-
-  if (!/^\d{4,6}$/.test(pin.value)) {
-    error.value = 'El PIN debe tener entre 4 y 6 dígitos numéricos.'
-    return
-  }
-
-  enviando.value = true
-  try {
-    await admin.iniciarSesion(nombreUsuario.value, pin.value)
-
-    const destino = typeof route.query.redirect === 'string'
-      && route.query.redirect.startsWith('/admin')
-      && route.query.redirect !== '/admin/login'
-      ? route.query.redirect
-      : '/admin'
-
-    await navigateTo(destino)
-  } catch (err) {
-    error.value = mensajeErrorAdmin(err, 'No se pudo iniciar sesión.')
-  } finally {
-    enviando.value = false
-  }
+  await navigateTo('/login')
+  return
 }
 </script>
 

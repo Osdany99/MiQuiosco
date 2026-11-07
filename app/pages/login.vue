@@ -9,6 +9,7 @@ definePageMeta({
 const PREF_WEBAUTHN_ULTIMO_USUARIO = 'webauthn_ultimo_usuario'
 
 const auth = useAuth()
+useSync() // pre-warm setup-safe instances used by runtime calls during login
 const route = useRoute()
 const toast = useToast()
 
@@ -188,6 +189,11 @@ async function onSubmit() {
     // En web se recuerda el último usuario para pre-rellenar el tab de huella.
     if (!esNativo.value) {
       await Preferences.set({ key: PREF_WEBAUTHN_ULTIMO_USUARIO, value: nombreUsuario.value.trim() }).catch(() => {})
+    }
+
+    if (!esNativo.value && response?.usuario?.rol === 'super_admin') {
+      await navigateTo('/admin')
+      return
     }
 
     await irAlDestino(response)

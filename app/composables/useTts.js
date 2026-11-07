@@ -1,6 +1,7 @@
 import { Preferences } from '@capacitor/preferences'
 
 const PREF_TTS = 'voice.tts.enabled'
+const PREF_TTS_VOICE = 'voice.tts.voiceUri'
 
 export function useTts() {
   const habilitado = ref(true)
@@ -9,6 +10,10 @@ export function useTts() {
     if (typeof window === 'undefined') return false
     return typeof window.speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined'
   })
+
+  const voces = ref([])
+  const vozUri = ref(null)
+  const cargandoVoces = ref(false)
 
   async function cargar() {
     if (inicializado) return
@@ -24,6 +29,51 @@ export function useTts() {
     } catch {
       habilitado.value = false
     }
+    try {
+      const { value } = await Preferences.get({ key: PREF_TTS_VOICE })
+      if (value) vozUri.value = value
+    } catch {}
+  }
+
+  async function cargarVoces() {
+    if (!disponible.value || cargandoVoces.value) return
+    cargandoVoces.value = true
+    try {
+      let lista = window.speechSynthesis.getVoices() || []
+      if (!lista.length) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 2000)
+          const previous = window.speechSynthesis.onvoiceschanged
+          window.speechSynthesis.onvoiceschanged = () => {
+            clearTimeout(timer)
+            if (typeof previous === 'function') previous()
+            window.speechSynthesis.onvoiceschanged = previous
+            resolve()
+          }
+        })
+        lista = window.speechSynthesis.getVoices() || []
+      }
+
+      const ordenadas = [...lista].sort((a, b) => {
+        const aEs = String(a?.lang || '').toLowerCase().startsWith('es')
+        const bEs = String(b?.lang || '').toLowerCase().startsWith('es')
+        if (aEs !== bEs) return aEs ? -1 : 1
+        return String(a?.name || '').localeCompare(String(b?.name || ''))
+      })
+
+      voces.value = ordenadas
+
+      if (vozUri.value && !ordenadas.some(v => v.voiceURI === vozUri.value)) {
+        vozUri.value = null
+      }
+      if (!vozUri.value && ordenadas.length) {
+        const primeraEs = ordenadas.find(v => String(v.lang || '').toLowerCase().startsWith('es'))
+        vozUri.value = (primeraEs || ordenadas[0]).voiceURI
+        await Preferences.set({ key: PREF_TTS_VOICE, value: vozUri.value }).catch(() => {})
+      }
+    } finally {
+      cargandoVoces.value = false
+    }
   }
 
   async function setHabilitado(valor) {
@@ -33,19 +83,65 @@ export function useTts() {
     } catch {}
   }
 
-  async function speak(texto) {
-    if (!texto) return
-    await cargar()
-    if (!habilitado.value || !disponible.value) return
+  async function setVoz(uri) {
+    vozUri.value = uri || null
     try {
-      window.speechSynthesis.cancel()
-      const u = new SpeechSynthesisUtterance(String(texto))
-      u.lang = 'es-ES'
-      u.rate = 1
-      window.speechSynthesis.speak(u)
+      if (uri) await Preferences.set({ key: PREF_TTS_VOICE, value: uri })
+      else await Preferences.remove({ key: PREF_TTS_VOICE })
     } catch {}
   }
 
+  function vozActual() {
+    return voces.value.find(v => v.voiceURI === vozUri.value) || null
+  }
+
+  async function speak(texto) {
+    if (!texto) return
+    await cargar()
+    if (!disponible.value || !habilitado.value) return
+
+    const maxMs = Math.max(2500, String(texto).length * 90)
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, maxMs)
+      try {
+        window.speechSynthesis.cancel()
+        const u = new SpeechSynthesisUtterance(String(texto))
+        u.lang = 'es-ES'
+        u.rate = 1
+        const v = vozActual()
+        if (v) {
+          u.voice = v
+          if (v.lang) u.lang = v.lang
+        }
+        u.onend = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        u.onerror = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        window.speechSynthesis.speak(u)
+      } catch {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
+  }
+
   void cargar()
-  return { habilitado, disponible, cargar, setHabilitado, speak }
+  void cargarVoces()
+
+  return {
+    habilitado,
+    disponible,
+    voces,
+    vozUri,
+    cargandoVoces,
+    cargar,
+    cargarVoces,
+    setHabilitado,
+    setVoz,
+    speak
+  }
 }

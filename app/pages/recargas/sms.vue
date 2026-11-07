@@ -37,6 +37,7 @@ const clienteDe = (p) => {
 }
 
 const nombreCliente = (p) => {
+  if (!p) return null
   const cliente = clienteDe(p)
   const fila = rec.cli.telefonoDe(p.telefonoDestino)
   if (!cliente && !fila) return null
@@ -58,6 +59,7 @@ function fecha(ms) {
 }
 
 function tipoLegible(p) {
+  if (!p) return ''
   if (p.tipo === 'saldo') return 'Saldo'
   const u = p.tipo === 'voz' ? 'min' : (p.tipo === 'sms' ? 'SMS' : 'und')
   return `${p.unidades ?? ''} ${u}`.trim()
@@ -273,8 +275,8 @@ onUnmounted(() => soltarResume?.())
           class="divide-y divide-default"
         >
           <li
-            v-for="p in rec.pendientes.value"
-            :key="p.id"
+            v-for="(p, idx) in rec.pendientes.value"
+            :key="p?.id ?? idx"
             class="py-3"
           >
             <div class="flex items-start justify-between gap-3">
@@ -285,7 +287,7 @@ onUnmounted(() => soltarResume?.())
                     size="sm"
                     color="primary"
                     class="font-mono"
-                    :label="p.telefonoDestino"
+                    :label="p?.telefonoDestino ?? ''"
                   />
                   <UBadge
                     variant="outline"

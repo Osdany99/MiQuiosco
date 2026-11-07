@@ -96,10 +96,7 @@
 
         <template #cantidad-cell="{ row }">
           <span class="font-mono">
-            {{ fmtPrecio(row.original.cantidad) }}<span
-              v-if="row.original.unidad"
-              class="text-muted text-xs ml-1"
-            >{{ row.original.unidad }}</span>
+            {{ fmtPrecio(row.original.cantidad) }}
           </span>
         </template>
 

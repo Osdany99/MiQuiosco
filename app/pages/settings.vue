@@ -324,6 +324,27 @@ const ttsActivo = computed({
   set: (value) => { void tts.setHabilitado(value) }
 })
 
+const probandoTts = ref(false)
+const itemsVocesTts = computed(() =>
+  (tts.voces.value || []).map(v => ({
+    label: `${v.name}${v.lang ? ` (${v.lang})` : ''}`,
+    value: v.voiceURI
+  }))
+)
+
+async function probarTts() {
+  if (probandoTts.value) return
+  probandoTts.value = true
+  try {
+    await tts.speak('Hola, esta es la voz de MiQuiosco.')
+    toast.add({ title: 'Voz de prueba reproducida', color: 'success' })
+  } catch (e) {
+    toast.add({ title: 'No se pudo reproducir la voz', description: e?.message, color: 'error' })
+  } finally {
+    probandoTts.value = false
+  }
+}
+
 async function comprobarUpdates() {
   comprobandoUpdates.value = true
   try {
@@ -849,6 +870,38 @@ async function whOlvidarEste() {
         <USwitch v-model="ttsActivo" :disabled="!tts.disponible.value">
           Confirmar vendido por voz
         </USwitch>
+
+        <div class="space-y-2">
+          <UFormField label="Voz" />
+          <USelect
+            :items="itemsVocesTts"
+            :model-value="tts.vozUri.value"
+            :disabled="!tts.disponible.value || tts.cargandoVoces.value || !itemsVocesTts.length"
+            :placeholder="tts.cargandoVoces.value ? 'Cargando voces…' : (itemsVocesTts.length ? 'Seleccionar voz' : 'Sin voces disponibles')"
+            class="w-full"
+            @update:model-value="(value) => { void tts.setVoz(value) }"
+          />
+          <p v-if="!tts.cargandoVoces.value && !itemsVocesTts.length" class="text-xs text-warning">
+            No hay voces instaladas. Instala español en el dispositivo o navegador.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <UButton
+            color="primary"
+            variant="soft"
+            size="sm"
+            icon="i-lucide-volume-2"
+            :loading="probandoTts"
+            :disabled="!tts.disponible.value || probandoTts || !itemsVocesTts.length"
+            @click="probarTts"
+          >
+            Probar voz
+          </UButton>
+          <span class="text-xs text-muted">
+            Reproduce una frase corta con la voz seleccionada.
+          </span>
+        </div>
 
         <p v-if="!tts.disponible.value" class="text-xs text-warning">
           Síntesis de voz no disponible en este dispositivo.
