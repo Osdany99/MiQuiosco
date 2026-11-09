@@ -15,7 +15,6 @@ const ceroToquesActivo = computed(() => zeroTouch.activo.value)
 const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
 const route = useRoute()
-const esDev = import.meta.dev
 const vozQuiosco = useVentaPorVoz('quiosco')
 const vozAlmacen = useVentaPorVoz('almacen')
 const dictadoModo = useDictadoModo()
@@ -410,12 +409,7 @@ const userMenuItems = computed(() => {
         @detener="vozActiva.detenerEscucha()"
         @cancelar="vozActiva.cancelarEscucha()"
       />
-      <!-- Simulador de voz solo en desarrollo: ejecuta el pipeline sin micrófono. -->
-      <VoiceSimuladorVoz
-        v-if="esDev"
-        class="fixed bottom-4 left-4 z-50"
-        @simular="vozActiva.simular($event)"
-      />
+      <!-- Simulador de voz eliminado: se usa el micrófono real en dev y producción. -->
 
       <BaseDialog
         v-model="vozActiva.showCandidatos.value"

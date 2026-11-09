@@ -44,7 +44,7 @@ function detenerDecaimiento() {
 
 watch(
   () => hablando.value || props.estado === 'escuchando',
-  (v) => (v ? arrancarDecaimiento() : detenerDecaimiento()),
+  v => (v ? arrancarDecaimiento() : detenerDecaimiento()),
   { immediate: true }
 )
 
