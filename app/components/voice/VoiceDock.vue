@@ -7,10 +7,11 @@ const props = defineProps({
   ocupado: { type: Boolean, default: false },
   estado: { type: String, default: 'idle' },
   motivo: { type: String, default: null },
-  error: { type: String, default: null }
+  error: { type: String, default: null },
+  pushToTalk: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['activar', 'cancelar'])
+const emit = defineEmits(['activar', 'cancelar', 'detener'])
 
 const escuchando = computed(() => props.estado === 'escuchando')
 const preparando = computed(() => props.estado === 'preparando')
@@ -26,6 +27,16 @@ const isDragging = ref(false)
 const moved = ref(false)
 
 const etiquetaTooltip = computed(() => {
+  if (props.pushToTalk) {
+    if (preparando.value) return 'Preparando micrófono…'
+    if (escuchando.value) return 'Suelta para enviar'
+    if (interpretando.value) return 'Interpretando…'
+    if (props.estado === 'ambiguo') return 'Elegir producto'
+    if (props.estado === 'listo') return 'Listo para confirmar'
+    if (props.estado === 'error') return `${props.error || 'No te entendí.'} Toca para reintentar.`
+    if (!props.disponible && props.motivo) return `Voz no disponible: ${props.motivo}`
+    return 'Mantén pulsado para hablar (arrastra para mover)'
+  }
   if (preparando.value) return 'Preparando micrófono…'
   if (escuchando.value) return 'Escuchando… (toca para detener)'
   if (interpretando.value) return 'Interpretando…'
@@ -118,14 +129,24 @@ onBeforeUnmount(() => {
   if (import.meta.client) window.removeEventListener('resize', clampPosition)
 })
 
-// --- Arrastre --------------------------------------------------------------
+// --- Arrastre + push-to-talk ----------------------------------------------
 let dragStart = null
+let presionTimer = null
+let presionando = false
+
+function limpiarPresion() {
+  if (presionTimer) {
+    clearTimeout(presionTimer)
+    presionTimer = null
+  }
+}
 
 function onPointerDown(e) {
   if (!import.meta.client) return
   if (e.button && e.button !== 0) return
   isDragging.value = true
   moved.value = false
+  presionando = false
   dragStart = {
     px: e.clientX,
     py: e.clientY,
@@ -137,6 +158,15 @@ function onPointerDown(e) {
   } catch {
     /* noop */
   }
+
+  // Modo push-to-talk: se arranca tras mantener pulsado sin arrastrar.
+  if (props.pushToTalk && props.disponible && !props.ocupado) {
+    presionTimer = setTimeout(() => {
+      if (!isDragging.value || moved.value) return
+      presionando = true
+      emit('activar')
+    }, 120)
+  }
 }
 
 function onPointerMove(e) {
@@ -144,7 +174,13 @@ function onPointerMove(e) {
   const dx = e.clientX - dragStart.px
   const dy = e.clientY - dragStart.py
   if (!moved.value && Math.hypot(dx, dy) >= THRESHOLD) {
+    // Si empezó el micrófono y el usuario arrastra, se cancela (no envía).
     moved.value = true
+    limpiarPresion()
+    if (presionando) {
+      presionando = false
+      emit('cancelar')
+    }
   }
   if (moved.value) {
     const { maxX, maxY } = bounds()
@@ -156,29 +192,39 @@ function onPointerMove(e) {
 async function onPointerUp(e) {
   if (!isDragging.value) return
   isDragging.value = false
+  limpiarPresion()
   dragStart = null
   try {
     e.currentTarget?.releasePointerCapture?.(e.pointerId)
   } catch {
     /* noop */
   }
+  if (presionando) {
+    presionando = false
+    emit('detener')
+  } else if (props.pushToTalk && (props.estado === 'escuchando' || props.estado === 'preparando') && !moved.value) {
+    emit('detener')
+  }
   if (moved.value) {
     await savePosition()
-    // el flag `moved` se limpia en click; si no hay click, lo limpiamos aquí tras un tick
     setTimeout(() => {
       moved.value = false
     }, 50)
   }
 }
 
-/** Un toque inicia, detiene la escucha o reintenta tras un error. */
+/** Acción de toque/teclado: en push-to-talk alternar; en modo tap, cancelar o activar. */
 function accion() {
   if (!props.disponible) return
+  if (props.pushToTalk) {
+    if (props.ocupado) emit('detener')
+    else emit('activar')
+    return
+  }
   if (puedeCancelar.value) {
     emit('cancelar')
     return
   }
-  // Interpretando no se cancela: el resultado está a punto de abrir el diálogo.
   if (props.ocupado) return
   emit('activar')
 }
@@ -190,6 +236,7 @@ function onClick(e) {
     e.stopPropagation()
     return
   }
+  if (props.pushToTalk) return
   accion()
 }
 
@@ -201,6 +248,7 @@ function onKeyDown(e) {
   else if (e.key === 'ArrowUp') dy = -20
   else if (e.key === 'ArrowDown') dy = 20
   else if (e.key === 'Enter' || e.key === ' ') {
+    if (e.repeat) return
     e.preventDefault()
     accion()
     return

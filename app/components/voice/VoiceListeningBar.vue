@@ -3,7 +3,8 @@ const props = defineProps({
   visible: { type: Boolean, default: false },
   ocupado: { type: Boolean, default: false },
   estado: { type: String, default: 'idle' },
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  transcript: { type: String, default: '' }
 })
 
 const emit = defineEmits(['reintentar'])
@@ -49,6 +50,7 @@ const esError = computed(() => props.estado === 'error')
             :class="esError ? 'text-error' : 'text-primary animate-pulse'"
           />
           <span class="max-w-[60vw] truncate">{{ titulo }}</span>
+          <span v-if="props.transcript" class="hidden sm:inline max-w-[30vw] truncate text-primary/80">{{ props.transcript }}</span>
           <UButton
             v-if="esError"
             size="xs"

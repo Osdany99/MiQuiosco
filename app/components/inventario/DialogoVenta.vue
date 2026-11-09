@@ -66,6 +66,9 @@
       <p v-if="loteEspecial" class="text-xs text-muted">
         Lote {{ textoEstadoLote }}: se venderá por su precio de compra; puedes editarlo.
       </p>
+      <p v-if="cantidadExcedeStock" class="text-xs text-warning font-medium">
+        La cantidad por voz ({{ props.prefill?.cantidad }}) supera el stock disponible ({{ disponible }}). Reduce antes de guardar.
+      </p>
       <p v-if="superaDisponible" class="text-xs text-error font-medium">
         Solo hay {{ disponible }} en {{ etiquetaUbicacion.toLowerCase() }}.
       </p>
@@ -108,6 +111,7 @@ const tts = useTts()
 
 const clientes = ref([])
 const lotes = ref([])
+const cantidadExcedeStock = ref(false)
 
 function normalizeVoiceText(value) {
   return String(value ?? '')
@@ -243,7 +247,11 @@ function precioInicial() {
 }
 
 watch(isOpen, async (open) => {
-  if (!open) return
+  if (!open) {
+    cantidadExcedeStock.value = false
+    return
+  }
+  cantidadExcedeStock.value = false
   // La línea nace del producto tocado: cantidad 1 y el precio que corresponda
   // al modo. El jefe no puede cambiar qué producto se vende.
   form.value = {
@@ -279,9 +287,10 @@ watch(isOpen, async (open) => {
     if (props.prefill) {
       if (props.prefill.clienteId) form.value.clienteId = props.prefill.clienteId
       if (props.prefill.cantidad != null) {
-        const max = disponible.value > 0 ? disponible.value : Number(props.producto?.stock ?? 999999)
-        const qty = Math.trunc(Number(props.prefill.cantidad) || 1)
-        form.value.cantidad = Math.max(1, Math.min(qty, max || qty))
+        const qty = Math.max(1, Math.trunc(Number(props.prefill.cantidad) || 1))
+        form.value.cantidad = qty
+        const max = disponible.value > 0 ? disponible.value : Number(props.producto?.stock ?? 0)
+        cantidadExcedeStock.value = Boolean(max && qty > max)
       }
       if (esRegalo.value) {
         form.value.precioVentaUsado = 0

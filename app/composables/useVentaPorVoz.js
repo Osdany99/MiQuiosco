@@ -12,9 +12,14 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
-import { UMBRAL_PRODUCTO, decidirProducto, interpretar, resolverUbicacion } from '#shared/voz/gramatica'
+import { useAuth } from './useAuth'
+import { useCuentasFiado } from './useCuentasFiado'
+import { UMBRAL_PRODUCTO, combinarConfianza, decidirProducto, interpretar, resolverUbicacion } from '#shared/voz/gramatica'
 import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
 import { fuzzyMatchProducts } from '../utils/voice/fuzzyMatchProducts'
+import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
+import { clientesSimilares } from '#shared/clientes'
+import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
 
 const MODO_POR_TIPO = {
   directa: 'venta',
@@ -38,6 +43,9 @@ export function useVentaPorVoz(ubicacion) {
 
   const inv = useInventario()
   const voice = useVoiceCommand()
+  const tts = useTts()
+  const auth = useAuth()
+  const fiado = useCuentasFiado()
   const perms = usePermisos()
   const conexion = useModoConexion()
   const { hayRed } = useSync()
@@ -63,11 +71,6 @@ export function useVentaPorVoz(ubicacion) {
   // `?voice=1` (otra navegación) vuelve a disparar; el mismo, no.
   let consumido = null
 
-  /** Ubicación que controla el dock en la ruta actual (misma regla que el layout). */
-  function ubicacionDeRuta(ruta) {
-    return String(ruta || '').startsWith('/almacen') ? 'almacen' : 'quiosco'
-  }
-
   // No decidir con el fail-open de `puede()` ni con el `modo` por defecto:
   // hasta que permisos y modo cargan, el micrófono ni se muestra.
   const configLista = computed(() => perms.cargado.value && conexion.cargado.value)
@@ -75,18 +78,33 @@ export function useVentaPorVoz(ubicacion) {
   // En web se muestra si el navegador soporta Web Speech API (Chrome/Edge en
   // contexto seguro). En Android nativo se mantiene el plugin nativo.
   const micVisible = computed(() => tienePermiso.value && (esNativo() || voice.disponible.value))
-  const motivoNoDisponible = computed(() => {
-    if (!configLista.value) return 'Cargando…'
-    if (!perms.puedeAccion(ubicacion, 'voz')) return null
-    if (!esNativo() && !voice.disponible.value) {
-      return 'La voz web requiere un navegador compatible (Chrome/Edge) en contexto seguro (HTTPS).'
-    }
-    if (conexion.modo.value !== 'online') return 'Modo local: la voz no está disponible.'
-    if (!hayRed.value) return 'Sin conexión: la voz no está disponible.'
-    return null
-  })
+  const motivoNoDisponible = computed(() =>
+    calcularMotivoNoDisponible({
+      configLista: configLista.value,
+      tienePermiso: perms.puedeAccion(ubicacion, 'voz'),
+      esNativo: esNativo(),
+      webSoportado: voice.esWebSoportado.value,
+      nativoDisponible: esNativo() ? voice.nativoDisponible.value : null,
+      permisoMicrofono: esNativo() ? voice.permisoMicrofono.value : null,
+      modo: conexion.modo.value,
+      hayRed: hayRed.value
+    })
+  )
+
+  // En Android, consulta la disponibilidad real del STT una vez cargada la
+  // configuración, para no mostrar el micrófono donde no existe.
+  watch(
+    configLista,
+    (ready) => {
+      if (ready && esNativo() && voice.nativoDisponible.value == null) {
+        void voice.check()
+      }
+    },
+    { immediate: true }
+  )
 
   const disponible = computed(() => tienePermiso.value && !motivoNoDisponible.value)
+  const transcriptParcial = computed(() => voice.transcriptParcial.value)
   const ocupado = computed(() =>
     estado.value === 'preparando'
     || estado.value === 'escuchando'
@@ -124,18 +142,39 @@ export function useVentaPorVoz(ubicacion) {
       cantidad: Number(slots?.cantidad) || 1,
       tipoVenta: slots?.tipoVenta || 'directa',
       precioVentaUsado: slots?.precioUnitario == null ? null : Number(slots.precioUnitario),
-      clienteHint: slots?.clienteHint || null
+      clienteHint: slots?.clienteHint || null,
+      clienteId: slots?.clienteId || null
     }
     modo.value = modoVenta
     producto.value = fila
     estado.value = 'listo'
   }
 
-  /** Saldos de una ubicación. En quiosco se excluyen los productos no vendibles. */
+  /** Saldos de una ubicación. En quiosco se excluyen los productos no vendibles.
+   *  Caché in-memory con TTL corto para no pegar a la API en cada comando. */
+  const CACHE_TTL_MS = 2 * 60 * 1000
+  const cacheCatalogo = ref(null)
+
   async function catalogoDe(ubi) {
+    const pid = auth.usuarioActual.value?.puestoId ?? ''
+    const clave = `${pid}:${conexion.modo.value}:${ubi}`
+    const cached = cacheCatalogo.value
+    if (cached && cached.clave === clave && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return cached.data
+    }
     const filas = await inv.cargarSaldos() ?? []
-    return ubi === 'quiosco' ? filas.filter(f => f.seVende !== false) : filas
+    const data = ubi === 'quiosco' ? filas.filter(f => f.seVende !== false) : filas
+    cacheCatalogo.value = { clave, ts: Date.now(), data }
+    return data
   }
+
+  function invalidarCatalogoVoz() {
+    cacheCatalogo.value = null
+  }
+
+  watch(() => conexion.modo.value, () => {
+    cacheCatalogo.value = null
+  })
 
   /**
    * @param {string} texto
@@ -160,6 +199,22 @@ export function useVentaPorVoz(ubicacion) {
       throw new Error('Todavía no sé hacer eso. Prueba: "vende 5 panes".')
     }
 
+    // Match fuzzy de cliente (accent-insensible + similitud del shared).
+    if (slots.clienteHint) {
+      try {
+        const pid = auth.usuarioActual.value?.puestoId
+        if (pid) {
+          const listaClientes = await fiado.cargarClientes(pid, { incluirSinCliente: false })
+          const similares = clientesSimilares(slots.clienteHint, listaClientes, { umbral: 0.7 })
+          if (similares.length) {
+            slots.clienteId = similares[0].cliente.id
+          }
+        }
+      } catch {
+        // La selección de cliente no debe bloquear el dictado.
+      }
+    }
+
     const destino = resolverUbicacion(slots, ubicacion)
     if (destino.conflicto) {
       if (!vigente()) return
@@ -176,10 +231,18 @@ export function useVentaPorVoz(ubicacion) {
     const catalogo = await catalogoDe(destino.ubicacion)
     if (!vigente()) return
 
-    const base = catalogo.map(f => ({ id: f.productoId, name: f.nombre, canonicalSpeak: f.nombre }))
+    const base = catalogo.map(f => ({
+      id: f.productoId,
+      name: f.nombre,
+      canonicalSpeak: f.nombre,
+      description: f.descripcion
+    }))
     const encontrados = fuzzyMatchProducts(slots.productoHint, base)
-      .map(c => ({ ...c, row: catalogo.find(f => f.productoId === c.product.id) }))
-      .filter(c => c.row)
+      .map((c) => {
+        const row = catalogo.find(f => f.productoId === c.product.id)
+        return row ? { ...c, row, scoreEfectivo: combinarConfianza(c.score, sttConfidence) } : null
+      })
+      .filter(Boolean)
 
     if (!encontrados.length) {
       throw new Error(`No encontré "${slots.productoHint || 'ese producto'}".`)
@@ -209,6 +272,15 @@ export function useVentaPorVoz(ubicacion) {
 
     limpiar()
     const gen = ++generacion
+    if (tts.greetingEnabled?.value) {
+      estado.value = 'preparando'
+      try {
+        await tts.speak('Hola, ¿qué puedo hacer por ti hoy?')
+      } catch {
+        /* noop */
+      }
+      if (gen !== generacion) return
+    }
     estado.value = 'preparando'
     try {
       // Deja pintar "Preparando…" antes de que el micrófono tome el foco
@@ -253,6 +325,16 @@ export function useVentaPorVoz(ubicacion) {
     limpiar()
   }
 
+  /** Detiene la escucha para enviar el resultado actual (push-to-talk). */
+  async function detenerEscucha() {
+    if (estado.value !== 'escuchando' && estado.value !== 'preparando') return
+    try {
+      await voice.stopListening(false)
+    } catch {
+      // Si el motor ya terminó, no hay nada que enviar.
+    }
+  }
+
   function reintentar() {
     return venderPorVoz()
   }
@@ -291,22 +373,25 @@ export function useVentaPorVoz(ubicacion) {
   watch(
     [() => route.query.voice, () => route.path, configLista, disponible, motivoNoDisponible],
     ([consulta, ruta, lista, listo, motivo]) => {
-      const query = Array.isArray(consulta) ? consulta[0] : consulta
-      if (query !== '1') return
-      if (!lista) return
-      if (ubicacionDeRuta(ruta) !== ubicacion) return
-
-      const clave = route.fullPath
-      if (consumido === clave) return
-      if (!listo) {
-        consumido = clave
-        if (motivo && motivo !== 'Cargando…') {
-          toast.add({ title: 'Voz', description: motivo, color: 'warning' })
+      const evaluacion = evaluarDisparoVoz({
+        query: consulta,
+        configLista: lista,
+        ubicacionActual: ubicacionActiva(ruta),
+        ubicacionInstancia: ubicacion,
+        consumido,
+        disponible: listo,
+        motivo,
+        clave: route.fullPath
+      })
+      if (evaluacion.accion === 'none' || evaluacion.accion === 'esperar') return
+      if (evaluacion.consumir && evaluacion.clave) consumido = evaluacion.clave
+      if (evaluacion.accion === 'motivo') {
+        if (evaluacion.mensaje) {
+          toast.add({ title: 'Voz', description: evaluacion.mensaje, color: 'warning' })
         }
         return
       }
-      consumido = clave
-      void venderPorVoz()
+      if (evaluacion.accion === 'disparar') void venderPorVoz()
     },
     { immediate: true }
   )
@@ -318,6 +403,7 @@ export function useVentaPorVoz(ubicacion) {
     micVisible,
     motivoNoDisponible,
     ultimoError,
+    transcriptParcial,
     candidatos,
     showCandidatos,
     prefill,
@@ -325,7 +411,9 @@ export function useVentaPorVoz(ubicacion) {
     modo,
     venderPorVoz,
     reintentar,
+    detenerEscucha,
     cancelarEscucha,
+    invalidarCatalogoVoz,
     seleccionarCandidato,
     cancelar,
     limpiar,

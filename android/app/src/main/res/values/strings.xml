@@ -4,4 +4,8 @@
     <string name="title_activity_main">MyQuiosco</string>
     <string name="package_name">com.myquiosco.app</string>
     <string name="custom_url_scheme">com.myquiosco.app</string>
+    <string name="shortcut_voice_quiosco_short">Voz quiosco</string>
+    <string name="shortcut_voice_quiosco_long">Vender por voz en quiosco</string>
+    <string name="shortcut_voice_almacen_short">Voz almacén</string>
+    <string name="shortcut_voice_almacen_long">Vender por voz en almacén</string>
 </resources>

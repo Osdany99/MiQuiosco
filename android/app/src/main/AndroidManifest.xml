@@ -31,7 +31,12 @@
                 <data android:scheme="miqiosco" android:host="voice" />
             </intent-filter>
 
-        </activity>
+        <!-- Atajos de comandos por voz / deep-linking. -->
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
+
+    </activity>
 
         <provider
             android:name="androidx.core.content.FileProvider"

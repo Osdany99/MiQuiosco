@@ -2,9 +2,11 @@ import { Preferences } from '@capacitor/preferences'
 
 const PREF_TTS = 'voice.tts.enabled'
 const PREF_TTS_VOICE = 'voice.tts.voiceUri'
+const PREF_GREETING = 'voice.greeting.enabled'
 
 function _useTts() {
   const habilitado = ref(true)
+  const greetingEnabled = ref(false)
   let inicializado = false
   const disponible = computed(() => {
     if (typeof window === 'undefined') return false
@@ -33,6 +35,12 @@ function _useTts() {
       const { value } = await Preferences.get({ key: PREF_TTS_VOICE })
       if (value) vozUri.value = value
     } catch {}
+    try {
+      const { value } = await Preferences.get({ key: PREF_GREETING })
+      greetingEnabled.value = value === 'true'
+    } catch {
+      greetingEnabled.value = false
+    }
   }
 
   async function cargarVoces() {
@@ -91,6 +99,15 @@ function _useTts() {
     } catch {}
   }
 
+  async function setGreetingEnabled(value) {
+    greetingEnabled.value = Boolean(value)
+    try {
+      await Preferences.set({ key: PREF_GREETING, value: String(greetingEnabled.value) })
+    } catch {
+      /* noop */
+    }
+  }
+
   function vozActual() {
     return voces.value.find(v => v.voiceURI === vozUri.value) || null
   }
@@ -136,12 +153,14 @@ function _useTts() {
   return {
     habilitado,
     disponible,
+    greetingEnabled,
     voces,
     vozUri,
     cargandoVoces,
     cargar,
     cargarVoces,
     setHabilitado,
+    setGreetingEnabled,
     setVoz,
     speak
   }

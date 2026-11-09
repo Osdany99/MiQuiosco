@@ -12,7 +12,11 @@ import {
   resolverComando,
   resolverUbicacion
 } from '../shared/voz/gramatica.js'
-import { fuzzyMatchProducts } from '../app/utils/voice/fuzzyMatchProducts.js'
+import { fonetizar, fuzzyMatchProducts } from '../app/utils/voice/fuzzyMatchProducts.js'
+import { ubicacionActiva, evaluarDisparoVoz } from '../app/utils/voice/disparoVoz.js'
+import { calcularMotivoNoDisponible } from '../app/utils/voice/disponibilidad.js'
+import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
+import { mensajeStt } from '../app/utils/voice/stt.js'
 
 describe('voz: normalización y números', () => {
   it('normaliza acentos, mayúsculas y puntuación', () => {
@@ -234,5 +238,133 @@ describe('voz: fuzzy de productos', () => {
   it('sin hint no hay candidatos', () => {
     assert.deepEqual(fuzzyMatchProducts('', catalogo), [])
     assert.deepEqual(fuzzyMatchProducts('zzzzzz', catalogo), [])
+  })
+})
+
+describe('voz: fonética y descripción', () => {
+  it('fonetizar colapsa variantes típicas', () => {
+    assert.equal(fonetizar('Bebida'), fonetizar('Vebida'))
+    assert.equal(fonetizar('pollo'), fonetizar('poyo'))
+    assert.equal(fonetizar('Zapatos'), fonetizar('sapatos'))
+  })
+
+  it('desempata productos con mismo nombre por descripción', () => {
+    const catalogo = [
+      { id: '1', name: 'Refresco', description: 'Lata' },
+      { id: '2', name: 'Refresco', description: 'Botella' }
+    ]
+    const results = fuzzyMatchProducts('refresco lata', catalogo)
+    assert.equal(results[0].product.id, '1')
+    assert.equal(results[0].matchField, 'description')
+  })
+
+  it('sin descripción sigue funcionando', () => {
+    const catalogo = [{ id: '1', name: 'Pan' }]
+    const [mejor] = fuzzyMatchProducts('pan', catalogo)
+    assert.equal(mejor.product.id, '1')
+    assert.equal(mejor.score, 1)
+  })
+})
+
+describe('voz: auto-disparo y disponibilidad', () => {
+  it('ubicacionActiva detecta almacén', () => {
+    assert.equal(ubicacionActiva('/almacen'), 'almacen')
+    assert.equal(ubicacionActiva('/quiosco'), 'quiosco')
+    assert.equal(ubicacionActiva('/cuadre'), 'quiosco')
+  })
+
+  it('solo dispara en la ubicación activa', () => {
+    const r1 = evaluarDisparoVoz({
+      query: '1', configLista: true, ubicacionActual: 'almacen',
+      ubicacionInstancia: 'quiosco', consumido: null, disponible: true,
+      motivo: null, clave: '/x'
+    })
+    assert.equal(r1.accion, 'none')
+
+    const r2 = evaluarDisparoVoz({
+      query: '1', configLista: true, ubicacionActual: 'almacen',
+      ubicacionInstancia: 'almacen', consumido: null, disponible: true,
+      motivo: null, clave: '/x'
+    })
+    assert.equal(r2.accion, 'disparar')
+    assert.equal(r2.consumir, true)
+  })
+
+  it('no dispara dos veces la misma clave y respeta config no cargada', () => {
+    const rWait = evaluarDisparoVoz({
+      query: '1', configLista: false, ubicacionActual: 'quiosco',
+      ubicacionInstancia: 'quiosco', consumido: null, disponible: false,
+      motivo: null, clave: '/x'
+    })
+    assert.equal(rWait.accion, 'esperar')
+
+    const rDup = evaluarDisparoVoz({
+      query: '1', configLista: true, ubicacionActual: 'quiosco',
+      ubicacionInstancia: 'quiosco', consumido: '/x', disponible: true,
+      motivo: null, clave: '/x'
+    })
+    assert.equal(rDup.accion, 'none')
+  })
+
+  it('no dispara si no está disponible y emite motivo', () => {
+    const r = evaluarDisparoVoz({
+      query: '1', configLista: true, ubicacionActual: 'quiosco',
+      ubicacionInstancia: 'quiosco', consumido: null, disponible: false,
+      motivo: 'Sin conexión', clave: '/x'
+    })
+    assert.equal(r.accion, 'motivo')
+    assert.equal(r.mensaje, 'Sin conexión')
+  })
+
+  it('calcula motivos de no disponibilidad', () => {
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: false, tienePermiso: true, esNativo: false,
+      webSoportado: true, nativoDisponible: null, permisoMicrofono: null,
+      modo: 'online', hayRed: true
+    }), 'Cargando…')
+
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: false,
+      webSoportado: false, nativoDisponible: null, permisoMicrofono: null,
+      modo: 'online', hayRed: true
+    }), 'La voz web requiere un navegador compatible (Chrome/Edge) en contexto seguro (HTTPS).')
+
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: true,
+      webSoportado: true, nativoDisponible: false, permisoMicrofono: true,
+      modo: 'online', hayRed: true
+    }), 'Este dispositivo no tiene reconocimiento de voz.')
+
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: true,
+      webSoportado: true, nativoDisponible: true, permisoMicrofono: false,
+      modo: 'online', hayRed: true
+    }), 'Falta el permiso de micrófono.')
+
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: false,
+      webSoportado: true, nativoDisponible: null, permisoMicrofono: null,
+      modo: 'local', hayRed: true
+    }), 'Modo local: la voz no está disponible.')
+
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: false,
+      webSoportado: true, nativoDisponible: null, permisoMicrofono: null,
+      modo: 'online', hayRed: false
+    }), 'Sin conexión: la voz no está disponible.')
+  })
+})
+
+describe('voz: stt y prefill', () => {
+  it('mapea errores STT', () => {
+    assert.equal(mensajeStt('speech_timeout'), 'No se escuchó nada.')
+    assert.equal(mensajeStt('timeout'), 'La escucha tardó demasiado.')
+    assert.equal(mensajeStt('algo'), 'algo')
+  })
+
+  it('ajusta cantidad por voz sin bloquear y avisa si excede', () => {
+    assert.deepEqual(ajustarCantidadVoz(5, 10), { cantidad: 5, excede: false, disponible: 10 })
+    assert.deepEqual(ajustarCantidadVoz(15, 10), { cantidad: 15, excede: true, disponible: 10 })
+    assert.deepEqual(ajustarCantidadVoz(3, null), { cantidad: 3, excede: false, disponible: null })
   })
 })

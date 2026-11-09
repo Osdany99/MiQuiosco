@@ -122,7 +122,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                     intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
                 }
                 intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-                intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+                intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                 // Dar margen para que el usuario hable sin que el
                 // reconocedor se rinda por silencio.
                 intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000);
@@ -133,10 +133,21 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                 recognizer.setRecognitionListener(new RecognitionListener() {
                     @Override public void onReadyForSpeech(Bundle params) {}
                     @Override public void onBeginningOfSpeech() {}
+                    @Override
+                    public void onPartialResults(Bundle partialResults) {
+                        ArrayList<String> matches = partialResults == null ? null : partialResults.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION);
+                        if (matches == null || matches.isEmpty()) return;
+                        String text = matches.get(0);
+                        try {
+                            JSObject data = new JSObject();
+                            data.put("text", text == null ? "" : text);
+                            notifyListeners("partialResult", data);
+                        } catch (Exception ignored) { }
+                    }
                     @Override public void onRmsChanged(float rmsdB) {}
                     @Override public void onBufferReceived(byte[] buffer) {}
                     @Override public void onEndOfSpeech() {}
-                    @Override public void onPartialResults(Bundle partialResults) {}
                     @Override public void onEvent(int eventType, Bundle params) {}
 
                     @Override
@@ -192,7 +203,24 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                 currentCall.reject("cancelled");
                 currentCall = null;
             }
-            call.resolve();
+            JSObject r = new JSObject();
+            r.put("ok", true);
+            call.resolve(r);
+        });
+    }
+
+    // Finaliza la escucha para consumir el resultado actual (push-to-talk).
+    // NO cancela el reconocedor: el `start` pendiente resuelve con la
+    // transcripcion cuando el motor termina. Base para push-to-talk.
+    @PluginMethod
+    public void finish(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            if (recognizer != null) {
+                try { recognizer.stopListening(); } catch (Exception ignored) {}
+            }
+            JSObject r = new JSObject();
+            r.put("ok", true);
+            call.resolve(r);
         });
     }
 

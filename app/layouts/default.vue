@@ -9,8 +9,10 @@ const mobileOpen = ref(false)
 const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
 const route = useRoute()
+const esDev = import.meta.dev
 const vozQuiosco = useVentaPorVoz('quiosco')
 const vozAlmacen = useVentaPorVoz('almacen')
+const dictadoModo = useDictadoModo()
 const ubicacionVozActual = computed(() =>
   route.path?.startsWith('/almacen') ? 'almacen' : 'quiosco'
 )
@@ -259,6 +261,7 @@ const userMenuItems = computed(() => {
       :ocupado="vozActiva.ocupado.value"
       :estado="vozActiva.estado.value"
       :error="vozActiva.ultimoError.value || ''"
+      :transcript="vozActiva.transcriptParcial.value"
       @reintentar="vozActiva.reintentar()"
     />
 
@@ -270,13 +273,15 @@ const userMenuItems = computed(() => {
         :ocupado="vozActiva.ocupado.value"
         :estado="vozActiva.estado.value"
         :motivo="vozActiva.motivoNoDisponible.value"
+        :push-to-talk="dictadoModo.pushToTalk.value"
         :error="vozActiva.ultimoError.value"
         @activar="vozActiva.venderPorVoz()"
+        @detener="vozActiva.detenerEscucha()"
         @cancelar="vozActiva.cancelarEscucha()"
       />
       <!-- Simulador de voz solo en desarrollo: ejecuta el pipeline sin micrófono. -->
       <SimuladorVoz
-        v-if="import.meta.dev"
+        v-if="esDev"
         class="fixed bottom-4 left-4 z-50"
         @simular="vozActiva.simular($event)"
       />
@@ -298,8 +303,11 @@ const userMenuItems = computed(() => {
             class="justify-start"
             @click="vozActiva.seleccionarCandidato(candidate)"
           >
-            {{ candidate.row?.nombre ?? candidate.product.name }}
-            <span class="ml-auto text-xs text-muted">{{ Math.round(candidate.score * 100) }}%</span>
+            <span class="flex flex-col items-start">
+              <span>{{ candidate.row?.nombre ?? candidate.product.name }}</span>
+              <span v-if="candidate.row?.descripcion" class="text-xs text-muted">{{ candidate.row.descripcion }}</span>
+            </span>
+            <span class="ml-auto text-xs text-muted">{{ Math.round(((candidate.scoreEfectivo ?? candidate.score) * 100)) }}%</span>
           </UButton>
         </div>
       </BaseDialog>
@@ -310,7 +318,7 @@ const userMenuItems = computed(() => {
         :ubicacion="ubicacionVozActual"
         :modo="vozActiva.modo.value"
         :prefill="vozActiva.prefill.value"
-        @guardado="void vozActiva.limpiar()"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
       />
 
       <UButton

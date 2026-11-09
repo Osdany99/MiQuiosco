@@ -7,6 +7,10 @@ import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaB
 const toast = useToast()
 const conexion = useModoConexion()
 const tts = useTts()
+const dictadoModo = useDictadoModo()
+const voz = useVoiceCommand()
+const pruebaMicrofono = ref('')
+const probandoMicrofono = ref(false)
 const update = useAppUpdate()
 const auth = useAuth()
 const { validarSincronizacion } = useSync()
@@ -126,6 +130,9 @@ onMounted(() => {
   if (!esNativo.value) return
   refrescarPermisos()
   document.addEventListener('visibilitychange', alVolverDeAjustes)
+})
+onMounted(() => {
+  void voz.check()
 })
 
 onUnmounted(() => {
@@ -323,6 +330,20 @@ const ttsActivo = computed({
   get: () => tts.habilitado.value,
   set: (value) => { void tts.setHabilitado(value) }
 })
+const saludoActivo = computed({
+  get: () => tts.greetingEnabled.value,
+  set: (value) => { void tts.setGreetingEnabled(value) }
+})
+const dictadoPushToTalk = computed({
+  get: () => dictadoModo.pushToTalk.value,
+  set: (value) => { dictadoModo.set(value) }
+})
+const micMotivo = computed(() => {
+  if (voz.esNativo.value && voz.nativoDisponible.value === false) return 'Este dispositivo no tiene reconocimiento de voz.'
+  if (voz.esNativo.value && voz.permisoMicrofono.value === false) return 'Falta el permiso de micrófono.'
+  if (!voz.disponible.value) return 'No disponible.'
+  return ''
+})
 
 const probandoTts = ref(false)
 const itemsVocesTts = computed(() =>
@@ -342,6 +363,52 @@ async function probarTts() {
     toast.add({ title: 'No se pudo reproducir la voz', description: e?.message, color: 'error' })
   } finally {
     probandoTts.value = false
+  }
+}
+
+async function pedirPermisoMicrofono() {
+  if (probandoMicrofono.value) return
+  probandoMicrofono.value = true
+  try {
+    const ok = await voz.pedirPermisoMicrofono()
+    if (ok) {
+      toast.add({ title: 'Permiso de micrófono concedido', color: 'success' })
+    } else {
+      toast.add({ title: 'Permiso de micrófono no concedido', color: 'warning' })
+    }
+    await voz.check()
+  } catch (e) {
+    toast.add({ title: 'No se pudo pedir el permiso', description: e?.message, color: 'error' })
+  } finally {
+    probandoMicrofono.value = false
+  }
+}
+
+async function probarMicrofono() {
+  if (probandoMicrofono.value) return
+  probandoMicrofono.value = true
+  pruebaMicrofono.value = ''
+  try {
+    await voz.check()
+    if (voz.esNativo.value && !voz.nativoDisponible.value) {
+      toast.add({ title: 'Este dispositivo no tiene reconocimiento de voz', color: 'warning' })
+      return
+    }
+    await voz.startListening({ language: 'es-ES' })
+    if (voz.estado.value === 'error') {
+      toast.add({ title: voz.error.value || 'No se pudo reconocer', color: 'error' })
+      return
+    }
+    pruebaMicrofono.value = voz.transcript.value || ''
+    if (pruebaMicrofono.value) {
+      toast.add({ title: 'Prueba de micrófono: ' + pruebaMicrofono.value, color: 'success' })
+    } else {
+      toast.add({ title: 'No se escuchó nada', color: 'warning' })
+    }
+  } catch (e) {
+    toast.add({ title: 'No se pudo probar el micrófono', description: e?.message, color: 'error' })
+  } finally {
+    probandoMicrofono.value = false
   }
 }
 
@@ -871,6 +938,10 @@ async function whOlvidarEste() {
           Confirmar vendido por voz
         </USwitch>
 
+        <USwitch v-model="saludoActivo" :disabled="!tts.disponible.value">
+          Leer saludo al dictar
+        </USwitch>
+
         <div class="space-y-2">
           <UFormField label="Voz" />
           <USelect
@@ -905,6 +976,75 @@ async function whOlvidarEste() {
 
         <p v-if="!tts.disponible.value" class="text-xs text-warning">
           Síntesis de voz no disponible en este dispositivo.
+        </p>
+      </div>
+    </UCard>
+
+    <UCard>
+      <div class="space-y-3">
+        <div>
+          <h2 class="text-sm font-medium">
+            Modo de dictado (micrófono)
+          </h2>
+          <p class="text-sm text-muted">
+            Elige cómo se activa la escucha por voz.
+          </p>
+        </div>
+        <USwitch v-model="dictadoPushToTalk">
+          Mantener pulsado para hablar
+        </USwitch>
+        <p class="text-xs text-muted">
+          Activado: mantén el micrófono pulsado mientras hablas y suelta para enviar.
+          Desactivado: pulsa una vez para empezar y usa el botón cuadrado para parar o cancelar.
+        </p>
+      </div>
+    </UCard>
+
+    <UCard>
+      <div class="space-y-3">
+        <div>
+          <h2 class="text-sm font-medium">
+            Micrófono (reconocimiento de voz)
+          </h2>
+          <p class="text-sm text-muted">
+            Disponibilidad y prueba del motor de voz.
+          </p>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <span
+            class="size-2 rounded-full"
+            :class="voz.disponible ? 'bg-green-500' : 'bg-red-500'"
+          />
+          <span>{{ voz.disponible ? 'Disponible' : 'No disponible' }}</span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            color="primary"
+            variant="soft"
+            size="sm"
+            icon="i-lucide-mic"
+            :loading="probandoMicrofono"
+            @click="pedirPermisoMicrofono"
+          >
+            Conceder permiso
+          </UButton>
+          <UButton
+            color="primary"
+            variant="soft"
+            size="sm"
+            icon="i-lucide-headphones"
+            :loading="probandoMicrofono"
+            :disabled="!voz.disponible"
+            @click="probarMicrofono"
+          >
+            Probar micrófono
+          </UButton>
+        </div>
+        <p v-if="pruebaMicrofono" class="text-xs text-muted">
+          Escuchado: {{ pruebaMicrofono }}
+        </p>
+        <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
+          {{ micMotivo }}
         </p>
       </div>
     </UCard>

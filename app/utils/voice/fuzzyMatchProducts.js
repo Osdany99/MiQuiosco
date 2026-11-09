@@ -14,6 +14,7 @@
 
 const PESO_CONTENCION = 0.88
 const PESO_PALABRA = 0.8
+const PESO_DESCRIPCION = 0.82
 
 function normal(texto) {
   return String(texto ?? '')
@@ -23,6 +24,19 @@ function normal(texto) {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/** Normalización fonética para habla cubana/STT: b/v, ll/y, z/s, h muda, q/k/c. */
+export function fonetizar(texto) {
+  let s = normal(texto)
+  s = s.replace(/h/g, '')
+  s = s.replace(/v/g, 'b')
+  s = s.replace(/ll/g, 'y')
+  s = s.replace(/z/g, 's')
+  s = s.replace(/q/g, 'c')
+  s = s.replace(/k/g, 'c')
+  s = s.replace(/j/g, 'y')
+  return s
 }
 
 /** Plural español → singular (heurística barata y suficiente para un catálogo). */
@@ -36,7 +50,14 @@ function variantes(texto) {
   const base = normal(texto)
   if (!base) return []
   const sing = base.split(' ').map(singular).join(' ')
-  return sing === base ? [base] : [base, sing]
+  const out = []
+  const raw = sing === base ? [base] : [base, sing]
+  for (const item of raw) {
+    out.push(item)
+    const fon = fonetizar(item)
+    if (fon !== item && !out.includes(fon)) out.push(fon)
+  }
+  return out
 }
 
 function tokens(texto) {
@@ -108,15 +129,40 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
 
   const puntuados = (catalogo || [])
     .map((product) => {
-      const nombres = [product.name, product.canonicalSpeak].filter(Boolean)
-      let mejor = { score: 0, distance: 999 }
-      for (const nombre of nombres) {
-        const p = puntuar(hint, nombre)
-        if (p.score > mejor.score) mejor = p
+      let mejor = { score: 0, distance: 999, matchedField: 'name' }
+
+      const campos = [
+        { value: product.name, field: 'name', peso: 1 },
+        { value: product.canonicalSpeak, field: 'name', peso: 1 },
+        { value: product.description ?? product.descripcion, field: 'description', peso: PESO_DESCRIPCION }
+      ].filter(c => c.value)
+
+      for (const campo of campos) {
+        const p = puntuar(hint, campo.value)
+        if (p.score * campo.peso > mejor.score) {
+          mejor = {
+            score: p.score * campo.peso,
+            distance: p.distance,
+            matchedField: campo.field
+          }
+        }
       }
-      return { product, distance: mejor.distance, score: mejor.score }
+
+      // Refuerzo por palabras sueltas de la descripción (lata/botella/paquete).
+      const tokensDescription = tokens(product.description ?? product.descripcion)
+      for (const token of tokens(hint)) {
+        if (tokensDescription.includes(token) && mejor.score < 0.9) {
+          mejor = {
+            score: 0.9,
+            distance: mejor.distance,
+            matchedField: 'description'
+          }
+        }
+      }
+
+      return { product, distance: mejor.distance, score: mejor.score, matchField: mejor.matchedField }
     })
-    .filter(item => item.score > 0)
+    .filter(item => item.score > 0.13)
 
   puntuados.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
