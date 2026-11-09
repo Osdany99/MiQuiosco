@@ -239,6 +239,13 @@
       "when": 1794252616502,
       "tag": "0033_vengeful_king_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794253204105,
+      "tag": "0034_light_otto_octavius",
+      "breakpoints": true
     }
   ]
 }

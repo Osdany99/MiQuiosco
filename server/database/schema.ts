@@ -1321,6 +1321,37 @@ export const vozEventos = pgTable(
 export type VozEvento = typeof vozEventos.$inferSelect
 export type NuevoVozEvento = typeof vozEventos.$inferInsert
 
+// Auditoría central del Modo PRO: pruebas de auto-confirmación que el dispositivo
+// intentó registrar. Solo datos estructurados, nunca texto crudo de voz.
+export const vozConfirmaciones = pgTable(
+  'voz_confirmaciones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    productoId: uuid('producto_id').references(() => productos.id),
+    productoNombre: text('producto_nombre'),
+    cantidad: integer('cantidad'),
+    ubicacion: text('ubicacion'),
+    modo: text('modo'),
+    confianza: doublePrecision('confianza'),
+    outcome: text('outcome').notNull(), // auto-confirmado | cancelado | abandonado
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow()
+  },
+  table => ({
+    // El panel filtra por puesto/estado temporal y ordena por fecha.
+    puestoCreadoIdx: index('voz_confirmaciones_puesto_creado_en_idx').on(
+      table.puestoId,
+      table.creadoEn
+    )
+  })
+)
+
+export type VozConfirmacion = typeof vozConfirmaciones.$inferSelect
+export type NuevaVozConfirmacion = typeof vozConfirmaciones.$inferInsert
+
 // Léxico remoto de comandos de voz (P7). Solo sinónimos a categorías cerradas.
 export const vozLexico = pgTable(
   'voz_lexico',

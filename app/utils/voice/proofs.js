@@ -7,6 +7,7 @@
  * localStorage (web) para no perderlo al recargar.
  */
 import { Preferences } from '@capacitor/preferences'
+import { getApiBaseUrl } from '../utils/api'
 
 const KEY = 'voice.proofs'
 const MAX = 50
@@ -43,6 +44,24 @@ export async function leerProofs() {
  * @param {object} proof Datos estructurados del intento (sin texto crudo).
  * @returns {Promise<object|null>} El registro guardado, o null si no se pudo.
  */
+async function subirProof(proof) {
+  // Auditoría central best-effort: si no hay red o el servidor falla, no se
+  // bloquea (el proof ya quedó guardado localmente).
+  try {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    const baseUrl = await getApiBaseUrl()
+    const url = `${baseUrl || ''}/api/voz/confirmaciones`
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(proof)
+    })
+  } catch {
+    /* noop: auditoría central opcional */
+  }
+}
+
 export async function registrarProof(proof) {
   if (!proof || typeof proof !== 'object') return null
   const item = { ts: new Date().toISOString(), ...proof }
@@ -58,5 +77,6 @@ export async function registrarProof(proof) {
   } catch {
     /* noop */
   }
+  void subirProof(item)
   return item
 }

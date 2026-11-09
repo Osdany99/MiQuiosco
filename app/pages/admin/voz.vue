@@ -7,6 +7,20 @@ definePageMeta({
 const toast = useToast()
 const cargando = ref(false)
 const errorCarga = ref(null)
+const limpiando = ref(false)
+
+async function limpiarAntiguos() {
+  limpiando.value = true
+  try {
+    await $fetch('/api/admin/voz/limpiar', { method: 'POST' })
+    toast.add({ title: 'Voz', description: 'Eventos antiguos depurados.', color: 'success' })
+    await cargar()
+  } catch (e) {
+    toast.add({ title: 'Error', description: e?.message || 'No se pudo limpiar.', color: 'error' })
+  } finally {
+    limpiando.value = false
+  }
+}
 const filas = ref([])
 const filtroEstado = ref('abierto')
 
@@ -78,6 +92,20 @@ watch(filtroEstado, cargar)
   >
     <template #trailing>
       <span class="text-sm text-muted">{{ filas.length }} eventos</span>
+      <UButton
+        to="/admin/voz-confirmaciones"
+        icon="i-lucide-shield-check"
+        variant="outline"
+        label="Confirmaciones"
+      />
+      <UButton
+        icon="i-lucide-trash-2"
+        variant="outline"
+        label="Depurar"
+        color="warning"
+        :loading="limpiando"
+        @click="limpiarAntiguos"
+      />
       <UButton
         icon="i-lucide-refresh-cw"
         variant="outline"
