@@ -393,6 +393,7 @@ const userMenuItems = computed(() => {
       :error="vozActiva.ultimoError.value || ''"
       :transcript="vozActiva.transcriptParcial.value"
       @reintentar="vozActiva.reintentar()"
+      @cancelar="vozActiva.cancelarEscucha()"
     />
 
     <div class="flex-1 min-w-0 w-full p-6 overflow-y-auto">
@@ -410,7 +411,7 @@ const userMenuItems = computed(() => {
         @cancelar="vozActiva.cancelarEscucha()"
       />
       <!-- Simulador de voz solo en desarrollo: ejecuta el pipeline sin micrófono. -->
-      <VoiceSimuladorVoz
+      <SimuladorVoz
         v-if="esDev"
         class="fixed bottom-4 left-4 z-50"
         @simular="vozActiva.simular($event)"

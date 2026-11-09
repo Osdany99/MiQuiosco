@@ -7,6 +7,9 @@ const PREF_GREETING = 'voice.greeting.enabled'
 function _useTts() {
   const habilitado = ref(true)
   const greetingEnabled = ref(false)
+  // Estado para animar la onda mientras la app habla.
+  const hablando = ref(false)
+  const pulsoHabla = ref(0)
   let inicializado = false
   const disponible = computed(() => {
     if (typeof window === 'undefined') return false
@@ -120,7 +123,12 @@ function _useTts() {
 
     const maxMs = Math.max(2500, String(texto).length * 90)
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, maxMs)
+      const terminar = () => {
+        hablando.value = false
+        pulsoHabla.value = 0
+        resolve()
+      }
+      const timer = setTimeout(terminar, maxMs)
       try {
         window.speechSynthesis.cancel()
         const u = new SpeechSynthesisUtterance(String(texto))
@@ -131,18 +139,26 @@ function _useTts() {
           u.voice = v
           if (v.lang) u.lang = v.lang
         }
+        u.onstart = () => {
+          hablando.value = true
+        }
+        // Cada palabra empuja la onda; entre palabras decae sola.
+        u.onboundary = () => {
+          pulsoHabla.value = 0.55 + Math.random() * 0.45
+        }
         u.onend = () => {
           clearTimeout(timer)
-          resolve()
+          terminar()
         }
         u.onerror = () => {
           clearTimeout(timer)
-          resolve()
+          terminar()
         }
+        hablando.value = true
         window.speechSynthesis.speak(u)
       } catch {
         clearTimeout(timer)
-        resolve()
+        terminar()
       }
     })
   }
@@ -157,6 +173,8 @@ function _useTts() {
     voces,
     vozUri,
     cargandoVoces,
+    hablando,
+    pulsoHabla,
     cargar,
     cargarVoces,
     setHabilitado,

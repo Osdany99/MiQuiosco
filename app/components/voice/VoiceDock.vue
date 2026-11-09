@@ -13,12 +13,29 @@ const props = defineProps({
 
 const emit = defineEmits(['activar', 'cancelar', 'detener'])
 
+const { nivel, detectandoVoz } = useVoiceLevel()
+const tts = useTts()
+
+const hablando = computed(() => Boolean(tts.hablando?.value))
 const escuchando = computed(() => props.estado === 'escuchando')
 const preparando = computed(() => props.estado === 'preparando')
 const interpretando = computed(() => props.estado === 'interpretando')
 // Solo se cancela cuando el micrófono ya está abierto: durante "preparando" un
 // doble toque accidental no debe abortar el dictado que acaba de empezar.
 const puedeCancelar = computed(() => escuchando.value)
+
+const esError = computed(() => props.estado === 'error')
+const trabajando = computed(() => preparando.value || interpretando.value)
+const vozDetectada = computed(() => escuchando.value && detectandoVoz.value)
+const icono = computed(() => {
+  if (esError.value) return 'i-lucide-mic-off'
+  if (hablando.value) return 'i-lucide-audio-lines'
+  if (escuchando.value) return 'i-lucide-square'
+  if (trabajando.value) return 'i-lucide-loader-circle'
+  return 'i-lucide-mic'
+})
+// Tamaño de los anillos según el volumen real (solo mientras escucha).
+const escalaAnillo = computed(() => (escuchando.value ? 1 + nivel.value * 0.9 : 1))
 
 const dockRef = ref(null)
 const x = ref(0)
@@ -284,16 +301,30 @@ const rootStyle = computed(() => ({
         @click="onClick"
         @keydown="onKeyDown"
       >
-        <UButton
-          :icon="escuchando ? 'i-lucide-square' : 'i-lucide-mic'"
-          :color="escuchando ? 'error' : 'primary'"
-          :variant="escuchando ? 'solid' : 'soft'"
-          size="sm"
-          class="h-11 w-11 rounded-xl p-0 justify-center shadow-lg backdrop-blur pointer-events-none"
-          :loading="preparando || interpretando"
-          :disabled="!disponible"
-          aria-hidden="true"
-        />
+        <div
+          class="voice-fab relative grid size-12 place-items-center"
+          :class="{
+            'voice-fab--escuchando': escuchando,
+            'voice-fab--voz': vozDetectada,
+            'voice-fab--hablando': hablando,
+            'voice-fab--trabajando': trabajando && !hablando,
+            'voice-fab--error': esError,
+            'voice-fab--off': !disponible
+          }"
+          :style="{ '--escala': escalaAnillo }"
+        >
+          <!-- Anillos: reaccionan al volumen al escuchar, laten al hablar. -->
+          <span class="voice-ring voice-ring--a" aria-hidden="true" />
+          <span class="voice-ring voice-ring--b" aria-hidden="true" />
+
+          <span class="voice-core pointer-events-none relative grid size-12 place-items-center rounded-full text-white">
+            <UIcon
+              :name="icono"
+              class="size-5"
+              :class="trabajando && !hablando ? 'animate-spin' : ''"
+            />
+          </span>
+        </div>
       </div>
     </div>
   </Transition>
@@ -307,5 +338,108 @@ const rootStyle = computed(() => ({
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* --- Botón ---------------------------------------------------------------- */
+.voice-core {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 55%, #059669 100%);
+  box-shadow:
+    0 8px 20px -6px rgb(16 185 129 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.35);
+  transition: background 240ms ease, box-shadow 240ms ease, transform 160ms ease;
+}
+
+.voice-fab:active .voice-core {
+  transform: scale(0.94);
+}
+
+.voice-fab--escuchando .voice-core {
+  background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%);
+  box-shadow:
+    0 8px 24px -6px rgb(56 189 248 / 0.6),
+    inset 0 1px 0 rgb(255 255 255 / 0.4);
+}
+
+.voice-fab--voz .voice-core {
+  box-shadow:
+    0 0 0 3px rgb(52 211 153 / 0.35),
+    0 8px 26px -4px rgb(52 211 153 / 0.75),
+    inset 0 1px 0 rgb(255 255 255 / 0.4);
+}
+
+.voice-fab--hablando .voice-core {
+  background: linear-gradient(135deg, #a78bfa 0%, #6366f1 100%);
+  box-shadow:
+    0 8px 24px -6px rgb(129 140 248 / 0.65),
+    inset 0 1px 0 rgb(255 255 255 / 0.4);
+}
+
+.voice-fab--trabajando .voice-core {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+  box-shadow: 0 8px 20px -8px rgb(100 116 139 / 0.6), inset 0 1px 0 rgb(255 255 255 / 0.3);
+}
+
+.voice-fab--error .voice-core {
+  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  box-shadow: 0 8px 22px -6px rgb(239 68 68 / 0.6), inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+.voice-fab--off {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
+
+/* --- Anillos -------------------------------------------------------------- */
+.voice-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Escuchando: el tamaño sigue la voz (--escala llega del nivel real). */
+.voice-fab--escuchando .voice-ring {
+  border-color: rgb(52 211 153 / 0.55);
+  opacity: 1;
+  transition: transform 90ms linear, opacity 200ms ease;
+}
+.voice-fab--escuchando .voice-ring--a {
+  transform: scale(calc(1 + (var(--escala) - 1) * 0.55));
+}
+.voice-fab--escuchando .voice-ring--b {
+  border-color: rgb(56 189 248 / 0.4);
+  transform: scale(calc(1.1 + (var(--escala) - 1) * 1.1));
+}
+
+/* Hablando: latido propio, la síntesis no expone audio. */
+.voice-fab--hablando .voice-ring {
+  border-color: rgb(129 140 248 / 0.55);
+  animation: voice-latido 1.3s ease-out infinite;
+}
+.voice-fab--hablando .voice-ring--b {
+  animation-delay: 0.45s;
+}
+
+@keyframes voice-latido {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.85);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-fab--hablando .voice-ring {
+    animation: none;
+    opacity: 0.5;
+  }
+  .voice-fab--escuchando .voice-ring {
+    transition: none;
+  }
 }
 </style>

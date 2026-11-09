@@ -47,6 +47,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     private SpeechRecognizer recognizer = null;
     private PluginCall currentCall = null;
     private long startTime = 0L;
+    private long ultimoNivelMs = 0L;
 
     @PluginMethod
     public void check(PluginCall call) {
@@ -146,7 +147,18 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                             notifyListeners("partialResult", data);
                         } catch (Exception ignored) { }
                     }
-                    @Override public void onRmsChanged(float rmsdB) {}
+                    @Override
+                    public void onRmsChanged(float rmsdB) {
+                        // Nivel de voz para animar las ondas de la interfaz (máx. ~20/s).
+                        long ahora = System.currentTimeMillis();
+                        if (ahora - ultimoNivelMs < 50) return;
+                        ultimoNivelMs = ahora;
+                        try {
+                            JSObject data = new JSObject();
+                            data.put("rms", rmsdB);
+                            notifyListeners("level", data);
+                        } catch (Exception ignored) { }
+                    }
                     @Override public void onBufferReceived(byte[] buffer) {}
                     @Override public void onEndOfSpeech() {}
                     @Override public void onEvent(int eventType, Bundle params) {}
