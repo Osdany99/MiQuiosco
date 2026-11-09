@@ -33,19 +33,31 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     vozDialogAbierto.value = true
     return
   }
-  // Modo PRO: abre modal para precargar form, escucha 5s 'sí' auto-confirma.
+  // Modo PRO: abre modal para precargar form, habla, escucha 6s 'sí' auto-confirma.
   vozDialogAbierto.value = true
   await nextTick()
+  // Espera a que la TTS del read-back (o del gate) arranque.
+  await new Promise(r => setTimeout(r, 350))
   try {
     if (voiceRaw.estado.value === 'listening') return
-    const genMark = Date.now()
+    try {
+      await ttsRaw.speak('Diga sí para confirmar.')
+    } catch {
+      /* noop */
+    }
+    await new Promise(r => setTimeout(r, 200))
     await voiceRaw.startListening()
-    // Poll un segundo... N-best y interim OK.
+    let negado = false
     let afirmado = false
-    const fin = Date.now() + 5000
-    while (Date.now() < fin && !afirmado) {
-      const t = String(voiceRaw.transcript?.value || voiceRaw.transcriptParcial?.value || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
-      if (/\b(si|sig[aio]?|vale|ok(?:ay)?|confirmar?|si(?:,?\s*por\s*favor)?)\b/.test(t)) {
+    const fin = Date.now() + 6000
+    while (Date.now() < fin && !afirmado && !negado) {
+      const t = String(voiceRaw.transcript?.value || voiceRaw.transcriptParcial?.value || '')
+        .toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      if (/\b(no|cancel[ao]r?|negativo)\b/.test(t)) {
+        negado = true
+        break
+      }
+      if (/\b(si|s[ií]|ok(?:ay)?|vale|dale|confirm[ao]?r?|adelante)\b/.test(t)) {
         afirmado = true
         break
       }
@@ -62,15 +74,33 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
         ts: new Date().toISOString(),
         comando: '',
         understood: { cantidad: vozActiva.value.prefill.value?.cantidad, ubicacion: vozActiva.value.prefill.value?.ubicacion },
-        outcome: afirmado ? 'auto-confirmado' : 'abandonado'
+        outcome: afirmado ? 'auto-confirmado' : (negado ? 'cancelado' : 'abandonado')
       }
       const key = 'voice.proofs'
       const prev = JSON.parse(localStorage.getItem(key) || '[]')
       prev.push(proof)
       localStorage.setItem(key, JSON.stringify(prev.slice(-50)))
     } catch { /* noop */ }
-    if (afirmado && vozDialogRef.value?.confirmar) {
+    if (negado) {
+      try {
+        vozDialogAbierto.value = false
+      } catch {
+        /* noop */
+      }
+      try {
+        await ttsRaw.speak('Cancelado.')
+      } catch {
+        /* noop */
+      }
+      vozActiva.value.limpiar()
+    } else if (afirmado && vozDialogRef.value?.confirmar) {
       vozDialogRef.value.confirmar()
+    } else {
+      try {
+        await ttsRaw.speak('Sin respuesta, confirme manualmente.')
+      } catch {
+        /* noop */
+      }
     }
   } catch {
     /* degrade: queda el modal abierto para toque manual */
