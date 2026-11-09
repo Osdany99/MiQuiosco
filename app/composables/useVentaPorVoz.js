@@ -430,7 +430,13 @@ export function useVentaPorVoz(ubicacion) {
     const vigente = () => gen == null || gen === generacion
     // N-best: si hay alternativas, elegir la mejor antes de procesar.
     let textoElegido = texto
-    const listaTextos = [texto, ...(Array.isArray(alternativas) ? alternativas.map(a => a?.texto ?? a?.text ?? a) : [])]
+    // El plugin puede mandar hasta 5 alternativas; solo las 3 mejores justifican
+    // el coste de emparejar el catálogo con cada una. N-best ya se evalúa con
+    // la transcripción base y las dos primeras alternativas suelen cubrir el
+    // caso real; el resto son ruido.
+    const listaTextos = [texto, ...(Array.isArray(alternativas)
+      ? alternativas.slice(0, 3).map(a => a?.texto ?? a?.text ?? a)
+      : [])]
       .map(t => String(t ?? '')).map(t => t.trim()).filter(Boolean)
     const unicos = Array.from(new Set(listaTextos.map(t => normalizar(t)))).map(n => listaTextos.find(t => normalizar(t) === n))
     if (unicos.length > 1) {

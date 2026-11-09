@@ -77,7 +77,7 @@ onMounted(() => {
     </h1>
 
     <div class="flex flex-col gap-2 md:flex-row md:items-end">
-      <USelect v-model="nueva.categoria" :options="categorias" class="w-56" />
+      <USelect v-model="nueva.categoria" :items="categorias" class="w-56" />
       <UInput v-model="nueva.valor" placeholder="palabra" class="w-48" />
       <UInput v-model="nueva.clave" placeholder="clave (solo destino)" class="w-48" />
       <UInput v-model="nueva.nota" placeholder="nota" class="w-48" />
@@ -143,7 +143,7 @@ onMounted(() => {
         Probar entrada
       </h2>
       <div class="flex flex-col gap-2 md:flex-row md:items-end">
-        <USelect v-model="prueba.categoria" :options="categorias" class="w-56" />
+        <USelect v-model="prueba.categoria" :items="categorias" class="w-56" />
         <UInput v-model="prueba.valor" placeholder="palabra" class="w-48" />
         <UInput v-model="prueba.clave" placeholder="clave" class="w-48" />
         <UTextarea v-model="prueba.plantillas" placeholder="plantillas (una por línea)" class="w-64" />
