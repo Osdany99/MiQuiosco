@@ -102,8 +102,10 @@ Cada intento de auto-confirmación deja un registro en
   (`auto-confirmado`, `cancelado` o `abandonado`).
 - No guarda audio ni texto crudo de voz.
 
-Es una auditoría local. La subida al servidor y la vista centralizada quedan
-pendientes (ver “Limitaciones conocidas”).
+Por defecto es una auditoría local; cuando hay red, cada proof se sube de forma
+best-effort a `voz_confirmaciones` (tabla `voz_confirmaciones`, endpoint
+`POST /api/voz/confirmaciones`) para poder consultarlo centralmente. La cola
+offline (subirlo al volver la red si el primer intento falló) queda pendiente.
 
 ## Caché de catálogo
 
@@ -152,8 +154,9 @@ umbral de repetición y sin nombres.
 
 ## Limitaciones conocidas
 
-- El proof del Modo PRO es local; no se sincroniza ni se ve en `/admin`.
-- La auditoría central (`voz_confirmaciones`) y su retención no están
-  implementadas.
+- La auditoría central es best-effort en línea: si el envío falla o no hay
+  red, el proof queda solo local y no se encola para reintentar.
+- La política de retención está definida (30 días, menos de 3 intentos, plantilla
+  única) en `server/utils/vozEventos.ts`; falta programarla o exponerla en UI.
 - El comportamiento del STT nativo sin conexión depende del paquete de idioma
   offline del dispositivo y debe probarse en modo avión.
