@@ -417,17 +417,6 @@ const userMenuItems = computed(() => {
       </template>
     </UDashboardSidebar>
 
-    <VoiceListeningBar
-      :visible="panelVozVisible"
-      :confirmando="confirmandoVoz"
-      :ocupado="vozActiva.ocupado.value"
-      :estado="vozActiva.estado.value"
-      :error="vozActiva.ultimoError.value || ''"
-      :transcript="vozActiva.transcriptParcial.value"
-      @reintentar="vozActiva.reintentar()"
-      @cancelar="cancelarPanelVoz()"
-    />
-
     <div class="flex-1 min-w-0 w-full p-6 overflow-y-auto">
       <VoiceDock
         v-if="vozActiva.micVisible.value"
@@ -489,6 +478,17 @@ const userMenuItems = computed(() => {
       />
       <slot />
     </div>
+
+    <VoiceListeningBar
+      :visible="panelVozVisible"
+      :confirmando="confirmandoVoz"
+      :ocupado="vozActiva.ocupado.value"
+      :estado="vozActiva.estado.value"
+      :error="vozActiva.ultimoError.value || ''"
+      :transcript="vozActiva.transcriptParcial.value"
+      @reintentar="vozActiva.reintentar()"
+      @cancelar="cancelarPanelVoz()"
+    />
 
     <!-- Progreso visible del cambio Local/Online: el toggle cierra el menú al
          tocarlo, así que el estado vive aquí para que se vea sin reabrir nada.

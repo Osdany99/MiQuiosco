@@ -157,7 +157,7 @@ const colorPunto = computed(() => {
   <Transition name="voice-panel">
     <div
       v-if="visible"
-      class="pointer-events-none fixed inset-x-0 top-0 z-[9999] flex justify-center px-3"
+      class="pointer-events-none fixed inset-x-0 top-0 z-[99999] flex justify-center px-3"
       :style="{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }"
     >
       <div
