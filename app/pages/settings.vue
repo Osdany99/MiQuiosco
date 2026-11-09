@@ -940,27 +940,48 @@ async function whOlvidarEste() {
       <div class="space-y-3">
         <div>
           <h2 class="text-sm font-medium">
-            Confirmación por voz (TTS)
+            Audio y voz
           </h2>
           <p class="text-sm text-muted">
             Lee el resultado cuando registras una venta o deuda con el micrófono.
           </p>
         </div>
 
-        <USwitch v-model="ttsActivo" :disabled="!tts.disponible.value">
+        <USwitch
+          v-model="ttsActivo"
+          color="primary"
+          :disabled="!tts.disponible.value"
+          description="Cuando registras una venta, deuda o consulta por voz, el dispositivo lee el resultado."
+        >
           Confirmar vendido por voz
         </USwitch>
 
-        <USwitch v-model="saludoActivo" :disabled="!tts.disponible.value">
+        <USwitch
+          v-model="saludoActivo"
+          color="neutral"
+          :disabled="!tts.disponible.value"
+          description="Dice “Hola, ¿qué puedo hacer por ti hoy?” antes de empezar a escucharte."
+        >
           Leer saludo al dictar
         </USwitch>
 
-        <USwitch v-if="zeroTouchConfig.esJefe.value" v-model="zeroTouchConfig.activo.value" @update:model-value="v => void zeroTouchConfig.setActivo(v)">
+        <USwitch
+          v-if="zeroTouchConfig.esJefe.value"
+          v-model="zeroTouchConfig.activo.value"
+          color="warning"
+          @update:model-value="v => void zeroTouchConfig.setActivo(v)"
+          description="Solo jefe. Dices “vende X” y respondes “sí” por voz; el sistema registra solo. Queda auditado."
+        >
           Vender sin tocar el dispositivo (Modo PRO)
         </USwitch>
 
-        <USwitch v-if="telemetriaJefe" v-model="telemetriaActivaComputed">
-          Enviar al administrador las frases no entendidas (sin nombres ni cantidades)
+        <USwitch
+          v-if="telemetriaJefe"
+          v-model="telemetriaActivaComputed"
+          color="primary"
+          description="Envía plantillas enmascaradas al panel /admin/voz para mejorar el léxico."
+        >
+          Enviar al administrador las frases no entendidas
         </USwitch>
 
         <div class="space-y-2">
