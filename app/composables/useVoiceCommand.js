@@ -17,6 +17,9 @@ function _useVoiceCommand() {
   const confidence = ref(0)
   const alternativas = ref([])
   const error = ref(null)
+  // true cuando el micrófono ya está capturando de verdad (no solo "pedido").
+  // La UI lo usa para decir "Habla ahora" en el momento exacto.
+  const microListo = ref(false)
   let instanciaWeb = null
   const esNativo = computed(() => {
     try {
@@ -78,6 +81,7 @@ function _useVoiceCommand() {
   async function startListening(options = { language: 'es-ES' }) {
     if (estado.value === 'listening') return
     estado.value = 'listening'
+    microListo.value = false
     transcript.value = ''
     transcriptParcial.value = ''
     confidence.value = 0
@@ -107,6 +111,9 @@ function _useVoiceCommand() {
           rec.interimResults = true
           rec.maxAlternatives = 5
           rec.continuous = false
+          rec.onaudiostart = () => {
+            microListo.value = true
+          }
           timer = setTimeout(() => {
             if (timer) {
               const id = timer
@@ -194,12 +201,15 @@ function _useVoiceCommand() {
           // ignore
         }
         instanciaWeb = null
+        microListo.value = false
       }
       return
     }
 
     let nativePartial = null
+    let nativeReady = null
     let timer = null
+    let respaldoListo = null
     try {
       auth.registrarActividad()
       const permiso = await VoiceRecognitionNative.requestPermission()
@@ -209,6 +219,15 @@ function _useVoiceCommand() {
           transcriptParcial.value = d?.text ?? transcriptParcial.value
         })
       }
+      if (VoiceRecognitionNative.addListener) {
+        nativeReady = await VoiceRecognitionNative.addListener('ready', () => {
+          microListo.value = true
+        })
+      }
+      // Si el plugin no emite "ready" (APK antiguo), no dejar la UI en espera.
+      respaldoListo = setTimeout(() => {
+        microListo.value = true
+      }, 1200)
       const resultado = await Promise.race([
         VoiceRecognitionNative.start(options),
         new Promise((_, rechazar) => {
@@ -234,13 +253,16 @@ function _useVoiceCommand() {
       }
     } finally {
       if (timer) clearTimeout(timer)
-      if (nativePartial) {
+      if (respaldoListo) clearTimeout(respaldoListo)
+      for (const escucha of [nativePartial, nativeReady]) {
+        if (!escucha) continue
         try {
-          await nativePartial.remove()
+          await escucha.remove()
         } catch {
           // ignore
         }
       }
+      microListo.value = false
     }
   }
 
@@ -267,6 +289,7 @@ function _useVoiceCommand() {
       if (abandon) instanciaWeb = null
     }
     if (abandon) estado.value = 'idle'
+    microListo.value = false
   }
 
   function reset() {
@@ -276,6 +299,7 @@ function _useVoiceCommand() {
     confidence.value = 0
     error.value = null
     alternativas.value = []
+    microListo.value = false
   }
 
   return {
@@ -285,6 +309,7 @@ function _useVoiceCommand() {
     confidence,
     alternativas,
     error,
+    microListo,
     esNativo,
     backend,
     esWebSoportado,

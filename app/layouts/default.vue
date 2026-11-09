@@ -35,6 +35,33 @@ const vozActiva = computed(() =>
 const vozDialogAbierto = ref(false)
 void zeroTouch.cargar()
 
+// Conversación de confirmación del Modo PRO (anuncio + "di sí"). Mientras dura,
+// el panel de voz sigue visible aunque el diálogo de venta esté abierto.
+const confirmandoVoz = ref(false)
+let abortarEspera = null
+
+// El panel acompaña toda la conversación: escucha, anuncios, y la escucha de
+// la confirmación (que abre el micrófono por fuera de vozActiva.estado).
+const panelVozVisible = computed(() => {
+  if (!vozActiva.value.micVisible.value) return false
+  const estado = vozActiva.value.estado.value
+  return vozActiva.value.ocupado.value
+    || estado === 'error'
+    || confirmandoVoz.value
+    || voiceRaw.estado.value === 'listening'
+    || (Boolean(ttsRaw.hablando?.value) && (estado === 'listo' || estado === 'ambiguo'))
+})
+
+function cancelarPanelVoz() {
+  // Durante la confirmación: dejar de escuchar y volver al toque manual.
+  if (confirmandoVoz.value) {
+    abortarEspera?.()
+    void voiceRaw.stopListening()
+    return
+  }
+  void vozActiva.value.cancelarEscucha()
+}
+
 /**
  * Espera una respuesta hablada ("sí"/"no") durante `timeoutMs`. Resuelve una
  * sola vez y limpia watcher y timer, para que un "sí" tardío no confirme dos
@@ -54,6 +81,7 @@ function esperarRespuestaVoz(timeoutMs) {
       } catch {
         /* noop */
       }
+      abortarEspera = null
       resolve(valor)
     }
     const revisar = () => {
@@ -64,6 +92,7 @@ function esperarRespuestaVoz(timeoutMs) {
       // La escucha terminó sin una respuesta reconocible: no esperar de más.
       if (voiceRaw.estado.value === 'ready') return terminar('timeout')
     }
+    abortarEspera = () => terminar('timeout')
     detener = watch(
       [() => voiceRaw.transcript?.value, () => voiceRaw.transcriptParcial?.value, () => voiceRaw.estado.value],
       revisar
@@ -93,6 +122,7 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
   const prefill = vozActiva.value.prefill.value
   let resultado = 'timeout'
   let confianza = 0
+  confirmandoVoz.value = true
   try {
     if (voiceRaw.estado.value === 'listening') return
     try {
@@ -114,6 +144,8 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     voiceRaw.reset()
   } catch {
     /* degrade: queda el modal abierto para toque manual */
+  } finally {
+    confirmandoVoz.value = false
   }
   // Proof de audit (local, sin texto crudo).
   try {
@@ -386,13 +418,14 @@ const userMenuItems = computed(() => {
     </UDashboardSidebar>
 
     <VoiceListeningBar
-      :visible="vozActiva.micVisible.value && (vozActiva.ocupado.value || vozActiva.estado.value === 'error')"
+      :visible="panelVozVisible"
+      :confirmando="confirmandoVoz"
       :ocupado="vozActiva.ocupado.value"
       :estado="vozActiva.estado.value"
       :error="vozActiva.ultimoError.value || ''"
       :transcript="vozActiva.transcriptParcial.value"
       @reintentar="vozActiva.reintentar()"
-      @cancelar="vozActiva.cancelarEscucha()"
+      @cancelar="cancelarPanelVoz()"
     />
 
     <div class="flex-1 min-w-0 w-full p-6 overflow-y-auto">
@@ -409,7 +442,6 @@ const userMenuItems = computed(() => {
         @detener="vozActiva.detenerEscucha()"
         @cancelar="vozActiva.cancelarEscucha()"
       />
-      <!-- Simulador de voz eliminado: se usa el micrófono real en dev y producción. -->
 
       <BaseDialog
         v-model="vozActiva.showCandidatos.value"

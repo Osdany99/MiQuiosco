@@ -6,17 +6,34 @@ const props = defineProps({
   ocupado: { type: Boolean, default: false },
   estado: { type: String, default: 'idle' },
   error: { type: String, default: '' },
-  transcript: { type: String, default: '' }
+  transcript: { type: String, default: '' },
+  // Conversación de confirmación (Modo PRO): el micrófono se abre fuera del
+  // flujo normal, así que el layout avisa para no perder el panel.
+  confirmando: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['reintentar', 'cancelar'])
 
 const tts = useTts()
+const voice = useVoiceCommand()
 const { nivel, detectandoVoz, iniciar, detener } = useVoiceLevel()
 
 const hablando = computed(() => Boolean(tts.hablando?.value))
 const esError = computed(() => props.estado === 'error')
-const puedeCancelar = computed(() => props.estado === 'escuchando' || props.estado === 'preparando')
+// Micrófono realmente capturando (no solo "pedido"): aquí es cuando toca hablar.
+const micActivo = computed(() => voice.estado.value === 'listening' && Boolean(voice.microListo?.value))
+// Micrófono pedido pero aún no abierto, o hueco entre que termina de hablar y se abre.
+const preparandoMic = computed(() =>
+  !hablando.value
+  && !micActivo.value
+  && (props.estado === 'preparando'
+    || (props.estado === 'escuchando' && !micActivo.value)
+    || voice.estado.value === 'listening'
+    || props.confirmando)
+)
+const puedeCancelar = computed(() =>
+  props.estado === 'escuchando' || props.estado === 'preparando' || props.confirmando || voice.estado.value === 'listening'
+)
 
 // --- Nivel de la onda ------------------------------------------------------
 // Al escuchar: nivel real del micrófono. Al hablar: pulso de la síntesis, que
@@ -43,7 +60,7 @@ function detenerDecaimiento() {
 }
 
 watch(
-  () => hablando.value || props.estado === 'escuchando',
+  () => hablando.value || micActivo.value,
   v => (v ? arrancarDecaimiento() : detenerDecaimiento()),
   { immediate: true }
 )
@@ -51,14 +68,14 @@ watch(
 // Respaldo si el navegador no deja medir el micrófono: cada fragmento nuevo de
 // texto reconocido empuja la onda, así siempre se nota que te está entendiendo.
 watch(() => props.transcript, (nuevo, previo) => {
-  if (props.estado === 'escuchando' && nuevo && nuevo !== previo) {
+  if (micActivo.value && nuevo && nuevo !== previo) {
     nivelHabla.value = Math.max(nivelHabla.value, 0.55)
   }
 })
 
 // El micrófono solo se analiza mientras se está escuchando de verdad.
 watch(
-  () => props.estado === 'escuchando' && props.visible,
+  () => micActivo.value && props.visible,
   (activo) => {
     if (activo) iniciar()
     else detener()
@@ -66,7 +83,20 @@ watch(
   { immediate: true }
 )
 
+// Destello breve en el momento exacto en que el micrófono se abre.
+const turnoReciente = ref(false)
+let turnoTimer = null
+watch(micActivo, (activo) => {
+  if (!activo) return
+  turnoReciente.value = true
+  if (turnoTimer) clearTimeout(turnoTimer)
+  turnoTimer = setTimeout(() => {
+    turnoReciente.value = false
+  }, 1100)
+})
+
 onBeforeUnmount(() => {
+  if (turnoTimer) clearTimeout(turnoTimer)
   detener()
   if (rafHabla) cancelAnimationFrame(rafHabla)
 })
@@ -74,41 +104,51 @@ onBeforeUnmount(() => {
 const modoOnda = computed(() => {
   if (esError.value) return 'error'
   if (hablando.value) return 'hablando'
-  if (props.estado === 'escuchando') return 'escuchando'
-  if (props.estado === 'preparando' || props.estado === 'interpretando') return 'procesando'
+  if (micActivo.value) return 'escuchando'
+  if (preparandoMic.value || props.estado === 'interpretando') return 'procesando'
   return 'idle'
 })
 
 const nivelOnda = computed(() => (hablando.value ? nivelHabla.value : Math.max(nivel.value, nivelHabla.value)))
 const vozDetectada = computed(() =>
-  props.estado === 'escuchando' && (detectandoVoz.value || nivelHabla.value > 0.3 || Boolean(props.transcript))
+  micActivo.value && (detectandoVoz.value || nivelHabla.value > 0.3 || Boolean(props.transcript))
 )
+// Es tu turno y todavía no has dicho nada: lo destacamos con fuerza.
+const tuTurno = computed(() => micActivo.value && !vozDetectada.value)
 
 // --- Textos ------------------------------------------------------------------
 const titulo = computed(() => {
   if (esError.value) return 'No te entendí'
   if (hablando.value) return 'Hablando…'
-  if (props.estado === 'preparando') return 'Preparando micrófono…'
+  if (micActivo.value) return vozDetectada.value ? 'Te escucho' : 'Habla ahora'
+  if (preparandoMic.value) return 'Preparando micrófono…'
   if (props.estado === 'interpretando') return 'Interpretando…'
   if (props.estado === 'ambiguo') return 'Elige un producto'
   if (props.estado === 'listo') return 'Listo para confirmar'
-  return vozDetectada.value ? 'Te escucho' : 'Escuchando…'
+  return 'Escuchando…'
 })
 
 const subtitulo = computed(() => {
   if (esError.value) return props.error || 'Prueba otra vez.'
-  if (props.transcript) return props.transcript
-  if (props.estado === 'escuchando') return 'Habla ahora, por ejemplo: «vender dos refrescos»'
+  // Solo se muestra lo que dices ahora; el texto del comando anterior no debe asomar entre fases.
+  if (props.transcript && (micActivo.value || props.estado === 'interpretando')) return props.transcript
+  if (hablando.value) return props.confirmando ? 'Enseguida te toca hablar' : ''
+  if (preparandoMic.value) return 'Espera un momento…'
+  if (micActivo.value) {
+    return props.confirmando
+      ? 'Di «sí» para confirmar o «no» para cancelar'
+      : 'Por ejemplo: «vender dos refrescos»'
+  }
   return ''
 })
 
-const hayTranscript = computed(() => !esError.value && Boolean(props.transcript))
+const hayTranscript = computed(() => !esError.value && Boolean(props.transcript) && subtitulo.value === props.transcript)
 
 const colorPunto = computed(() => {
   if (esError.value) return 'bg-error'
   if (hablando.value) return 'bg-violet-400'
   if (vozDetectada.value) return 'bg-emerald-400'
-  if (props.estado === 'escuchando') return 'bg-sky-400'
+  if (micActivo.value) return 'bg-sky-400'
   return 'bg-slate-400'
 })
 </script>
@@ -126,7 +166,9 @@ const colorPunto = computed(() => {
           esError
             ? 'border-error/40 bg-white/90 dark:bg-slate-900/90'
             : 'border-white/60 bg-white/80 dark:border-white/10 dark:bg-slate-900/80',
-          vozDetectada && 'voice-card--activa'
+          vozDetectada && 'voice-card--activa',
+          tuTurno && 'voice-card--turno',
+          turnoReciente && 'voice-card--listo'
         ]"
         role="status"
         aria-live="polite"
@@ -189,7 +231,9 @@ const colorPunto = computed(() => {
                 ? 'font-medium text-slate-900 dark:text-white'
                 : esError
                   ? 'text-error'
-                  : 'text-slate-500 dark:text-slate-400'"
+                  : tuTurno
+                    ? 'font-medium text-sky-600 dark:text-sky-300'
+                    : 'text-slate-500 dark:text-slate-400'"
             >
               {{ subtitulo }}
             </p>
@@ -203,6 +247,45 @@ const colorPunto = computed(() => {
 <style scoped>
 .voice-card {
   transition: box-shadow 220ms ease, border-color 220ms ease;
+}
+
+/* Tu turno: el micrófono ya está abierto y esperando que hables. */
+.voice-card--turno {
+  border-color: rgb(56 189 248 / 0.7);
+  animation: voice-turno 1.4s ease-in-out infinite;
+}
+
+/* Pequeño "pop" justo al abrirse el micrófono. */
+.voice-card--listo {
+  animation: voice-listo 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes voice-turno {
+  0%,
+  100% {
+    box-shadow:
+      0 20px 50px -12px rgb(0 0 0 / 0.35),
+      0 0 0 1px rgb(56 189 248 / 0.25),
+      0 0 18px -4px rgb(56 189 248 / 0.35);
+  }
+  50% {
+    box-shadow:
+      0 20px 50px -12px rgb(0 0 0 / 0.35),
+      0 0 0 2px rgb(56 189 248 / 0.45),
+      0 0 40px -2px rgb(56 189 248 / 0.6);
+  }
+}
+
+@keyframes voice-listo {
+  0% {
+    transform: scale(0.97);
+  }
+  60% {
+    transform: scale(1.025);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* Brillo suave cuando el micrófono detecta voz. */
@@ -236,6 +319,10 @@ const colorPunto = computed(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .voice-card--turno,
+  .voice-card--listo {
+    animation: none;
+  }
   .voice-panel-enter-active,
   .voice-panel-leave-active {
     transition: opacity 120ms ease;

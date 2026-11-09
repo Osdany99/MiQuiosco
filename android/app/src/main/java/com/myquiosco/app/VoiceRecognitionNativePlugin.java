@@ -133,7 +133,13 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                 startTime = System.currentTimeMillis();
                 final long t0 = startTime;
                 recognizer.setRecognitionListener(new RecognitionListener() {
-                    @Override public void onReadyForSpeech(Bundle params) {}
+                    @Override
+                    public void onReadyForSpeech(Bundle params) {
+                        // El micrófono ya captura: la UI puede decir "Habla ahora".
+                        try {
+                            notifyListeners("ready", new JSObject());
+                        } catch (Exception ignored) { }
+                    }
                     @Override public void onBeginningOfSpeech() {}
                     @Override
                     public void onPartialResults(Bundle partialResults) {
