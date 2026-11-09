@@ -8,6 +8,7 @@ const secciones = [
   { label: 'Dispositivos', to: '/admin/dispositivos', icon: 'i-lucide-smartphone' },
   { label: 'Fallos', to: '/admin/fallos', icon: 'i-lucide-triangle-alert' },
   { label: 'Voz', to: '/admin/voz', icon: 'i-lucide-mic' },
+  { label: 'Confirm. PRO', to: '/admin/voz-confirmaciones', icon: 'i-lucide-shield-check' },
   { label: 'Léxico voz', to: '/admin/voz-lexico', icon: 'i-lucide-book' }
 ]
 
