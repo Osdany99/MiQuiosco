@@ -19,6 +19,7 @@ import { ubicacionActiva, evaluarDisparoVoz } from '../app/utils/voice/disparoVo
 import { calcularMotivoNoDisponible } from '../app/utils/voice/disponibilidad.js'
 import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
 import { mensajeStt } from '../app/utils/voice/stt.js'
+import { esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
 
 describe('voz: normalización y números', () => {
@@ -627,5 +628,31 @@ describe('voz: N-best (elegirAlternativa)', () => {
       { indice: 1, comando: 'desconocido', elegido: false, efectivo: 0, encontrados: 0 }
     ]
     assert.equal(elegirAlternativa(items), 0)
+  })
+})
+
+describe('voz: confirmación hablada (Modo PRO)', () => {
+  it('acepta afirmaciones claras', () => {
+    for (const texto of ['sí', 'Sí, por favor', 'claro', 'vale', 'ok', 'dale', 'adelante', 'confirmo', 'si señor', 'sí sí', 'si claro']) {
+      assert.equal(esAfirmacion(texto), true, texto)
+    }
+  })
+
+  it('rechaza afirmaciones ambiguas o incompletas', () => {
+    for (const texto of ['sí pero no', 'si tengo', 'sí, mañana', 'sí pero', 'sí luego', '']) {
+      assert.equal(esAfirmacion(texto), false, texto)
+    }
+  })
+
+  it('detecta negaciones claras', () => {
+    for (const texto of ['no', 'no, gracias', 'no por favor', 'cancela', 'espera', 'no, espera', 'mejor no', 'para']) {
+      assert.equal(esNegacion(texto), true, texto)
+    }
+  })
+
+  it('no confunde otras frases con una negación', () => {
+    for (const texto of ['no sé', 'no hay', 'sí']) {
+      assert.equal(esNegacion(texto), false, texto)
+    }
   })
 })
