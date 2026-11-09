@@ -1,5 +1,7 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
+import { esAfirmacion, esNegacion } from '../utils/voice/confirmacion'
+import { registrarProof } from '../utils/voice/proofs'
 
 const auth = useAuth()
 const perms = usePermisos()
@@ -34,6 +36,44 @@ const vozActiva = computed(() =>
 const vozDialogAbierto = ref(false)
 void zeroTouch.cargar()
 
+/**
+ * Espera una respuesta hablada ("sí"/"no") durante `timeoutMs`. Resuelve una
+ * sola vez y limpia watcher y timer, para que un "sí" tardío no confirme dos
+ * veces ni deje el micrófono colgado.
+ */
+function esperarRespuestaVoz(timeoutMs) {
+  return new Promise((resolve) => {
+    let resuelto = false
+    let detener = null
+    let timer = null
+    const terminar = (valor) => {
+      if (resuelto) return
+      resuelto = true
+      if (timer) clearTimeout(timer)
+      try {
+        detener?.()
+      } catch {
+        /* noop */
+      }
+      resolve(valor)
+    }
+    const revisar = () => {
+      const texto = String(voiceRaw.transcript?.value || voiceRaw.transcriptParcial?.value || '')
+      if (esNegacion(texto)) return terminar('negado')
+      if (esAfirmacion(texto)) return terminar('afirmado')
+      if (voiceRaw.estado.value === 'error') return terminar('error')
+      // La escucha terminó sin una respuesta reconocible: no esperar de más.
+      if (voiceRaw.estado.value === 'ready') return terminar('timeout')
+    }
+    detener = watch(
+      [() => voiceRaw.transcript?.value, () => voiceRaw.transcriptParcial?.value, () => voiceRaw.estado.value],
+      revisar
+    )
+    timer = setTimeout(() => terminar('timeout'), timeoutMs)
+    revisar()
+  })
+}
+
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
   // Default (no PRO): abre modal y espera un toque.
@@ -41,11 +81,14 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     vozDialogAbierto.value = true
     return
   }
-  // Modo PRO: abre modal para precargar form, habla, escucha 6s 'sí' auto-confirma.
+  // Modo PRO: abre modal para precargar form, avisa, escucha el "sí" y confirma.
   vozDialogAbierto.value = true
   await nextTick()
   // Espera a que la TTS del read-back (o del gate) arranque.
   await new Promise(r => setTimeout(r, 350))
+  const prefill = vozActiva.value.prefill.value
+  let resultado = 'timeout'
+  let confianza = 0
   try {
     if (voiceRaw.estado.value === 'listening') return
     try {
@@ -54,64 +97,55 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       /* noop */
     }
     await new Promise(r => setTimeout(r, 200))
-    await voiceRaw.startListening()
-    let negado = false
-    let afirmado = false
-    const fin = Date.now() + 6000
-    while (Date.now() < fin && !afirmado && !negado) {
-      const t = String(voiceRaw.transcript?.value || voiceRaw.transcriptParcial?.value || '')
-        .toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
-      if (/\b(no|cancel[ao]r?|negativo)\b/.test(t)) {
-        negado = true
-        break
-      }
-      if (/\b(si|s[ií]|ok(?:ay)?|vale|dale|confirm[ao]?r?|adelante)\b/.test(t)) {
-        afirmado = true
-        break
-      }
-      await new Promise(r => setTimeout(r, 250))
-    }
+    // startListening resuelve al terminar la escucha; no se espera aquí.
+    const escucha = voiceRaw.startListening().catch(() => {})
+    resultado = await esperarRespuestaVoz(zeroTouch.timeoutMs.value)
+    confianza = Number(voiceRaw.confidence?.value) || 0
     try {
-      await voiceRaw.stopListening(false)
+      await voiceRaw.stopListening()
     } catch {
       /* noop */
     }
-    // Proof de audit.
-    try {
-      const proof = {
-        ts: new Date().toISOString(),
-        comando: '',
-        understood: { cantidad: vozActiva.value.prefill.value?.cantidad, ubicacion: vozActiva.value.prefill.value?.ubicacion },
-        outcome: afirmado ? 'auto-confirmado' : (negado ? 'cancelado' : 'abandonado')
-      }
-      const key = 'voice.proofs'
-      const prev = JSON.parse(localStorage.getItem(key) || '[]')
-      prev.push(proof)
-      localStorage.setItem(key, JSON.stringify(prev.slice(-50)))
-    } catch { /* noop */ }
-    if (negado) {
-      try {
-        vozDialogAbierto.value = false
-      } catch {
-        /* noop */
-      }
-      try {
-        await ttsRaw.speak('Cancelado.')
-      } catch {
-        /* noop */
-      }
-      vozActiva.value.limpiar()
-    } else if (afirmado && vozDialogRef.value?.confirmar) {
-      vozDialogRef.value.confirmar()
-    } else {
-      try {
-        await ttsRaw.speak('Sin respuesta, confirme manualmente.')
-      } catch {
-        /* noop */
-      }
-    }
+    await escucha
+    voiceRaw.reset()
   } catch {
     /* degrade: queda el modal abierto para toque manual */
+  }
+  // Proof de audit (local, sin texto crudo).
+  try {
+    await registrarProof({
+      comando: 'venta_directa',
+      productoId: fila?.productoId ?? fila?.id ?? null,
+      productoNombre: fila?.nombre ?? null,
+      cantidad: prefill?.cantidad ?? null,
+      ubicacion: prefill?.ubicacion ?? null,
+      modo: prefill?.modo ?? null,
+      confianza,
+      outcome: resultado === 'afirmado'
+        ? 'auto-confirmado'
+        : (resultado === 'negado' ? 'cancelado' : 'abandonado')
+    })
+  } catch { /* noop */ }
+  if (resultado === 'negado') {
+    try {
+      vozDialogAbierto.value = false
+    } catch {
+      /* noop */
+    }
+    try {
+      await ttsRaw.speak('Cancelado.')
+    } catch {
+      /* noop */
+    }
+    vozActiva.value.limpiar()
+  } else if (resultado === 'afirmado' && vozDialogRef.value?.confirmar) {
+    vozDialogRef.value.confirmar()
+  } else {
+    try {
+      await ttsRaw.speak('Sin respuesta, confirme manualmente.')
+    } catch {
+      /* noop */
+    }
   }
 })
 watch(vozDialogAbierto, (abierto) => {
