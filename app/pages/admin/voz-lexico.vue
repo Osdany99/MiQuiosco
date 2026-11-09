@@ -1,4 +1,8 @@
 <script setup>
+import { evaluarCambio } from '#shared/voz/evaluarCambio'
+import { FRASES_DORADAS } from '#shared/voz/frasesDoradas'
+import { LEXICO_BASE } from '#shared/voz/lexico'
+
 definePageMeta({
   layout: 'admin',
   middleware: ['super-admin']
@@ -8,6 +12,18 @@ const toast = useToast()
 const filas = ref([])
 const cargando = ref(false)
 const nueva = ref({ categoria: 'venta_fuerte', valor: '', clave: null, nota: '' })
+const prueba = ref({ categoria: 'navegacion_verbo', valor: '', clave: 'deudas', plantillas: '' })
+const resultadoPrueba = ref(null)
+
+function probar() {
+  try {
+    const entrada = { categoria: prueba.value.categoria, valor: prueba.value.valor, clave: prueba.value.clave || null, activo: true }
+    const plantillas = prueba.value.plantillas.split('\n').map(x => x.trim()).filter(Boolean)
+    resultadoPrueba.value = evaluarCambio(LEXICO_BASE, entrada, { frasesDoradas: FRASES_DORADAS, plantillas })
+  } catch (e) {
+    toast.add({ title: 'Voz', description: e?.message || 'Error al probar.', color: 'error' })
+  }
+}
 
 const categorias = [
   'venta_fuerte', 'venta_debil', 'navegacion_verbo', 'navegacion_complemento', 'consulta_marca', 'navegacion_destino'
@@ -116,6 +132,30 @@ onMounted(cargar)
     </table>
     <div v-if="!filas.length" class="py-4 text-sm opacity-60">
       Sin entradas.
+    </div>
+
+    <div class="mt-6 space-y-2 border rounded p-4">
+      <h2 class="font-semibold">
+        Probar entrada
+      </h2>
+      <div class="flex flex-col gap-2 md:flex-row md:items-end">
+        <USelect v-model="prueba.categoria" :options="categorias" class="w-56" />
+        <UInput v-model="prueba.valor" placeholder="palabra" class="w-48" />
+        <UInput v-model="prueba.clave" placeholder="clave" class="w-48" />
+        <UTextarea v-model="prueba.plantillas" placeholder="plantillas (una por línea)" class="w-64" />
+        <UButton @click="probar">
+          Probar
+        </UButton>
+      </div>
+      <div v-if="resultadoPrueba">
+        <p>Regresiones: {{ resultadoPrueba.regresiones.length }}</p>
+        <p>Cambios en plantillas: {{ resultadoPrueba.cambios.length }}</p>
+        <ul v-if="resultadoPrueba.regresiones.length">
+          <li v-for="(r, i) in resultadoPrueba.regresiones" :key="i" class="text-error text-xs">
+            {{ r.frase }}: {{ r.antes }} → {{ r.despues }}
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 </template>
