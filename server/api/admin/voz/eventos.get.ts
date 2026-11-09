@@ -31,5 +31,5 @@ export default defineEventHandler(async (event) => {
 
   const all = await q
   if (!estado || estado === 'todos') return all
-  return all.filter((x) => String(x.estado ?? 'abierto') === estado)
+  return all.filter(x => String(x.estado ?? 'abierto') === estado)
 })

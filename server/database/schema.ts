@@ -1316,6 +1316,29 @@ export const vozEventos = pgTable(
 export type VozEvento = typeof vozEventos.$inferSelect
 export type NuevoVozEvento = typeof vozEventos.$inferInsert
 
+// Léxico remoto de comandos de voz (P7). Solo sinónimos a categorías cerradas.
+export const vozLexico = pgTable(
+  'voz_lexico',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoria: text('categoria').notNull(),
+    valor: text('valor').notNull(),
+    clave: text('clave'),
+    activo: boolean('activo').notNull().default(true),
+    version: integer('version').notNull().default(1),
+    creadoPor: uuid('creado_por'),
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+    nota: text('nota')
+  },
+  table => ({
+    categoriaValorUk: uniqueIndex('voz_lexico_categoria_valor_uk').on(table.categoria, table.valor)
+  })
+)
+
+export type VozLexico = typeof vozLexico.$inferSelect
+export type NuevoVozLexico = typeof vozLexico.$inferInsert
+
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'
 export type TipoLinea = 'normal' | 'descuento' | 'regalo' | 'deuda' | 'descuento_familiar'

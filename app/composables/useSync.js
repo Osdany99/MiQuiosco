@@ -9,6 +9,7 @@ import { mergeFields } from '../utils/syncMerge.js'
 import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
 import { registrarFallosLocales, subirFallosPendientes } from '../utils/syncFallos'
 import { subirEventosVozPendientes } from '../utils/vozEventos'
+import { useVozLexico } from './useVozLexico'
 import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 import { getAuthInstance } from './useAuth.js'
@@ -81,6 +82,7 @@ export function useSync() {
   })()
 
   const sincronizando = ref(false)
+  const vozLexico = useVozLexico()
   const ultimaSync = ref(null)
   const pendientesCount = ref(0)
   const hayRed = ref(true)
@@ -466,6 +468,7 @@ export function useSync() {
         // queda pendiente para la próxima sync.
         await subirFallosPendientes(fetch).catch(() => {})
         await subirEventosVozPendientes(fetch).catch(() => {})
+        await vozLexico.refrescar(fetch).catch(() => {})
         await reportarEstadoSync(exito).catch(() => {})
       }
     }))

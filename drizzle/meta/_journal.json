@@ -225,6 +225,13 @@
       "when": 1794205446620,
       "tag": "0031_rare_dark_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794206331155,
+      "tag": "0032_pale_malcolm_colcord",
+      "breakpoints": true
     }
   ]
 }

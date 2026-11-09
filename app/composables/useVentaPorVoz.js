@@ -13,6 +13,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { useAuth } from './useAuth'
+import { useVozLexico } from './useVozLexico'
 import { useCuentasFiado } from './useCuentasFiado'
 import {
   UMBRAL_PRODUCTO,
@@ -22,7 +23,7 @@ import {
   resolverUbicacion,
   normalizar
 } from '#shared/voz/gramatica'
-import { LEXICO_BASE } from '#shared/voz/lexico'
+
 import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
 
 import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
@@ -61,6 +62,7 @@ export function useVentaPorVoz(ubicacion) {
   const perms = usePermisos()
   const conexion = useModoConexion()
   const { hayRed } = useSync()
+  const vozLexico = useVozLexico()
   const toast = useToast()
   const route = useRoute()
 
@@ -385,7 +387,7 @@ export function useVentaPorVoz(ubicacion) {
       const { interpretar } = await import('#shared/voz/gramatica')
       const items = []
       for (const t of unicos) {
-        const clas = interpretar(t, LEXICO_BASE)
+        const clas = interpretar(t, vozLexico.lexico.value)
         let rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
         if (clas.comando === 'navegacion') {
           rec.elegido = true
@@ -421,7 +423,7 @@ export function useVentaPorVoz(ubicacion) {
     prefill.value = null
     producto.value = null
 
-    const interpretado = interpretar(textoElegido)
+    const interpretado = interpretar(textoElegido, vozLexico.lexico.value)
     const validacion = voiceCommandSchema.safeParse(interpretado)
     if (!validacion.success) throw new Error('No te entendí. Prueba: "vende 5 panes".')
 
