@@ -7,7 +7,7 @@
  * localStorage (web) para no perderlo al recargar.
  */
 import { Preferences } from '@capacitor/preferences'
-import { getApiBaseUrl } from '../utils/api'
+import { getApiBaseUrl } from '../api'
 
 const KEY = 'voice.proofs'
 const MAX = 50
