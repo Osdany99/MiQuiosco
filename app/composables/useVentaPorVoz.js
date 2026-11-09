@@ -302,6 +302,11 @@ export function useVentaPorVoz(ubicacion) {
           plantilla
         })
       })()
+      try {
+        await tts.speak(`Solo hay ${maxDisp} de ${filaElegida?.nombre || 'ese producto'} en el ${ubiLabel}.`)
+      } catch {
+        /* noop */
+      }
       throw new Error(`Solo hay ${maxDisp} de ${filaElegida?.nombre || 'ese producto'} en el ${ubiLabel}.`)
     }
     prepararVenta(filaElegida, slots, destino.ubicacion)
