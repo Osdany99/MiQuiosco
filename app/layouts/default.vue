@@ -84,8 +84,13 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
   // Modo PRO: abre modal para precargar form, avisa, escucha el "sí" y confirma.
   vozDialogAbierto.value = true
   await nextTick()
-  // Espera a que la TTS del read-back (o del gate) arranque.
-  await new Promise(r => setTimeout(r, 350))
+  // Esperar a la lectura del producto (read-back) para que la confirmación no
+  // interrumpa el anuncio de lo que se va a vender.
+  const rb = vozActiva.value.readBackPromise?.value
+  if (rb && typeof rb.then === 'function') {
+    await Promise.race([rb, new Promise(resolve => setTimeout(resolve, 3500))])
+  }
+  await new Promise(r => setTimeout(r, 200))
   const prefill = vozActiva.value.prefill.value
   let resultado = 'timeout'
   let confianza = 0

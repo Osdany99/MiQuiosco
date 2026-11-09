@@ -72,6 +72,10 @@ export function useVentaPorVoz(ubicacion) {
   const prefill = ref(null)
   const producto = ref(null)
   const modo = ref('venta')
+  // Promesa del TTS de lectura (read-back). Existe para que PREPARAR ... "
+  // se pueda esperar antes de hablar otra locución (Modo PRO).
+  // Se asigna en prepararVenta y se limpia en limpiar/procesar.
+  const readBackPromise = ref(null)
   const showCandidatos = ref(false)
   const pendiente = ref(null)
   const ultimoError = ref(null)
@@ -135,6 +139,7 @@ export function useVentaPorVoz(ubicacion) {
     pendiente.value = null
     prefill.value = null
     producto.value = null
+    readBackPromise.value = null
     modo.value = 'venta'
     ultimoError.value = null
     estado.value = 'idle'
@@ -166,13 +171,15 @@ export function useVentaPorVoz(ubicacion) {
     estado.value = 'listo'
 
     // Read-back exacto del formulario (lo prellenado), no lo interpretado.
-    void (async () => {
+    // Se guarda la promesa para que la UI pueda esperarla antes de hablar
+    // otra locución (Modo PRO pide confirmación justo después).
+    readBackPromise.value = (async () => {
       const nombre = fila?.nombre ?? producto.value?.nombre ?? 'producto'
       const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
       const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
       if (!fila) return
       const texto = cant >= 1
-        ? `Voy a vender ${cant} ${nombre} del ${lugar}. Confirma para continuar.`
+        ? `Voy a vender ${cant} ${nombre} del ${lugar}.`
         : `Confirma la venta del ${lugar}.`
       try {
         if (tts?.speak) await tts.speak(texto)
@@ -665,6 +672,7 @@ export function useVentaPorVoz(ubicacion) {
     prefill,
     producto,
     modo,
+    readBackPromise,
     venderPorVoz,
     reintentar,
     detenerEscucha,
