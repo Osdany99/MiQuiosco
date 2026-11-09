@@ -10,6 +10,38 @@ const errorCarga = ref(null)
 const filas = ref([])
 const filtroEstado = ref('abierto')
 
+const opcionesEstado = [
+  { label: 'Abiertos', value: 'abierto' },
+  { label: 'Resueltos', value: 'resuelto' },
+  { label: 'Descartados', value: 'descartado' },
+  { label: 'Todos', value: 'todos' }
+]
+
+const columnas = [
+  { accessorKey: 'plantilla', header: 'Plantilla' },
+  { accessorKey: 'comando', header: 'Comando' },
+  { accessorKey: 'motivo', header: 'Motivo' },
+  { accessorKey: 'puestoNombre', header: 'Puesto' },
+  { accessorKey: 'intentos', header: 'Intentos' },
+  { accessorKey: 'estado', header: 'Estado' },
+  { accessorKey: 'ultimoEn', header: 'Último' },
+  { accessorKey: 'acciones', header: '' }
+]
+
+function etiquetaEstado(estado) {
+  const valor = String(estado ?? 'abierto')
+  if (valor === 'resuelto') return 'Resuelto'
+  if (valor === 'descartado') return 'Descartado'
+  return 'Abierto'
+}
+
+function colorEstado(estado) {
+  const valor = String(estado ?? 'abierto')
+  if (valor === 'resuelto') return 'success'
+  if (valor === 'descartado') return 'neutral'
+  return 'warning'
+}
+
 async function cargar() {
   cargando.value = true
   errorCarga.value = null
@@ -35,109 +67,126 @@ async function marcar(id, estado) {
 
 onMounted(cargar)
 watch(filtroEstado, cargar)
-
-const columnas = [
-  'plantilla', 'comando', 'motivo', 'puestoNombre', 'intentos', 'estado', 'ultimoEn', 'acciones'
-]
 </script>
 
 <template>
-  <section class="p-4 md:p-6 space-y-4">
-    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <h1 class="text-xl font-semibold">
-        Eventos de voz no reconocidos
-      </h1>
-      <USelect
-        v-model="filtroEstado"
-        :options="[
-          { label: 'Abiertos', value: 'abierto' },
-          { label: 'Resueltos', value: 'resuelto' },
-          { label: 'Descartados', value: 'descartado' },
-          { label: 'Todos', value: 'todos' }
-        ]"
-        class="w-48"
+  <BaseHeaderPage
+    title="Eventos de voz no reconocidos"
+    description="Comandos que el intérprete no pudo resolver, agrupados por plantilla"
+    leading-icon="i-lucide-mic-off"
+    :show-button="false"
+  >
+    <template #trailing>
+      <span class="text-sm text-muted">{{ filas.length }} eventos</span>
+      <UButton
+        icon="i-lucide-refresh-cw"
+        variant="outline"
+        label="Actualizar"
+        :loading="cargando"
+        @click="cargar"
       />
-    </div>
+    </template>
 
-    <div v-if="errorCarga" class="text-error">
-      {{ errorCarga }}
-    </div>
-    <div v-else-if="cargando" class="opacity-60">
-      Cargando…
-    </div>
-    <div v-else class="overflow-x-auto">
-      <table class="min-w-full text-sm">
-        <thead>
-          <tr class="text-left border-b border-gray-200">
-            <th class="py-2 pr-4">
-              Plantilla
-            </th>
-            <th class="py-2 pr-4">
-              Comando
-            </th>
-            <th class="py-2 pr-4">
-              Motivo
-            </th>
-            <th class="py-2 pr-4">
-              Puesto
-            </th>
-            <th class="py-2 pr-4">
-              Intentos
-            </th>
-            <th class="py-2 pr-4">
-              Estado
-            </th>
-            <th class="py-2 pr-4">
-              Último
-            </th>
-            <th class="py-2 pr-4">
-              Acciones
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="fila in filas" :key="fila.id" class="border-b border-gray-100">
-            <td class="py-2 pr-4 font-mono text-xs">
-              {{ fila.plantilla || '—' }}
-            </td>
-            <td class="py-2 pr-4">
-              {{ fila.comando }}
-            </td>
-            <td class="py-2 pr-4">
-              {{ fila.motivo }}
-            </td>
-            <td class="py-2 pr-4">
-              {{ fila.puestoNombre || fila.puestoId }}
-            </td>
-            <td class="py-2 pr-4">
-              {{ fila.intentos }}
-            </td>
-            <td class="py-2 pr-4">
-              {{ fila.estado }}
-            </td>
-            <td class="py-2 pr-4">
-              {{ fila.ultimoEn }}
-            </td>
-            <td class="py-2 pr-4 flex gap-1">
-              <UButton size="xs" color="primary" :to="`/admin/voz-lexico?valor=${encodeURIComponent(fila.plantilla || '')}`">
-                Usar plantilla
-              </UButton>
-              <UButton size="xs" color="success" @click="marcar(fila.id, 'resuelto')">
-                Resolver
-              </UButton>
-              <UButton size="xs" color="error" @click="marcar(fila.id, 'descartado')">
-                Descartar
-              </UButton>
-              <UButton size="xs" color="neutral" @click="marcar(fila.id, 'abierto')">
-                Reabrir
-              </UButton>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="!filas.length" class="py-4 text-sm opacity-60">
-        Sin eventos.
-      </div>
-    </div>
-  </section>
+    <UAlert
+      v-if="errorCarga"
+      color="error"
+      variant="soft"
+      icon="i-lucide-alert-circle"
+      :title="errorCarga"
+    />
+
+    <BaseTable
+      :data="filas"
+      :columns="columnas"
+      :loading-prop="cargando"
+      :show-edit="false"
+      :show-delete="false"
+      empty-state="No hay eventos de voz que coincidan"
+      @reload="cargar"
+    >
+      <template #toolbar-leading>
+        <USelect
+          v-model="filtroEstado"
+          :items="opcionesEstado"
+          size="sm"
+          class="w-40"
+        />
+      </template>
+
+      <template #plantilla-cell="{ row }">
+        <span class="font-mono text-xs">{{ row.original.plantilla || '—' }}</span>
+      </template>
+
+      <template #comando-cell="{ row }">
+        {{ row.original.comando }}
+      </template>
+
+      <template #motivo-cell="{ row }">
+        {{ row.original.motivo }}
+      </template>
+
+      <template #puestoNombre-cell="{ row }">
+        {{ row.original.puestoNombre || row.original.puestoId || '—' }}
+      </template>
+
+      <template #intentos-cell="{ row }">
+        <UBadge
+          color="neutral"
+          variant="soft"
+          size="sm"
+          :label="String(row.original.intentos)"
+        />
+      </template>
+
+      <template #estado-cell="{ row }">
+        <UBadge
+          :color="colorEstado(row.original.estado)"
+          variant="soft"
+          size="sm"
+          :label="etiquetaEstado(row.original.estado)"
+        />
+      </template>
+
+      <template #ultimoEn-cell="{ row }">
+        <span class="text-sm">{{ fmtFechaHora(row.original.ultimoEn) }}</span>
+      </template>
+
+      <template #acciones-cell="{ row }">
+        <div class="flex flex-wrap justify-end gap-1">
+          <UButton
+            size="xs"
+            color="primary"
+            variant="soft"
+            icon="i-lucide-list-plus"
+            label="Usar plantilla"
+            :to="`/admin/voz-lexico?valor=${encodeURIComponent(row.original.plantilla || '')}`"
+          />
+          <UButton
+            size="xs"
+            color="success"
+            variant="soft"
+            icon="i-lucide-check"
+            label="Resolver"
+            @click="marcar(row.original.id, 'resuelto')"
+          />
+          <UButton
+            size="xs"
+            color="error"
+            variant="soft"
+            icon="i-lucide-x"
+            label="Descartar"
+            @click="marcar(row.original.id, 'descartado')"
+          />
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-rotate-ccw"
+            label="Reabrir"
+            @click="marcar(row.original.id, 'abierto')"
+          />
+        </div>
+      </template>
+    </BaseTable>
+  </BaseHeaderPage>
 </template>
