@@ -411,7 +411,7 @@ const userMenuItems = computed(() => {
         @cancelar="vozActiva.cancelarEscucha()"
       />
       <!-- Simulador de voz solo en desarrollo: ejecuta el pipeline sin micrófono. -->
-      <SimuladorVoz
+      <VoiceSimuladorVoz
         v-if="esDev"
         class="fixed bottom-4 left-4 z-50"
         @simular="vozActiva.simular($event)"
