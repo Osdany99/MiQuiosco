@@ -17,9 +17,17 @@ const esDev = import.meta.dev
 const vozQuiosco = useVentaPorVoz('quiosco')
 const vozAlmacen = useVentaPorVoz('almacen')
 const dictadoModo = useDictadoModo()
-const ubicacionVozActual = computed(() =>
-  route.path?.startsWith('/almacen') ? 'almacen' : 'quiosco'
-)
+// Dentro de inventario manda la ruta. Fuera de inventario el dock sigue
+// disponible (venta global), pero usa la ubicación cuyo permiso de voz tenga
+// el usuario, en vez de asumir quiosco siempre.
+const ubicacionVozActual = computed(() => {
+  const ruta = route.path || ''
+  if (ruta.startsWith('/almacen') || ruta.startsWith('/inventario')) return 'almacen'
+  if (ruta.startsWith('/quiosco')) return 'quiosco'
+  if (perms.puedeAccion('quiosco', 'voz')) return 'quiosco'
+  if (perms.puedeAccion('almacen', 'voz')) return 'almacen'
+  return 'quiosco'
+})
 const vozActiva = computed(() =>
   ubicacionVozActual.value === 'almacen' ? vozAlmacen : vozQuiosco
 )

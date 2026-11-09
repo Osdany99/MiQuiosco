@@ -31,7 +31,7 @@ import { registrarEventoVoz } from '../utils/vozEventos'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, describirDestino } from '../utils/voice/respuestasVoz'
-import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
+import { evaluarDisparoVoz, esRutaInventario, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
 
 const MODO_POR_TIPO = {
@@ -233,9 +233,12 @@ export function useVentaPorVoz(ubicacion) {
       }
     }
 
-    const destino = slots?.ubicacion
-      ? resolverUbicacion(slots, ubicacion)
-      : { ubicacion: 'almacen', conflicto: false }
+    // Sin ubicación explícita se usa la de la vista/instancia (no almacén a
+    // ciegas). Fuera de inventario no hay conflicto: si se dijo una ubicación,
+    // se respeta y el formulario la muestra antes de confirmar.
+    const destino = resolverUbicacion(slots, ubicacion, {
+      permitirConflicto: esRutaInventario(route.path)
+    })
     if (destino.conflicto) {
       if (!vigente()) return
       estado.value = 'idle'

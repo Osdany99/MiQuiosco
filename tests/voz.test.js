@@ -15,7 +15,7 @@ import {
   resolverUbicacion
 } from '../shared/voz/gramatica.js'
 import { fonetizar, fuzzyMatchProducts } from '../app/utils/voice/fuzzyMatchProducts.js'
-import { ubicacionActiva, evaluarDisparoVoz } from '../app/utils/voice/disparoVoz.js'
+import { ubicacionActiva, esRutaInventario, evaluarDisparoVoz } from '../app/utils/voice/disparoVoz.js'
 import { calcularMotivoNoDisponible } from '../app/utils/voice/disponibilidad.js'
 import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
 import { mensajeStt } from '../app/utils/voice/stt.js'
@@ -169,6 +169,13 @@ describe('voz: ubicación', () => {
   it('una ubicación distinta es conflicto (nunca vender en silencio)', () => {
     assert.deepEqual(resolverUbicacion({ ubicacion: 'almacen' }, 'quiosco'), { ubicacion: 'almacen', conflicto: true })
   })
+
+  it('fuera de inventario se respeta la ubicación dicha sin conflicto', () => {
+    assert.deepEqual(
+      resolverUbicacion({ ubicacion: 'almacen' }, 'quiosco', { permitirConflicto: false }),
+      { ubicacion: 'almacen', conflicto: false }
+    )
+  })
 })
 
 describe('voz: confianza', () => {
@@ -269,10 +276,13 @@ describe('voz: fonética y descripción', () => {
 })
 
 describe('voz: auto-disparo y disponibilidad', () => {
-  it('ubicacionActiva detecta almacén', () => {
+  it('ubicacionActiva detecta almacén y solo dispara en inventario', () => {
     assert.equal(ubicacionActiva('/almacen'), 'almacen')
     assert.equal(ubicacionActiva('/quiosco'), 'quiosco')
-    assert.equal(ubicacionActiva('/cuadre'), 'quiosco')
+    assert.equal(ubicacionActiva('/cuadre'), null)
+    assert.equal(esRutaInventario('/quiosco'), true)
+    assert.equal(esRutaInventario('/almacen/sub'), true)
+    assert.equal(esRutaInventario('/deudas'), false)
   })
 
   it('solo dispara en la ubicación activa', () => {

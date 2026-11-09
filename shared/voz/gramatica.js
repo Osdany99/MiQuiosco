@@ -739,11 +739,16 @@ export function interpretar(transcript, lexico = LEXICO_BASE) {
  * Una venta no puede cambiar de ubicación en silencio: si el comando dice una
  * ubicación distinta a la de la vista actual, se marca `conflicto` y la UI
  * debe pedir confirmación (o rechazar) en vez de vender en el sitio equivocado.
+ *
+ * Fuera de inventario no hay "vista" con la que conflictuar: con
+ * `permitirConflicto: false` se respeta la ubicación dicha y el formulario la
+ * muestra antes de confirmar.
  */
-export function resolverUbicacion(slots, ubicacionVista) {
+export function resolverUbicacion(slots, ubicacionVista, opciones = {}) {
   const dicha = slots?.ubicacion ?? null
   if (!dicha) return { ubicacion: ubicacionVista, conflicto: false }
-  return { ubicacion: dicha, conflicto: dicha !== ubicacionVista }
+  const permitirConflicto = opciones?.permitirConflicto !== false
+  return { ubicacion: dicha, conflicto: permitirConflicto && dicha !== ubicacionVista }
 }
 
 /**
