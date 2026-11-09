@@ -68,6 +68,15 @@
             </div>
           </div>
         </template>
+        <template #quiosco-cell="{ row }">
+          <button
+            type="button"
+            class="font-mono text-primary hover:underline"
+            @click="abrirDesgloseStock(row.original, 'quiosco')"
+          >
+            {{ row.original.quiosco }}
+          </button>
+        </template>
         <template #estado-cell="{ row }">
           <UBadge :color="colorEstado(row.original)" variant="soft">
             {{ textoEstado(row.original) }}
@@ -201,6 +210,14 @@
 
       @guardado="recargar"
     />
+
+    <InventarioDialogoDesgloseStock
+      v-model="showDesgloseStock"
+      :producto-id="desgloseProductoId"
+      ubicacion="quiosco"
+      :nombre-producto="desgloseNombre"
+      :stock-total="desgloseStockTotal"
+    />
   </BaseHeaderPage>
 </template>
 
@@ -221,6 +238,18 @@ const perms = usePermisos()
 
 const showTraspaso = ref(false)
 const productoTraspaso = ref(null)
+
+const showDesgloseStock = ref(false)
+const desgloseProductoId = ref(null)
+const desgloseNombre = ref('')
+const desgloseStockTotal = ref(0)
+
+function abrirDesgloseStock(row, ubicacion) {
+  desgloseProductoId.value = row.productoId
+  desgloseNombre.value = row.nombre
+  desgloseStockTotal.value = ubicacion === 'quiosco' ? row.quiosco : row.almacen
+  showDesgloseStock.value = true
+}
 
 // Solo un popover de venta abierto a la vez: guarda el id del producto cuyo
 // menú está visible (null = ninguno).

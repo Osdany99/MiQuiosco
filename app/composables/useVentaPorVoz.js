@@ -10,7 +10,7 @@
  * La voz nunca registra: expone `producto` + `prefill` y la página abre su
  * DialogoVenta. Quien confirma es la persona.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { UMBRAL_PRODUCTO, decidirProducto, interpretar, resolverUbicacion } from '#shared/voz/gramatica'
 import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
@@ -44,17 +44,29 @@ export function useVentaPorVoz(ubicacion) {
   const toast = useToast()
   const route = useRoute()
 
-  const estado = ref('idle') // idle | escuchando | interpretando | ambiguo | listo | error
+  // idle | preparando | escuchando | interpretando | ambiguo | listo | error
+  const estado = ref('idle')
   const candidatos = ref([])
   const prefill = ref(null)
   const producto = ref(null)
   const modo = ref('venta')
   const showCandidatos = ref(false)
   const pendiente = ref(null)
+  const ultimoError = ref(null)
+
+  // Cada comando tiene una generación: cancelar o reiniciar invalida la
+  // anterior para que una promesa tardía no reabra el diálogo.
+  let generacion = 0
+  let errorTimer = null
 
   // Se marca por ruta completa, no con un booleano de instancia: el segundo
   // `?voice=1` (otra navegación) vuelve a disparar; el mismo, no.
   let consumido = null
+
+  /** Ubicación que controla el dock en la ruta actual (misma regla que el layout). */
+  function ubicacionDeRuta(ruta) {
+    return String(ruta || '').startsWith('/almacen') ? 'almacen' : 'quiosco'
+  }
 
   // No decidir con el fail-open de `puede()` ni con el `modo` por defecto:
   // hasta que permisos y modo cargan, el micrófono ni se muestra.
@@ -75,16 +87,34 @@ export function useVentaPorVoz(ubicacion) {
   })
 
   const disponible = computed(() => tienePermiso.value && !motivoNoDisponible.value)
-  const ocupado = computed(() => estado.value === 'escuchando' || estado.value === 'interpretando')
+  const ocupado = computed(() =>
+    estado.value === 'preparando'
+    || estado.value === 'escuchando'
+    || estado.value === 'interpretando'
+  )
 
   function limpiar() {
+    if (errorTimer) {
+      clearTimeout(errorTimer)
+      errorTimer = null
+    }
     candidatos.value = []
     showCandidatos.value = false
     pendiente.value = null
     prefill.value = null
     producto.value = null
     modo.value = 'venta'
+    ultimoError.value = null
     estado.value = 'idle'
+  }
+
+  /** Tras un error, el aviso se retira solo para no tapar la pantalla. */
+  function programarLimpiezaError() {
+    if (errorTimer) clearTimeout(errorTimer)
+    errorTimer = setTimeout(() => {
+      errorTimer = null
+      if (estado.value === 'error') limpiar()
+    }, 8000)
   }
 
   function prepararVenta(fila, slots) {
@@ -107,7 +137,14 @@ export function useVentaPorVoz(ubicacion) {
     return ubi === 'quiosco' ? filas.filter(f => f.seVende !== false) : filas
   }
 
-  async function procesar(texto, sttConfidence = 0) {
+  /**
+   * @param {string} texto
+   * @param {number} sttConfidence
+   * @param {number|null} gen Generación que inició el comando; si deja de ser
+   *   la actual (cancelación o nuevo dictado), no se toca el estado.
+   */
+  async function procesar(texto, sttConfidence = 0, gen = null) {
+    const vigente = () => gen == null || gen === generacion
     estado.value = 'interpretando'
     candidatos.value = []
     showCandidatos.value = false
@@ -125,6 +162,7 @@ export function useVentaPorVoz(ubicacion) {
 
     const destino = resolverUbicacion(slots, ubicacion)
     if (destino.conflicto) {
+      if (!vigente()) return
       estado.value = 'idle'
       const nombre = destino.ubicacion === 'almacen' ? 'Almacén' : 'Quiosco'
       toast.add({
@@ -136,6 +174,8 @@ export function useVentaPorVoz(ubicacion) {
     }
 
     const catalogo = await catalogoDe(destino.ubicacion)
+    if (!vigente()) return
+
     const base = catalogo.map(f => ({ id: f.productoId, name: f.nombre, canonicalSpeak: f.nombre }))
     const encontrados = fuzzyMatchProducts(slots.productoHint, base)
       .map(c => ({ ...c, row: catalogo.find(f => f.productoId === c.product.id) }))
@@ -164,23 +204,57 @@ export function useVentaPorVoz(ubicacion) {
       }
       return
     }
+    // El STT es singleton: si ya hay una escucha en curso, no abrir otra.
+    if (voice.estado.value === 'listening') return
 
     limpiar()
-    estado.value = 'escuchando'
+    const gen = ++generacion
+    estado.value = 'preparando'
     try {
-      await voice.startListening({ language: 'es-ES' })
-      if (voice.estado.value === 'cancelled') {
+      // Deja pintar "Preparando…" antes de que el micrófono tome el foco
+      // (en el primer uso Android muestra el diálogo de permiso).
+      await nextTick()
+      if (gen !== generacion) return
+      estado.value = 'escuchando'
+
+      // Idioma fijo de la app (español/Cuba): lo define useVoiceCommand.
+      await voice.startListening()
+      if (gen !== generacion) return
+      if (voice.estado.value === 'cancelled' || voice.estado.value === 'idle') {
         estado.value = 'idle'
         return
       }
       if (voice.estado.value === 'error') throw new Error(voice.error.value || 'No te entendí.')
       const texto = voice.transcript.value
       if (!texto) throw new Error('No te entendí. Prueba otra vez.')
-      await procesar(texto, voice.confidence.value)
+      await procesar(texto, voice.confidence.value, gen)
     } catch (e) {
+      if (gen !== generacion) return
+      const mensaje = e?.message || 'Error de voz.'
+      ultimoError.value = mensaje
       estado.value = 'error'
-      toast.add({ title: 'Voz', description: e?.message || 'Error de voz.', color: 'error' })
+      toast.add({ title: 'Voz', description: mensaje, color: 'error' })
+      programarLimpiezaError()
     }
+  }
+
+  /** Detiene el micrófono y descarta cualquier resultado pendiente. */
+  async function cancelarEscucha() {
+    generacion++
+    if (errorTimer) {
+      clearTimeout(errorTimer)
+      errorTimer = null
+    }
+    try {
+      await voice.stopListening()
+    } catch {
+      // Si ya terminó, no hay nada que detener.
+    }
+    limpiar()
+  }
+
+  function reintentar() {
+    return venderPorVoz()
   }
 
   function seleccionarCandidato(candidato) {
@@ -192,7 +266,7 @@ export function useVentaPorVoz(ubicacion) {
   }
 
   function cancelar() {
-    limpiar()
+    return cancelarEscucha()
   }
 
   /** Solo dev: ejercita el pipeline sin micrófono (input "simular voz"). */
@@ -202,27 +276,36 @@ export function useVentaPorVoz(ubicacion) {
     try {
       await procesar(texto, 0.95)
     } catch (e) {
+      const mensaje = e?.message || 'Error.'
+      ultimoError.value = mensaje
       estado.value = 'error'
-      toast.add({ title: 'Voz (simulada)', description: e?.message || 'Error.', color: 'error' })
+      toast.add({ title: 'Voz (simulada)', description: mensaje, color: 'error' })
+      programarLimpiezaError()
     }
   }
 
   // Auto-disparo por deeplink/widget: `?voice=1`. Se espera a que permisos y
-  // modo carguen para no fallar por el default 'local'.
+  // modo carguen para no fallar por el default 'local'. Solo lo consume la
+  // instancia de la ubicación visible: si no, quiosco y almacén abrían el
+  // micrófono a la vez (dos reconocedores / "busy" en Android).
   watch(
-    [() => route.query.voice, configLista, disponible, motivoNoDisponible],
-    ([consulta, lista, listo, motivo]) => {
+    [() => route.query.voice, () => route.path, configLista, disponible, motivoNoDisponible],
+    ([consulta, ruta, lista, listo, motivo]) => {
       const query = Array.isArray(consulta) ? consulta[0] : consulta
-      if (query !== '1' || !lista) return
+      if (query !== '1') return
+      if (!lista) return
+      if (ubicacionDeRuta(ruta) !== ubicacion) return
+
       const clave = route.fullPath
       if (consumido === clave) return
-      consumido = clave
       if (!listo) {
+        consumido = clave
         if (motivo && motivo !== 'Cargando…') {
           toast.add({ title: 'Voz', description: motivo, color: 'warning' })
         }
         return
       }
+      consumido = clave
       void venderPorVoz()
     },
     { immediate: true }
@@ -234,12 +317,15 @@ export function useVentaPorVoz(ubicacion) {
     disponible,
     micVisible,
     motivoNoDisponible,
+    ultimoError,
     candidatos,
     showCandidatos,
     prefill,
     producto,
     modo,
     venderPorVoz,
+    reintentar,
+    cancelarEscucha,
     seleccionarCandidato,
     cancelar,
     limpiar,

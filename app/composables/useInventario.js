@@ -399,7 +399,7 @@ export function useInventario() {
     }
 
     const cabecera = (ventas ?? []).filter(v =>
-      (!pid || v.puestoId === pid) && !v.anulado && enRango(v)
+      (!pid || v.puestoId == null || v.puestoId === pid) && !v.anulado && enRango(v)
     )
     const ids = new Set(cabecera.map(v => v.id))
 
@@ -605,6 +605,17 @@ export function useInventario() {
     const lotesProducto = (filasLotes ?? []).filter(l => !productoId || l.productoId === productoId)
     return lotesConSaldo(lotesProducto, movs ?? [], productoId, ubicacion)
   }
+  async function cambiarEstadoLote(loteId, nuevoEstado) {
+    if (esOnline.value) {
+      return $api(`/api/lotes/${loteId}/estado`, {
+        method: 'PATCH',
+        body: { estadoLote: nuevoEstado },
+        headers: apiHeaders()
+      })
+    }
+    return r(lotesRepo).patch(loteId, { estadoLote: nuevoEstado })
+  }
+
   return {
     cargando,
     saldos,
@@ -628,6 +639,7 @@ export function useInventario() {
     cargarVentasDirectas,
     cargarDesgloseLote,
     corregirLote,
+    cambiarEstadoLote,
     sugerenciaParaManana,
     lotesConStock
   }

@@ -1,0 +1,1 @@
+ALTER TABLE `productos` ADD `estado_lote` text DEFAULT 'normal' NOT NULL;

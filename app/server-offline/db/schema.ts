@@ -106,6 +106,7 @@ export const productos = sqliteTable(
     stockRecomendadoQuiosco: real('stock_recomendado_quiosco').notNull().default(0),
     stockMinimoAlmacen: real('stock_minimo_almacen').notNull().default(0),
     unidad: text('unidad'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -210,6 +211,7 @@ export const cuadreItems = sqliteTable(
     id: text('id').primaryKey(),
     cuadreId: text('cuadre_id').notNull(),
     productoId: text('producto_id').notNull(),
+    loteId: text('lote_id'),
     precioVentaUsado: real('precio_venta_usado').notNull(),
     cantidad: real('cantidad').notNull().default(0),
     subtotal: real('subtotal').notNull().default(0),
@@ -479,6 +481,7 @@ export const lotes = sqliteTable(
     entradaRef: text('entrada_ref'),
     anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
     notas: text('notas'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoPor: text('creado_por'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()

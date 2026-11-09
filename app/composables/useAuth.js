@@ -234,7 +234,7 @@ export function useAuth() {
     // Primer uso en este dispositivo = el usuario todavía no existe en la base
     // local. Solo entonces se exige red y se espera el pull completo.
     let primerUso = false
-    if (import.meta.client) {
+    if (import.meta.client && Capacitor.isNativePlatform()) {
       try {
         const local = await useDb().getUsuarioPorNombreLocal(response.usuario.nombre)
         primerUso = !local
@@ -265,7 +265,7 @@ export function useAuth() {
     })
     sesionLocal.value = sesion
 
-    if (import.meta.client) {
+    if (import.meta.client && Capacitor.isNativePlatform()) {
       try {
         await guardarPuestoLocal(response.puesto, response.usuario.puestoId)
       } catch {
@@ -283,7 +283,8 @@ export function useAuth() {
     if (import.meta.client) {
       try {
         const { pullServidor } = useSync()
-        if (primerUso) {
+        const esPrimerUsoBloqueante = Capacitor.isNativePlatform() && primerUso
+        if (esPrimerUsoBloqueante) {
           const ok = await pullServidor({ silent: true })
           if (!ok) {
             await invalidarSesionLocal()
@@ -293,7 +294,7 @@ export function useAuth() {
           pullServidor({ silent: true }).catch(() => {})
         }
       } catch (err) {
-        if (primerUso) throw err
+        if (Capacitor.isNativePlatform() && primerUso) throw err
       }
     }
   }

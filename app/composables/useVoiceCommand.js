@@ -27,8 +27,13 @@ function esCancelacion(mensaje) {
 /**
  * Envoltorio del STT nativo. Devuelve el transcript **y la confianza real** del
  * motor: la decisión de producto se toma con ambas (ver shared/voz/gramatica.js).
+ *
+ * Es un singleton: en Android solo existe un `SpeechRecognizer` y en web no
+ * tiene sentido abrir dos micrófonos a la vez (quiosco y almacén comparten el
+ * mismo dock). Dos instancias peleando por el micrófono producían "busy" o
+ * reconocimientos duplicados.
  */
-export function useVoiceCommand() {
+function _useVoiceCommand() {
   const auth = useAuth()
   const estado = ref('idle') // idle | listening | ready | cancelled | error
   const transcript = ref('')
@@ -64,6 +69,9 @@ export function useVoiceCommand() {
   const isListening = computed(() => estado.value === 'listening')
   const disponible = computed(() => backend.value !== null)
 
+  // App exclusiva para Cuba en español: no hay selector de idioma. Se usa
+  // es-ES porque Google SpeechRecognizer tiene mejor cobertura que es-CU
+  // (es-CU no está garantizado y puede fallar en dispositivos reales).
   async function startListening(options = { language: 'es-ES' }) {
     if (estado.value === 'listening') return
 
@@ -249,4 +257,11 @@ export function useVoiceCommand() {
     stopListening,
     reset
   }
+}
+
+let _voiceSingleton = null
+
+export function useVoiceCommand() {
+  if (!_voiceSingleton) _voiceSingleton = _useVoiceCommand()
+  return _voiceSingleton
 }

@@ -22,13 +22,14 @@
         />
       </div>
 
-      <UFormField v-if="lotes.length > 1" label="Lote">
+      <UFormField v-if="lotes.length" label="Lote">
         <USelectMenu
           v-model="form.loteId"
           :items="opcionesLote"
           value-key="id"
           label-key="label"
           class="w-full"
+          :disabled="lotes.length <= 1"
         />
       </UFormField>
 
@@ -64,7 +65,7 @@ const form = ref({ cantidad: 0, loteId: null })
 const opcionesLote = computed(() =>
   lotes.value.map(l => ({
     id: l.id,
-    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}`
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}${l.estadoLote && l.estadoLote !== 'normal' ? ` · ${l.estadoLote}` : ''}`
   }))
 )
 

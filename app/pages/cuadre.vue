@@ -23,7 +23,6 @@ const fiadoCardRef = ref(null)
  * ausentes de la app.
  */
 const etiquetaDiferencia = computed(() => {
-  if (faltanteReal.value == null) return 'Pendiente'
   if (faltanteReal.value > 0) return 'Faltante'
   if (faltanteReal.value < 0) return 'Sobrante'
   return 'Exacto'
@@ -122,10 +121,10 @@ onMounted(() => {
             <hr class="border-t border-gray-200 dark:border-gray-800">
             <div
               class="flex justify-between items-center font-semibold"
-              :class="faltanteReal == null ? 'text-gray-500' : faltanteReal > 0 ? 'text-error' : faltanteReal < 0 ? 'text-success' : ''"
+              :class="faltanteReal > 0 ? 'text-error' : faltanteReal < 0 ? 'text-success' : ''"
             >
               <span>{{ etiquetaDiferencia }}</span>
-              <span class="font-mono">{{ faltanteReal == null ? '—' : fmtPrecio(Math.abs(faltanteReal)) }}</span>
+              <span class="font-mono">{{ fmtPrecio(Math.abs(faltanteReal)) }}</span>
             </div>
           </div>
         </UCard>

@@ -35,13 +35,14 @@
         />
       </div>
 
-      <UFormField v-if="lotes.length > 1" label="Lote">
+      <UFormField v-if="lotes.length" label="Lote">
         <USelectMenu
           v-model="form.loteId"
           :items="opcionesLote"
           value-key="id"
           label-key="label"
           class="w-full"
+          :disabled="lotes.length <= 1"
         />
       </UFormField>
 
@@ -62,6 +63,9 @@
         </UFormField>
       </div>
 
+      <p v-if="loteEspecial" class="text-xs text-muted">
+        Lote {{ textoEstadoLote }}: se venderá por su precio de compra; puedes editarlo.
+      </p>
       <p v-if="superaDisponible" class="text-xs text-error font-medium">
         Solo hay {{ disponible }} en {{ etiquetaUbicacion.toLowerCase() }}.
       </p>
@@ -189,12 +193,34 @@ const total = computed(() =>
 const opcionesLote = computed(() =>
   (lotes.value ?? []).map(l => ({
     id: l.id,
-    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}`
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}${l.estadoLote && l.estadoLote !== 'normal' ? ` · ${l.estadoLote}` : ''}`
   }))
 )
 
 const loteSeleccionado = computed(() =>
   (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
+)
+
+const loteEspecial = computed(() => {
+  const l = loteSeleccionado.value
+  return Boolean(l?.estadoLote && l.estadoLote !== 'normal')
+})
+
+const textoEstadoLote = computed(() => {
+  switch (loteSeleccionado.value?.estadoLote) {
+    case 'defectuoso':
+      return 'defectuoso'
+    case 'liquidacion':
+      return 'liquidación'
+    case 'vencimiento_proximo':
+      return 'vencimiento próximo'
+    default:
+      return 'especial'
+  }
+})
+
+const costoLoteSeleccionado = computed(() =>
+  Number(loteSeleccionado.value?.precioUnitario ?? props.producto?.costoActual ?? props.producto?.precioCompraActual ?? 0)
 )
 
 const valida = computed(() =>
@@ -211,7 +237,7 @@ const valida = computed(() =>
 function precioInicial() {
   if (esRegalo.value) return 0
   if (esCasa.value || props.modo === 'familiar') {
-    return Number(props.producto?.costoActual ?? props.producto?.precioCompraActual ?? 0)
+    return costoLoteSeleccionado.value
   }
   return Number(props.producto?.precioVentaActual ?? 0)
 }
@@ -237,6 +263,9 @@ watch(isOpen, async (open) => {
     clientes.value = cls ?? []
     lotes.value = ls ?? []
     form.value.loteId = lotes.value[0]?.id ?? null
+    if (esCasa.value || props.modo === 'familiar' || loteEspecial.value) {
+      form.value.precioVentaUsado = costoLoteSeleccionado.value
+    }
 
     if (props.prefill?.clienteHint && !props.prefill?.clienteId) {
       const wanted = normalizeVoiceText(props.prefill.clienteHint)
@@ -267,6 +296,20 @@ watch(isOpen, async (open) => {
     lotes.value = []
   }
 })
+
+watch(() => form.value.loteId, () => {
+  if (!isOpen.value) return
+  if (esCasa.value || props.modo === 'familiar') {
+    form.value.precioVentaUsado = costoLoteSeleccionado.value
+    return
+  }
+  if (esRegalo.value) return
+  if (loteEspecial.value) {
+    form.value.precioVentaUsado = costoLoteSeleccionado.value
+  } else {
+    form.value.precioVentaUsado = Number(props.producto?.precioVentaActual ?? 0)
+  }
+}, { flush: 'post' })
 
 async function confirmar() {
   const lineas = [{

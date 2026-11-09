@@ -20,6 +20,7 @@ export default defineEventHandler(async (event) => {
   const rows = await db
     .select({
       id: ventasDirectas.id,
+      puestoId: ventasDirectas.puestoId,
       ubicacionVenta: ventasDirectas.ubicacionVenta,
       tipoVenta: ventasDirectas.tipoVenta,
       clienteId: ventasDirectas.clienteId,
@@ -66,6 +67,7 @@ export default defineEventHandler(async (event) => {
 
   return rows.map(r => ({
     id: r.id,
+    puestoId: r.puestoId,
     ubicacion: r.ubicacionVenta,
     tipoVenta: r.tipoVenta,
     clienteId: r.clienteId,

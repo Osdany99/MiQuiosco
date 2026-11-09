@@ -123,6 +123,10 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                 }
                 intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
                 intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+                // Dar margen para que el usuario hable sin que el
+                // reconocedor se rinda por silencio.
+                intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000);
+                intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000);
 
                 startTime = System.currentTimeMillis();
                 final long t0 = startTime;

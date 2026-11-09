@@ -24,6 +24,13 @@ watch(() => vozActiva.value.producto.value, (fila) => {
 watch(vozDialogAbierto, (abierto) => {
   if (!abierto) vozActiva.value.limpiar()
 })
+// Cambiar de quiosco a almacén no debe arrastrar el producto ni dejar el
+// micrófono de la ubicación anterior abierto.
+watch(ubicacionVozActual, () => {
+  vozDialogAbierto.value = false
+  void vozQuiosco.cancelar()
+  void vozAlmacen.cancelar()
+})
 
 const config = useRuntimeConfig()
 const etiquetaSync = computed(() => etiquetaFaseSync(faseSync.value, progresoSync.value))
@@ -248,9 +255,11 @@ const userMenuItems = computed(() => {
     </UDashboardSidebar>
 
     <VoiceListeningBar
-      :visible="vozActiva.micVisible.value && vozActiva.ocupado.value"
+      :visible="vozActiva.micVisible.value && (vozActiva.ocupado.value || vozActiva.estado.value === 'error')"
       :ocupado="vozActiva.ocupado.value"
       :estado="vozActiva.estado.value"
+      :error="vozActiva.ultimoError.value || ''"
+      @reintentar="vozActiva.reintentar()"
     />
 
     <div class="flex-1 min-w-0 w-full p-6 overflow-y-auto">
@@ -261,7 +270,14 @@ const userMenuItems = computed(() => {
         :ocupado="vozActiva.ocupado.value"
         :estado="vozActiva.estado.value"
         :motivo="vozActiva.motivoNoDisponible.value"
+        :error="vozActiva.ultimoError.value"
         @activar="vozActiva.venderPorVoz()"
+        @cancelar="vozActiva.cancelarEscucha()"
+      />
+      <!-- Simulador de voz solo en desarrollo: ejecuta el pipeline sin micrófono. -->
+      <SimuladorVoz
+        v-if="import.meta.dev"
+        class="fixed bottom-4 left-4 z-50"
         @simular="vozActiva.simular($event)"
       />
 

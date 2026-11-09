@@ -68,7 +68,9 @@ export function lotesConSaldo(lotes, movimientos, productoId, ubicacion) {
       precioUnitario: Number(l.precioUnitario) || 0,
       saldo: porLote.get(l.id) ?? 0,
       fechaEntrada: l.fechaEntrada,
-      creadoEn: l.creadoEn
+      creadoEn: l.creadoEn,
+      cantidadInicial: l.cantidadInicial,
+      estadoLote: l.estadoLote ?? 'normal'
     }))
     .filter(l => l.saldo > 0)
     .sort(compararLotes)
@@ -228,42 +230,73 @@ export function construirVentaCuadre({ lineas, lotesPorProducto, cuadreId, meta 
     const cant = Math.trunc(Number(l.cantidad) || 0)
     if (cant <= 0) continue
     if (!agrupadas.has(l.productoId)) agrupadas.set(l.productoId, [])
-    agrupadas.get(l.productoId).push({ lineaId: l.id, productoId: l.productoId, cantidad: cant })
+    agrupadas.get(l.productoId).push({
+      lineaId: l.id,
+      productoId: l.productoId,
+      cantidad: cant,
+      loteId: l.loteId ?? null,
+      // Las líneas llegan en orden de secuencia; conservarla por si los repos
+      // entregan el array desordenado.
+      secuencia: Number(l.secuencia ?? 0)
+    })
   }
 
   let costoTotal = 0
   const faltantes = []
 
   for (const [productoId, filas] of agrupadas) {
-    const disponibles = (lotesPorProducto.get(productoId) ?? []).map(l => ({
+    const filasOrdenadas = [...filas].sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
+    const baseLotes = (lotesPorProducto.get(productoId) ?? []).map(l => ({
       id: l.id,
       precioUnitario: l.precioUnitario,
       saldoDisponible: l.saldo
     }))
-    const { repartos, faltantes: falt, costoTotal: costo } = consumirFIFO(disponibles, filas)
-    costoTotal = redondear2(costoTotal + costo)
-    for (const f of falt) faltantes.push(f)
-    for (const r of repartos) {
-      movimientos.push({
-        id: generarId(),
-        puestoId: meta.puestoId,
-        productoId,
-        loteId: r.loteId,
-        cuadreId,
-        lineaCuadreId: r.lineaId,
-        traspasoId: null,
-        tipo: 'venta',
-        cantidad: r.cantidad,
-        deltaAlmacen: 0,
-        deltaQuiosco: -r.cantidad,
-        precioUnitario: r.precioUnitario,
-        importe: r.importe,
-        motivo: 'venta_cuadre',
-        nota: null,
-        usuarioId: meta.usuarioId ?? null,
-        anulado: false,
-        creadoEn: ahora
-      })
+    // Saldo compartido que se va reduciendo conforme se consumen las líneas.
+    const saldosActuales = new Map(baseLotes.map(l => [l.id, Math.max(0, Math.trunc(l.saldoDisponible))]))
+
+    for (const fila of filasOrdenadas) {
+      const lotesDisponibles = (fila.loteId
+        ? baseLotes.filter(l => l.id === fila.loteId)
+        : baseLotes
+      ).map(l => ({
+        id: l.id,
+        precioUnitario: l.precioUnitario,
+        saldoDisponible: saldosActuales.get(l.id) ?? 0
+      }))
+
+      const { repartos, faltantes: falt, costoTotal: costo } = consumirFIFO(
+        lotesDisponibles,
+        [{ lineaId: fila.lineaId, productoId: fila.productoId, cantidad: fila.cantidad }]
+      )
+      costoTotal = redondear2(costoTotal + costo)
+      for (const f of falt) faltantes.push(f)
+      for (const r of repartos) {
+        movimientos.push({
+          id: generarId(),
+          puestoId: meta.puestoId,
+          productoId,
+          loteId: r.loteId,
+          cuadreId,
+          lineaCuadreId: r.lineaId,
+          traspasoId: null,
+          tipo: 'venta',
+          cantidad: r.cantidad,
+          deltaAlmacen: 0,
+          deltaQuiosco: -r.cantidad,
+          precioUnitario: r.precioUnitario,
+          importe: r.importe,
+          motivo: 'venta_cuadre',
+          nota: null,
+          usuarioId: meta.usuarioId ?? null,
+          anulado: false,
+          creadoEn: ahora
+        })
+      }
+      // reducir saldos consumidos
+      for (const r of repartos) {
+        const actual = saldosActuales.get(r.loteId) ?? 0
+        saldosActuales.set(r.loteId, Math.max(0, actual - Math.trunc(Number(r.cantidad) || 0)))
+      }
     }
   }
 

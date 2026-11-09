@@ -3,7 +3,7 @@ import { Preferences } from '@capacitor/preferences'
 const PREF_TTS = 'voice.tts.enabled'
 const PREF_TTS_VOICE = 'voice.tts.voiceUri'
 
-export function useTts() {
+function _useTts() {
   const habilitado = ref(true)
   let inicializado = false
   const disponible = computed(() => {
@@ -98,6 +98,7 @@ export function useTts() {
   async function speak(texto) {
     if (!texto) return
     await cargar()
+    await cargarVoces()
     if (!disponible.value || !habilitado.value) return
 
     const maxMs = Math.max(2500, String(texto).length * 90)
@@ -144,4 +145,10 @@ export function useTts() {
     setVoz,
     speak
   }
+}
+
+let _ttsSingleton = null
+export function useTts() {
+  if (!_ttsSingleton) _ttsSingleton = _useTts()
+  return _ttsSingleton
 }

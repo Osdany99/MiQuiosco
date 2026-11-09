@@ -265,6 +265,16 @@ const data = computed(() => {
 
 const total = computed(() => filteredAll.value.length)
 
+// Con datos externos (props.data) la lista puede encogerse al filtrar sin que
+// la página actual se ajuste sola: el slice quedaría vacío aunque haya filas.
+// Se vuelve a la primera página cuando la actual queda fuera de rango.
+watch(total, (t) => {
+  if (!t) return
+  const limite = pageCount.value || props.defaultLimit || 25
+  const maxPagina = Math.max(1, Math.ceil(t / limite))
+  if (page.value > maxPagina) page.value = 1
+})
+
 const pending = computed(() => {
   if (isExternalData.value) return props.loadingProp
   return repoTable?.pending.value ?? false

@@ -173,6 +173,7 @@ export const productos = pgTable(
       .notNull()
       .default(0),
     unidad: text('unidad'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -303,6 +304,7 @@ export const cuadreItems = pgTable(
     productoId: uuid('producto_id')
       .notNull()
       .references(() => productos.id),
+    loteId: uuid('lote_id').references(() => lotes.id, { onDelete: 'set null' }),
     precioVentaUsado: doublePrecision('precio_venta_usado').notNull(),
     cantidad: doublePrecision('cantidad')
       .notNull()
@@ -577,6 +579,7 @@ export const lotes = pgTable(
     entradaRef: uuid('entrada_ref'),
     anulado: boolean('anulado').notNull().default(false),
     notas: text('notas'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoPor: uuid('creado_por').references(() => usuarios.id),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()

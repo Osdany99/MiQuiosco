@@ -14,7 +14,7 @@
  * abrir un formulario prellenado es la capa de UI.
  */
 
-const NUM_WORDS = {
+const UNIDADES = {
   cero: 0,
   un: 1,
   uno: 1,
@@ -26,7 +26,10 @@ const NUM_WORDS = {
   seis: 6,
   siete: 7,
   ocho: 8,
-  nueve: 9,
+  nueve: 9
+}
+
+const DECENAS = {
   diez: 10,
   once: 11,
   doce: 12,
@@ -43,15 +46,41 @@ const NUM_WORDS = {
   veintitres: 23,
   veinticuatro: 24,
   veinticinco: 25,
+  veintiseis: 26,
+  veintisiete: 27,
+  veintiocho: 28,
+  veintinueve: 29,
   treinta: 30,
   cuarenta: 40,
   cincuenta: 50,
   sesenta: 60,
   setenta: 70,
   ochenta: 80,
-  noventa: 90,
-  cien: 100
+  noventa: 90
 }
+
+const CENTENAS = {
+  cien: 100,
+  ciento: 100,
+  doscientos: 200,
+  doscientas: 200,
+  trescientos: 300,
+  trescientas: 300,
+  cuatrocientos: 400,
+  cuatrocientas: 400,
+  quinientos: 500,
+  quinientas: 500,
+  seiscientos: 600,
+  seiscientas: 600,
+  setecientos: 700,
+  setecientas: 700,
+  ochocientos: 800,
+  ochocientas: 800,
+  novecientos: 900,
+  novecientas: 900
+}
+
+const NUM_WORDS = { ...UNIDADES, ...DECENAS, ...CENTENAS }
 
 const VERBOS_VENTA = [
   'vende',
@@ -97,6 +126,36 @@ const PALABRAS_VACIAS = new Set([
 
 const ARTICULOS_INICIALES = /^(?:(?:de|del|el|la|los|las|un|una|unos|unas|que|lo)\s+)+/
 
+// Palabras que nunca forman parte de un nombre de cliente. Evita que frases
+// como "para llevar" o "para mi" se confundan con una persona.
+const PALABRAS_NO_CLIENTE = new Set([
+  'llevar',
+  'regalar',
+  'comer',
+  'probar',
+  'aqui',
+  'aca',
+  'hoy',
+  'manana',
+  'todos',
+  'todas',
+  'mi',
+  'mis',
+  'tu',
+  'tus'
+])
+
+// Preposiciones/artículos que quedan sueltos al quitar ubicación, tipo o
+// cliente. Solo se limpian en los bordes para no romper nombres compuestos
+// ("pan de leche").
+const BORDE_VACIAS = new Set([...PALABRAS_VACIAS, 'para', 'desde', 'en', 'al', 'con', 'sin'])
+
+function limpiarBordes(tokens) {
+  while (tokens.length && BORDE_VACIAS.has(tokens[0])) tokens.shift()
+  while (tokens.length && BORDE_VACIAS.has(tokens[tokens.length - 1])) tokens.pop()
+  return tokens
+}
+
 /** Umbral de match de producto. Configurable por puesto en una fase posterior. */
 export const UMBRAL_PRODUCTO = 0.75
 
@@ -124,6 +183,67 @@ export function parseNumberToken(token) {
   if (!tok) return null
   if (/^\d+(?:\.\d+)?$/.test(tok)) return Number(tok)
   if (Object.prototype.hasOwnProperty.call(NUM_WORDS, tok)) return NUM_WORDS[tok]
+  return null
+}
+
+/**
+ * Número compuesto a partir de una secuencia de tokens: "treinta y cinco" → 35,
+ * "ciento veinte" → 120, "doscientos cincuenta y cinco" → 255.
+ *
+ * Devuelve `{ valor, consumidos }` para que el extractor sepa cuántos tokens
+ * retirar; `null` si la secuencia no empieza por un número.
+ */
+export function parseNumberSequence(tokens) {
+  if (!Array.isArray(tokens) || !tokens.length) return null
+
+  const primero = normalizar(tokens[0])
+  if (/^\d+(?:\.\d+)?$/.test(primero)) return { valor: Number(primero), consumidos: 1 }
+
+  const tokenEn = i => normalizar(tokens[i])
+
+  const centena = CENTENAS[primero]
+  if (centena != null) {
+    let valor = centena
+    let i = 1
+    const decena = DECENAS[tokenEn(i)]
+    const unidadSuelta = UNIDADES[tokenEn(i)]
+
+    if (decena != null && decena >= 30) {
+      valor += decena
+      i++
+      if (tokenEn(i) === 'y') {
+        const unidad = UNIDADES[tokenEn(i + 1)]
+        if (unidad != null && unidad > 0) {
+          valor += unidad
+          i += 2
+        }
+      }
+    } else if (decena != null || unidadSuelta != null) {
+      valor += decena ?? unidadSuelta
+      i++
+    }
+
+    return { valor, consumidos: i }
+  }
+
+  const decena = DECENAS[primero]
+  if (decena != null && decena >= 30) {
+    let valor = decena
+    let i = 1
+    if (tokenEn(i) === 'y') {
+      const unidad = UNIDADES[tokenEn(i + 1)]
+      if (unidad != null && unidad > 0) {
+        valor += unidad
+        i += 2
+      }
+    }
+    return { valor, consumidos: i }
+  }
+
+  if (decena != null || UNIDADES[primero] != null) {
+    return { valor: decena ?? UNIDADES[primero], consumidos: 1 }
+  }
+
   return null
 }
 
@@ -182,25 +302,34 @@ export function extraerSlots(comando, transcript) {
 
   let work = normalizar(transcript).replace(PREFIJO_VENTA, '').trim()
 
-  // Ubicación: "en almacén" / "desde quiosco" / "del kiosco".
-  const loc = work.match(/\b(?:en|desde|del)\s+(kiosco|quiosco|almacen)\b/)
+  // Ubicación: "en el quiosco", "desde el almacén", "del kiosco" o sin
+  // artículo ("en almacén"). El artículo opcional evita que "el" se quede
+  // pegado al nombre del producto.
+  const loc = work.match(/\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/)
   if (loc) {
     slots.ubicacion = loc[1] === 'almacen' ? 'almacen' : 'quiosco'
     work = work.replace(loc[0], ' ')
   }
 
-  // Tipo de venta. `normal` se descarta: es el valor por defecto.
+  // Tipo de venta. `normal` se descarta: es el valor por defecto. "de la casa"
+  // y "para la casa" se eliminan completos para no dejar "de la" en el producto.
   if (/\bregalo\b/.test(work)) {
     slots.tipoVenta = 'regalo'
-    work = work.replace(/\bregalo\b/, ' ')
+    work = work.replace(/\bregalo\b/g, ' ')
   } else if (/\bfamiliar\b/.test(work)) {
     slots.tipoVenta = 'familiar'
-    work = work.replace(/\bfamiliar\b/, ' ')
+    work = work.replace(/\bfamiliar\b/g, ' ')
+  } else if (/\b(?:de|para)\s+la\s+casa\b/.test(work)) {
+    slots.tipoVenta = 'casa'
+    work = work.replace(/\b(?:de|para)\s+la\s+casa\b/g, ' ')
+  } else if (/\b(?:de|para)\s+casa\b/.test(work)) {
+    slots.tipoVenta = 'casa'
+    work = work.replace(/\b(?:de|para)\s+casa\b/g, ' ')
   } else if (/\bcasa\b/.test(work)) {
     slots.tipoVenta = 'casa'
-    work = work.replace(/\bcasa\b/, ' ')
+    work = work.replace(/\bcasa\b/g, ' ')
   }
-  work = work.replace(/\bnormal\b/, ' ')
+  work = work.replace(/\bnormal\b/g, ' ')
 
   // Precio explícito: "a precio de diez". Si el token no es un número se
   // deja intacto para que siga formando parte del producto.
@@ -213,26 +342,29 @@ export function extraerSlots(comando, transcript) {
     }
   }
 
-  // Cliente: "a don Juan" / "para Juan". Se descartan preposiciones sueltas
-  // ("para la casa" ya quitó `casa` y no debe capturar "la").
-  const cliente
-    = work.match(/\b(?:a|para)\s+(?:don|dona|senor|senora)\s+([a-z]+)\s*$/)
-      || work.match(/\b(?:a|para)\s+([a-z]+)\s*$/)
-  if (cliente && !PALABRAS_VACIAS.has(cliente[1])) {
-    slots.clienteHint = cliente[1]
+  // Cliente: "a don Juan Pérez" / "para Juan Pérez". Se aceptan hasta cuatro
+  // palabras al final y se descartan honoríficos y palabras que no son nombre
+  // ("para llevar"). Si no queda ningún nombre válido, se elimina la frase
+  // igualmente para que no contamine el producto.
+  const cliente = work.match(/\b(?:a|para)\s+(?:(?:don|dona|senor|senora)\s+)?([a-z]+(?:\s+[a-z]+){0,3})\s*$/)
+  if (cliente) {
+    const nombre = cliente[1]
+      .split(/\s+/)
+      .filter(t => t && !PALABRAS_VACIAS.has(t) && !PALABRAS_NO_CLIENTE.has(t))
+    if (nombre.length) slots.clienteHint = nombre.join(' ')
     work = work.replace(cliente[0], ' ')
   }
 
   const tokens = work.split(' ').filter(Boolean)
   if (tokens.length) {
-    const cantidad = parseNumberToken(tokens[0])
-    if (cantidad != null) {
-      if (cantidad > 0) slots.cantidad = cantidad
-      tokens.shift()
+    const numero = parseNumberSequence(tokens)
+    if (numero) {
+      if (numero.valor > 0) slots.cantidad = Math.max(1, Math.trunc(numero.valor))
+      tokens.splice(0, numero.consumidos)
     }
   }
 
-  slots.productoHint = tokens
+  slots.productoHint = limpiarBordes(tokens)
     .join(' ')
     .replace(ARTICULOS_INICIALES, '')
     .trim()

@@ -27,19 +27,26 @@
         :description="aviso"
       />
 
-      <div class="flex gap-2 items-start">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <UFormField
           label="Cantidad"
-          class="w-28"
-          :hint="`Mínimo ${piso}`"
+          class="w-full"
           :error="errorCantidad"
         >
-          <BaseInputNumber v-model="cantidadNueva" :step="1" :min="minCantidad" />
+          <BaseInputNumber
+            v-model="cantidadNueva"
+            :step="1"
+            :min="minCantidad"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField label="P. compra" class="w-32">
-          <BaseInputNumber v-model="precioNuevo" :min="0" />
+        <UFormField label="Precio de compra" class="w-full">
+          <BaseInputNumber v-model="precioNuevo" :min="0" class="w-full" />
         </UFormField>
       </div>
+      <p class="text-xs text-muted">
+        Mínimo: {{ piso }} unidades
+      </p>
 
       <UFormField label="Motivo" :error="errorMotivo">
         <UInput

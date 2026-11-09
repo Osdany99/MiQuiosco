@@ -50,7 +50,7 @@ export function useVistaInventario(ubicacion) {
 
   // Filtros y columnas del historial de compras.
   const busquedaHistorial = ref('')
-  const filtroHistorial = ref('todos')
+  const filtroHistorial = ref('con-stock')
   const incluirAnulados = ref(false)
 
   const columns = computed(() => [
@@ -98,6 +98,10 @@ export function useVistaInventario(ubicacion) {
     // 'origen' muestra el proveedor (o el lugar de compra). El dato se sigue
     // calculando en cada fila; solo se oculta la columna. Ver app/utils/flags.js
   ].filter(c => MOSTRAR_PROVEEDOR || c.accessorKey !== 'origen')
+    .map(c => ({
+      ...c,
+      visible: c.header === '' || ['Fecha', 'Producto', 'Cant.', 'P. compra', 'Saldo', 'Salidas'].includes(c.header)
+    }))
 
   /**
    * Columnas visibles del historial. Se arranca con lo esencial (como en la

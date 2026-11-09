@@ -49,6 +49,12 @@ export const correccionLoteSchema = z
     message: 'Escribe la cantidad o el precio correctos.'
   })
 
+export const ESTADOS_LOTE = ['normal', 'liquidacion', 'defectuoso', 'vencimiento_proximo']
+
+export const estadoLoteSchema = z.object({
+  estadoLote: z.enum(ESTADOS_LOTE, { message: 'Estado de lote inválido' })
+})
+
 export const movimientoInventarioSchema = z.object({
   productoId: z.string().uuid('ID de producto inválido'),
   loteId: z.string().uuid().nullable().optional(),

@@ -1,0 +1,2 @@
+ALTER TABLE "cuadre_items" ADD COLUMN "lote_id" uuid;--> statement-breakpoint
+ALTER TABLE "cuadre_items" ADD CONSTRAINT "cuadre_items_lote_id_lotes_id_fk" FOREIGN KEY ("lote_id") REFERENCES "public"."lotes"("id") ON DELETE set null ON UPDATE no action;

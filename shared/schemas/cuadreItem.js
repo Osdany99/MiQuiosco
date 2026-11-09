@@ -9,5 +9,6 @@ export const cuadreItemSchema = z.object({
   tipoLinea: z.enum(['normal', 'descuento', 'regalo', 'deuda', 'descuento_familiar'], { message: 'Tipo de línea inválido' }).default('normal'),
   nota: z.string().nullable().optional(),
   esExtra: z.boolean().default(false),
+  loteId: z.string().uuid('ID de lote inválido').nullable().optional(),
   secuencia: z.number().int().min(0).default(0)
 })

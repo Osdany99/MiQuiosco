@@ -1,0 +1,1 @@
+ALTER TABLE "lotes" ADD COLUMN "estado_lote" text DEFAULT 'normal' NOT NULL;

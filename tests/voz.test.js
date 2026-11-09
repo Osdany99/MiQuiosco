@@ -7,6 +7,7 @@ import {
   extraerSlots,
   interpretar,
   normalizar,
+  parseNumberSequence,
   parseNumberToken,
   resolverComando,
   resolverUbicacion
@@ -26,6 +27,14 @@ describe('voz: normalización y números', () => {
     assert.equal(parseNumberToken('Cinco'), 5)
     assert.equal(parseNumberToken('veinticinco'), 25)
     assert.equal(parseNumberToken('pan'), null)
+  })
+
+  it('parsea números compuestos por varios tokens', () => {
+    assert.deepEqual(parseNumberSequence(['treinta', 'y', 'cinco', 'panes']), { valor: 35, consumidos: 3 })
+    assert.deepEqual(parseNumberSequence(['ciento', 'veinte', 'panes']), { valor: 120, consumidos: 2 })
+    assert.deepEqual(parseNumberSequence(['doscientos', 'cincuenta', 'y', 'cinco']), { valor: 255, consumidos: 4 })
+    assert.deepEqual(parseNumberSequence(['una', 'pan']), { valor: 1, consumidos: 1 })
+    assert.deepEqual(parseNumberSequence(['pan']), null)
   })
 })
 
@@ -102,6 +111,43 @@ describe('voz: slots (fase B)', () => {
     const slots = extraerSlots('venta_directa', 'vende dos panes para la casa')
     assert.equal(slots.tipoVenta, 'casa')
     assert.equal(slots.clienteHint, null)
+    assert.equal(slots.productoHint, 'panes')
+  })
+
+  it('detecta la ubicación aunque lleve artículo', () => {
+    const enEl = extraerSlots('venta_directa', 'vende cinco panes en el quiosco')
+    assert.equal(enEl.ubicacion, 'quiosco')
+    assert.equal(enEl.productoHint, 'panes')
+
+    const desdeEl = extraerSlots('venta_directa', 'vende cinco panes desde el almacen')
+    assert.equal(desdeEl.ubicacion, 'almacen')
+    assert.equal(desdeEl.productoHint, 'panes')
+  })
+
+  it('extrae números compuestos sin dejar restos en el producto', () => {
+    const treintaYCinco = extraerSlots('venta_directa', 'vende treinta y cinco panes')
+    assert.equal(treintaYCinco.cantidad, 35)
+    assert.equal(treintaYCinco.productoHint, 'panes')
+
+    const cientoVeinte = extraerSlots('venta_directa', 'vende ciento veinte refrescos')
+    assert.equal(cientoVeinte.cantidad, 120)
+    assert.equal(cientoVeinte.productoHint, 'refrescos')
+  })
+
+  it('reconoce clientes de varias palabras', () => {
+    const para = extraerSlots('venta_directa', 'vende un pan para juan perez')
+    assert.equal(para.clienteHint, 'juan perez')
+    assert.equal(para.productoHint, 'pan')
+
+    const don = extraerSlots('venta_directa', 'vende un pan a don juan perez')
+    assert.equal(don.clienteHint, 'juan perez')
+    assert.equal(don.productoHint, 'pan')
+  })
+
+  it('"para llevar" no se convierte en cliente ni contamina el producto', () => {
+    const slots = extraerSlots('venta_directa', 'vende un pan para llevar')
+    assert.equal(slots.clienteHint, null)
+    assert.equal(slots.productoHint, 'pan')
   })
 })
 

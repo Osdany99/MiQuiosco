@@ -60,6 +60,15 @@
             </div>
           </div>
         </template>
+        <template #almacen-cell="{ row }">
+          <button
+            type="button"
+            class="font-mono text-primary hover:underline"
+            @click="abrirDesgloseStock(row.original, 'almacen')"
+          >
+            {{ row.original.almacen }}
+          </button>
+        </template>
         <template #estado-cell="{ row }">
           <UBadge :color="colorEstado(row.original)" variant="soft">
             {{ textoEstado(row.original) }}
@@ -187,8 +196,16 @@
     </template>
 
     <template v-else>
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <div class="flex flex-wrap items-center gap-2">
+      <BaseTable
+        :data="lotesHistorialFiltrados"
+        :columns="columnsHistorial"
+        empty-state="Sin entradas registradas"
+        :show-edit="false"
+        :show-delete="false"
+        :disable-filters="true"
+        :show-reset="false"
+      >
+        <template #toolbar-leading>
           <UInput
             v-model="busquedaHistorial"
             icon="i-lucide-search"
@@ -201,18 +218,8 @@
             class="w-40"
           />
           <USwitch v-model="incluirAnulados" label="Incluir anulados" />
-        </div>
-        <TableToolbar
-          v-model:visible-headers="visibleHeadersHistorial"
-          :column-headers="columnHeadersHistorial"
-        />
-      </div>
+        </template>
 
-      <UTable
-        :data="lotesHistorialFiltrados"
-        :columns="visibleColumnsHistorial"
-        empty="Sin entradas registradas"
-      >
         <template #nombreProducto-cell="{ row }">
           <div class="min-w-0">
             <div class="font-medium truncate">
@@ -268,7 +275,7 @@
             </UTooltip>
           </div>
         </template>
-      </UTable>
+      </BaseTable>
     </template>
 
     <InventarioDialogoEntrada v-model="showEntrada" :producto-id="productoEntrada" @guardado="recargar" />
@@ -294,6 +301,41 @@
 
       @guardado="recargar"
     />
+
+    <InventarioDialogoDesgloseStock
+      v-model="showDesgloseStock"
+      :producto-id="desgloseProductoId"
+      ubicacion="almacen"
+      :nombre-producto="desgloseNombre"
+      :stock-total="desgloseStockTotal"
+    />
+
+    <BaseDialog
+      v-model="showEstadoHistorico"
+      title="Cambiar estado del lote"
+      description="Clasifica el estado de este lote (defectuoso, liquidación, etc)."
+      confirm-text="Guardar estado"
+      :loading="guardandoEstadoHistorico"
+      :disabled-guardar="!cambiaEstadoHistorico"
+      @confirm="confirmarCambioEstadoHistorico"
+      @cancel="showEstadoHistorico = false"
+    >
+      <div v-if="loteEstadoHistorico" class="space-y-3 text-sm">
+        <div class="flex items-center justify-between rounded-md bg-elevated/50 px-3 py-2">
+          <span>{{ loteEstadoHistorico.nombreProducto }}</span>
+          <span class="font-mono text-xs text-muted">{{ loteEstadoHistorico.fechaEntrada }}</span>
+        </div>
+        <UFormField label="Estado">
+          <USelectMenu
+            v-model="nuevoEstadoHistorico"
+            :items="estadosLoteHistorico"
+            value-key="id"
+            label-key="nombre"
+            class="w-full"
+          />
+        </UFormField>
+      </div>
+    </BaseDialog>
   </BaseHeaderPage>
 </template>
 
@@ -305,7 +347,7 @@ definePageMeta({
 const {
   cargando, filas, lotesHistorialFiltrados,
   visibleHeaders, columnHeaders, visibleColumns,
-  visibleHeadersHistorial, columnHeadersHistorial, visibleColumnsHistorial,
+  columnsHistorial,
   busquedaHistorial, filtroHistorial, incluirAnulados,
   colorEstado, textoEstado, abrirAjuste, abrirLotes, abrirCorreccion, abrirDetalleLote,
   recargar, sinMovimientos, hayProductos,
@@ -315,6 +357,25 @@ const {
 } = useVistaInventario('almacen')
 
 const perms = usePermisos()
+const inv = useInventario()
+const toast = useToast()
+
+const showEstadoHistorico = ref(false)
+const loteEstadoHistorico = ref(null)
+const nuevoEstadoHistorico = ref('normal')
+const guardandoEstadoHistorico = ref(false)
+
+const estadosLoteHistorico = [
+  { id: 'normal', nombre: 'Normal' },
+  { id: 'liquidacion', nombre: 'Liquidación' },
+  { id: 'defectuoso', nombre: 'Defectuoso' },
+  { id: 'vencimiento_proximo', nombre: 'Vencimiento próximo' }
+]
+
+const cambiaEstadoHistorico = computed(() => {
+  if (!loteEstadoHistorico.value) return false
+  return nuevoEstadoHistorico.value !== (loteEstadoHistorico.value.estadoLote ?? 'normal')
+})
 
 const tab = ref('stock')
 const tabs = [
@@ -333,6 +394,18 @@ const showTraspaso = ref(false)
 const productoEntrada = ref(null)
 const productoTraspaso = ref(null)
 
+const showDesgloseStock = ref(false)
+const desgloseProductoId = ref(null)
+const desgloseNombre = ref('')
+const desgloseStockTotal = ref(0)
+
+function abrirDesgloseStock(row, ubicacion) {
+  desgloseProductoId.value = row.productoId
+  desgloseNombre.value = row.nombre
+  desgloseStockTotal.value = ubicacion === 'quiosco' ? row.quiosco : row.almacen
+  showDesgloseStock.value = true
+}
+
 // Solo un popover de venta abierto a la vez: guarda el id del producto cuyo
 // menú está visible (null = ninguno).
 const menuVentaId = ref(null)
@@ -350,5 +423,26 @@ function abrirEntradaDe(productoId) {
 function abrirTraspasoDe(productoId) {
   productoTraspaso.value = productoId
   showTraspaso.value = true
+}
+
+function abrirCambioEstadoHistorico(lote) {
+  loteEstadoHistorico.value = lote
+  nuevoEstadoHistorico.value = (lote?.estadoLote ?? 'normal')
+  showEstadoHistorico.value = true
+}
+
+async function confirmarCambioEstadoHistorico() {
+  if (!loteEstadoHistorico.value || !cambiaEstadoHistorico.value) return
+  guardandoEstadoHistorico.value = true
+  try {
+    await inv.cambiarEstadoLote(loteEstadoHistorico.value.id, nuevoEstadoHistorico.value)
+    toast.add({ title: 'Estado de lote actualizado', color: 'success' })
+    showEstadoHistorico.value = false
+    await recargar()
+  } catch (e) {
+    toast.add({ title: 'No se pudo actualizar el estado', description: e?.message, color: 'error' })
+  } finally {
+    guardandoEstadoHistorico.value = false
+  }
 }
 </script>
