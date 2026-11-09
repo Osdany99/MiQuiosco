@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, isNull, or } from 'drizzle-orm'
 import { requireSuperAdmin } from '../../../utils/auth'
 import { db } from '../../../database/client'
 import { vozEventos, puestos } from '../../../database/schema'
@@ -10,7 +10,16 @@ export default defineEventHandler(async (event) => {
   const estado = typeof query.estado === 'string' ? query.estado : undefined
   const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 1000)
 
-  const q = db
+  // El filtro va en SQL: antes se traían hasta 1000 filas y se descartaban en
+  // memoria, así que un estado con pocos eventos podía quedar fuera del límite.
+  // `estado` es nullable y los registros viejos sin estado cuentan como abiertos.
+  const filtro = !estado || estado === 'todos'
+    ? undefined
+    : (estado === 'abierto'
+        ? or(eq(vozEventos.estado, 'abierto'), isNull(vozEventos.estado))
+        : eq(vozEventos.estado, estado))
+
+  const base = db
     .select({
       id: vozEventos.id,
       puestoId: vozEventos.puestoId,
@@ -26,10 +35,7 @@ export default defineEventHandler(async (event) => {
     })
     .from(vozEventos)
     .leftJoin(puestos, eq(puestos.id, vozEventos.puestoId))
-    .orderBy(desc(vozEventos.ultimoEn))
-    .limit(limit)
 
-  const all = await q
-  if (!estado || estado === 'todos') return all
-  return all.filter(x => String(x.estado ?? 'abierto') === estado)
+  const q = filtro ? base.where(filtro) : base
+  return q.orderBy(desc(vozEventos.ultimoEn)).limit(limit)
 })

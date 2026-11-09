@@ -1,0 +1,1 @@
+CREATE INDEX "voz_eventos_estado_ultimo_en_idx" ON "voz_eventos" USING btree ("estado","ultimo_en");

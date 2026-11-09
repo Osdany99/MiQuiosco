@@ -1309,6 +1309,11 @@ export const vozEventos = pgTable(
     puestoClaveHashUk: uniqueIndex('voz_eventos_puesto_clave_hash_uk').on(
       table.puestoId,
       table.claveHash
+    ),
+    // El panel admin filtra por estado y ordena por último evento.
+    estadoUltimoEnIdx: index('voz_eventos_estado_ultimo_en_idx').on(
+      table.estado,
+      table.ultimoEn
     )
   })
 )
