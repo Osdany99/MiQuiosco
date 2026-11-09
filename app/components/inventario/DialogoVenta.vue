@@ -39,7 +39,7 @@
         v-if="lotes.length"
         :lotes="lotes"
         :cantidad="Number(form.cantidad) || 0"
-        :auto-fifo="true"
+        :auto-fifo="loteFifoPref"
         :producto-nombre="producto?.nombre ?? ''"
         @update:consumo="onConsumo"
       />
@@ -109,13 +109,43 @@ const fiado = useCuentasFiado()
 const toast = useToast()
 const auth = useAuth()
 const tts = useTts()
-
+const loteFifoPref = ref(true)
+async function loadLoteFifoPref() {
+  try {
+    const { Preferences } = await import('@capacitor/preferences')
+    const { value } = await Preferences.get({ key: 'lote.fifo.auto' })
+    if (value === 'true' || value === 'false') loteFifoPref.value = (value === 'true')
+  } catch {
+    /* noop */
+  }
+}
+void loadLoteFifoPref()
+const planSpoken = ref(false)
+watch(() => props.prefill, () => {
+  planSpoken.value = false
+})
 const clientes = ref([])
 const lotes = ref([])
 const cantidadExcedeStock = ref(false)
 const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
 function onConsumo(plan) {
-  if (plan) consumoPlan.value = plan
+  if (!plan) return
+  consumoPlan.value = plan
+  if (!planSpoken.value && isOpen.value && tts?.speak && plan.lineas?.length) {
+    planSpoken.value = true
+    void (async () => {
+      const ubi = props.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
+      const loteTxt = plan.lineas
+        .map((l, idx) => `#${idx + 1} ${Number(l.cantidad)}`)
+        .join(', ')
+      const texto = `Preparo ${plan.consumido} ${props.producto?.nombre ?? ''} del ${ubi}: lotes ${loteTxt}.`
+      try {
+        await tts.speak(texto)
+      } catch {
+        /* noop */
+      }
+    })()
+  }
 }
 
 function normalizeVoiceText(value) {
@@ -255,6 +285,7 @@ function precioInicial() {
 watch(isOpen, async (open) => {
   if (!open) {
     cantidadExcedeStock.value = false
+    planSpoken.value = false
     return
   }
   cantidadExcedeStock.value = false

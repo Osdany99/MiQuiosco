@@ -1,5 +1,6 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
+import { Preferences } from '@capacitor/preferences'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
@@ -338,6 +339,25 @@ const saludoActivo = computed({
 })
 const zeroTouchConfig = useVoiceZeroTouch()
 void zeroTouchConfig.cargar()
+const loteFifoDefault = ref(true)
+async function loadLoteFifoPref() {
+  try {
+    const { value } = await Preferences.get({ key: 'lote.fifo.auto' })
+    if (value === 'true' || value === 'false') loteFifoDefault.value = (value === 'true')
+  } catch {
+    /* noop */
+  }
+}
+void loadLoteFifoPref()
+async function setLoteFifoPref(val) {
+  const v = Boolean(val)
+  loteFifoDefault.value = v
+  try {
+    await Preferences.set({ key: 'lote.fifo.auto', value: String(v) })
+  } catch {
+    /* noop */
+  }
+}
 const telemetriaValor = ref(telemetriaActivaSync())
 const telemetriaActivaComputed = computed({
   get: () => telemetriaValor.value,
@@ -1088,6 +1108,26 @@ async function whOlvidarEste() {
         <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
           {{ micMotivo }}
         </p>
+      </div>
+    </UCard>
+    <UCard class="shadow-none">
+      <div class="space-y-3">
+        <div>
+          <h2 class="text-sm font-medium">
+            Lotes
+          </h2>
+          <p class="text-sm text-muted">
+            Cómo preseleccionar los lotes al vender o traspasar.
+          </p>
+        </div>
+        <USwitch
+          v-model="loteFifoDefault"
+          color="primary"
+          description="Preselecciona automáticamente los lotes por FIFO (más viejo primero). Se puede ajustar en el picker."
+          @update:model-value="v => void setLoteFifoPref(v)"
+        >
+          Preselección automática (FIFO)
+        </USwitch>
       </div>
     </UCard>
   </div>
