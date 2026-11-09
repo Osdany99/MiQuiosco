@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
+import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
 
 const toast = useToast()
 const conexion = useModoConexion()
@@ -334,6 +335,15 @@ const saludoActivo = computed({
   get: () => tts.greetingEnabled.value,
   set: (value) => { void tts.setGreetingEnabled(value) }
 })
+const telemetriaValor = ref(telemetriaActivaSync())
+const telemetriaActivaComputed = computed({
+  get: () => telemetriaValor.value,
+  set: (value) => {
+    telemetriaValor.value = value
+    void fijarTelemetria(value)
+  }
+})
+const telemetriaJefe = computed(() => auth.usuarioActual.value?.rol === 'jefe' || auth.usuarioActual.value?.rol === 'super_admin')
 const dictadoPushToTalk = computed({
   get: () => dictadoModo.pushToTalk.value,
   set: (value) => { dictadoModo.set(value) }
@@ -940,6 +950,10 @@ async function whOlvidarEste() {
 
         <USwitch v-model="saludoActivo" :disabled="!tts.disponible.value">
           Leer saludo al dictar
+        </USwitch>
+
+        <USwitch v-if="telemetriaJefe" v-model="telemetriaActivaComputed">
+          Enviar al administrador las frases no entendidas (sin nombres ni cantidades)
         </USwitch>
 
         <div class="space-y-2">

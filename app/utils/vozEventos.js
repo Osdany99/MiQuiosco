@@ -1,5 +1,6 @@
 import { Preferences } from '@capacitor/preferences'
 import { API_ROUTES } from './api-paths'
+import { telemetriaActiva } from './voice/telemetria'
 
 const KEY = 'voz.eventos.pendientes'
 const MAX_INTENTOS = 100000
@@ -33,6 +34,7 @@ function clave(comando, motivo, plantilla) {
  */
 export async function registrarEventoVoz(datos) {
   try {
+    if (!(await telemetriaActiva())) return
     const comando = String(datos?.comando ?? 'desconocido')
     const motivo = String(datos?.motivo ?? '')
     if (!motivo) return
