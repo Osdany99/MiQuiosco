@@ -244,11 +244,15 @@ export function useVentaPorVoz(ubicacion) {
     }
 
     if (!encontrados.length) {
-      void registrarEventoVoz({
-        comando: 'venta_directa',
-        motivo: 'producto_no_encontrado',
-        confianza: Number(sttConfidence) || 0
-      })
+      void (async () => {
+        const plantilla = await plantillaPara(slots?.productoHint || '')
+        await registrarEventoVoz({
+          comando: 'venta_directa',
+          motivo: 'producto_no_encontrado',
+          confianza: Number(sttConfidence) || 0,
+          plantilla
+        })
+      })()
       throw new Error(`No encontré "${slots.productoHint || 'ese producto'}".`)
     }
 
@@ -309,11 +313,15 @@ export function useVentaPorVoz(ubicacion) {
     const emparejar = crearEmparejador(catalogo, sttConfidence)
     const encontrados = emparejar(slots.productoHint)
     if (!encontrados.length) {
-      void registrarEventoVoz({
-        comando: 'consulta_stock',
-        motivo: 'producto_no_encontrado',
-        confianza: Number(sttConfidence) || 0
-      })
+      void (async () => {
+        const plantilla = await plantillaPara(slots?.productoHint || '')
+        await registrarEventoVoz({
+          comando: 'consulta_stock',
+          motivo: 'producto_no_encontrado',
+          confianza: Number(sttConfidence) || 0,
+          plantilla
+        })
+      })()
       throw new Error(`No encontré "${slots.productoHint || 'ese producto'}" en el inventario.`)
     }
     const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
@@ -325,6 +333,45 @@ export function useVentaPorVoz(ubicacion) {
       return
     }
     await responderStock(decision.elegido.row, slots)
+  }
+
+  async function plantillaPara(texto) {
+    const productos = new Set()
+    const clientes = new Set()
+    try {
+      const filas = await inv.cargarSaldos() ?? []
+      for (const f of filas) {
+        for (const valor of [f.nombre, f.descripcion]) {
+          if (!valor) continue
+          for (const token of normalizar(valor).split(' ')) {
+            if (token.length >= 3) productos.add(token)
+          }
+        }
+      }
+    } catch {
+      /* noop */
+    }
+    try {
+      const pid = auth.usuarioActual.value?.puestoId
+      if (pid) {
+        const lista = await fiado.cargarClientes(pid, { incluirSinCliente: true }) ?? []
+        for (const c of lista) {
+          if (!c?.nombre) continue
+          for (const token of normalizar(c.nombre).split(' ')) {
+            if (token.length >= 3) clientes.add(token)
+          }
+        }
+      }
+    } catch {
+      /* noop */
+    }
+    if (!productos.size && !clientes.size) return null
+    try {
+      const { enmascarar } = await import('#shared/voz/privacidad.js')
+      return enmascarar(texto, { palabrasProducto: productos, palabrasCliente: clientes })
+    } catch {
+      return null
+    }
   }
 
   async function procesar(texto, sttConfidence = 0, gen = null, alternativas = []) {
@@ -380,11 +427,18 @@ export function useVentaPorVoz(ubicacion) {
 
     const { comando, slots } = validacion.data
     if (comando === 'desconocido') {
-      void registrarEventoVoz({
-        comando: 'desconocido',
-        motivo: interpretado?.reasons?.[0] || 'sin_comando',
-        confianza: Number(interpretado?.confidence) || 0
-      })
+      const motivoDesconocido = interpretado?.reasons?.[0] || 'sin_comando'
+      if (motivoDesconocido !== 'sin_texto') {
+        void (async () => {
+          const plantilla = await plantillaPara(textoElegido)
+          await registrarEventoVoz({
+            comando: 'desconocido',
+            motivo: motivoDesconocido,
+            confianza: Number(interpretado?.confidence) || 0,
+            plantilla
+          })
+        })()
+      }
       throw new Error('Todavía no sé hacer eso. Prueba: "vende 5 panes".')
     }
 

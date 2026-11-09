@@ -19,6 +19,7 @@ import { ubicacionActiva, evaluarDisparoVoz } from '../app/utils/voice/disparoVo
 import { calcularMotivoNoDisponible } from '../app/utils/voice/disponibilidad.js'
 import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
 import { mensajeStt } from '../app/utils/voice/stt.js'
+import { enmascarar } from '../shared/voz/privacidad.js'
 
 describe('voz: normalización y números', () => {
   it('normaliza acentos, mayúsculas y puntuación', () => {
@@ -548,6 +549,25 @@ describe('voz: la descripción no supera al nombre', () => {
     const [mejor, segundo] = fuzzyMatchProducts('refresco lata', catalogo)
     assert.equal(mejor.product.id, '1')
     assert.ok(mejor.score > segundo.score)
+  })
+})
+
+describe('voz: privacidad / enmascarado', () => {
+  it('oculta cantidad, producto y cliente', () => {
+    const sets = { palabrasProducto: new Set(['pan', 'panes']), palabrasCliente: new Set(['juan', 'perez']) }
+    assert.equal(enmascarar('apunta tres panes a juan perez', sets), 'apunta <n> <producto> a <cliente>')
+  })
+  it('conserva el vocabulario nuevo', () => {
+    assert.equal(enmascarar('llevame a recargas', {}), 'llevame a recargas')
+  })
+  it('trunca a 120 caracteres', () => {
+    const texto = 'uno '.repeat(50)
+    const r = enmascarar(texto, {})
+    assert.ok(r.length <= 120)
+  })
+  it('colapsa placeholders consecutivos', () => {
+    const sets = { palabrasProducto: new Set(['pan', 'panes']) }
+    assert.equal(enmascarar('vende pan panes', sets), 'vende <producto>')
   })
 })
 

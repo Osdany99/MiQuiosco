@@ -1,11 +1,16 @@
+import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { db } from '../database/client'
 import { vozEventos } from '../database/schema'
 
+function claveHashDe(comando: string, motivo: string, plantilla: string | null | undefined) {
+  return createHash('sha256').update(`${comando}|${motivo}|${plantilla ?? ''}`, 'utf8').digest('hex')
+}
+
 export async function registrarEventosVoz(
   puestoId: string,
   _dispositivoId: string | null,
-  eventos: Array<{ comando: string, motivo: string, confianza?: number | null, intentos?: number }>,
+  eventos: Array<{ comando: string, motivo: string, plantilla?: string | null, confianza?: number | null, intentos?: number }>,
   opts: { appVersion?: string | null } = {}
 ): Promise<number> {
   if (!puestoId || !Array.isArray(eventos) || !eventos.length) return 0
@@ -14,6 +19,8 @@ export async function registrarEventosVoz(
     const comando = String(e?.comando ?? '').trim().slice(0, 50)
     const motivo = String(e?.motivo ?? '').trim().slice(0, 60)
     if (!comando || !motivo) continue
+    const plantilla = e?.plantilla ? String(e.plantilla).trim().slice(0, 120) : null
+    const claveHash = claveHashDe(comando, motivo, plantilla)
     const intentos = Math.max(1, Math.min(100000, Number(e.intentos) || 1))
     const confianza = typeof e.confianza === 'number' && Number.isFinite(e.confianza) ? e.confianza : null
     try {
@@ -24,13 +31,16 @@ export async function registrarEventosVoz(
           dispositivoId: _dispositivoId,
           comando,
           motivo,
+          plantilla,
+          claveHash,
           confianza,
           intentos,
           appVersion: opts.appVersion ?? null
         })
         .onConflictDoUpdate({
-          target: [vozEventos.puestoId, vozEventos.comando, vozEventos.motivo],
+          target: [vozEventos.puestoId, vozEventos.claveHash],
           set: {
+            plantilla: plantilla ?? vozEventos.plantilla,
             intentos: sql`${vozEventos.intentos} + ${intentos}`,
             confianza: confianza ?? vozEventos.confianza,
             ultimoEn: sql`now()`,

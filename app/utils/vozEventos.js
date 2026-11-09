@@ -24,8 +24,8 @@ async function escribir(mapa) {
   }
 }
 
-function clave(comando, motivo) {
-  return `${String(comando ?? '')}|${String(motivo ?? '')}`
+function clave(comando, motivo, plantilla) {
+  return `${String(comando ?? '')}|${String(motivo ?? '')}|${plantilla ?? ''}`
 }
 
 /**
@@ -36,14 +36,28 @@ export async function registrarEventoVoz(datos) {
     const comando = String(datos?.comando ?? 'desconocido')
     const motivo = String(datos?.motivo ?? '')
     if (!motivo) return
+    // Plantilla (enmascarada) para persistir vocabulario sin exponer datos.
+    let plantilla = datos?.plantilla ? String(datos.plantilla).trim().slice(0, 120) : ''
+    if (!plantilla && datos?.transcript) {
+      try {
+        const { enmascarar: enm } = await import('#shared/voz/privacidad')
+        plantilla = enm(datos.transcript, {
+          palabrasProducto: datos.palabrasProducto || new Set(),
+          palabrasCliente: datos.palabrasCliente || new Set()
+        })
+      } catch {
+        plantilla = ''
+      }
+    }
+    plantilla = plantilla || null
     const mapa = await leer()
-    const k = clave(comando, motivo)
-    const prev = (mapa[k] && typeof mapa[k] === 'object') ? mapa[k] : { intentos: 0, confianza: null }
+    const k = clave(comando, motivo, plantilla)
+    const prev = (mapa[k] && typeof mapa[k] === 'object') ? mapa[k] : { intentos: 0, confianza: null, plantilla }
     const intentos = Math.min(MAX_INTENTOS, Number(prev.intentos || 0) + 1)
     const confianza = (typeof datos?.confianza === 'number' && Number.isFinite(datos.confianza))
       ? datos.confianza
       : prev.confianza
-    mapa[k] = { intentos, confianza }
+    mapa[k] = { intentos, confianza, plantilla }
     await escribir(mapa)
   } catch {
     /* noop */
@@ -53,10 +67,16 @@ export async function registrarEventoVoz(datos) {
 export async function eventosVozPendientes() {
   const mapa = await leer()
   return Object.entries(mapa).map(([k, v]) => {
-    const [comando, motivo] = k.split('|')
+    const first = k.indexOf('|')
+    const second = k.indexOf('|', first + 1)
+    const comando = first >= 0 ? k.slice(0, first) : k
+    const motivo = first >= 0 && second >= 0 ? k.slice(first + 1, second) : (first >= 0 ? k.slice(first + 1) : '')
+    const plantillaRaw = second >= 0 ? k.slice(second + 1) : ''
+    const plantilla = plantillaRaw || (v && v.plantilla) || null
     return {
       comando: comando || 'desconocido',
       motivo: motivo || '',
+      plantilla,
       confianza: (v && typeof v.confianza === 'number') ? v.confianza : null,
       intentos: Math.max(1, Number(v?.intentos) || 1)
     }

@@ -1296,6 +1296,8 @@ export const vozEventos = pgTable(
     dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
     comando: text('comando').notNull(),
     motivo: text('motivo').notNull(),
+    plantilla: text('plantilla'),
+    claveHash: text('clave_hash').notNull().default(''),
     confianza: doublePrecision('confianza'),
     intentos: integer('intentos').notNull().default(1),
     appVersion: text('app_version'),
@@ -1303,10 +1305,9 @@ export const vozEventos = pgTable(
     ultimoEn: timestamp('ultimo_en', { withTimezone: true }).notNull().defaultNow()
   },
   table => ({
-    puestoComandoMotivoUk: uniqueIndex('voz_eventos_puesto_comando_motivo_uk').on(
+    puestoClaveHashUk: uniqueIndex('voz_eventos_puesto_clave_hash_uk').on(
       table.puestoId,
-      table.comando,
-      table.motivo
+      table.claveHash
     )
   })
 )
