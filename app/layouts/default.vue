@@ -5,7 +5,11 @@ const auth = useAuth()
 const perms = usePermisos()
 const isCollapsed = ref(true)
 const mobileOpen = ref(false)
-
+const vozDialogRef = ref(null)
+const zeroTouch = useVoiceZeroTouch()
+const voiceRaw = useVoiceCommand()
+const ttsRaw = useTts()
+const ceroToquesActivo = computed(() => zeroTouch.activo.value)
 const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
 const route = useRoute()
@@ -20,8 +24,57 @@ const vozActiva = computed(() =>
   ubicacionVozActual.value === 'almacen' ? vozAlmacen : vozQuiosco
 )
 const vozDialogAbierto = ref(false)
-watch(() => vozActiva.value.producto.value, (fila) => {
-  if (fila) vozDialogAbierto.value = true
+void zeroTouch.cargar()
+
+watch(() => vozActiva.value.producto.value, async (fila) => {
+  if (!fila) return
+  // Default (no PRO): abre modal y espera un toque.
+  if (!ceroToquesActivo.value || vozActiva.value.modo.value !== 'venta') {
+    vozDialogAbierto.value = true
+    return
+  }
+  // Modo PRO: abre modal para precargar form, escucha 5s 'sí' auto-confirma.
+  vozDialogAbierto.value = true
+  await nextTick()
+  try {
+    if (voiceRaw.estado.value === 'listening') return
+    const genMark = Date.now()
+    await voiceRaw.startListening()
+    // Poll un segundo... N-best y interim OK.
+    let afirmado = false
+    const fin = Date.now() + 5000
+    while (Date.now() < fin && !afirmado) {
+      const t = String(voiceRaw.transcript?.value || voiceRaw.transcriptParcial?.value || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      if (/\b(si|sig[aio]?|vale|ok(?:ay)?|confirmar?|si(?:,?\s*por\s*favor)?)\b/.test(t)) {
+        afirmado = true
+        break
+      }
+      await new Promise(r => setTimeout(r, 250))
+    }
+    try {
+      await voiceRaw.stopListening(false)
+    } catch {
+      /* noop */
+    }
+    // Proof de audit.
+    try {
+      const proof = {
+        ts: new Date().toISOString(),
+        comando: '',
+        understood: { cantidad: vozActiva.value.prefill.value?.cantidad, ubicacion: vozActiva.value.prefill.value?.ubicacion },
+        outcome: afirmado ? 'auto-confirmado' : 'abandonado'
+      }
+      const key = 'voice.proofs'
+      const prev = JSON.parse(localStorage.getItem(key) || '[]')
+      prev.push(proof)
+      localStorage.setItem(key, JSON.stringify(prev.slice(-50)))
+    } catch { /* noop */ }
+    if (afirmado && vozDialogRef.value?.confirmar) {
+      vozDialogRef.value.confirmar()
+    }
+  } catch {
+    /* degrade: queda el modal abierto para toque manual */
+  }
 })
 watch(vozDialogAbierto, (abierto) => {
   if (!abierto) vozActiva.value.limpiar()
@@ -313,9 +366,10 @@ const userMenuItems = computed(() => {
       </BaseDialog>
 
       <InventarioDialogoVenta
+        ref="vozDialogRef"
         v-model="vozDialogAbierto"
         :producto="vozActiva.producto.value"
-        :ubicacion="ubicacionVozActual"
+        :ubicacion="vozActiva.prefill.value?.ubicacion ?? ubicacionVozActual"
         :modo="vozActiva.modo.value"
         :prefill="vozActiva.prefill.value"
         @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"

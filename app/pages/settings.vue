@@ -4,6 +4,7 @@ import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
 import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
+import { useVoiceZeroTouch } from '../composables/useVoiceZeroTouch'
 
 const toast = useToast()
 const conexion = useModoConexion()
@@ -335,6 +336,8 @@ const saludoActivo = computed({
   get: () => tts.greetingEnabled.value,
   set: (value) => { void tts.setGreetingEnabled(value) }
 })
+const zeroTouchConfig = useVoiceZeroTouch()
+void zeroTouchConfig.cargar()
 const telemetriaValor = ref(telemetriaActivaSync())
 const telemetriaActivaComputed = computed({
   get: () => telemetriaValor.value,
@@ -950,6 +953,10 @@ async function whOlvidarEste() {
 
         <USwitch v-model="saludoActivo" :disabled="!tts.disponible.value">
           Leer saludo al dictar
+        </USwitch>
+
+        <USwitch v-if="zeroTouchConfig.esJefe.value" v-model="zeroTouchConfig.activo.value" @update:model-value="v => void zeroTouchConfig.setActivo(v)">
+          Vender sin tocar el dispositivo (Modo PRO)
         </USwitch>
 
         <USwitch v-if="telemetriaJefe" v-model="telemetriaActivaComputed">

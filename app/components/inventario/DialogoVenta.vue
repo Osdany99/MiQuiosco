@@ -359,4 +359,6 @@ async function confirmar() {
     guardando.value = false
   }
 }
+
+defineExpose({ confirmar })
 </script>

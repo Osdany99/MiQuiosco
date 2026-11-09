@@ -149,10 +149,12 @@ export function useVentaPorVoz(ubicacion) {
     }, 8000)
   }
 
-  function prepararVenta(fila, slots) {
+  function prepararVenta(fila, slots, ubicacionVenta) {
     const modoVenta = MODO_POR_TIPO[slots?.tipoVenta] || 'venta'
+    const ubi = ubicacionVenta || ubicacion
     prefill.value = {
       modo: modoVenta,
+      ubicacion: ubi,
       cantidad: Number(slots?.cantidad) || 1,
       tipoVenta: slots?.tipoVenta || 'directa',
       precioVentaUsado: slots?.precioUnitario == null ? null : Number(slots.precioUnitario),
@@ -162,6 +164,23 @@ export function useVentaPorVoz(ubicacion) {
     modo.value = modoVenta
     producto.value = fila
     estado.value = 'listo'
+
+    // Read-back exacto del formulario (lo prellenado), no lo interpretado.
+    void (async () => {
+      const nombre = fila?.nombre ?? producto.value?.nombre ?? 'producto'
+      const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
+      const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
+      if (!fila) return
+      const texto = cant >= 1
+        ? `Voy a vender ${cant} ${nombre} del ${lugar}. Confirma para continuar.`
+        : `Confirma la venta del ${lugar}.`
+      try {
+        if (tts?.speak) await tts.speak(texto)
+        else toast.add({ title: 'Voz (lectura)', description: texto, color: 'neutral', duration: 8000 })
+      } catch {
+        /* noop */
+      }
+    })()
   }
 
   /** Saldos de una ubicación. En quiosco se excluyen los productos no vendibles.
@@ -214,7 +233,9 @@ export function useVentaPorVoz(ubicacion) {
       }
     }
 
-    const destino = resolverUbicacion(slots, ubicacion)
+    const destino = slots?.ubicacion
+      ? resolverUbicacion(slots, ubicacion)
+      : { ubicacion: 'almacen', conflicto: false }
     if (destino.conflicto) {
       if (!vigente()) return
       estado.value = 'idle'
@@ -267,7 +288,7 @@ export function useVentaPorVoz(ubicacion) {
       return
     }
 
-    prepararVenta(decision.elegido.row, slots)
+    prepararVenta(decision.elegido.row, slots, destino.ubicacion)
   }
 
   async function manejarNavegacion(slots, vigente = () => true) {
@@ -538,7 +559,7 @@ export function useVentaPorVoz(ubicacion) {
       await responderStock(candidato.row, datos.slots)
       return
     }
-    prepararVenta(candidato.row, datos.slots)
+    prepararVenta(candidato.row, datos.slots, datos.slots?.ubicacion || undefined)
   }
 
   const tituloCandidatos = computed(() =>
