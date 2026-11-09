@@ -3,11 +3,22 @@ import { Preferences } from '@capacitor/preferences'
 import { useAuth } from './useAuth'
 
 const KEY = 'voice.ceroToques.activo'
+const KEY_TIMEOUT = 'voice.ceroToques.timeoutMs'
+const TIMEOUT_DEFAULT = 5000
+const TIMEOUT_MIN = 3000
+const TIMEOUT_MAX = 10000
+
+function acotarTimeout(valor) {
+  const n = Number(valor)
+  if (!Number.isFinite(n)) return TIMEOUT_DEFAULT
+  return Math.min(TIMEOUT_MAX, Math.max(TIMEOUT_MIN, Math.trunc(n)))
+}
 
 export function useVoiceZeroTouch() {
   const auth = useAuth()
   const activo = ref(false)
   const cargado = ref(false)
+  const timeoutMs = ref(TIMEOUT_DEFAULT)
 
   async function cargar() {
     try {
@@ -15,6 +26,12 @@ export function useVoiceZeroTouch() {
       activo.value = value === 'true'
     } catch {
       activo.value = false
+    }
+    try {
+      const { value } = await Preferences.get({ key: KEY_TIMEOUT })
+      if (value !== null && value !== undefined) timeoutMs.value = acotarTimeout(value)
+    } catch {
+      /* noop */
     }
     cargado.value = true
   }
@@ -30,6 +47,17 @@ export function useVoiceZeroTouch() {
     return v
   }
 
+  async function setTimeoutMs(val) {
+    const v = acotarTimeout(val)
+    timeoutMs.value = v
+    try {
+      await Preferences.set({ key: KEY_TIMEOUT, value: String(v) })
+    } catch {
+      /* noop */
+    }
+    return v
+  }
+
   const esJefe = computed(() => {
     try {
       const rol = auth?.usuarioActual?.value?.rol
@@ -39,5 +67,5 @@ export function useVoiceZeroTouch() {
     }
   })
 
-  return { activo, cargado, setActivo, esJefe, cargar }
+  return { activo, cargado, timeoutMs, setActivo, setTimeoutMs, esJefe, cargar }
 }

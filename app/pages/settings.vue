@@ -339,6 +339,16 @@ const saludoActivo = computed({
 })
 const zeroTouchConfig = useVoiceZeroTouch()
 void zeroTouchConfig.cargar()
+const zeroTouchTimeout = computed({
+  get: () => zeroTouchConfig.timeoutMs.value,
+  set: (value) => { void zeroTouchConfig.setTimeoutMs(value) }
+})
+const timeoutOpciones = [
+  { label: '3 segundos', value: 3000 },
+  { label: '5 segundos', value: 5000 },
+  { label: '8 segundos', value: 8000 },
+  { label: '10 segundos', value: 10000 }
+]
 const loteFifoDefault = ref(true)
 async function loadLoteFifoPref() {
   try {
@@ -994,6 +1004,18 @@ async function whOlvidarEste() {
         >
           Vender sin tocar el dispositivo (Modo PRO)
         </USwitch>
+
+        <div v-if="zeroTouchConfig.esJefe.value && zeroTouchConfig.activo.value" class="space-y-2">
+          <UFormField label="Tiempo de espera del “sí”" />
+          <USelect
+            v-model="zeroTouchTimeout"
+            :items="timeoutOpciones"
+            class="w-full"
+          />
+          <p class="text-xs text-muted">
+            Cuánto escucha el micrófono la confirmación antes de dejar el formulario abierto para confirmar a mano.
+          </p>
+        </div>
 
         <USwitch
           v-if="telemetriaJefe"
