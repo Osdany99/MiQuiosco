@@ -9,6 +9,7 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -121,7 +122,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                 if (language != null && !language.isEmpty()) {
                     intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
                 }
-                intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+                intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
                 intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                 // Dar margen para que el usuario hable sin que el
                 // reconocedor se rinda por silencio.
@@ -165,6 +166,18 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                             data.put("text", text);
                             data.put("confidence", confidence);
                             data.put("durationMs", duration);
+                        JSArray alternativas = new JSArray();
+                        if (matches != null) {
+                            int limite = Math.min(matches.size(), 5);
+                            for (int i = 0; i < limite; i++) {
+                                JSObject alt = new JSObject();
+                                alt.put("text", matches.get(i));
+                                float sc = (scores != null && i < scores.length) ? scores[i] : 0f;
+                                alt.put("confidence", sc);
+                                alternativas.put(alt);
+                            }
+                        }
+                        data.put("alternativas", alternativas);
                             currentCall.resolve(data);
                             currentCall = null;
                         }

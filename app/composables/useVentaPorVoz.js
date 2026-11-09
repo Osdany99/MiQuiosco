@@ -16,17 +16,21 @@ import { useAuth } from './useAuth'
 import { useCuentasFiado } from './useCuentasFiado'
 import {
   UMBRAL_PRODUCTO,
-  combinarConfianza,
   decidirProducto,
   interpretar,
   preferirHintConTipo,
-  resolverUbicacion
+  resolverUbicacion,
+  normalizar
 } from '#shared/voz/gramatica'
+import { LEXICO_BASE } from '#shared/voz/lexico'
 import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
-import { fuzzyMatchProducts } from '../utils/voice/fuzzyMatchProducts'
+
 import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
 import { clientesSimilares } from '#shared/clientes'
+import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
+import { formatearStock, describirDestino } from '../utils/voice/respuestasVoz'
 import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
+import { vistaDeRuta } from '#shared/permisos'
 
 const MODO_POR_TIPO = {
   directa: 'venta',
@@ -189,23 +193,8 @@ export function useVentaPorVoz(ubicacion) {
    * @param {number|null} gen Generación que inició el comando; si deja de ser
    *   la actual (cancelación o nuevo dictado), no se toca el estado.
    */
-  async function procesar(texto, sttConfidence = 0, gen = null) {
-    const vigente = () => gen == null || gen === generacion
+  async function procesarVenta(slots, sttConfidence = 0, vigente = () => true) {
     estado.value = 'interpretando'
-    candidatos.value = []
-    showCandidatos.value = false
-    pendiente.value = null
-    prefill.value = null
-    producto.value = null
-
-    const validacion = voiceCommandSchema.safeParse(interpretar(texto))
-    if (!validacion.success) throw new Error('No te entendí. Prueba: "vende 5 panes".')
-
-    const { comando, slots } = validacion.data
-    if (comando === 'desconocido') {
-      throw new Error('Todavía no sé hacer eso. Prueba: "vende 5 panes".')
-    }
-
     // Match fuzzy de cliente (accent-insensible + similitud del shared).
     if (slots.clienteHint) {
       try {
@@ -238,18 +227,7 @@ export function useVentaPorVoz(ubicacion) {
     const catalogo = await catalogoDe(destino.ubicacion)
     if (!vigente()) return
 
-    const base = catalogo.map(f => ({
-      id: f.productoId,
-      name: f.nombre,
-      canonicalSpeak: f.nombre,
-      description: f.descripcion
-    }))
-    const emparejar = hint => fuzzyMatchProducts(hint, base)
-      .map((c) => {
-        const row = catalogo.find(f => f.productoId === c.product.id)
-        return row ? { ...c, row, scoreEfectivo: combinarConfianza(c.score, sttConfidence) } : null
-      })
-      .filter(Boolean)
+    const emparejar = crearEmparejador(catalogo, sttConfidence)
 
     let encontrados = emparejar(slots.productoHint)
 
@@ -270,7 +248,7 @@ export function useVentaPorVoz(ubicacion) {
 
     const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
     if (!decision.elegido) {
-      pendiente.value = { slots, sttConfidence }
+      pendiente.value = { comando: 'venta_directa', slots, sttConfidence }
       candidatos.value = encontrados
       showCandidatos.value = true
       estado.value = 'ambiguo'
@@ -278,6 +256,125 @@ export function useVentaPorVoz(ubicacion) {
     }
 
     prepararVenta(decision.elegido.row, slots)
+  }
+
+  async function manejarNavegacion(slots, vigente = () => true) {
+    if (!vigente()) return
+    const destino = describirDestino(slots.destino)
+    if (!destino) throw new Error('No conozco esa pantalla.')
+    if (!perms.puedeVista(slots.destino)) {
+      estado.value = 'idle'
+      toast.add({ title: 'Voz', description: `No tienes permiso para abrir ${destino.label}.`, color: 'warning' })
+      return
+    }
+    if (vistaDeRuta(route.path) === slots.destino) {
+      estado.value = 'idle'
+      toast.add({ title: 'Voz', description: `Ya estás en ${destino.label}.`, color: 'neutral' })
+      return
+    }
+    await navigateTo(destino.ruta)
+    if (vigente()) estado.value = 'idle'
+  }
+
+  async function responderStock(fila, slots) {
+    const result = formatearStock(fila, {
+      ubicacionPedida: slots.ubicacion,
+      verQuiosco: perms.puedeVista('quiosco'),
+      verAlmacen: perms.puedeVista('almacen')
+    })
+    if (result.sinPermiso) {
+      toast.add({ title: 'Voz', description: 'No tienes permiso para consultar ese inventario.', color: 'warning' })
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+    toast.add({ title: result.titulo, description: result.descripcion, color: 'success', duration: 8000 })
+    try {
+      await tts.speak(result.habla)
+    } catch {
+      /* noop */
+    }
+    estado.value = 'idle'
+  }
+
+  async function manejarConsultaStock(slots, sttConfidence = 0, vigente = () => true) {
+    if (!vigente()) return
+    const filas = await inv.cargarSaldos() ?? []
+    const catalogo = filas
+    const emparejar = crearEmparejador(catalogo, sttConfidence)
+    const encontrados = emparejar(slots.productoHint)
+    if (!encontrados.length) {
+      throw new Error(`No encontré "${slots.productoHint || 'ese producto'}" en el inventario.`)
+    }
+    const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
+    if (!decision.elegido) {
+      pendiente.value = { comando: 'consulta_stock', slots, sttConfidence }
+      candidatos.value = encontrados
+      showCandidatos.value = true
+      estado.value = 'ambiguo'
+      return
+    }
+    await responderStock(decision.elegido.row, slots)
+  }
+
+  async function procesar(texto, sttConfidence = 0, gen = null, alternativas = []) {
+    const vigente = () => gen == null || gen === generacion
+    // N-best: si hay alternativas, elegir la mejor antes de procesar.
+    let textoElegido = texto
+    const listaTextos = [texto, ...(Array.isArray(alternativas) ? alternativas.map(a => a?.texto ?? a?.text ?? a) : [])]
+      .map(t => String(t ?? '')).map(t => t.trim()).filter(Boolean)
+    const unicos = Array.from(new Set(listaTextos.map(t => normalizar(t)))).map(n => listaTextos.find(t => normalizar(t) === n))
+    if (unicos.length > 1) {
+      const { interpretar } = await import('#shared/voz/gramatica')
+      const items = []
+      for (const t of unicos) {
+        const clas = interpretar(t, LEXICO_BASE)
+        let rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
+        if (clas.comando === 'navegacion') {
+          rec.elegido = true
+        } else if (clas.comando === 'venta_directa' || clas.comando === 'consulta_stock') {
+          try {
+            const destinoUbi = (clas.slots?.ubicacion) || ubicacion
+            const cat = clas.comando === 'consulta_stock'
+              ? (await inv.cargarSaldos() ?? [])
+              : await catalogoDe(destinoUbi)
+            const emparejar = crearEmparejador(cat, sttConfidence)
+            const encontrados = emparejar(clas.slots?.productoHint || '')
+            const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
+            rec.elegido = !!decision.elegido
+            rec.ambiguo = !decision.elegido && encontrados.length > 0
+            rec.efectivo = decision.efectivo || 0
+            rec.encontrados = encontrados.length
+          } catch {
+            // ignore
+          }
+        }
+        items.push(rec)
+      }
+      // elegirAlternativa is sync; import
+      const gram = await import('#shared/voz/gramatica')
+      const idx = gram.elegirAlternativa(items)
+      textoElegido = unicos[idx] ?? unicos[0]
+    }
+
+    estado.value = 'interpretando'
+    candidatos.value = []
+    showCandidatos.value = false
+    pendiente.value = null
+    prefill.value = null
+    producto.value = null
+
+    const validacion = voiceCommandSchema.safeParse(interpretar(textoElegido))
+    if (!validacion.success) throw new Error('No te entendí. Prueba: "vende 5 panes".')
+
+    const { comando, slots } = validacion.data
+    if (comando === 'desconocido') {
+      throw new Error('Todavía no sé hacer eso. Prueba: "vende 5 panes".')
+    }
+
+    if (comando === 'navegacion') return manejarNavegacion(slots, vigente)
+    if (comando === 'consulta_stock') return manejarConsultaStock(slots, sttConfidence, vigente)
+    // venta_directa
+    return procesarVenta(slots, sttConfidence, vigente)
   }
 
   async function venderPorVoz() {
@@ -319,7 +416,7 @@ export function useVentaPorVoz(ubicacion) {
       if (voice.estado.value === 'error') throw new Error(voice.error.value || 'No te entendí.')
       const texto = voice.transcript.value
       if (!texto) throw new Error('No te entendí. Prueba otra vez.')
-      await procesar(texto, voice.confidence.value, gen)
+      await procesar(texto, voice.confidence.value, gen, voice.alternativas.value)
     } catch (e) {
       if (gen !== generacion) return
       const mensaje = e?.message || 'Error de voz.'
@@ -359,13 +456,23 @@ export function useVentaPorVoz(ubicacion) {
     return venderPorVoz()
   }
 
-  function seleccionarCandidato(candidato) {
+  async function seleccionarCandidato(candidato) {
     const datos = pendiente.value
     showCandidatos.value = false
     pendiente.value = null
     if (!candidato?.row || !datos) return
+    if (datos.comando === 'consulta_stock') {
+      await responderStock(candidato.row, datos.slots)
+      return
+    }
     prepararVenta(candidato.row, datos.slots)
   }
+
+  const tituloCandidatos = computed(() =>
+    pendiente.value?.comando === 'consulta_stock'
+      ? 'Confirma qué producto consultar'
+      : 'Confirma el producto'
+  )
 
   function cancelar() {
     return cancelarEscucha()
@@ -437,6 +544,7 @@ export function useVentaPorVoz(ubicacion) {
     seleccionarCandidato,
     cancelar,
     limpiar,
-    simular
+    simular,
+    tituloCandidatos
   }
 }

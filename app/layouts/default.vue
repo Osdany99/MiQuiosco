@@ -288,7 +288,7 @@ const userMenuItems = computed(() => {
 
       <BaseDialog
         v-model="vozActiva.showCandidatos.value"
-        title="Elegir producto"
+        :title="vozActiva.tituloCandidatos.value || 'Elegir producto'"
         description="El reconocimiento no fue suficientemente claro. Confirma cual corresponde."
         hide-confirm
         @cancel="vozActiva.cancelar()"

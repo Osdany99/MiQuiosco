@@ -13,6 +13,7 @@
  * La voz nunca escribe: solo produce una intención y sus slots. Quien decide
  * abrir un formulario prellenado es la capa de UI.
  */
+import { LEXICO_BASE } from './lexico.js'
 
 const UNIDADES = {
   cero: 0,
@@ -90,6 +91,12 @@ const VERBOS_VENTA = [
   'vendemelo',
   'vendes',
   'vendan',
+  'vender',
+  'vendo',
+  'vendio',
+  'vendieron',
+  'vendimos',
+  'vendiste',
   'anota',
   'anotame',
   'anotamelo',
@@ -99,23 +106,19 @@ const VERBOS_VENTA = [
   'sacame',
   'despacha',
   'despachame',
-  'vendele'
+  'vendele',
+  'cobra',
+  'cobrame',
+  'cobrale',
+  'apunta',
+  'apuntame'
 ]
 
 // Verbos que piden cualquier cosa ("dame el total del día"). Solo cuentan como
 // venta si la frase no es una consulta ni una navegación (ver resolverComando).
-const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo']
+const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo', 'pon']
 
-const PREFIJO_VENTA = new RegExp(`^(${VERBOS_VENTA.join('|')})\\b`)
-const PREFIJO_VENTA_DEBIL = new RegExp(`^(${VERBOS_VENTA_DEBILES.join('|')})\\b`)
-const PREFIJO_VENTA_CUALQUIERA = new RegExp(`^(${[...VERBOS_VENTA, ...VERBOS_VENTA_DEBILES].join('|')})\\b`)
-const VERBO_VENTA = new RegExp(`\\b(${VERBOS_VENTA.join('|')})\\b`)
-
-// Marcadores de comandos que todavía NO existen. Se clasifican como
-// `desconocido` a propósito: es preferible decir "todavía no sé hacer eso" a
-// interpretarlos como una venta y precargar algo equivocado.
-const MARCAS_CONSULTA = /\b(cuanto|cuanta|cuantos|cuantas|stock|existencias|inventario)\b/
-const MARCAS_NAVEGACION = /\b(abre|abrir|abreme|ir a|ve a|vamos a|muestra|muestrame)\b/
+// (regex de verbos se compila en `compilar()` según el léxico)
 
 const PALABRAS_VACIAS = new Set([
   'de',
@@ -306,27 +309,124 @@ export function parseNumberSequence(tokens) {
  * el total del día"), así que solo cuentan como venta cuando la frase no parece
  * una consulta ni una navegación.
  */
-export function resolverComando(transcript) {
+const CACHE_COMPILADO = new WeakMap()
+
+function compilar(lexico) {
+  const clave = lexico ?? LEXICO_BASE
+  const cached = CACHE_COMPILADO.get(clave)
+  if (cached) return cached
+  const ventaFuerte = Array.isArray(clave?.ventaFuerte) ? clave.ventaFuerte : VERBOS_VENTA
+  const ventaDebil = Array.isArray(clave?.ventaDebil) ? clave.ventaDebil : VERBOS_VENTA_DEBILES
+  const navVerbo = Array.isArray(clave?.navegacionVerbo) ? clave.navegacionVerbo : null
+  const destinos = (clave?.destinos && typeof clave.destinos === 'object') ? clave.destinos : null
+  const consultaMarca = Array.isArray(clave?.consultaMarca) ? clave.consultaMarca : null
+
+  const out = {
+    ventaFuerte,
+    ventaDebil,
+    navegacionVerbo: navVerbo,
+    destinos,
+    consultaMarca,
+    PREFIJO_VENTA: new RegExp(`^(${ventaFuerte.join('|')})\\b`),
+    PREFIJO_VENTA_DEBIL: new RegExp(`^(${ventaDebil.join('|')})\\b`),
+    PREFIJO_VENTA_CUALQUIERA: new RegExp(`^(${[...ventaFuerte, ...ventaDebil].join('|')})\\b`),
+    VERBO_VENTA: new RegExp(`\\b(${ventaFuerte.join('|')})\\b`)
+  }
+  CACHE_COMPILADO.set(clave, out)
+  return out
+}
+
+function resolverNavegacionPuro(texto, c, lexico) {
+  const RELLENOS_NAV = new Set(['a', 'al', 'la', 'el', 'los', 'las', 'de', 'del', 'mi', 'mis', 'por', 'favor', 'pantalla', 'vista', 'seccion', 'modulo', 'en', 'ya', 'ahora', 'me'])
+  const RELLENOS_COMPLEMENTO = new Set(['hoy', 'dia', 'ayer', 'actual'])
+  const tokens = texto.split(' ').filter(Boolean)
+  const verboIdx = tokens.findIndex(t => c.navegacionVerbo.map(x => x).includes(t))
+  if (verboIdx < 0) return false
+
+  // inverted map word -> vista key
+  const inverted = {}
+  if (c.destinos) {
+    for (const [key, palabras] of Object.entries(c.destinos)) {
+      for (const w of palabras) inverted[w] = key
+    }
+  }
+  // also from lexicon BASE strings in lexico.destinos? yes c.destinos.
+
+  let i = verboIdx + 1
+  while (i < tokens.length && RELLENOS_NAV.has(tokens[i])) i++
+  if (i >= tokens.length) return false
+  const destino = inverted[tokens[i]]
+  if (!destino) return false
+  i++
+
+  // resto solo rellenos nav o complemento
+  for (let j = i; j < tokens.length; j++) {
+    const t = tokens[j]
+    if (RELLENOS_NAV.has(t)) continue
+    if (RELLENOS_COMPLEMENTO.has(t)) continue
+    if (lexico?.navegacionComplemento && lexico.navegacionComplemento.includes(t)) continue
+    return false
+  }
+  return true
+}
+
+function extraerConsultaPura(texto) {
+  const RELLENOS_CONSULTA = new Set(['unidades', 'unidad', 'dime', 'dame', 'decir', 'dices', 'cual', 'cuales', 'es', 'son', 'esta', 'estan', 'me', 'nos'])
+  let work = texto
+
+  // Ubicación propia (duplicada; no tocar extraerBase)
+  const loc = work.match(/\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/)
+  let ubicacion = null
+  if (loc) {
+    ubicacion = loc[1] === 'almacen' ? 'almacen' : 'quiosco'
+    work = work.replace(loc[0], ' ')
+  }
+
+  const toks = work.split(' ').filter(Boolean)
+  const marcaSet = new Set(['cuanto', 'cuanta', 'cuantos', 'cuantas', 'hay', 'queda', 'quedan', 'stock', 'existencia', 'existencias', 'tenemos', 'tengo', 'disponible', 'disponibles', 'inventario'])
+  const filtrados = toks.filter(t => !marcaSet.has(t) && !RELLENOS_CONSULTA.has(t))
+  // limpiar bordes
+  while (filtrados.length && ['de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'para', 'desde', 'en', 'al', 'con', 'sin'].includes(filtrados[0])) filtrados.shift()
+  while (filtrados.length && ['de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'para', 'desde', 'en', 'al', 'con', 'sin'].includes(filtrados[filtrados.length - 1])) filtrados.pop()
+  let productoHint = filtrados.join(' ')
+  productoHint = productoHint.replace(/^(?:(?:de|del|el|la|los|las|un|una|unos|unas|que|lo)\s+)+/, '').trim()
+  return { productoHint, ubicacion }
+}
+
+/**
+ * Fase A — clasificación.
+ */
+export function resolverComando(transcript, lexico = LEXICO_BASE) {
+  const c = compilar(lexico)
   const texto = normalizar(transcript)
   if (!texto) return { comando: 'desconocido', confianza: 0, reasons: ['sin_texto'] }
 
-  if (PREFIJO_VENTA.test(texto)) {
+  if (c.PREFIJO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.95, reasons: ['verbo_venta'] }
   }
 
-  if (MARCAS_CONSULTA.test(texto)) {
-    return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
+  // Navegación primero (exige verbo + destino).
+  if (c.navegacionVerbo && c.destinos && resolverNavegacionPuro(texto, c, lexico)) {
+    return { comando: 'navegacion', confianza: 0.9, reasons: ['navegacion_destino'] }
   }
 
-  if (MARCAS_NAVEGACION.test(texto)) {
-    return { comando: 'desconocido', confianza: 0, reasons: ['navegacion_no_soportada'] }
+  // Consulta: marcas presentes.
+  if (/\bcuanto\b|\bcuanta\b|\bcuantos\b|\bcuantas\b|\bstock\b|\bexistencia(s)?\b|\binventario\b|\btenemos\b|\btengo\b|\bdisponible(s)?\b|\bhay\b|\bqueda(n)?\b/.test(texto)) {
+    if (/\bcuesta\b|\bcuestan\b|\bprecio\b|\bprecios\b|\bvale\b|\bvalen\b|\bdebe\b|\bdeben\b|\bdeuda\b|\bdeudas\b|\bvendi\b|\bvendimos\b|\bvendido(s)?\b|\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
+      return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
+    }
+    const slots = extraerConsultaPura(texto)
+    if (slots.productoHint) {
+      return { comando: 'consulta_stock', confianza: 0.9, reasons: ['consulta_producto'] }
+    }
+    return { comando: 'desconocido', confianza: 0, reasons: ['consulta_sin_producto'] }
   }
 
-  if (PREFIJO_VENTA_DEBIL.test(texto) && texto.split(' ').length > 1) {
+  if (c.PREFIJO_VENTA_DEBIL.test(texto) && texto.split(' ').length > 1) {
     return { comando: 'venta_directa', confianza: 0.85, reasons: ['verbo_venta_debil'] }
   }
 
-  if (VERBO_VENTA.test(texto)) {
+  if (c.VERBO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.8, reasons: ['verbo_venta_interior'] }
   }
 
@@ -391,7 +491,27 @@ function parsearPrecio(tokens) {
  * con `true` se dejan en el producto. Devuelve también `suelto`, que indica si
  * hubo alguna palabra ambigua.
  */
-function extraerBase(transcript, conservarSuelto) {
+/**
+ * Recorta el verbo de venta de la frase. Si el verbo está al inicio, quita el
+ * prefijo (comportamiento original). Si el verbo aparece en otra posición,
+ * descarta lo anterior y devuelve lo que viene después ("me vendes 3 panes" →
+ * "3 panes"). Sin verbo devuelve el texto sin cambios ("cinco panes").
+ */
+function recortarVerbo(texto, ventaFuerte = VERBOS_VENTA, ventaDebil = VERBOS_VENTA_DEBILES) {
+  const all = [...ventaFuerte, ...ventaDebil]
+  if (new RegExp(`^(${all.join('|')})\\b`).test(texto)) {
+    return texto.replace(new RegExp(`^(${all.join('|')})\\b`), '').trim()
+  }
+  const tokens = texto.split(' ').filter(Boolean)
+  const idx = tokens.findIndex(t => all.includes(t))
+  if (idx >= 0) {
+    return tokens.slice(idx + 1).join(' ').trim()
+  }
+  return texto.trim()
+}
+
+function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
+  const c = compilar(lexico)
   const slots = {
     productoHint: '',
     cantidad: 1,
@@ -402,16 +522,17 @@ function extraerBase(transcript, conservarSuelto) {
   }
   let suelto = false
 
-  let work = normalizar(transcript).replace(PREFIJO_VENTA_CUALQUIERA, '').trim()
+  let texto = normalizar(transcript)
 
-  // Ubicación: "en el quiosco", "desde el almacén", "del kiosco" o sin
-  // artículo ("en almacén"). El artículo opcional evita que "el" se quede
-  // pegado al nombre del producto.
-  const loc = work.match(/\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/)
+  // Ubicación se extrae sobre TODO el texto (incluso si el verbo va al final),
+  // para no perderla al recortar el verbo.
+  const loc = texto.match(/\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/)
   if (loc) {
     slots.ubicacion = loc[1] === 'almacen' ? 'almacen' : 'quiosco'
-    work = work.replace(loc[0], ' ')
+    texto = texto.replace(loc[0], ' ')
   }
+
+  let work = recortarVerbo(texto, c.ventaFuerte, c.ventaDebil)
 
   // Tipo de venta. Con preposición ("de regalo", "para la casa") es inequívoco
   // y siempre se quita. Suelto ("pan regalo", "refresco familiar") es ambiguo:
@@ -513,21 +634,21 @@ function extraerBase(transcript, conservarSuelto) {
  * NO interpretarla como tipo. La capa de catálogo decide cuál usar con
  * `preferirHintConTipo`.
  */
-export function extraerSlots(comando, transcript) {
-  if (comando !== 'venta_directa') {
-    return {
-      productoHint: '',
-      cantidad: 1,
-      precioUnitario: null,
-      ubicacion: null,
-      tipoVenta: 'directa',
-      clienteHint: null
-    }
+export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
+  const c = compilar(lexico)
+  if (comando === 'consulta_stock') {
+    const s = extraerConsultaPura(normalizar(transcript))
+    return { productoHint: s.productoHint, ubicacion: s.ubicacion }
   }
+  if (comando === 'navegacion') {
+    const dest = resolverNavegacionDestino(transcript, c, lexico)
+    return { destino: dest }
+  }
+  if (comando !== 'venta_directa') return {}
 
-  const principal = extraerBase(transcript, false)
+  const principal = extraerBase(transcript, false, lexico)
   if (principal.suelto) {
-    const alterna = extraerBase(transcript, true)
+    const alterna = extraerBase(transcript, true, lexico)
     if (alterna.slots.productoHint && alterna.slots.productoHint !== principal.slots.productoHint) {
       principal.slots.alternativaTipo = {
         productoHint: alterna.slots.productoHint,
@@ -547,14 +668,69 @@ export function preferirHintConTipo(candidatosAlternativa) {
   return Number(candidatosAlternativa?.[0]?.score) >= 0.99
 }
 
+function resolverNavegacionDestino(transcript, c) {
+  const RELLENOS_NAV = new Set(['a', 'al', 'la', 'el', 'los', 'las', 'de', 'del', 'mi', 'mis', 'por', 'favor', 'pantalla', 'vista', 'seccion', 'modulo', 'en', 'ya', 'ahora', 'me'])
+  const inverted = {}
+  if (c.destinos) {
+    for (const [key, palabras] of Object.entries(c.destinos)) {
+      for (const w of palabras) inverted[w] = key
+    }
+  }
+  const tokens = normalizar(transcript).split(' ').filter(Boolean)
+  const verboIdx = tokens.findIndex(t => Array.isArray(c.navegacionVerbo) && c.navegacionVerbo.includes(t))
+  if (verboIdx < 0) return null
+  let i = verboIdx + 1
+  while (i < tokens.length && RELLENOS_NAV.has(tokens[i])) i++
+  if (i >= tokens.length) return null
+  const destino = inverted[tokens[i]]
+  if (!destino) return null
+  return destino
+}
+
+/**
+ * Elige la mejor hipótesis STT (N-best) tras haberla evaluado.
+ * Ver reglas en el plan v2 P5.
+ */
+export function elegirAlternativa(evaluadas, { margen = 0.1 } = {}) {
+  const lista = Array.isArray(evaluadas) ? evaluadas : []
+  if (!lista.length) return 0
+  const base = lista[0]
+  const baseIndice = (base && Number.isFinite(base.indice)) ? base.indice : 0
+  const baseComando = base?.comando
+
+  if (baseComando === 'navegacion') return baseIndice
+  if ((baseComando === 'venta_directa' || baseComando === 'consulta_stock') && base?.elegido) {
+    return baseIndice
+  }
+
+  const validas = lista.slice(1).filter(x => x && x.comando !== 'desconocido'
+    && (x.comando === 'navegacion' || x.elegido === true))
+
+  if (baseComando === 'desconocido') {
+    if (validas.length) return (Number.isFinite(validas[0].indice)) ? validas[0].indice : lista.indexOf(validas[0])
+    return baseIndice
+  }
+
+  const mismoComando = validas.filter(x => x.comando === baseComando)
+  const filtradas = mismoComando.filter((x) => {
+    if (base?.encontrados === 0) return true
+    return Number(x.efectivo) >= Number(base?.efectivo || 0) + margen
+  })
+  if (filtradas.length) {
+    const elegido = filtradas[0]
+    return Number.isFinite(elegido.indice) ? elegido.indice : lista.indexOf(elegido)
+  }
+  return baseIndice
+}
+
 /** Interpretación completa (clasificación + slots) en un solo objeto. */
-export function interpretar(transcript) {
-  const clasificado = resolverComando(transcript)
+export function interpretar(transcript, lexico = LEXICO_BASE) {
+  const clasificado = resolverComando(transcript, lexico)
   return {
     comando: clasificado.comando,
     transcript: String(transcript ?? ''),
     confidence: clasificado.confianza,
-    slots: extraerSlots(clasificado.comando, transcript),
+    slots: extraerSlots(clasificado.comando, transcript, lexico),
     reasons: clasificado.reasons
   }
 }

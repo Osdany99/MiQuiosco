@@ -4,6 +4,7 @@ import {
   UMBRAL_PRODUCTO,
   combinarConfianza,
   decidirProducto,
+  elegirAlternativa,
   extraerSlots,
   interpretar,
   normalizar,
@@ -50,10 +51,10 @@ describe('voz: clasificación (fase A)', () => {
     ['anota un pan', 'venta_directa'],
     ['registra dos refrescos', 'venta_directa'],
     ['cinco panes', 'venta_directa'],
-    ['cuanto hay de pan', 'desconocido'],
-    ['cuanto queda de refresco', 'desconocido'],
-    ['abre cuadre', 'desconocido'],
-    ['ir a deudas', 'desconocido'],
+    ['cuanto hay de pan', 'consulta_stock'],
+    ['cuanto queda de refresco', 'consulta_stock'],
+    ['abre cuadre', 'navegacion'],
+    ['ir a deudas', 'navegacion'],
     ['hola', 'desconocido'],
     ['', 'desconocido']
   ]
@@ -64,18 +65,16 @@ describe('voz: clasificación (fase A)', () => {
     })
   }
 
-  it('un comando que no existe no se interpreta como venta', () => {
-    const r = interpretar('cuanto hay de pan')
+  it('un comando que no existe se interpreta como desconocido con slots vacíos', () => {
+    const r = interpretar('hola')
     assert.equal(r.comando, 'desconocido')
-    assert.equal(r.slots.productoHint, '')
-    assert.deepEqual(r.slots, {
-      productoHint: '',
-      cantidad: 1,
-      precioUnitario: null,
-      ubicacion: null,
-      tipoVenta: 'directa',
-      clienteHint: null
-    })
+    assert.deepEqual(r.slots, {})
+  })
+
+  it('una consulta deja slots propios, sin slots de venta', () => {
+    const r = interpretar('cuanto hay de pan')
+    assert.equal(r.comando, 'consulta_stock')
+    assert.deepEqual(r.slots, { productoHint: 'pan', ubicacion: null })
   })
 
   it('el verbo manda sobre el resto', () => {
@@ -390,8 +389,8 @@ describe('voz: verbos débiles ("dame", "ponme")', () => {
   })
 
   it('un verbo débil no convierte consultas ni navegación en ventas', () => {
-    assert.equal(resolverComando('dame cuanto hay de pan').comando, 'desconocido')
-    assert.equal(resolverComando('dame el inventario').comando, 'desconocido')
+    assert.notEqual(resolverComando('dame cuanto hay de pan').comando, 'venta_directa')
+    assert.notEqual(resolverComando('dame el inventario').comando, 'venta_directa')
     assert.equal(resolverComando('dame').comando, 'desconocido')
   })
 })
@@ -549,5 +548,64 @@ describe('voz: la descripción no supera al nombre', () => {
     const [mejor, segundo] = fuzzyMatchProducts('refresco lata', catalogo)
     assert.equal(mejor.product.id, '1')
     assert.ok(mejor.score > segundo.score)
+  })
+})
+
+describe('voz: N-best (elegirAlternativa)', () => {
+  it('base clara gana', () => {
+    const items = [
+      { indice: 0, comando: 'venta_directa', elegido: true, efectivo: 0.9, encontrados: 1 },
+      { indice: 1, comando: 'venta_directa', elegido: true, efectivo: 0.95, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 0)
+  })
+  it('base desconocido elige alternativa clara', () => {
+    const items = [
+      { indice: 0, comando: 'desconocido', elegido: false, efectivo: 0, encontrados: 0 },
+      { indice: 2, comando: 'consulta_stock', elegido: true, efectivo: 0.9, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 2)
+  })
+  it('base ambigua + alternativa clara por margen', () => {
+    const items = [
+      { indice: 0, comando: 'venta_directa', elegido: false, ambiguo: true, efectivo: 0.7, encontrados: 2 },
+      { indice: 1, comando: 'venta_directa', elegido: true, efectivo: 0.9, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 1)
+  })
+  it('sin margen suficiente conserva base', () => {
+    const items = [
+      { indice: 0, comando: 'venta_directa', elegido: false, efectivo: 0.7, encontrados: 2 },
+      { indice: 1, comando: 'venta_directa', elegido: true, efectivo: 0.75, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 0)
+  })
+  it('base con 0 encontrados elige alternativa clara', () => {
+    const items = [
+      { indice: 0, comando: 'venta_directa', elegido: false, efectivo: 0, encontrados: 0 },
+      { indice: 1, comando: 'venta_directa', elegido: true, efectivo: 0.8, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 1)
+  })
+  it('comando distinto no supera', () => {
+    const items = [
+      { indice: 0, comando: 'venta_directa', elegido: false, efectivo: 0.7, encontrados: 2 },
+      { indice: 1, comando: 'consulta_stock', elegido: true, efectivo: 0.9, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 0)
+  })
+  it('base navegacion gana', () => {
+    const items = [
+      { indice: 0, comando: 'navegacion', elegido: true, efectivo: 0, encontrados: 0 },
+      { indice: 1, comando: 'venta_directa', elegido: true, efectivo: 0.9, encontrados: 1 }
+    ]
+    assert.equal(elegirAlternativa(items), 0)
+  })
+  it('todas desconocido', () => {
+    const items = [
+      { indice: 0, comando: 'desconocido', elegido: false, efectivo: 0, encontrados: 0 },
+      { indice: 1, comando: 'desconocido', elegido: false, efectivo: 0, encontrados: 0 }
+    ]
+    assert.equal(elegirAlternativa(items), 0)
   })
 })

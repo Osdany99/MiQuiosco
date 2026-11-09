@@ -1,14 +1,15 @@
 import { z } from 'zod'
+import { LEXICO_BASE } from '../voz/lexico.js'
+import { VISTAS_CON_RUTA } from '../permisos.js'
 
 /** Comandos que el intérprete puede devolver. `desconocido` = no se actúa. */
-export const voiceCommandId = z.enum(['venta_directa', 'desconocido'], {
+export const voiceCommandId = z.enum(['venta_directa', 'consulta_stock', 'navegacion', 'desconocido'], {
   message: 'Comando de voz no soportado'
 })
 
 /**
  * Slots de `venta_directa`. `ubicacion` es nullable a propósito: null significa
- * "no se dijo", y es la UI quien decide la ubicación por contexto. Un valor
- * distinto de la vista actual debe tratarse como conflicto, nunca ignorarse.
+ * "no se dijo", y es la UI quien decide la ubicación por contexto.
  */
 export const voiceSlotsSchema = z.object({
   productoHint: z.string().default(''),
@@ -17,9 +18,6 @@ export const voiceSlotsSchema = z.object({
   ubicacion: z.enum(['almacen', 'quiosco']).nullable().default(null),
   tipoVenta: z.enum(['directa', 'casa', 'familiar', 'regalo']).default('directa'),
   clienteHint: z.string().nullable().default(null),
-  // Lectura alternativa cuando una palabra de tipo ("familiar", "regalo",
-  // "casa", "normal") puede ser parte del nombre del producto. Solo se usa si
-  // esa lectura coincide exacto con un producto (ver preferirHintConTipo).
   alternativaTipo: z
     .object({
       productoHint: z.string(),
@@ -29,9 +27,43 @@ export const voiceSlotsSchema = z.object({
     .default(null)
 })
 
-export const voiceCommandSchema = z.object({
-  comando: voiceCommandId,
-  transcript: z.string().default(''),
-  confidence: z.number().min(0).max(1).default(0),
-  slots: voiceSlotsSchema
+export const ventaSlotsSchema = voiceSlotsSchema
+
+export const consultaSlotsSchema = z.object({
+  productoHint: z.string().min(1),
+  ubicacion: z.enum(['almacen', 'quiosco']).nullable().default(null)
 })
+
+const vistasKeys = new Set(VISTAS_CON_RUTA.map(v => v.key))
+export const DESTINOS_VALIDOS = Object.keys(LEXICO_BASE.destinos || {}).filter(k => vistasKeys.has(k))
+
+export const navegacionSlotsSchema = z.object({
+  destino: z.enum(DESTINOS_VALIDOS)
+})
+
+export const voiceCommandSchema = z.discriminatedUnion('comando', [
+  z.object({
+    comando: z.literal('venta_directa'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: voiceSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('consulta_stock'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: consultaSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('navegacion'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: navegacionSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('desconocido'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: z.object({}).default({})
+  })
+])

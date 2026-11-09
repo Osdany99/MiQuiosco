@@ -15,6 +15,7 @@ function _useVoiceCommand() {
   const transcript = ref('')
   const transcriptParcial = ref('')
   const confidence = ref(0)
+  const alternativas = ref([])
   const error = ref(null)
   let instanciaWeb = null
   const esNativo = computed(() => {
@@ -81,6 +82,8 @@ function _useVoiceCommand() {
     transcriptParcial.value = ''
     confidence.value = 0
     error.value = null
+    alternativas.value = []
+
     if (!esNativo.value) {
       if (!esWebSoportado.value) {
         error.value = 'El reconocimiento de voz solo está disponible en la app Android o en navegadores compatibles (Chrome/Edge en HTTPS).'
@@ -102,7 +105,7 @@ function _useVoiceCommand() {
           }
           rec.lang = options?.language || 'es-ES'
           rec.interimResults = true
-          rec.maxAlternatives = 1
+          rec.maxAlternatives = 5
           rec.continuous = false
           timer = setTimeout(() => {
             if (timer) {
@@ -128,7 +131,11 @@ function _useVoiceCommand() {
                 clearTimeout(timer)
                 timer = null
               }
-              resolve({ text: txt, confidence: Number(actual?.[0]?.confidence) || 0 })
+              const alternativas = []
+              for (let i = 0; i < actual.length; i++) {
+                alternativas.push({ texto: actual[i]?.transcript ?? '', confianza: Number(actual[i]?.confidence) || 0 })
+              }
+              resolve({ text: txt, confidence: Number(actual?.[0]?.confidence) || 0, alternativas })
             }
           }
           rec.onerror = (event) => {
@@ -167,6 +174,9 @@ function _useVoiceCommand() {
         transcript.value = resultado.text ?? ''
         transcriptParcial.value = transcript.value
         confidence.value = Number(resultado.confidence) || 0
+        alternativas.value = Array.isArray(resultado.alternativas)
+          ? resultado.alternativas.map(a => ({ texto: a?.texto ?? a?.text ?? '', confianza: Number(a?.confianza ?? a?.confidence) || 0 }))
+          : []
         estado.value = 'ready'
       } catch (e) {
         const detalle = e?.message || 'Error desconocido'
@@ -211,6 +221,9 @@ function _useVoiceCommand() {
       transcript.value = resultado?.text ?? ''
       transcriptParcial.value = transcript.value
       confidence.value = Number(resultado?.confidence) || 0
+      alternativas.value = Array.isArray(resultado?.alternativas)
+        ? resultado.alternativas.map(a => ({ texto: a?.text ?? a?.texto ?? '', confianza: Number(a?.confidence ?? a?.confianza) || 0 }))
+        : []
       estado.value = 'ready'
     } catch (e) {
       const detalle = e?.message || 'Error desconocido'
@@ -262,6 +275,7 @@ function _useVoiceCommand() {
     transcriptParcial.value = ''
     confidence.value = 0
     error.value = null
+    alternativas.value = []
   }
 
   return {
@@ -269,6 +283,7 @@ function _useVoiceCommand() {
     transcript,
     transcriptParcial,
     confidence,
+    alternativas,
     error,
     esNativo,
     backend,
