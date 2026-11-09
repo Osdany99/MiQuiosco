@@ -120,10 +120,6 @@ async function loadLoteFifoPref() {
   }
 }
 void loadLoteFifoPref()
-const planSpoken = ref(false)
-watch(() => props.prefill, () => {
-  planSpoken.value = false
-})
 const clientes = ref([])
 const lotes = ref([])
 const cantidadExcedeStock = ref(false)
@@ -131,21 +127,6 @@ const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
 function onConsumo(plan) {
   if (!plan) return
   consumoPlan.value = plan
-  if (!planSpoken.value && isOpen.value && tts?.speak && plan.lineas?.length) {
-    planSpoken.value = true
-    void (async () => {
-      const ubi = props.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
-      const loteTxt = plan.lineas
-        .map((l, idx) => `#${idx + 1} ${Number(l.cantidad)}`)
-        .join(', ')
-      const texto = `Preparo ${plan.consumido} ${props.producto?.nombre ?? ''} del ${ubi}: lotes ${loteTxt}.`
-      try {
-        await tts.speak(texto)
-      } catch {
-        /* noop */
-      }
-    })()
-  }
 }
 
 function normalizeVoiceText(value) {
@@ -285,7 +266,6 @@ function precioInicial() {
 watch(isOpen, async (open) => {
   if (!open) {
     cantidadExcedeStock.value = false
-    planSpoken.value = false
     return
   }
   cantidadExcedeStock.value = false
@@ -326,7 +306,8 @@ watch(isOpen, async (open) => {
       if (props.prefill.cantidad != null) {
         const qty = Math.max(1, Math.trunc(Number(props.prefill.cantidad) || 1))
         form.value.cantidad = qty
-        const max = disponible.value > 0 ? disponible.value : Number(props.producto?.stock ?? 0)
+        const totalLotes = (lotes.value ?? []).reduce((acc, l) => acc + (Number(l?.saldo) || 0), 0)
+        const max = totalLotes > 0 ? totalLotes : Number(props.producto?.stock ?? 0)
         cantidadExcedeStock.value = Boolean(max && qty > max)
       }
       if (esRegalo.value) {
