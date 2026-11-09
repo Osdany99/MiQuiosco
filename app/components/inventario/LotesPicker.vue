@@ -143,7 +143,6 @@ function onToggle() {
 
 function onRank(id, valor) {
   const v = Number(valor)
-  const cur = ranks.value[id]
   if (!Number.isFinite(v) || v < 1) return
   ranks.value[id] = v
   if (!seleccionados.value[id]) seleccionados.value[id] = true

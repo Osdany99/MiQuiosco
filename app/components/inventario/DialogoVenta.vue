@@ -35,7 +35,7 @@
         />
       </div>
 
-      <LotesPicker
+      <InventarioLotesPicker
         v-if="lotes.length"
         :lotes="lotes"
         :cantidad="Number(form.cantidad) || 0"
