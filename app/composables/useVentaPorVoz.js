@@ -184,29 +184,33 @@ export function useVentaPorVoz(ubicacion) {
   }
 
   /** Saldos de una ubicación. En quiosco se excluyen los productos no vendibles.
-   *  Caché in-memory con TTL corto para no pegar a la API en cada comando. */
+   *  Caché in-memory con TTL corto para no pegar a la API en cada comando.
+   *  El mapa separa venta (`soloVendibles`) de stock (`soloVendibles: false`)
+   *  para que una consulta no invalide el catálogo de la otra. */
   const CACHE_TTL_MS = 2 * 60 * 1000
-  const cacheCatalogo = ref(null)
+  const cacheCatalogo = new Map()
 
-  async function catalogoDe(ubi) {
+  async function catalogoDe(ubi, { soloVendibles = true } = {}) {
     const pid = auth.usuarioActual.value?.puestoId ?? ''
-    const clave = `${pid}:${conexion.modo.value}:${ubi}`
-    const cached = cacheCatalogo.value
-    if (cached && cached.clave === clave && Date.now() - cached.ts < CACHE_TTL_MS) {
+    const clave = `${pid}:${conexion.modo.value}:${ubi}:${soloVendibles ? 'v' : 't'}`
+    const cached = cacheCatalogo.get(clave)
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       return cached.data
     }
     const filas = await inv.cargarSaldos() ?? []
-    const data = ubi === 'quiosco' ? filas.filter(f => f.seVende !== false) : filas
-    cacheCatalogo.value = { clave, ts: Date.now(), data }
+    const data = (soloVendibles && ubi === 'quiosco')
+      ? filas.filter(f => f.seVende !== false)
+      : filas
+    cacheCatalogo.set(clave, { ts: Date.now(), data })
     return data
   }
 
   function invalidarCatalogoVoz() {
-    cacheCatalogo.value = null
+    cacheCatalogo.clear()
   }
 
   watch(() => conexion.modo.value, () => {
-    cacheCatalogo.value = null
+    cacheCatalogo.clear()
   })
 
   /**
@@ -355,8 +359,9 @@ export function useVentaPorVoz(ubicacion) {
 
   async function manejarConsultaStock(slots, sttConfidence = 0, vigente = () => true) {
     if (!vigente()) return
-    const filas = await inv.cargarSaldos() ?? []
-    const catalogo = filas
+    // El stock se consulta sobre el catálogo completo (ambas ubicaciones), sin
+    // filtrar `seVende`, y reutiliza la caché para no repetir cargarSaldos().
+    const catalogo = await catalogoDe('global', { soloVendibles: false })
     const emparejar = crearEmparejador(catalogo, sttConfidence)
     const encontrados = emparejar(slots.productoHint)
     if (!encontrados.length) {
@@ -386,7 +391,7 @@ export function useVentaPorVoz(ubicacion) {
     const productos = new Set()
     const clientes = new Set()
     try {
-      const filas = await inv.cargarSaldos() ?? []
+      const filas = await catalogoDe('global', { soloVendibles: false })
       for (const f of filas) {
         for (const valor of [f.nombre, f.descripcion]) {
           if (!valor) continue
@@ -440,7 +445,7 @@ export function useVentaPorVoz(ubicacion) {
           try {
             const destinoUbi = (clas.slots?.ubicacion) || ubicacion
             const cat = clas.comando === 'consulta_stock'
-              ? (await inv.cargarSaldos() ?? [])
+              ? await catalogoDe('global', { soloVendibles: false })
               : await catalogoDe(destinoUbi)
             const emparejar = crearEmparejador(cat, sttConfidence)
             const encontrados = emparejar(clas.slots?.productoHint || '')
