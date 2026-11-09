@@ -41,7 +41,9 @@ const DECENAS = {
   dieciocho: 18,
   diecinueve: 19,
   veinte: 20,
+  veintiun: 21,
   veintiuno: 21,
+  veintiuna: 21,
   veintidos: 22,
   veintitres: 23,
   veinticuatro: 24,
@@ -94,10 +96,19 @@ const VERBOS_VENTA = [
   'registra',
   'registrame',
   'saca',
-  'sacame'
+  'sacame',
+  'despacha',
+  'despachame',
+  'vendele'
 ]
 
+// Verbos que piden cualquier cosa ("dame el total del día"). Solo cuentan como
+// venta si la frase no es una consulta ni una navegación (ver resolverComando).
+const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo']
+
 const PREFIJO_VENTA = new RegExp(`^(${VERBOS_VENTA.join('|')})\\b`)
+const PREFIJO_VENTA_DEBIL = new RegExp(`^(${VERBOS_VENTA_DEBILES.join('|')})\\b`)
+const PREFIJO_VENTA_CUALQUIERA = new RegExp(`^(${[...VERBOS_VENTA, ...VERBOS_VENTA_DEBILES].join('|')})\\b`)
 const VERBO_VENTA = new RegExp(`\\b(${VERBOS_VENTA.join('|')})\\b`)
 
 // Marcadores de comandos que todavía NO existen. Se clasifican como
@@ -186,65 +197,102 @@ export function parseNumberToken(token) {
   return null
 }
 
+const DOCENAS = new Set(['docena', 'docenas'])
+const MONEDAS = new Set(['peso', 'pesos', 'cup', 'mn'])
+const ARTICULO_NUMERO = new Set(['un', 'una', 'uno'])
+
+/** Lectura segura de un mapa: evita que "constructor" o similares cuenten como número. */
+function enMapa(mapa, clave) {
+  return Object.prototype.hasOwnProperty.call(mapa, clave) ? mapa[clave] : undefined
+}
+
+/**
+ * Número menor que mil que empieza en `inicio`: dígitos, o palabras como
+ * "treinta y cinco" / "ciento veinte". Devuelve `{ valor, consumidos }` o null.
+ */
+function numeroMenorQueMil(tokens, inicio) {
+  const tokenEn = i => normalizar(tokens[i])
+  const primero = tokenEn(inicio)
+  if (!primero) return null
+  if (/^\d+(?:\.\d+)?$/.test(primero)) return { valor: Number(primero), consumidos: 1 }
+
+  const centena = enMapa(CENTENAS, primero)
+  if (centena !== undefined) {
+    let valor = centena
+    let i = inicio + 1
+    const decena = enMapa(DECENAS, tokenEn(i))
+    const unidadSuelta = enMapa(UNIDADES, tokenEn(i))
+
+    if (decena !== undefined && decena >= 30) {
+      valor += decena
+      i++
+      if (tokenEn(i) === 'y') {
+        const unidad = enMapa(UNIDADES, tokenEn(i + 1))
+        if (unidad !== undefined && unidad > 0) {
+          valor += unidad
+          i += 2
+        }
+      }
+    } else if (decena !== undefined || unidadSuelta !== undefined) {
+      valor += decena ?? unidadSuelta
+      i++
+    }
+
+    return { valor, consumidos: i - inicio }
+  }
+
+  const decena = enMapa(DECENAS, primero)
+  if (decena !== undefined && decena >= 30) {
+    let valor = decena
+    let i = inicio + 1
+    if (tokenEn(i) === 'y') {
+      const unidad = enMapa(UNIDADES, tokenEn(i + 1))
+      if (unidad !== undefined && unidad > 0) {
+        valor += unidad
+        i += 2
+      }
+    }
+    return { valor, consumidos: i - inicio }
+  }
+
+  const unidad = enMapa(UNIDADES, primero)
+  if (decena !== undefined || unidad !== undefined) {
+    return { valor: decena ?? unidad, consumidos: 1 }
+  }
+
+  return null
+}
+
 /**
  * Número compuesto a partir de una secuencia de tokens: "treinta y cinco" → 35,
- * "ciento veinte" → 120, "doscientos cincuenta y cinco" → 255.
+ * "ciento veinte" → 120, "doscientos cincuenta y cinco" → 255, "dos mil
+ * quinientos" → 2500, "mil" → 1000.
  *
  * Devuelve `{ valor, consumidos }` para que el extractor sepa cuántos tokens
  * retirar; `null` si la secuencia no empieza por un número.
  */
 export function parseNumberSequence(tokens) {
   if (!Array.isArray(tokens) || !tokens.length) return null
-
-  const primero = normalizar(tokens[0])
-  if (/^\d+(?:\.\d+)?$/.test(primero)) return { valor: Number(primero), consumidos: 1 }
-
   const tokenEn = i => normalizar(tokens[i])
 
-  const centena = CENTENAS[primero]
-  if (centena != null) {
-    let valor = centena
-    let i = 1
-    const decena = DECENAS[tokenEn(i)]
-    const unidadSuelta = UNIDADES[tokenEn(i)]
+  if (tokenEn(0) === 'mil') {
+    const resto = numeroMenorQueMil(tokens, 1)
+    return { valor: 1000 + (resto?.valor ?? 0), consumidos: 1 + (resto?.consumidos ?? 0) }
+  }
 
-    if (decena != null && decena >= 30) {
-      valor += decena
-      i++
-      if (tokenEn(i) === 'y') {
-        const unidad = UNIDADES[tokenEn(i + 1)]
-        if (unidad != null && unidad > 0) {
-          valor += unidad
-          i += 2
-        }
-      }
-    } else if (decena != null || unidadSuelta != null) {
-      valor += decena ?? unidadSuelta
-      i++
+  const base = numeroMenorQueMil(tokens, 0)
+  if (!base) return null
+
+  if (tokenEn(base.consumidos) === 'mil') {
+    const inicioResto = base.consumidos + 1
+    const resto = numeroMenorQueMil(tokens, inicioResto)
+    return {
+      valor: base.valor * 1000 + (resto?.valor ?? 0),
+      consumidos: inicioResto + (resto?.consumidos ?? 0)
     }
-
-    return { valor, consumidos: i }
   }
 
-  const decena = DECENAS[primero]
-  if (decena != null && decena >= 30) {
-    let valor = decena
-    let i = 1
-    if (tokenEn(i) === 'y') {
-      const unidad = UNIDADES[tokenEn(i + 1)]
-      if (unidad != null && unidad > 0) {
-        valor += unidad
-        i += 2
-      }
-    }
-    return { valor, consumidos: i }
-  }
-
-  if (decena != null || UNIDADES[primero] != null) {
-    return { valor: decena ?? UNIDADES[primero], consumidos: 1 }
-  }
-
-  return null
+  return base
 }
 
 /**
@@ -253,6 +301,10 @@ export function parseNumberSequence(tokens) {
  * Regla: manda el verbo de acción. Si no hay verbo, solo se acepta una venta
  * cuando hay una cantidad explícita y algo más (contexto de inventario), que es
  * el caso "cinco panes" pulsa-y-habla desde /quiosco.
+ *
+ * Los verbos "débiles" ("dame", "ponme") sirven para pedir muchas cosas ("dame
+ * el total del día"), así que solo cuentan como venta cuando la frase no parece
+ * una consulta ni una navegación.
  */
 export function resolverComando(transcript) {
   const texto = normalizar(transcript)
@@ -270,6 +322,10 @@ export function resolverComando(transcript) {
     return { comando: 'desconocido', confianza: 0, reasons: ['navegacion_no_soportada'] }
   }
 
+  if (PREFIJO_VENTA_DEBIL.test(texto) && texto.split(' ').length > 1) {
+    return { comando: 'venta_directa', confianza: 0.85, reasons: ['verbo_venta_debil'] }
+  }
+
   if (VERBO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.8, reasons: ['verbo_venta_interior'] }
   }
@@ -285,11 +341,57 @@ export function resolverComando(transcript) {
 }
 
 /**
- * Fase B — extracción de slots, específica del comando. Hoy solo existe
- * `venta_directa`; el segundo comando debe traer su propio extractor, no
- * reutilizar este.
+ * Precio unitario dicho en voz: "a precio de diez", "a 10 pesos", "a diez cada
+ * uno" o "a diez" al final de la frase. Trabaja sobre tokens ya normalizados.
+ *
+ * Un número suelto tras "a" solo cuenta como precio si la frase lo confirma
+ * (moneda, "cada uno", "a precio de" o final de frase); "a 3 amigos" o "a un
+ * cliente" no lo son. Devuelve `{ valor, desde, hasta }` o null.
  */
-export function extraerSlots(comando, transcript) {
+function parsearPrecio(tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] !== 'a') continue
+
+    let j = i + 1
+    const explicito = tokens[j] === 'precio' && tokens[j + 1] === 'de'
+    if (explicito) j += 2
+
+    const numero = parseNumberSequence(tokens.slice(j))
+    if (!numero) continue
+
+    let fin = j + numero.consumidos
+    let confirmado = explicito
+
+    if (MONEDAS.has(tokens[fin])) {
+      fin++
+      confirmado = true
+    }
+    if (tokens[fin] === 'cada' && (tokens[fin + 1] === 'uno' || tokens[fin + 1] === 'una')) {
+      fin += 2
+      confirmado = true
+    } else if (tokens[fin] === 'la' && tokens[fin + 1] === 'unidad') {
+      fin += 2
+      confirmado = true
+    }
+    if (fin >= tokens.length && !ARTICULO_NUMERO.has(tokens[j])) confirmado = true
+
+    if (!confirmado) continue
+    return { valor: numero.valor, desde: i, hasta: fin }
+  }
+  return null
+}
+
+/**
+ * Extracción de slots de `venta_directa`.
+ *
+ * `conservarSuelto` decide qué hacer con las palabras de tipo de venta que
+ * vienen sueltas ("familiar", "regalo", "casa", "normal"): pueden ser el tipo
+ * de venta ("vende un pan regalo") o parte del nombre del producto ("refresco
+ * familiar"). Con `false` se interpretan como tipo y se quitan del producto;
+ * con `true` se dejan en el producto. Devuelve también `suelto`, que indica si
+ * hubo alguna palabra ambigua.
+ */
+function extraerBase(transcript, conservarSuelto) {
   const slots = {
     productoHint: '',
     cantidad: 1,
@@ -298,9 +400,9 @@ export function extraerSlots(comando, transcript) {
     tipoVenta: 'directa',
     clienteHint: null
   }
-  if (comando !== 'venta_directa') return slots
+  let suelto = false
 
-  let work = normalizar(transcript).replace(PREFIJO_VENTA, '').trim()
+  let work = normalizar(transcript).replace(PREFIJO_VENTA_CUALQUIERA, '').trim()
 
   // Ubicación: "en el quiosco", "desde el almacén", "del kiosco" o sin
   // artículo ("en almacén"). El artículo opcional evita que "el" se quede
@@ -311,36 +413,48 @@ export function extraerSlots(comando, transcript) {
     work = work.replace(loc[0], ' ')
   }
 
-  // Tipo de venta. `normal` se descarta: es el valor por defecto. "de la casa"
-  // y "para la casa" se eliminan completos para no dejar "de la" en el producto.
-  if (/\bregalo\b/.test(work)) {
-    slots.tipoVenta = 'regalo'
-    work = work.replace(/\bregalo\b/g, ' ')
+  // Tipo de venta. Con preposición ("de regalo", "para la casa") es inequívoco
+  // y siempre se quita. Suelto ("pan regalo", "refresco familiar") es ambiguo:
+  // ver `conservarSuelto`. `normal` es el valor por defecto y se descarta.
+  const conPrep = work.match(/\b(?:de|para|como|en)\s+(regalo|familiar)\b/)
+  if (conPrep) {
+    slots.tipoVenta = conPrep[1]
+    work = work.replace(conPrep[0], ' ')
+  } else if (/\bregalo\b/.test(work)) {
+    suelto = true
+    if (!conservarSuelto) {
+      slots.tipoVenta = 'regalo'
+      work = work.replace(/\bregalo\b/g, ' ')
+    }
   } else if (/\bfamiliar\b/.test(work)) {
-    slots.tipoVenta = 'familiar'
-    work = work.replace(/\bfamiliar\b/g, ' ')
-  } else if (/\b(?:de|para)\s+la\s+casa\b/.test(work)) {
+    suelto = true
+    if (!conservarSuelto) {
+      slots.tipoVenta = 'familiar'
+      work = work.replace(/\bfamiliar\b/g, ' ')
+    }
+  } else if (/\b(?:de|para)\s+(?:la\s+)?casa\b/.test(work)) {
     slots.tipoVenta = 'casa'
-    work = work.replace(/\b(?:de|para)\s+la\s+casa\b/g, ' ')
-  } else if (/\b(?:de|para)\s+casa\b/.test(work)) {
-    slots.tipoVenta = 'casa'
-    work = work.replace(/\b(?:de|para)\s+casa\b/g, ' ')
+    work = work.replace(/\b(?:de|para)\s+(?:la\s+)?casa\b/g, ' ')
   } else if (/\bcasa\b/.test(work)) {
-    slots.tipoVenta = 'casa'
-    work = work.replace(/\bcasa\b/g, ' ')
-  }
-  work = work.replace(/\bnormal\b/g, ' ')
-
-  // Precio explícito: "a precio de diez". Si el token no es un número se
-  // deja intacto para que siga formando parte del producto.
-  const price = work.match(/\ba\s+precio\s+de\s+(\d+(?:[.,]\d+)?|[a-z]+)\b/)
-  if (price) {
-    const valor = parseNumberToken(price[1])
-    if (valor != null) {
-      slots.precioUnitario = valor
-      work = work.replace(price[0], ' ')
+    suelto = true
+    if (!conservarSuelto) {
+      slots.tipoVenta = 'casa'
+      work = work.replace(/\bcasa\b/g, ' ')
     }
   }
+  if (/\bnormal\b/.test(work)) {
+    suelto = true
+    if (!conservarSuelto) work = work.replace(/\bnormal\b/g, ' ')
+  }
+
+  // Precio: "a precio de treinta y cinco", "a 10 pesos", "a diez".
+  const tokensPrecio = work.split(' ').filter(Boolean)
+  const precio = parsearPrecio(tokensPrecio)
+  if (precio) {
+    slots.precioUnitario = precio.valor
+    tokensPrecio.splice(precio.desde, precio.hasta - precio.desde)
+  }
+  work = tokensPrecio.join(' ')
 
   // Cliente: "a don Juan Pérez" / "para Juan Pérez". Se aceptan hasta cuatro
   // palabras al final y se descartan honoríficos y palabras que no son nombre
@@ -355,13 +469,30 @@ export function extraerSlots(comando, transcript) {
     work = work.replace(cliente[0], ' ')
   }
 
+  // Cantidad: número al inicio ("cinco", "treinta y cinco", "dos mil"), con
+  // docenas ("una docena", "media docena", "dos docenas"). Una docena son 12
+  // unidades.
   const tokens = work.split(' ').filter(Boolean)
   if (tokens.length) {
     const numero = parseNumberSequence(tokens)
+    let usados = 0
+    let cantidad = 1
+
     if (numero) {
-      if (numero.valor > 0) slots.cantidad = Math.max(1, Math.trunc(numero.valor))
-      tokens.splice(0, numero.consumidos)
+      if (numero.valor > 0) cantidad = Math.max(1, Math.trunc(numero.valor))
+      usados = numero.consumidos
     }
+
+    if (DOCENAS.has(tokens[usados])) {
+      cantidad = (numero && numero.valor > 0 ? Math.trunc(numero.valor) : 1) * 12
+      usados++
+    } else if (!numero && tokens[0] === 'media' && DOCENAS.has(tokens[1])) {
+      cantidad = 6
+      usados = 2
+    }
+
+    slots.cantidad = cantidad
+    tokens.splice(0, usados)
   }
 
   slots.productoHint = limpiarBordes(tokens)
@@ -369,7 +500,51 @@ export function extraerSlots(comando, transcript) {
     .replace(ARTICULOS_INICIALES, '')
     .trim()
 
-  return slots
+  return { slots, suelto }
+}
+
+/**
+ * Fase B — extracción de slots, específica del comando. Hoy solo existe
+ * `venta_directa`; el segundo comando debe traer su propio extractor, no
+ * reutilizar este.
+ *
+ * Si la frase trae una palabra de tipo de venta ambigua ("refresco familiar"),
+ * se añade `alternativaTipo`: el producto y el tipo de venta que resultan de
+ * NO interpretarla como tipo. La capa de catálogo decide cuál usar con
+ * `preferirHintConTipo`.
+ */
+export function extraerSlots(comando, transcript) {
+  if (comando !== 'venta_directa') {
+    return {
+      productoHint: '',
+      cantidad: 1,
+      precioUnitario: null,
+      ubicacion: null,
+      tipoVenta: 'directa',
+      clienteHint: null
+    }
+  }
+
+  const principal = extraerBase(transcript, false)
+  if (principal.suelto) {
+    const alterna = extraerBase(transcript, true)
+    if (alterna.slots.productoHint && alterna.slots.productoHint !== principal.slots.productoHint) {
+      principal.slots.alternativaTipo = {
+        productoHint: alterna.slots.productoHint,
+        tipoVenta: alterna.slots.tipoVenta
+      }
+    }
+  }
+  return principal.slots
+}
+
+/**
+ * ¿La lectura con la palabra de tipo incluida es un producto del catálogo?
+ * Solo si coincide exacto ("Refresco familiar" existe como producto). Un match
+ * parcial no basta: "vende un pan regalo" no debe volverse "pan regalo".
+ */
+export function preferirHintConTipo(candidatosAlternativa) {
+  return Number(candidatosAlternativa?.[0]?.score) >= 0.99
 }
 
 /** Interpretación completa (clasificación + slots) en un solo objeto. */

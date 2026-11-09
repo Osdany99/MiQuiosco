@@ -15,6 +15,10 @@
 const PESO_CONTENCION = 0.88
 const PESO_PALABRA = 0.8
 const PESO_DESCRIPCION = 0.82
+// Palabra suelta de la descripción: 0.9 si el nombre ya coincide (desempate);
+// 0.7 si solo coincide la descripción (queda bajo el umbral: se pregunta).
+const REFUERZO_DESCRIPCION = 0.9
+const TOPE_SOLO_DESCRIPCION = 0.7
 
 function normal(texto) {
   return String(texto ?? '')
@@ -130,6 +134,7 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
   const puntuados = (catalogo || [])
     .map((product) => {
       let mejor = { score: 0, distance: 999, matchedField: 'name' }
+      let scoreNombre = 0
 
       const campos = [
         { value: product.name, field: 'name', peso: 1 },
@@ -139,6 +144,7 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
 
       for (const campo of campos) {
         const p = puntuar(hint, campo.value)
+        if (campo.field === 'name') scoreNombre = Math.max(scoreNombre, p.score)
         if (p.score * campo.peso > mejor.score) {
           mejor = {
             score: p.score * campo.peso,
@@ -149,11 +155,18 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
       }
 
       // Refuerzo por palabras sueltas de la descripción (lata/botella/paquete).
+      // Solo desempata cuando el nombre ya coincide ("refresco lata"). Si el
+      // nombre no coincide, la descripción nunca puede superar a un producto
+      // cuyo nombre sí coincide: un "Hielo" con descripción "para refresco" no
+      // debe ganarle a "Refresco Cola" cuando dices "refresco".
+      const nombreCoincide = scoreNombre >= PESO_CONTENCION
       const tokensDescription = tokens(product.description ?? product.descripcion)
       for (const token of tokens(hint)) {
-        if (tokensDescription.includes(token) && mejor.score < 0.9) {
+        if (!tokensDescription.includes(token)) continue
+        const tope = nombreCoincide ? REFUERZO_DESCRIPCION : TOPE_SOLO_DESCRIPCION
+        if (mejor.score < tope) {
           mejor = {
-            score: 0.9,
+            score: tope,
             distance: mejor.distance,
             matchedField: 'description'
           }

@@ -14,7 +14,14 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { useAuth } from './useAuth'
 import { useCuentasFiado } from './useCuentasFiado'
-import { UMBRAL_PRODUCTO, combinarConfianza, decidirProducto, interpretar, resolverUbicacion } from '#shared/voz/gramatica'
+import {
+  UMBRAL_PRODUCTO,
+  combinarConfianza,
+  decidirProducto,
+  interpretar,
+  preferirHintConTipo,
+  resolverUbicacion
+} from '#shared/voz/gramatica'
 import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
 import { fuzzyMatchProducts } from '../utils/voice/fuzzyMatchProducts'
 import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
@@ -237,12 +244,25 @@ export function useVentaPorVoz(ubicacion) {
       canonicalSpeak: f.nombre,
       description: f.descripcion
     }))
-    const encontrados = fuzzyMatchProducts(slots.productoHint, base)
+    const emparejar = hint => fuzzyMatchProducts(hint, base)
       .map((c) => {
         const row = catalogo.find(f => f.productoId === c.product.id)
         return row ? { ...c, row, scoreEfectivo: combinarConfianza(c.score, sttConfidence) } : null
       })
       .filter(Boolean)
+
+    let encontrados = emparejar(slots.productoHint)
+
+    // "vende un refresco familiar": ¿"familiar" es el tipo de venta o parte del
+    // nombre? Si existe un producto con ese nombre exacto, gana el producto.
+    if (slots.alternativaTipo) {
+      const alterna = emparejar(slots.alternativaTipo.productoHint)
+      if (preferirHintConTipo(alterna)) {
+        encontrados = alterna
+        slots.productoHint = slots.alternativaTipo.productoHint
+        slots.tipoVenta = slots.alternativaTipo.tipoVenta
+      }
+    }
 
     if (!encontrados.length) {
       throw new Error(`No encontré "${slots.productoHint || 'ese producto'}".`)

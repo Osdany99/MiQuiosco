@@ -16,7 +16,17 @@ export const voiceSlotsSchema = z.object({
   precioUnitario: z.number().min(0).nullable().default(null),
   ubicacion: z.enum(['almacen', 'quiosco']).nullable().default(null),
   tipoVenta: z.enum(['directa', 'casa', 'familiar', 'regalo']).default('directa'),
-  clienteHint: z.string().nullable().default(null)
+  clienteHint: z.string().nullable().default(null),
+  // Lectura alternativa cuando una palabra de tipo ("familiar", "regalo",
+  // "casa", "normal") puede ser parte del nombre del producto. Solo se usa si
+  // esa lectura coincide exacto con un producto (ver preferirHintConTipo).
+  alternativaTipo: z
+    .object({
+      productoHint: z.string(),
+      tipoVenta: z.enum(['directa', 'casa', 'familiar', 'regalo'])
+    })
+    .nullable()
+    .default(null)
 })
 
 export const voiceCommandSchema = z.object({

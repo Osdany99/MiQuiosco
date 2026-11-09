@@ -9,6 +9,7 @@ import {
   normalizar,
   parseNumberSequence,
   parseNumberToken,
+  preferirHintConTipo,
   resolverComando,
   resolverUbicacion
 } from '../shared/voz/gramatica.js'
@@ -366,5 +367,187 @@ describe('voz: stt y prefill', () => {
     assert.deepEqual(ajustarCantidadVoz(5, 10), { cantidad: 5, excede: false, disponible: 10 })
     assert.deepEqual(ajustarCantidadVoz(15, 10), { cantidad: 15, excede: true, disponible: 10 })
     assert.deepEqual(ajustarCantidadVoz(3, null), { cantidad: 3, excede: false, disponible: null })
+  })
+})
+
+describe('voz: verbos débiles ("dame", "ponme")', () => {
+  it('"dame cinco panes" es una venta con cantidad y producto bien separados', () => {
+    assert.equal(resolverComando('dame cinco panes').comando, 'venta_directa')
+    const slots = interpretar('dame cinco panes').slots
+    assert.equal(slots.cantidad, 5)
+    assert.equal(slots.productoHint, 'panes')
+  })
+
+  it('"ponme dos refrescos" también', () => {
+    const slots = interpretar('ponme dos refrescos').slots
+    assert.equal(slots.cantidad, 2)
+    assert.equal(slots.productoHint, 'refrescos')
+  })
+
+  it('"despacha tres panes" y "vendele un pan" son ventas', () => {
+    assert.equal(resolverComando('despacha tres panes').comando, 'venta_directa')
+    assert.equal(resolverComando('vendele un pan').comando, 'venta_directa')
+  })
+
+  it('un verbo débil no convierte consultas ni navegación en ventas', () => {
+    assert.equal(resolverComando('dame cuanto hay de pan').comando, 'desconocido')
+    assert.equal(resolverComando('dame el inventario').comando, 'desconocido')
+    assert.equal(resolverComando('dame').comando, 'desconocido')
+  })
+})
+
+describe('voz: precio vs cliente', () => {
+  it('"a diez" al final es precio, no cliente', () => {
+    const slots = extraerSlots('venta_directa', 'vende cinco panes a diez')
+    assert.equal(slots.precioUnitario, 10)
+    assert.equal(slots.clienteHint, null)
+    assert.equal(slots.productoHint, 'panes')
+    assert.equal(slots.cantidad, 5)
+  })
+
+  it('"a 10 pesos" es precio y no ensucia el producto', () => {
+    const slots = extraerSlots('venta_directa', 'vende cinco panes a 10 pesos')
+    assert.equal(slots.precioUnitario, 10)
+    assert.equal(slots.productoHint, 'panes')
+  })
+
+  it('"a diez cada uno" y "a precio de treinta y cinco"', () => {
+    const cadaUno = extraerSlots('venta_directa', 'vende dos panes a diez cada uno')
+    assert.equal(cadaUno.precioUnitario, 10)
+    assert.equal(cadaUno.productoHint, 'panes')
+
+    const compuesto = extraerSlots('venta_directa', 'vende un pan a precio de treinta y cinco')
+    assert.equal(compuesto.precioUnitario, 35)
+    assert.equal(compuesto.productoHint, 'pan')
+  })
+
+  it('precio y cliente a la vez', () => {
+    const slots = extraerSlots('venta_directa', 'vende un pan a 10 pesos a don juan')
+    assert.equal(slots.precioUnitario, 10)
+    assert.equal(slots.clienteHint, 'juan')
+    assert.equal(slots.productoHint, 'pan')
+  })
+
+  it('un nombre sigue siendo cliente y un número de personas no es precio', () => {
+    const cliente = extraerSlots('venta_directa', 'vende un pan a juan')
+    assert.equal(cliente.clienteHint, 'juan')
+    assert.equal(cliente.precioUnitario, null)
+
+    const personas = extraerSlots('venta_directa', 'vende un pan a 3 amigos')
+    assert.equal(personas.precioUnitario, null)
+
+    const articulo = extraerSlots('venta_directa', 'vende un pan a una')
+    assert.equal(articulo.precioUnitario, null)
+  })
+
+  it('"a precio de oferta" (no es número) no rompe nada', () => {
+    const slots = extraerSlots('venta_directa', 'vende un pan a precio de oferta')
+    assert.equal(slots.precioUnitario, null)
+  })
+})
+
+describe('voz: tipo de venta vs nombre del producto', () => {
+  it('"refresco familiar" ofrece las dos lecturas', () => {
+    const slots = extraerSlots('venta_directa', 'vende un refresco familiar')
+    assert.equal(slots.tipoVenta, 'familiar')
+    assert.equal(slots.productoHint, 'refresco')
+    assert.deepEqual(slots.alternativaTipo, { productoHint: 'refresco familiar', tipoVenta: 'directa' })
+  })
+
+  it('con preposición no hay ambigüedad', () => {
+    const regalo = extraerSlots('venta_directa', 'vende un pan de regalo')
+    assert.equal(regalo.tipoVenta, 'regalo')
+    assert.equal(regalo.productoHint, 'pan')
+    assert.equal(regalo.alternativaTipo, undefined)
+
+    const casa = extraerSlots('venta_directa', 'vende dos panes de la casa')
+    assert.equal(casa.tipoVenta, 'casa')
+    assert.equal(casa.alternativaTipo, undefined)
+  })
+
+  it('sin palabra de tipo no hay alternativa', () => {
+    assert.equal(extraerSlots('venta_directa', 'vende cinco panes').alternativaTipo, undefined)
+  })
+
+  it('"normal" se descarta pero se conserva en la alternativa', () => {
+    const slots = extraerSlots('venta_directa', 'vende una malta normal')
+    assert.equal(slots.productoHint, 'malta')
+    assert.equal(slots.alternativaTipo.productoHint, 'malta normal')
+  })
+
+  it('solo un match exacto prefiere la lectura con el tipo incluido', () => {
+    assert.equal(preferirHintConTipo([{ score: 1 }]), true)
+    assert.equal(preferirHintConTipo([{ score: 0.88 }]), false)
+    assert.equal(preferirHintConTipo([]), false)
+    assert.equal(preferirHintConTipo(undefined), false)
+  })
+
+  it('el catálogo decide: existe "Refresco familiar" vs no existe', () => {
+    const slots = extraerSlots('venta_directa', 'vende un refresco familiar')
+
+    const conProducto = [{ id: '1', name: 'Refresco' }, { id: '2', name: 'Refresco familiar' }]
+    assert.equal(preferirHintConTipo(fuzzyMatchProducts(slots.alternativaTipo.productoHint, conProducto)), true)
+
+    const sinProducto = [{ id: '1', name: 'Refresco' }]
+    assert.equal(preferirHintConTipo(fuzzyMatchProducts(slots.alternativaTipo.productoHint, sinProducto)), false)
+  })
+})
+
+describe('voz: números (veintiún, miles, docenas)', () => {
+  it('veintiún / veintiuna', () => {
+    assert.equal(extraerSlots('venta_directa', 'vende veintiun panes').cantidad, 21)
+    assert.equal(extraerSlots('venta_directa', 'vende veintiuna sodas').cantidad, 21)
+  })
+
+  it('miles', () => {
+    assert.deepEqual(parseNumberSequence(['mil']), { valor: 1000, consumidos: 1 })
+    assert.deepEqual(parseNumberSequence(['dos', 'mil']), { valor: 2000, consumidos: 2 })
+    assert.deepEqual(parseNumberSequence(['mil', 'quinientos']), { valor: 1500, consumidos: 2 })
+    assert.deepEqual(parseNumberSequence(['dos', 'mil', 'quinientos', 'pesos']), { valor: 2500, consumidos: 3 })
+    assert.deepEqual(parseNumberSequence(['3', 'mil']), { valor: 3000, consumidos: 2 })
+  })
+
+  it('docenas', () => {
+    const una = extraerSlots('venta_directa', 'vende una docena de huevos')
+    assert.equal(una.cantidad, 12)
+    assert.equal(una.productoHint, 'huevos')
+
+    const dos = extraerSlots('venta_directa', 'vende dos docenas de huevos')
+    assert.equal(dos.cantidad, 24)
+
+    const media = extraerSlots('venta_directa', 'vende media docena de huevos')
+    assert.equal(media.cantidad, 6)
+    assert.equal(media.productoHint, 'huevos')
+
+    const sola = extraerSlots('venta_directa', 'vende docena de huevos')
+    assert.equal(sola.cantidad, 12)
+  })
+
+  it('palabras como "constructor" no se toman por números', () => {
+    assert.equal(parseNumberSequence(['constructor']), null)
+    assert.equal(parseNumberToken('constructor'), null)
+  })
+})
+
+describe('voz: la descripción no supera al nombre', () => {
+  it('un producto cuya descripción menciona la palabra no gana a uno que se llama así', () => {
+    const catalogo = [
+      { id: 'hielo', name: 'Hielo', description: 'bolsa para refresco' },
+      { id: 'cola', name: 'Refresco Cola', description: 'lata 355ml' }
+    ]
+    const resultados = fuzzyMatchProducts('refresco', catalogo)
+    assert.equal(resultados[0].product.id, 'cola')
+    const hielo = resultados.find(r => r.product.id === 'hielo')
+    assert.ok(!hielo || hielo.score < UMBRAL_PRODUCTO)
+  })
+
+  it('el desempate por descripción sigue funcionando cuando el nombre coincide', () => {
+    const catalogo = [
+      { id: '1', name: 'Refresco', description: 'Lata' },
+      { id: '2', name: 'Refresco', description: 'Botella' }
+    ]
+    const [mejor, segundo] = fuzzyMatchProducts('refresco lata', catalogo)
+    assert.equal(mejor.product.id, '1')
+    assert.ok(mejor.score > segundo.score)
   })
 })
