@@ -1,0 +1,1 @@
+ALTER TABLE "voz_eventos" ADD COLUMN "estado" text DEFAULT 'abierto';

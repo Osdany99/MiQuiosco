@@ -6,7 +6,8 @@ const secciones = [
   { label: 'Resumen', to: '/admin', icon: 'i-lucide-layout-dashboard' },
   { label: 'Puestos', to: '/admin/puestos', icon: 'i-lucide-store' },
   { label: 'Dispositivos', to: '/admin/dispositivos', icon: 'i-lucide-smartphone' },
-  { label: 'Fallos', to: '/admin/fallos', icon: 'i-lucide-triangle-alert' }
+  { label: 'Fallos', to: '/admin/fallos', icon: 'i-lucide-triangle-alert' },
+  { label: 'Voz', to: '/admin/voz', icon: 'i-lucide-mic' }
 ]
 
 function esActiva(destino) {

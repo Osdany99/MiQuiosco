@@ -1302,6 +1302,7 @@ export const vozEventos = pgTable(
     intentos: integer('intentos').notNull().default(1),
     appVersion: text('app_version'),
     creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+    estado: text('estado').default('abierto'),
     ultimoEn: timestamp('ultimo_en', { withTimezone: true }).notNull().defaultNow()
   },
   table => ({
