@@ -19,7 +19,6 @@ export function useVoiceZeroTouch() {
     cargado.value = true
   }
 
-  // eslint-disable-next-line no-unused-vars
   async function setActivo(val) {
     const v = Boolean(val) && esJefe.value
     activo.value = v

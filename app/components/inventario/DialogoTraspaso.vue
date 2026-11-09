@@ -22,16 +22,14 @@
         />
       </div>
 
-      <UFormField v-if="lotes.length" label="Lote">
-        <USelectMenu
-          v-model="form.loteId"
-          :items="opcionesLote"
-          value-key="id"
-          label-key="label"
-          class="w-full"
-          :disabled="lotes.length <= 1"
-        />
-      </UFormField>
+      <LotesPicker
+        v-if="lotes.length"
+        :lotes="lotes"
+        :cantidad="Number(form.cantidad) || 0"
+        :auto-fifo="true"
+        :producto-nombre="nombreProducto"
+        @update:consumo="onConsumo"
+      />>
 
       <UFormField label="Cantidad">
         <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
@@ -59,7 +57,10 @@ const toast = useToast()
 const nombreProducto = ref('')
 const lotes = ref([])
 const guardando = ref(false)
-
+const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
+function onConsumo(plan) {
+  if (plan) consumoPlan.value = plan
+}
 const form = ref({ cantidad: 0, loteId: null })
 
 const opcionesLote = computed(() =>
@@ -73,14 +74,14 @@ const loteSeleccionado = computed(() =>
   (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
 )
 
-const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
-const superaDisponible = computed(() => Number(form.value.cantidad) > disponible.value)
+const disponible = computed(() => (consumoPlan.value.consumido ?? 0))
+const superaDisponible = computed(() => consumoPlan.value.faltante > 0)
 
 const valida = computed(() =>
   Boolean(props.productoId)
-  && Boolean(form.value.loteId || lotes.value.length === 1)
   && Number(form.value.cantidad) >= 1
   && !superaDisponible.value
+  && (lotes.value.length === 0 || consumoPlan.value.lineas.length > 0)
 )
 
 watch(isOpen, async (open) => {
@@ -93,17 +94,19 @@ watch(isOpen, async (open) => {
 })
 
 async function confirmar() {
-  const loteId = form.value.loteId ?? lotes.value[0]?.id ?? null
+  const planLineas = (consumoPlan.value?.lineas || []).filter(l => Number(l?.cantidad) > 0)
+  const fallback = [{ loteId: form.value.loteId ?? lotes.value[0]?.id ?? null, cantidad: Math.trunc(Number(form.value.cantidad) || 0) }]
+  const lineas = (planLineas.length ? planLineas : fallback).map(l => ({
+    productoId: props.productoId,
+    cantidad: Math.trunc(Number(l.cantidad) || 0),
+    loteId: l.loteId ?? form.value.loteId ?? lotes.value[0]?.id ?? null
+  }))
   guardando.value = true
   try {
     await inv.registrarTraspaso({
       fecha: hoyLocal(),
       notas: null,
-      lineas: [{
-        productoId: props.productoId,
-        cantidad: Math.trunc(Number(form.value.cantidad)),
-        loteId
-      }]
+      lineas
     })
     toast.add({ title: 'Traspaso listo', description: 'El quiosco quedó repuesto.', color: 'success' })
     isOpen.value = false

@@ -969,8 +969,8 @@ async function whOlvidarEste() {
           v-if="zeroTouchConfig.esJefe.value"
           v-model="zeroTouchConfig.activo.value"
           color="warning"
-          @update:model-value="v => void zeroTouchConfig.setActivo(v)"
           description="Solo jefe. Dices “vende X” y respondes “sí” por voz; el sistema registra solo. Queda auditado."
+          @update:model-value="v => void zeroTouchConfig.setActivo(v)"
         >
           Vender sin tocar el dispositivo (Modo PRO)
         </USwitch>

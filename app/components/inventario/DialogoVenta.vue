@@ -35,16 +35,17 @@
         />
       </div>
 
-      <UFormField v-if="lotes.length" label="Lote">
-        <USelectMenu
-          v-model="form.loteId"
-          :items="opcionesLote"
-          value-key="id"
-          label-key="label"
-          class="w-full"
-          :disabled="lotes.length <= 1"
-        />
-      </UFormField>
+      <LotesPicker
+        v-if="lotes.length"
+        :lotes="lotes"
+        :cantidad="Number(form.cantidad) || 0"
+        :auto-fifo="true"
+        :producto-nombre="producto?.nombre ?? ''"
+        @update:consumo="onConsumo"
+      />
+      <p v-if="!lotes.length && producto?.productoId" class="text-xs text-muted">
+        No hay lotes con stock para este producto.
+      </p>
 
       <div class="grid gap-2" :class="esRegalo ? 'grid-cols-1' : 'grid-cols-2'">
         <UFormField label="Cantidad">
@@ -112,6 +113,10 @@ const tts = useTts()
 const clientes = ref([])
 const lotes = ref([])
 const cantidadExcedeStock = ref(false)
+const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
+function onConsumo(plan) {
+  if (plan) consumoPlan.value = plan
+}
 
 function normalizeVoiceText(value) {
   return String(value ?? '')
@@ -186,7 +191,7 @@ const precioFijo = computed(() => cfg.value.precio === 'fijo')
 const etiquetaUbicacion = computed(() => props.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén')
 const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
 const superaDisponible = computed(() =>
-  Number(form.value.cantidad) > disponible.value
+  consumoPlan.value.faltante > 0
 )
 const total = computed(() =>
   esRegalo.value
@@ -231,6 +236,7 @@ const valida = computed(() =>
   Boolean(props.producto?.productoId)
   && Number(form.value.cantidad) >= 1
   && !superaDisponible.value
+  && (lotes.value.length === 0 || consumoPlan.value.lineas.length > 0)
   && (esRegalo.value || Number(form.value.precioVentaUsado) >= 0)
   && (!esDeuda.value || Boolean(form.value.clienteId))
 )
@@ -321,13 +327,17 @@ watch(() => form.value.loteId, () => {
 }, { flush: 'post' })
 
 async function confirmar() {
-  const lineas = [{
+  const planLineas = (consumoPlan.value?.lineas || []).filter(l => Number(l?.cantidad) > 0)
+  const baseLineas = planLineas.length
+    ? planLineas
+    : [{ loteId: (form.value.loteId ?? lotes.value?.[0]?.id ?? null), cantidad: Math.trunc(Number(form.value.cantidad) || 0) }]
+  const lineas = baseLineas.map((c, idx) => ({
     productoId: props.producto.productoId,
-    cantidad: Math.trunc(Number(form.value.cantidad) || 0),
+    cantidad: Math.trunc(Number(c.cantidad) || 0),
     precioVentaUsado: esRegalo.value ? 0 : (Number(form.value.precioVentaUsado) || 0),
-    secuencia: 0,
-    loteId: form.value.loteId ?? lotes.value[0]?.id ?? null
-  }]
+    secuencia: idx,
+    loteId: c.loteId ?? form.value.loteId ?? lotes.value?.[0]?.id ?? null
+  }))
   guardando.value = true
   try {
     if (esDeuda.value) {
