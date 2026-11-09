@@ -288,7 +288,23 @@ export function useVentaPorVoz(ubicacion) {
       return
     }
 
-    prepararVenta(decision.elegido.row, slots, destino.ubicacion)
+    const filaElegida = decision.elegido.row
+    const ubiLabel = destino.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
+    const maxDisp = Number(filaElegida?.[destino.ubicacion] ?? 0)
+    const cantidadSolicitada = Math.max(1, Math.trunc(Number(slots?.cantidad) || 1))
+    if (cantidadSolicitada > maxDisp) {
+      void (async () => {
+        const plantilla = await plantillaPara(slots?.productoHint || '')
+        await registrarEventoVoz({
+          comando: 'venta_directa',
+          motivo: 'stock_insuficiente',
+          confianza: Number(sttConfidence) || 0,
+          plantilla
+        })
+      })()
+      throw new Error(`Solo hay ${maxDisp} de ${filaElegida?.nombre || 'ese producto'} en el ${ubiLabel}.`)
+    }
+    prepararVenta(filaElegida, slots, destino.ubicacion)
   }
 
   async function manejarNavegacion(slots, vigente = () => true) {

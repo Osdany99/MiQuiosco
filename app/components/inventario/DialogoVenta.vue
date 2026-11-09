@@ -71,7 +71,7 @@
         La cantidad por voz ({{ props.prefill?.cantidad }}) supera el stock disponible ({{ disponible }}). Reduce antes de guardar.
       </p>
       <p v-if="superaDisponible" class="text-xs text-error font-medium">
-        Solo hay {{ disponible }} en {{ etiquetaUbicacion.toLowerCase() }}.
+        Solo hay {{ totalDisponibleStock }} en {{ etiquetaUbicacion.toLowerCase() }}.
       </p>
 
       <p v-if="esCasa" class="text-xs text-muted">
@@ -201,6 +201,9 @@ const precioFijo = computed(() => cfg.value.precio === 'fijo')
 
 const etiquetaUbicacion = computed(() => props.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén')
 const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
+const totalDisponibleStock = computed(() =>
+  (lotes.value ?? []).reduce((acc, l) => acc + (Number(l?.saldo) || 0), 0) || Number(props.producto?.stock ?? 0)
+)
 const superaDisponible = computed(() =>
   consumoPlan.value.faltante > 0
 )
