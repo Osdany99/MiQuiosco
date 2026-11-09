@@ -11,6 +11,7 @@ definePageMeta({
 const toast = useToast()
 const filas = ref([])
 const cargando = ref(false)
+const route = useRoute()
 const nueva = ref({ categoria: 'venta_fuerte', valor: '', clave: null, nota: '' })
 const prueba = ref({ categoria: 'navegacion_verbo', valor: '', clave: 'deudas', plantillas: '' })
 const resultadoPrueba = ref(null)
@@ -63,7 +64,10 @@ async function alternar(fila) {
   }
 }
 
-onMounted(cargar)
+onMounted(() => {
+  if (route.query.valor) nueva.value.valor = String(route.query.valor)
+  void cargar()
+})
 </script>
 
 <template>

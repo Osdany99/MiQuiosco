@@ -119,6 +119,9 @@ const columnas = [
               {{ fila.ultimoEn }}
             </td>
             <td class="py-2 pr-4 flex gap-1">
+              <UButton size="xs" color="primary" :to="`/admin/voz-lexico?valor=${encodeURIComponent(fila.plantilla || '')}`">
+                Usar plantilla
+              </UButton>
               <UButton size="xs" color="success" @click="marcar(fila.id, 'resuelto')">
                 Resolver
               </UButton>
