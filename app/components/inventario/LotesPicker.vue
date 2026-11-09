@@ -66,7 +66,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ranksFifo, ordenarPorRango, calcularConsumoLotes } from '../utils/inventario/consumoLotes'
+import { ranksFifo, ordenarPorRango, calcularConsumoLotes } from '../../utils/inventario/consumoLotes'
 
 const props = defineProps({
   lotes: { type: Array, default: () => [] },
