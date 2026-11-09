@@ -26,6 +26,7 @@ import { LEXICO_BASE } from '#shared/voz/lexico'
 import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
 
 import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
+import { registrarEventoVoz } from '../utils/vozEventos'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, describirDestino } from '../utils/voice/respuestasVoz'
@@ -243,6 +244,11 @@ export function useVentaPorVoz(ubicacion) {
     }
 
     if (!encontrados.length) {
+      void registrarEventoVoz({
+        comando: 'venta_directa',
+        motivo: 'producto_no_encontrado',
+        confianza: Number(sttConfidence) || 0
+      })
       throw new Error(`No encontré "${slots.productoHint || 'ese producto'}".`)
     }
 
@@ -303,6 +309,11 @@ export function useVentaPorVoz(ubicacion) {
     const emparejar = crearEmparejador(catalogo, sttConfidence)
     const encontrados = emparejar(slots.productoHint)
     if (!encontrados.length) {
+      void registrarEventoVoz({
+        comando: 'consulta_stock',
+        motivo: 'producto_no_encontrado',
+        confianza: Number(sttConfidence) || 0
+      })
       throw new Error(`No encontré "${slots.productoHint || 'ese producto'}" en el inventario.`)
     }
     const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
@@ -363,11 +374,17 @@ export function useVentaPorVoz(ubicacion) {
     prefill.value = null
     producto.value = null
 
-    const validacion = voiceCommandSchema.safeParse(interpretar(textoElegido))
+    const interpretado = interpretar(textoElegido)
+    const validacion = voiceCommandSchema.safeParse(interpretado)
     if (!validacion.success) throw new Error('No te entendí. Prueba: "vende 5 panes".')
 
     const { comando, slots } = validacion.data
     if (comando === 'desconocido') {
+      void registrarEventoVoz({
+        comando: 'desconocido',
+        motivo: interpretado?.reasons?.[0] || 'sin_comando',
+        confianza: Number(interpretado?.confidence) || 0
+      })
       throw new Error('Todavía no sé hacer eso. Prueba: "vende 5 panes".')
     }
 

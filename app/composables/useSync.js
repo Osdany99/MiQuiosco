@@ -8,6 +8,7 @@ import { useDb } from '../server-offline/db/client'
 import { mergeFields } from '../utils/syncMerge.js'
 import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
 import { registrarFallosLocales, subirFallosPendientes } from '../utils/syncFallos'
+import { subirEventosVozPendientes } from '../utils/vozEventos'
 import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 import { getAuthInstance } from './useAuth.js'
@@ -464,6 +465,7 @@ export function useSync() {
         // Sube el buzón de fallos (lotes de 100). Best-effort: si no hay red se
         // queda pendiente para la próxima sync.
         await subirFallosPendientes(fetch).catch(() => {})
+        await subirEventosVozPendientes(fetch).catch(() => {})
         await reportarEstadoSync(exito).catch(() => {})
       }
     }))

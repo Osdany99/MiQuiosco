@@ -1285,6 +1285,35 @@ export type TipoAcceso = (typeof tipoAccesoEnum.enumValues)[number]
 export type FalloSync = typeof syncFallos.$inferSelect
 export type NuevoFalloSync = typeof syncFallos.$inferInsert
 
+// Contadores de comandos de voz (Fase B temprana). Sin plantillas ni texto.
+export const vozEventos = pgTable(
+  'voz_eventos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    comando: text('comando').notNull(),
+    motivo: text('motivo').notNull(),
+    confianza: doublePrecision('confianza'),
+    intentos: integer('intentos').notNull().default(1),
+    appVersion: text('app_version'),
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+    ultimoEn: timestamp('ultimo_en', { withTimezone: true }).notNull().defaultNow()
+  },
+  table => ({
+    puestoComandoMotivoUk: uniqueIndex('voz_eventos_puesto_comando_motivo_uk').on(
+      table.puestoId,
+      table.comando,
+      table.motivo
+    )
+  })
+)
+
+export type VozEvento = typeof vozEventos.$inferSelect
+export type NuevoVozEvento = typeof vozEventos.$inferInsert
+
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'
 export type TipoLinea = 'normal' | 'descuento' | 'regalo' | 'deuda' | 'descuento_familiar'

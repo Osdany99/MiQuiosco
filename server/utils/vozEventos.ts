@@ -1,0 +1,46 @@
+import { sql } from 'drizzle-orm'
+import { db } from '../database/client'
+import { vozEventos } from '../database/schema'
+
+export async function registrarEventosVoz(
+  puestoId: string,
+  _dispositivoId: string | null,
+  eventos: Array<{ comando: string, motivo: string, confianza?: number | null, intentos?: number }>,
+  opts: { appVersion?: string | null } = {}
+): Promise<number> {
+  if (!puestoId || !Array.isArray(eventos) || !eventos.length) return 0
+  let guardados = 0
+  for (const e of eventos) {
+    const comando = String(e?.comando ?? '').trim().slice(0, 50)
+    const motivo = String(e?.motivo ?? '').trim().slice(0, 60)
+    if (!comando || !motivo) continue
+    const intentos = Math.max(1, Math.min(100000, Number(e.intentos) || 1))
+    const confianza = typeof e.confianza === 'number' && Number.isFinite(e.confianza) ? e.confianza : null
+    try {
+      await db
+        .insert(vozEventos)
+        .values({
+          puestoId,
+          dispositivoId: _dispositivoId,
+          comando,
+          motivo,
+          confianza,
+          intentos,
+          appVersion: opts.appVersion ?? null
+        })
+        .onConflictDoUpdate({
+          target: [vozEventos.puestoId, vozEventos.comando, vozEventos.motivo],
+          set: {
+            intentos: sql`${vozEventos.intentos} + ${intentos}`,
+            confianza: confianza ?? vozEventos.confianza,
+            ultimoEn: sql`now()`,
+            appVersion: opts.appVersion ?? vozEventos.appVersion
+          }
+        })
+      guardados++
+    } catch (e) {
+      console.warn('[vozEventos] upsert failed', e)
+    }
+  }
+  return guardados
+}
