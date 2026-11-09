@@ -54,3 +54,14 @@ export async function registrarEventosVoz(
   }
   return guardados
 }
+
+export async function limpiarEventosVoz() {
+  try {
+    await db.execute(sql`DELETE FROM voz_eventos
+      WHERE ultimo_en < NOW() - INTERVAL '30 days'
+        AND intentos < 3
+        AND (select count(*) from voz_eventos v2 where v2.plantilla = voz_eventos.plantilla) <= 1`)
+  } catch (e) {
+    console.warn('[vozEventos] cleanup failed', e)
+  }
+}
