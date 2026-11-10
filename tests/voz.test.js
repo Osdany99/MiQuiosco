@@ -21,6 +21,7 @@ import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
 import { mensajeStt } from '../app/utils/voice/stt.js'
 import { esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
+import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
 
 describe('voz: normalización y números', () => {
   it('normaliza acentos, mayúsculas y puntuación', () => {
@@ -664,5 +665,32 @@ describe('voz: confirmación hablada (Modo PRO)', () => {
     for (const texto of ['no sé', 'no hay', 'sí']) {
       assert.equal(esNegacion(texto), false, texto)
     }
+  })
+})
+
+describe('voz: frases habladas (concordancia)', () => {
+  it('una unidad se dice con artículo, no como "uno pan"', () => {
+    assert.equal(fraseVenta({ cantidad: 1, nombre: 'Pan', lugar: 'quiosco' }), 'Voy a vender un Pan del quiosco.')
+    assert.equal(fraseVenta({ cantidad: 1, nombre: 'Cerveza', lugar: 'quiosco' }), 'Voy a vender una Cerveza del quiosco.')
+    assert.equal(fraseVenta({ cantidad: 1, nombre: 'Leche', lugar: 'almacén' }), 'Voy a vender una Leche del almacén.')
+  })
+
+  it('varias unidades no dependen de pluralizar el nombre', () => {
+    assert.equal(describirCantidad(2, 'Pan'), '2 unidades de Pan')
+    assert.equal(describirCantidad(12, 'Cerveza Cristal'), '12 unidades de Cerveza Cristal')
+  })
+
+  it('si no se puede decidir el género, usa "una unidad de"', () => {
+    assert.equal(describirCantidad(1, 'Galletas María'), 'una unidad de Galletas María')
+  })
+
+  it('cantidad inválida cae en la confirmación genérica', () => {
+    assert.equal(fraseVenta({ cantidad: 0, nombre: 'Pan', lugar: 'quiosco' }), 'Confirma la venta del quiosco.')
+  })
+
+  it('avisa del stock sin decir "1 de pan"', () => {
+    assert.equal(fraseStockInsuficiente({ disponible: 1, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay una unidad de Pan en el quiosco.')
+    assert.equal(fraseStockInsuficiente({ disponible: 3, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay 3 unidades de Pan en el quiosco.')
+    assert.equal(fraseStockInsuficiente({ disponible: 0, nombre: 'Pan', lugar: 'almacén' }), 'No hay Pan en el almacén.')
   })
 })

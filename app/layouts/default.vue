@@ -2,6 +2,7 @@
 import { Capacitor } from '@capacitor/core'
 import { esAfirmacion, esNegacion } from '../utils/voice/confirmacion'
 import { registrarProof } from '../utils/voice/proofs'
+import { FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
 
 const auth = useAuth()
 const perms = usePermisos()
@@ -34,6 +35,16 @@ const vozActiva = computed(() =>
 )
 const vozDialogAbierto = ref(false)
 void zeroTouch.cargar()
+
+// En Modo PRO el anuncio ya incluye "Diga sí para confirmar" (una sola locución).
+watch(
+  ceroToquesActivo,
+  (activo) => {
+    vozQuiosco.confirmacionHablada.value = activo
+    vozAlmacen.confirmacionHablada.value = activo
+  },
+  { immediate: true }
+)
 
 // Conversación de confirmación del Modo PRO (anuncio + "di sí"). Mientras dura,
 // el panel de voz sigue visible aunque el diálogo de venta esté abierto.
@@ -116,21 +127,25 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
   // interrumpa el anuncio de lo que se va a vender.
   const rb = vozActiva.value.readBackPromise?.value
   if (rb && typeof rb.then === 'function') {
-    await Promise.race([rb, new Promise(resolve => setTimeout(resolve, 3500))])
+    // speak() ya tiene su propio tope de seguridad; este es solo un último recurso.
+    await Promise.race([rb, new Promise(resolve => setTimeout(resolve, 12000))])
   }
-  await new Promise(r => setTimeout(r, 200))
   const prefill = vozActiva.value.prefill.value
   let resultado = 'timeout'
   let confianza = 0
   confirmandoVoz.value = true
   try {
     if (voiceRaw.estado.value === 'listening') return
-    try {
-      await ttsRaw.speak('Diga sí para confirmar.')
-    } catch {
-      /* noop */
+    // Solo se repite la petición si el anuncio no la incluyó (p. ej. falló la voz).
+    if (!vozActiva.value.readBackIncluyeConfirmacion?.value) {
+      try {
+        await ttsRaw.speak(FRASE_CONFIRMAR)
+      } catch {
+        /* noop */
+      }
     }
-    await new Promise(r => setTimeout(r, 200))
+    // Margen mínimo para que el eco final de la voz no entre al micrófono.
+    await new Promise(r => setTimeout(r, 60))
     // startListening resuelve al terminar la escucha; no se espera aquí.
     const escucha = voiceRaw.startListening().catch(() => {})
     resultado = await esperarRespuestaVoz(zeroTouch.timeoutMs.value)

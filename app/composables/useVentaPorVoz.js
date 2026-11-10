@@ -31,6 +31,7 @@ import { registrarEventoVoz } from '../utils/vozEventos'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, describirDestino } from '../utils/voice/respuestasVoz'
+import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
 import { evaluarDisparoVoz, esRutaInventario, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
 
@@ -76,6 +77,10 @@ export function useVentaPorVoz(ubicacion) {
   // se pueda esperar antes de hablar otra locución (Modo PRO).
   // Se asigna en prepararVenta y se limpia en limpiar/procesar.
   const readBackPromise = ref(null)
+  // El layout lo activa con el Modo PRO: el anuncio incluye "Diga sí para confirmar"
+  // en la misma locución, para que no haya pausa entre una frase y otra.
+  const confirmacionHablada = ref(false)
+  const readBackIncluyeConfirmacion = ref(false)
   const showCandidatos = ref(false)
   const pendiente = ref(null)
   const ultimoError = ref(null)
@@ -140,6 +145,7 @@ export function useVentaPorVoz(ubicacion) {
     prefill.value = null
     producto.value = null
     readBackPromise.value = null
+    readBackIncluyeConfirmacion.value = false
     modo.value = 'venta'
     ultimoError.value = null
     estado.value = 'idle'
@@ -178,9 +184,10 @@ export function useVentaPorVoz(ubicacion) {
       const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
       const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
       if (!fila) return
-      const texto = cant >= 1
-        ? `Voy a vender ${cant} ${nombre} del ${lugar}.`
-        : `Confirma la venta del ${lugar}.`
+      let texto = fraseVenta({ cantidad: cant, nombre, lugar })
+      // Una sola locución: anuncio + petición de confirmación, sin hueco entre ambas.
+      readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value) && modoVenta === 'venta'
+      if (readBackIncluyeConfirmacion.value) texto = `${texto} ${FRASE_CONFIRMAR}`
       try {
         if (tts?.speak) await tts.speak(texto)
         else toast.add({ title: 'Voz (lectura)', description: texto, color: 'neutral', duration: 8000 })
@@ -317,11 +324,11 @@ export function useVentaPorVoz(ubicacion) {
         })
       })()
       try {
-        await tts.speak(`Solo hay ${maxDisp} de ${filaElegida?.nombre || 'ese producto'} en el ${ubiLabel}.`)
+        await tts.speak(fraseStockInsuficiente({ disponible: maxDisp, nombre: filaElegida?.nombre, lugar: ubiLabel }))
       } catch {
         /* noop */
       }
-      throw new Error(`Solo hay ${maxDisp} de ${filaElegida?.nombre || 'ese producto'} en el ${ubiLabel}.`)
+      throw new Error(fraseStockInsuficiente({ disponible: maxDisp, nombre: filaElegida?.nombre, lugar: ubiLabel }))
     }
     prepararVenta(filaElegida, slots, destino.ubicacion)
   }
@@ -673,6 +680,8 @@ export function useVentaPorVoz(ubicacion) {
     producto,
     modo,
     readBackPromise,
+    confirmacionHablada,
+    readBackIncluyeConfirmacion,
     venderPorVoz,
     reintentar,
     detenerEscucha,

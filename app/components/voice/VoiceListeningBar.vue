@@ -154,94 +154,98 @@ const colorPunto = computed(() => {
 </script>
 
 <template>
-  <Transition name="voice-panel">
-    <div
-      v-if="visible"
-      class="pointer-events-none fixed inset-x-0 top-0 z-[99999] flex justify-center px-3"
-      :style="{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }"
-    >
+  <!-- Teleport a body: el layout es `fixed` y crea su propio contexto de apilamiento,
+       así que dentro de él ningún z-index puede superar al diálogo (que vive en body). -->
+  <Teleport to="body">
+    <Transition name="voice-panel">
       <div
-        class="voice-card pointer-events-auto relative w-full max-w-md overflow-hidden rounded-3xl border shadow-2xl backdrop-blur-xl"
-        :class="[
-          esError
-            ? 'border-error/40 bg-white/90 dark:bg-slate-900/90'
-            : 'border-white/60 bg-white/80 dark:border-white/10 dark:bg-slate-900/80',
-          vozDetectada && 'voice-card--activa',
-          tuTurno && 'voice-card--turno',
-          turnoReciente && 'voice-card--listo'
-        ]"
-        role="status"
-        aria-live="polite"
+        v-if="visible"
+        class="pointer-events-none fixed inset-x-0 top-0 z-[200] flex justify-center px-3"
+        :style="{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }"
       >
-        <!-- Cabecera: estado + acción -->
-        <div class="flex items-center gap-3 px-4 pt-3">
-          <span class="relative flex size-2.5 shrink-0">
-            <span
-              v-if="!esError"
-              class="absolute inline-flex size-full animate-ping rounded-full opacity-60"
-              :class="colorPunto"
-            />
-            <span class="relative inline-flex size-2.5 rounded-full" :class="colorPunto" />
-          </span>
+        <div
+          class="voice-card pointer-events-auto relative w-full max-w-md overflow-hidden rounded-3xl border shadow-2xl backdrop-blur-xl"
+          :class="[
+            esError
+              ? 'border-error/40 bg-white/90 dark:bg-slate-900/90'
+              : 'border-white/60 bg-white/80 dark:border-white/10 dark:bg-slate-900/80',
+            vozDetectada && 'voice-card--activa',
+            tuTurno && 'voice-card--turno',
+            turnoReciente && 'voice-card--listo'
+          ]"
+          role="status"
+          aria-live="polite"
+        >
+          <!-- Cabecera: estado + acción -->
+          <div class="flex items-center gap-3 px-4 pt-3">
+            <span class="relative flex size-2.5 shrink-0">
+              <span
+                v-if="!esError"
+                class="absolute inline-flex size-full animate-ping rounded-full opacity-60"
+                :class="colorPunto"
+              />
+              <span class="relative inline-flex size-2.5 rounded-full" :class="colorPunto" />
+            </span>
 
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-white">
-              {{ titulo }}
-            </p>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-white">
+                {{ titulo }}
+              </p>
+            </div>
+
+            <UButton
+              v-if="esError"
+              size="xs"
+              color="error"
+              variant="soft"
+              icon="i-lucide-rotate-ccw"
+              label="Reintentar"
+              @click.stop="emit('reintentar')"
+            />
+            <UButton
+              v-else-if="puedeCancelar"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-x"
+              aria-label="Cancelar dictado"
+              @click.stop="emit('cancelar')"
+            />
           </div>
 
-          <UButton
-            v-if="esError"
-            size="xs"
-            color="error"
-            variant="soft"
-            icon="i-lucide-rotate-ccw"
-            label="Reintentar"
-            @click.stop="emit('reintentar')"
-          />
-          <UButton
-            v-else-if="puedeCancelar"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-x"
-            aria-label="Cancelar dictado"
-            @click.stop="emit('cancelar')"
-          />
-        </div>
+          <!-- Onda -->
+          <div class="px-2">
+            <VoiceWave
+              :modo="modoOnda"
+              :nivel="nivelOnda"
+              :detectando="vozDetectada"
+              :height="68"
+            />
+          </div>
 
-        <!-- Onda -->
-        <div class="px-2">
-          <VoiceWave
-            :modo="modoOnda"
-            :nivel="nivelOnda"
-            :detectando="vozDetectada"
-            :height="68"
-          />
-        </div>
-
-        <!-- Transcripción en vivo -->
-        <div class="min-h-[2.75rem] px-5 pb-4">
-          <Transition name="voice-texto" mode="out-in">
-            <p
-              v-if="subtitulo"
-              :key="hayTranscript ? 'transcript' : subtitulo"
-              class="line-clamp-2 text-center text-[0.95rem] leading-snug"
-              :class="hayTranscript
-                ? 'font-medium text-slate-900 dark:text-white'
-                : esError
-                  ? 'text-error'
-                  : tuTurno
-                    ? 'font-medium text-sky-600 dark:text-sky-300'
-                    : 'text-slate-500 dark:text-slate-400'"
-            >
-              {{ subtitulo }}
-            </p>
-          </Transition>
+          <!-- Transcripción en vivo -->
+          <div class="min-h-[2.75rem] px-5 pb-4">
+            <Transition name="voice-texto" mode="out-in">
+              <p
+                v-if="subtitulo"
+                :key="hayTranscript ? 'transcript' : subtitulo"
+                class="line-clamp-2 text-center text-[0.95rem] leading-snug"
+                :class="hayTranscript
+                  ? 'font-medium text-slate-900 dark:text-white'
+                  : esError
+                    ? 'text-error'
+                    : tuTurno
+                      ? 'font-medium text-sky-600 dark:text-sky-300'
+                      : 'text-slate-500 dark:text-slate-400'"
+              >
+                {{ subtitulo }}
+              </p>
+            </Transition>
+          </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>

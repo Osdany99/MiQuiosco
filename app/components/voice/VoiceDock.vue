@@ -15,6 +15,26 @@ const emit = defineEmits(['activar', 'cancelar', 'detener'])
 
 const { nivel, detectandoVoz } = useVoiceLevel()
 const tts = useTts()
+const toast = useToast()
+
+// Feedback al tocar el dock desactivado: antes no pasaba nada y no había forma
+// de saber por qué la voz no estaba disponible.
+const MS_ENTRE_AVISOS = 2500
+let ultimoAviso = 0
+
+function avisarNoDisponible() {
+  const motivo = props.motivo
+  if (!motivo || motivo === 'Cargando…') return
+  const ahora = Date.now()
+  if (ahora - ultimoAviso < MS_ENTRE_AVISOS) return
+  ultimoAviso = ahora
+  toast.add({
+    title: 'Voz no disponible',
+    description: motivo,
+    color: 'warning',
+    icon: 'i-lucide-mic-off'
+  })
+}
 
 const hablando = computed(() => Boolean(tts.hablando?.value))
 const escuchando = computed(() => props.estado === 'escuchando')
@@ -232,7 +252,10 @@ async function onPointerUp(e) {
 
 /** Acción de toque/teclado: en push-to-talk alternar; en modo tap, cancelar o activar. */
 function accion() {
-  if (!props.disponible) return
+  if (!props.disponible) {
+    avisarNoDisponible()
+    return
+  }
   if (props.pushToTalk) {
     if (props.ocupado) emit('detener')
     else emit('activar')
@@ -253,7 +276,10 @@ function onClick(e) {
     e.stopPropagation()
     return
   }
-  if (props.pushToTalk) return
+  if (props.pushToTalk) {
+    if (!props.disponible) avisarNoDisponible()
+    return
+  }
   accion()
 }
 

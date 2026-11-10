@@ -49,12 +49,11 @@ async function readPrefAsync(key) {
 }
 
 function writePref(key, value) {
+  // En web el modo es siempre online (no hay DB persistente ni razón para
+  // degradar): no se persiste nada para no dejar un 'local' pegado.
+  if (!isNative()) return
   try {
-    if (isNative()) {
-      Preferences.set({ key, value }).catch(() => {})
-    } else {
-      localStorage.setItem(key, value)
-    }
+    Preferences.set({ key, value }).catch(() => {})
   } catch {
     /* noop */
   }
@@ -70,7 +69,16 @@ export function useModoConexion() {
     // Se observa el CONTADOR (dispara con cada fallo), no el booleano
     // (solo dispara en la transicion true->false y la degradacion nunca
     // llegaba con el servidor caido de forma sostenida).
+    // En web el modo es forzosamente online: nunca se degrada (ni se persiste
+    // 'local'), para no dejar la voz y otras funciones atascadas sin UI de
+    // recuperación.
     watch(fallosRed, (fallos) => {
+      if (!isNative()) {
+        if (modo.value !== 'online') {
+          modo.value = 'online'
+        }
+        return
+      }
       if (fallos === 0) {
         if (modo.value !== 'local') return
         if (transicionando.value || haySyncEnCurso()) return
@@ -86,21 +94,42 @@ export function useModoConexion() {
   }
 
   async function cargar() {
+    // En web no hay DB persistente ni toggle de modo, así que el modo es
+    // siempre online. Además se purga el pref viejo: versiones anteriores
+    // persistían 'local' tras fallos de red y dejaban la voz desactivada sin
+    // forma de recuperarla desde la UI.
+    if (!isNative()) {
+      try {
+        localStorage.removeItem(PREF_MODO)
+        // El shim web de Preferences usa prefijo propio; se purga también por
+        // si alguna versión escribió por esa vía.
+        localStorage.removeItem(`CapacitorStorage.${PREF_MODO}`)
+      } catch {
+        /* noop */
+      }
+      modo.value = 'online'
+      modoCargado.value = true
+      return
+    }
     const value = await readPrefAsync(PREF_MODO)
     if (value === 'online' || value === 'local') {
       modo.value = value
       modoCargado.value = true
       return
     }
-    // Sin preferencia guardada: en web (no Capacitor) siempre hay red y el
-    // sqlite local es in-memory (se pierde al recargar), así que usamos
-    // online por defecto. En Android se conserva el default local
+    // Sin preferencia guardada en Android se conserva el default local
     // (offline-first, sqlite persistente).
-    modo.value = isNative() ? 'local' : 'online'
+    modo.value = 'local'
     modoCargado.value = true
   }
 
   async function cambiarAOnline() {
+    // En web ya estamos siempre online: no hay transición real que hacer.
+    if (!isNative()) {
+      modo.value = 'online'
+      modoCargado.value = true
+      return true
+    }
     if (!auth.esJefe.value) return false
     const sync = useSync()
     transicionando.value = true
@@ -120,6 +149,9 @@ export function useModoConexion() {
   }
 
   async function cambiarALocal() {
+    // El modo local no existe en web (no hay sqlite persistente ni UI de
+    // toggle): evitamos degradar y dejar la voz desactivada.
+    if (!isNative()) return false
     if (!auth.esJefe.value) return false
     const sync = useSync()
     transicionando.value = true
