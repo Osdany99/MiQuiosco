@@ -1,4 +1,5 @@
 <script setup>
+import { Capacitor } from '@capacitor/core'
 import { textoIdentidad } from '#shared/clientes'
 
 /**
@@ -17,6 +18,12 @@ const toast = useToast()
 const auth = useAuth()
 const sms = useSmsEtecsa()
 const rec = useRecargas()
+
+// El buzón vive en el teléfono. Se pregunta a Capacitor y no a
+// `sms.estado.value.disponible`, que arranca en false hasta que responde el
+// plugin: así el botón no aparece y desaparece en cada carga. Es sincrónico y
+// con `ssr: false` el setup ya corre en el cliente.
+const esNativo = Capacitor.isNativePlatform()
 
 const barrendo = ref(false)
 const guardando = ref(false)
@@ -178,24 +185,22 @@ onUnmounted(() => soltarResume?.())
 </script>
 
 <template>
+  <!-- Sin botón "Adicionar": las recargas llegan solas por SMS. -->
   <BaseHeaderPage
     title="Recargas por confirmar"
     description="Llegan solas; tú decides cuáles pasan al historial"
     leading-icon="i-lucide-message-square-text"
+    :show-button="false"
   >
+    <!-- Barrer el buzón es del dispositivo: en web no hay SMS que leer. -->
     <template #trailing>
       <UButton
+        v-if="esNativo"
         icon="i-lucide-inbox"
         variant="outline"
         label="Barrer buzón"
         :loading="barrendo"
         @click="barrer"
-      />
-      <UButton
-        icon="i-lucide-bar-chart-2"
-        variant="outline"
-        label="Ver gráficas"
-        @click="navigateTo('/graficas?seccion=recargas')"
       />
     </template>
 

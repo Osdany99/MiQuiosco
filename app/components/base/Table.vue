@@ -208,7 +208,16 @@ const resolvedModalTitle = computed(() => {
     || 'Registro'
 })
 
+const activeFilters = ref({ ...props.initialFilters })
+
+const hayFiltros = computed(() =>
+  Object.values(activeFilters.value).some(v => v != null && v !== '')
+)
+
 const resolvedEmptyState = computed(() => {
+  // Con filtros puestos, "Sin deudas pendientes el 12/11" mentiría: sí hay
+  // filas, pero no coinciden con lo buscado.
+  if (hayFiltros.value) return 'No se encontraron resultados con esos filtros'
   return props.emptyState
     || (props.config?.label ? `No se encontraron ${props.config.label.plural.toLowerCase()}` : '')
     || 'No se encontraron resultados'
@@ -220,12 +229,15 @@ onMounted(() => {
   }
 })
 
-const activeFilters = ref({ ...props.initialFilters })
-
 // Si la vista cambia los filtros iniciales (por ejemplo al cambiar de pestaña),
 // se aplican y se vuelve a la primera página.
 watch(() => props.initialFilters, (nuevos) => {
   activeFilters.value = { ...nuevos }
+  page.value = 1
+}, { deep: true })
+
+// Al aplicar o quitar filtros la lista cambia de tamaño: se vuelve al inicio.
+watch(activeFilters, () => {
   page.value = 1
 }, { deep: true })
 
@@ -252,8 +264,53 @@ const pageCount = computed({
   }
 })
 
+// Campos que ofrece el popover cuando la vista no declara `filterFields`:
+// las columnas visibles, salvo id/acciones y las marcadas `filterable: false`.
+const camposDeFiltro = computed(() =>
+  props.filterFields?.length
+    ? props.filterFields
+    : props.columns
+        .filter(
+          c =>
+            c.accessorKey
+            && c.accessorKey !== 'id'
+            && c.accessorKey !== 'action'
+            && c.visible !== false
+            && c.filterable !== false
+        )
+        .map(c => ({ key: c.accessorKey, label: c.header }))
+)
+
+/** Texto comparable: sin acentos, sin mayúsculas y sin espacios de sobra. */
+function normalizar(v) {
+  return String(v ?? '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
+}
+
+/**
+ * Filtros del popover sobre `data` en cliente. Antes solo los aplicaba
+ * `useTableData` en modo repo: con `data` externo el botón existía pero no
+ * hacía nada. Un campo puede traer `get(item)` cuando su valor no es texto
+ * plano (p. ej. el array `items` de una deuda) y `type: 'select'` para pedir
+ * coincidencia exacta en vez de "contiene".
+ */
+function filtrarEnCliente(items) {
+  const activos = Object.entries(activeFilters.value).filter(([, v]) => v != null && v !== '')
+  if (!activos.length) return items
+  return items.filter(item => activos.every(([clave, valor]) => {
+    const campo = camposDeFiltro.value.find(c => (c.key ?? c.accessorKey) === clave)
+    const actual = campo?.get ? campo.get(item) : item[clave]
+    return campo?.type === 'select'
+      ? String(actual ?? '') === String(valor)
+      : normalizar(actual).includes(normalizar(valor))
+  }))
+}
+
 const filteredAll = computed(() => {
-  if (isExternalData.value) return (props.data || []).map(toRaw)
+  if (isExternalData.value) return filtrarEnCliente((props.data || []).map(toRaw))
   return (repoTable?.filtered.value ?? []).map(toRaw)
 })
 
@@ -266,12 +323,12 @@ const data = computed(() => {
 const total = computed(() => filteredAll.value.length)
 
 // Con datos externos (props.data) la lista puede encogerse al filtrar sin que
-// la página actual se ajuste sola: el slice quedaría vacío aunque haya filas.
-// Se vuelve a la primera página cuando la actual queda fuera de rango.
+// la página actual se ajuste sola: el slice quedaría vacío aunque haya filas o
+// el footer diría "3 de 1". Se vuelve a la primera página cuando la actual
+// queda fuera de rango (también cuando no queda ninguna fila).
 watch(total, (t) => {
-  if (!t) return
   const limite = pageCount.value || props.defaultLimit || 25
-  const maxPagina = Math.max(1, Math.ceil(t / limite))
+  const maxPagina = Math.max(1, Math.ceil((t || 0) / limite))
   if (page.value > maxPagina) page.value = 1
 })
 

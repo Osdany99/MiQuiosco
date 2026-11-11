@@ -39,7 +39,6 @@
         v-if="lotes.length"
         :lotes="lotes"
         :cantidad="Number(form.cantidad) || 0"
-        :auto-fifo="loteFifoPref"
         :producto-nombre="producto?.nombre ?? ''"
         @update:consumo="onConsumo"
       />
@@ -109,17 +108,6 @@ const fiado = useCuentasFiado()
 const toast = useToast()
 const auth = useAuth()
 const tts = useTts()
-const loteFifoPref = ref(true)
-async function loadLoteFifoPref() {
-  try {
-    const { Preferences } = await import('@capacitor/preferences')
-    const { value } = await Preferences.get({ key: 'lote.fifo.auto' })
-    if (value === 'true' || value === 'false') loteFifoPref.value = (value === 'true')
-  } catch {
-    /* noop */
-  }
-}
-void loadLoteFifoPref()
 const clientes = ref([])
 const lotes = ref([])
 const cantidadExcedeStock = ref(false)

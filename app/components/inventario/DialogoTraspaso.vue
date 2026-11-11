@@ -26,10 +26,9 @@
         v-if="lotes.length"
         :lotes="lotes"
         :cantidad="Number(form.cantidad) || 0"
-        :auto-fifo="loteFifoPref"
         :producto-nombre="nombreProducto"
         @update:consumo="onConsumo"
-      />>
+      />
 
       <UFormField label="Cantidad">
         <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
@@ -58,17 +57,6 @@ const nombreProducto = ref('')
 const lotes = ref([])
 const guardando = ref(false)
 const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
-const loteFifoPref = ref(true)
-async function loadLoteFifoPref() {
-  try {
-    const { Preferences } = await import('@capacitor/preferences')
-    const { value } = await Preferences.get({ key: 'lote.fifo.auto' })
-    if (value === 'true' || value === 'false') loteFifoPref.value = (value === 'true')
-  } catch {
-    /* noop */
-  }
-}
-void loadLoteFifoPref()
 function onConsumo(plan) {
   if (plan) consumoPlan.value = plan
 }

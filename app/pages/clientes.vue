@@ -6,6 +6,7 @@
  * es POR NÚMERO. El número canónico (10 dígitos) es la clave con la que se
  * empareja cada recarga que entra, por eso se gestiona aquí y no suelta.
  */
+import { Capacitor } from '@capacitor/core'
 import { clientes as config } from '../../shared/tables'
 import { normalizarTelefono } from '../utils/parseEtecsaSms'
 import { normalizarNombre } from '#shared/clientes'
@@ -61,6 +62,11 @@ const contactos = ref([])
 const cargandoContactos = ref(false)
 const permisoContactos = ref(false)
 const restringido = ref(false)
+
+// Importar la agenda es del dispositivo. Se pregunta a Capacitor y no a
+// `contactosEstado().disponible`, que llega async (y en web siempre false):
+// así el botón y el aviso no parpadean en cada carga.
+const esNativo = Capacitor.isNativePlatform()
 
 const importando = ref(false)
 const progreso = ref(null)
@@ -273,6 +279,7 @@ async function pedirPermisoContactos() {
 }
 
 async function abrirImportar() {
+  if (!esNativo) return
   if (!await leerPermiso()) {
     pedirPermisoContactos()
     return
@@ -428,6 +435,7 @@ onMounted(() => {
         @click="dialogoFusionar = true"
       />
       <UButton
+        v-if="esNativo"
         icon="i-lucide-contact-round"
         variant="outline"
         label="Importar contactos"
@@ -446,7 +454,7 @@ onMounted(() => {
     />
 
     <UAlert
-      v-else-if="!permisoContactos"
+      v-else-if="esNativo && !permisoContactos"
       color="neutral"
       variant="soft"
       icon="i-lucide-contact-round"

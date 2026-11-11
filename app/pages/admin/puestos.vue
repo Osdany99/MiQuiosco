@@ -487,16 +487,26 @@ async function guardarPin() {
               @click="abrirPuesto(row.original)"
             />
           </UTooltip>
-          <UTooltip text="Permisos del puesto" :delay-duration="0">
-            <UButton
-              icon="i-lucide-shield-check"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              aria-label="Permisos del puesto"
-              :disabled="row.original.central"
-              @click="abrirPermisos(row.original)"
-            />
+          <UTooltip
+            :text="row.original.central
+              ? 'El puesto central se administra desde el super admin'
+              : 'Permisos del puesto'"
+            :delay-duration="0"
+          >
+            <!-- Span intermedio: un UButton deshabilitado no dispara el tooltip. -->
+            <span class="inline-flex">
+              <UButton
+                icon="i-lucide-shield-check"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                :aria-label="row.original.central
+                  ? 'El puesto central no tiene permisos configurables'
+                  : 'Permisos del puesto'"
+                :disabled="row.original.central"
+                @click="abrirPermisos(row.original)"
+              />
+            </span>
           </UTooltip>
           <UTooltip text="Ver dispositivos" :delay-duration="0">
             <UButton
@@ -582,10 +592,11 @@ async function guardarPin() {
       </div>
     </BaseDialog>
 
-    <PermisosPuesto
+    <AdminPermisosPuesto
       v-model="dialogoPermisos"
       :puesto="puestoPermisos"
       :otros-puestos="filas.filter(p => p.id !== puestoPermisos?.id)"
+      :loading="guardandoPermisos"
       @save="guardarPermisos"
     />
 

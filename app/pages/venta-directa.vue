@@ -25,132 +25,131 @@
       </template>
     </UAlert>
 
-    <div v-if="cargando" class="flex justify-center py-12">
-      <UIcon name="i-lucide-loader-circle" class="animate-spin size-8 text-muted-foreground" />
-    </div>
+    <BaseTable
+      v-if="cargando || ventas.length > 0"
+      :data="ventasDelDia"
+      :columns="columnas"
+      :loading-prop="cargando"
+      :filter-fields="camposFiltro"
+      :show-edit="false"
+      :show-delete="false"
+      :empty-state="textoVacio"
+      :ui="uiTabla"
+    >
+      <template #toolbar-leading>
+        <UInputDate v-model="dia" size="sm" class="w-44" />
+      </template>
 
-    <template v-else-if="ventas.length > 0">
-      <div class="flex justify-end mb-2">
-        <TableToolbar
-          v-model:visible-headers="visibleHeaders"
-          :column-headers="columnHeaders"
-        />
-      </div>
-
-      <UTable
-        :data="ventas"
-        :columns="visibleColumns"
-        :ui="uiTabla"
-        empty="Sin ventas directas"
-      >
-        <template #nombreProducto-cell="{ row }">
-          <div class="min-w-0">
-            <div class="flex items-center gap-1 min-w-0">
-              <span class="font-medium truncate">
-                {{ row.original.nombreProducto }}
-              </span>
-              <UBadge
-                v-if="row.original.otrasLineas > 0"
-                color="neutral"
-                variant="outline"
-                size="sm"
-                :label="`+${row.original.otrasLineas}`"
-              />
-            </div>
-            <div
-              v-if="row.original.descripcionProducto?.trim()"
-              class="text-xs text-muted truncate"
-            >
-              {{ row.original.descripcionProducto }}
-            </div>
+      <template #nombreProducto-cell="{ row }">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1 min-w-0">
+            <span class="font-medium truncate">
+              {{ row.original.nombreProducto }}
+            </span>
+            <UBadge
+              v-if="row.original.otrasLineas > 0"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              :label="`+${row.original.otrasLineas}`"
+            />
           </div>
-        </template>
-
-        <template #creadoEn-cell="{ row }">
-          {{ fmtDate(row.original.creadoEn) }}
-        </template>
-
-        <template #tipoVenta-cell="{ row }">
-          <UBadge
-            :color="colorTipo(row.original.tipoVenta)"
-            :icon="iconoTipo(row.original.tipoVenta)"
-            variant="soft"
-            size="sm"
-            :label="etiquetaTipo(row.original.tipoVenta)"
-          />
-        </template>
-
-        <template #nombreCliente-cell="{ row }">
-          <span class="block max-w-40 truncate">{{ row.original.nombreCliente || '—' }}</span>
-        </template>
-
-        <template #ubicacion-cell="{ row }">
-          <UBadge
-            variant="soft"
-            size="sm"
-            color="neutral"
-            :icon="row.original.ubicacion === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
-            :label="row.original.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén'"
-          />
-        </template>
-
-        <template #cantidad-cell="{ row }">
-          <span class="font-mono">
-            {{ fmtPrecio(row.original.cantidad) }}
-          </span>
-        </template>
-
-        <template #precioVenta-cell="{ row }">
-          <span class="font-mono">{{ fmtPrecio(row.original.precioVenta) }}</span>
-        </template>
-
-        <template #montoTotal-cell="{ row }">
-          <span class="font-mono">{{ fmtPrecio(row.original.montoTotal) }}</span>
-        </template>
-
-        <template #costoTotal-cell="{ row }">
-          <span class="font-mono">{{ fmtPrecio(row.original.costoTotal) }}</span>
-        </template>
-
-        <template #ganancia-cell="{ row }">
-          <span
-            class="font-mono font-medium"
-            :class="(Number(row.original.ganancia) || 0) < 0 ? 'text-error' : 'text-success'"
+          <div
+            v-if="row.original.descripcionProducto?.trim()"
+            class="text-xs text-muted truncate"
           >
-            {{ fmtPrecio(row.original.ganancia) }}
-          </span>
-        </template>
+            {{ row.original.descripcionProducto }}
+          </div>
+        </div>
+      </template>
 
-        <template #margen-cell="{ row }">
-          <span
-            v-if="row.original.margen != null"
-            class="font-mono"
-            :class="row.original.margen >= 0 ? 'text-success' : 'text-error'"
-          >
-            {{ row.original.margen }}%
-          </span>
-          <span v-else class="text-muted">—</span>
-        </template>
+      <template #creadoEn-cell="{ row }">
+        {{ fmtDate(row.original.creadoEn) }}
+      </template>
 
-        <template #nombreUsuario-cell="{ row }">
-          {{ row.original.nombreUsuario ?? '—' }}
-        </template>
+      <template #tipoVenta-cell="{ row }">
+        <UBadge
+          :color="colorTipo(row.original.tipoVenta)"
+          :icon="iconoTipo(row.original.tipoVenta)"
+          variant="soft"
+          size="sm"
+          :label="etiquetaTipo(row.original.tipoVenta)"
+        />
+      </template>
 
-        <template #notas-cell="{ row }">
-          <span class="text-sm text-muted truncate block max-w-56">
-            {{ row.original.notas || '—' }}
-          </span>
-        </template>
+      <template #nombreCliente-cell="{ row }">
+        <span class="block max-w-40 truncate">{{ row.original.nombreCliente || '—' }}</span>
+      </template>
 
-        <template #id-cell="{ row }">
-          <span class="font-mono text-xs text-muted">{{ row.original.id }}</span>
-        </template>
-      </UTable>
-    </template>
+      <template #ubicacion-cell="{ row }">
+        <UBadge
+          variant="soft"
+          size="sm"
+          color="neutral"
+          :icon="row.original.ubicacion === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
+          :label="row.original.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén'"
+        />
+      </template>
+
+      <template #cantidad-cell="{ row }">
+        <span class="font-mono">
+          {{ fmtPrecio(row.original.cantidad) }}
+        </span>
+      </template>
+
+      <template #precioVenta-cell="{ row }">
+        <span class="font-mono">{{ fmtPrecio(row.original.precioVenta) }}</span>
+      </template>
+
+      <template #montoTotal-cell="{ row }">
+        <span class="font-mono">{{ fmtPrecio(row.original.montoTotal) }}</span>
+      </template>
+
+      <template #costoTotal-cell="{ row }">
+        <span class="font-mono">{{ fmtPrecio(row.original.costoTotal) }}</span>
+      </template>
+
+      <template #ganancia-cell="{ row }">
+        <span
+          class="font-mono font-medium"
+          :class="(Number(row.original.ganancia) || 0) < 0 ? 'text-error' : 'text-success'"
+        >
+          {{ fmtPrecio(row.original.ganancia) }}
+        </span>
+      </template>
+
+      <template #margen-cell="{ row }">
+        <span
+          v-if="row.original.margen != null"
+          class="font-mono"
+          :class="row.original.margen >= 0 ? 'text-success' : 'text-error'"
+        >
+          {{ row.original.margen }}%
+        </span>
+        <span v-else class="text-muted">—</span>
+      </template>
+
+      <template #nombreUsuario-cell="{ row }">
+        {{ row.original.nombreUsuario ?? '—' }}
+      </template>
+
+      <template #notas-cell="{ row }">
+        <span class="text-sm text-muted truncate block max-w-56">
+          {{ row.original.notas || '—' }}
+        </span>
+      </template>
+
+      <template #id-cell="{ row }">
+        <span class="font-mono text-xs text-muted">{{ row.original.id }}</span>
+      </template>
+    </BaseTable>
   </BaseHeaderPage>
 </template>
 
 <script setup>
+import { CalendarDate } from '@internationalized/date'
+import { aDia } from '../../shared/inventario/analitica'
+
 definePageMeta({
   middleware: ['jefe']
 })
@@ -182,6 +181,33 @@ const columnas = [
   { accessorKey: 'id', header: 'ID', visible: false }
 ]
 
+// Filtros del botón de BaseTable. Se declaran a mano para que Tipo y Sale de
+// sean selects exactos en vez de campos de texto.
+const camposFiltro = [
+  { key: 'nombreProducto', label: 'Producto' },
+  {
+    key: 'tipoVenta',
+    label: 'Tipo',
+    type: 'select',
+    options: [
+      { label: 'Directa', value: 'directa' },
+      { label: 'Casa', value: 'casa' },
+      { label: 'Familiar', value: 'familiar' },
+      { label: 'Regalo', value: 'regalo' }
+    ]
+  },
+  { key: 'nombreCliente', label: 'Cliente' },
+  {
+    key: 'ubicacion',
+    label: 'Sale de',
+    type: 'select',
+    options: [
+      { label: 'Quiosco', value: 'quiosco' },
+      { label: 'Almacén', value: 'almacen' }
+    ]
+  }
+]
+
 const TIPOS = {
   directa: { label: 'Directa', icon: 'i-lucide-pocket', color: 'primary' },
   casa: { label: 'Casa', icon: 'i-lucide-house', color: 'info' },
@@ -193,15 +219,21 @@ const etiquetaTipo = t => TIPOS[t]?.label ?? 'Directa'
 const iconoTipo = t => TIPOS[t]?.icon ?? TIPOS.directa.icon
 const colorTipo = t => TIPOS[t]?.color ?? TIPOS.directa.color
 
-// Selector de columnas (misma regla que BaseTable y useVistaInventario): lo
-// visible sale del propio flag `visible` de cada columna, y las de header vacío
-// serían estructurales y quedarían fuera del selector.
-const visibleHeaders = ref(columnas.filter(c => c.visible !== false).map(c => c.header))
-const columnHeaders = computed(() => columnas.filter(c => c.header).map(c => c.header))
-const visibleColumns = computed(() => columnas.filter(c => visibleHeaders.value.includes(c.header)))
-
 const cargando = ref(true)
 const crudas = ref([])
+
+function calendarioDeHoy() {
+  const h = new Date()
+  return new CalendarDate(h.getFullYear(), h.getMonth() + 1, h.getDate())
+}
+
+/**
+ * Día que se está mirando. Arranca en hoy: las salidas se revisan el mismo día
+ * que ocurren. Se filtra en cliente sobre lo ya cargado (una sola lectura y la
+ * navegación entre días es instantánea); si se limpia la fecha se ven todas.
+ */
+const dia = ref(calendarioDeHoy())
+const diaISO = computed(() => (dia.value ? String(dia.value) : ''))
 
 const ventas = computed(() => crudas.value.map((v) => {
   const lineas = v.lineas ?? []
@@ -224,6 +256,16 @@ const ventas = computed(() => crudas.value.map((v) => {
     margen: total > 0 ? Math.round((ganancia / total) * 1000) / 10 : null
   }
 }))
+
+const ventasDelDia = computed(() => {
+  const d = diaISO.value
+  if (!d) return ventas.value
+  return ventas.value.filter(v => aDia(v.creadoEn) === d)
+})
+
+const textoVacio = computed(() =>
+  diaISO.value ? `Sin salidas el ${fmtDate(diaISO.value)}` : 'Sin ventas directas'
+)
 
 async function recargar() {
   cargando.value = true

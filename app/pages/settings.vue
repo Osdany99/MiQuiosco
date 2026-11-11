@@ -1,6 +1,5 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
-import { Preferences } from '@capacitor/preferences'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
@@ -34,6 +33,7 @@ const sinCandado = computed(() => !sms.estado.value.restringido)
 const permisoRecibir = computed(() => !!sms.estado.value.permisoRecibir)
 const notificacionesOk = computed(() => !!sms.estado.value.notificaciones)
 const permisoContactos = computed(() => !!contactos.value.permiso)
+const permisoMicrofono = computed(() => !!voz.permisoMicrofono.value)
 
 const permisosListos = computed(() => {
   return sinCandado.value && permisoRecibir.value && notificacionesOk.value
@@ -67,6 +67,12 @@ const listaPermisos = computed(() => {
       ok: permisoContactos.value,
       texto: 'Contactos del teléfono (opcional)',
       accion: 'Conceder'
+    },
+    {
+      clave: 'microfono',
+      ok: permisoMicrofono.value,
+      texto: 'Reconocimiento de voz (micrófono)',
+      accion: 'Conceder'
     }
   ]
 })
@@ -75,7 +81,8 @@ const ACCIONES_PERMISOS = {
   restringidos: () => sms.abrirAjustesPermisos('restringidos'),
   sms: () => sms.pedirPermiso(),
   notificaciones: () => sms.pedirPermisoNotificaciones(),
-  contactos: () => pedirPermisoContactos()
+  contactos: () => pedirPermisoContactos(),
+  microfono: () => voz.pedirPermisoMicrofono()
 }
 
 /** Pide READ_CONTACTS y vuelve a pintar la lista con el estado real. */
@@ -96,6 +103,7 @@ async function pedirPermisoContactos() {
 async function refrescarPermisos() {
   await sms.refrescarEstado()
   contactos.value = await contactosEstado()
+  await voz.check()
 }
 
 async function ejecutarPermiso(clave) {
@@ -349,25 +357,6 @@ const timeoutOpciones = [
   { label: '8 segundos', value: 8000 },
   { label: '10 segundos', value: 10000 }
 ]
-const loteFifoDefault = ref(true)
-async function loadLoteFifoPref() {
-  try {
-    const { value } = await Preferences.get({ key: 'lote.fifo.auto' })
-    if (value === 'true' || value === 'false') loteFifoDefault.value = (value === 'true')
-  } catch {
-    /* noop */
-  }
-}
-void loadLoteFifoPref()
-async function setLoteFifoPref(val) {
-  const v = Boolean(val)
-  loteFifoDefault.value = v
-  try {
-    await Preferences.set({ key: 'lote.fifo.auto', value: String(v) })
-  } catch {
-    /* noop */
-  }
-}
 const telemetriaValor = ref(telemetriaActivaSync())
 const telemetriaActivaComputed = computed({
   get: () => telemetriaValor.value,
@@ -388,12 +377,18 @@ const micMotivo = computed(() => {
   return ''
 })
 
+// En Android nativo, SpeechRecognizer funciona offline con paquetes de idioma
+// instalados localmente.
+const sttOfflineDisponible = computed(() => voz.esNativo.value && voz.sttOfflineDisponible.value === true)
+
 const probandoTts = ref(false)
 const itemsVocesTts = computed(() =>
-  (tts.voces.value || []).map(v => ({
-    label: `${v.name}${v.lang ? ` (${v.lang})` : ''}`,
-    value: v.voiceURI
-  }))
+  (tts.voces.value || []).map((v) => {
+    const partes = [v.name || v.lang || '(sin nombre)']
+    if (v.lang) partes.push(`(${v.lang})`)
+    if (v.offline === true) partes.push('· offline')
+    return { label: partes.join(' '), value: v.voiceURI }
+  })
 )
 
 async function probarTts() {
@@ -406,24 +401,6 @@ async function probarTts() {
     toast.add({ title: 'No se pudo reproducir la voz', description: e?.message, color: 'error' })
   } finally {
     probandoTts.value = false
-  }
-}
-
-async function pedirPermisoMicrofono() {
-  if (probandoMicrofono.value) return
-  probandoMicrofono.value = true
-  try {
-    const ok = await voz.pedirPermisoMicrofono()
-    if (ok) {
-      toast.add({ title: 'Permiso de micrófono concedido', color: 'success' })
-    } else {
-      toast.add({ title: 'Permiso de micrófono no concedido', color: 'warning' })
-    }
-    await voz.check()
-  } catch (e) {
-    toast.add({ title: 'No se pudo pedir el permiso', description: e?.message, color: 'error' })
-  } finally {
-    probandoMicrofono.value = false
   }
 }
 
@@ -879,14 +856,14 @@ async function whOlvidarEste() {
       </div>
     </UCard>
 
-    <!-- Permisos del módulo de Recargas. Es el único sitio donde se piden:
+    <!-- Permisos del dispositivo. Es el único sitio donde se piden:
          no hay asistente al arrancar. Cada fila dice si algo falta y ofrece
          el botón que lo resuelve. -->
     <UCard v-if="esNativo">
       <div class="space-y-3">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-sm font-medium">
-            Permisos de recarga
+            Permisos del dispositivo
           </h2>
           <UButton
             icon="i-lucide-refresh-cw"
@@ -930,6 +907,16 @@ async function whOlvidarEste() {
             />
           </li>
         </ul>
+
+        <p class="text-xs text-muted">
+          Motor de voz (STT): {{ voz.disponible.value ? 'Disponible' : 'No disponible' }}
+          <span v-if="voz.esNativo.value" class="text-muted">· Reconocimiento offline: {{ sttOfflineDisponible ? 'Sí' : 'No' }}</span>
+        </p>
+        <p v-if="esNativo" class="text-xs text-muted">
+          Motor TTS: {{ tts.disponible.value ? 'Disponible' : 'No disponible' }}
+          <span v-if="tts.nativoEngine.value">· {{ tts.nativoEngine.value }}</span>
+          · {{ (tts.voces.value || []).length }} voces detectadas
+        </p>
 
         <p
           v-if="permisosListos"
@@ -1027,7 +1014,9 @@ async function whOlvidarEste() {
         </USwitch>
 
         <div class="space-y-2">
-          <UFormField label="Voz" />
+          <div class="flex items-center justify-between gap-2">
+            <UFormField label="Voz" />
+          </div>
           <USelect
             :items="itemsVocesTts"
             :model-value="tts.vozUri.value"
@@ -1037,7 +1026,7 @@ async function whOlvidarEste() {
             @update:model-value="(value) => { void tts.setVoz(value) }"
           />
           <p v-if="!tts.cargandoVoces.value && !itemsVocesTts.length" class="text-xs text-warning">
-            No hay voces instaladas. Instala español en el dispositivo o navegador.
+            No hay voces instaladas. Instala español en el dispositivo.
           </p>
         </div>
 
@@ -1048,7 +1037,7 @@ async function whOlvidarEste() {
             size="sm"
             icon="i-lucide-volume-2"
             :loading="probandoTts"
-            :disabled="!tts.disponible.value || probandoTts || !itemsVocesTts.length"
+            :disabled="!tts.disponible.value || probandoTts"
             @click="probarTts"
           >
             Probar voz
@@ -1057,6 +1046,30 @@ async function whOlvidarEste() {
             Reproduce una frase corta con la voz seleccionada.
           </span>
         </div>
+
+        <div class="flex items-center gap-2">
+          <UButton
+            color="primary"
+            variant="soft"
+            size="sm"
+            icon="i-lucide-headphones"
+            :loading="probandoMicrofono"
+            :disabled="!voz.disponible.value"
+            @click="probarMicrofono"
+          >
+            Probar micrófono
+          </UButton>
+          <span class="text-xs text-muted">
+            Dicta algo y verás lo que el micrófono captó.
+          </span>
+        </div>
+
+        <p v-if="pruebaMicrofono" class="text-xs text-muted">
+          Escuchado: {{ pruebaMicrofono }}
+        </p>
+        <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
+          {{ micMotivo }}
+        </p>
 
         <p v-if="!tts.disponible.value" class="text-xs text-warning">
           Síntesis de voz no disponible en este dispositivo.
@@ -1081,75 +1094,6 @@ async function whOlvidarEste() {
           Activado: mantén el micrófono pulsado mientras hablas y suelta para enviar.
           Desactivado: pulsa una vez para empezar y usa el botón cuadrado para parar o cancelar.
         </p>
-      </div>
-    </UCard>
-
-    <UCard>
-      <div class="space-y-3">
-        <div>
-          <h2 class="text-sm font-medium">
-            Micrófono (reconocimiento de voz)
-          </h2>
-          <p class="text-sm text-muted">
-            Disponibilidad y prueba del motor de voz.
-          </p>
-        </div>
-        <div class="flex items-center gap-2 text-sm">
-          <span
-            class="size-2 rounded-full"
-            :class="voz.disponible ? 'bg-green-500' : 'bg-red-500'"
-          />
-          <span>{{ voz.disponible ? 'Disponible' : 'No disponible' }}</span>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <UButton
-            color="primary"
-            variant="soft"
-            size="sm"
-            icon="i-lucide-mic"
-            :loading="probandoMicrofono"
-            @click="pedirPermisoMicrofono"
-          >
-            Conceder permiso
-          </UButton>
-          <UButton
-            color="primary"
-            variant="soft"
-            size="sm"
-            icon="i-lucide-headphones"
-            :loading="probandoMicrofono"
-            :disabled="!voz.disponible"
-            @click="probarMicrofono"
-          >
-            Probar micrófono
-          </UButton>
-        </div>
-        <p v-if="pruebaMicrofono" class="text-xs text-muted">
-          Escuchado: {{ pruebaMicrofono }}
-        </p>
-        <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
-          {{ micMotivo }}
-        </p>
-      </div>
-    </UCard>
-    <UCard class="shadow-none">
-      <div class="space-y-3">
-        <div>
-          <h2 class="text-sm font-medium">
-            Lotes
-          </h2>
-          <p class="text-sm text-muted">
-            Cómo preseleccionar los lotes al vender o traspasar.
-          </p>
-        </div>
-        <USwitch
-          v-model="loteFifoDefault"
-          color="primary"
-          description="Preselecciona automáticamente los lotes por FIFO (más viejo primero). Se puede ajustar en el picker."
-          @update:model-value="v => void setLoteFifoPref(v)"
-        >
-          Preselección automática (FIFO)
-        </USwitch>
       </div>
     </UCard>
   </div>

@@ -50,6 +50,10 @@ function _useVoiceCommand() {
   const disponible = computed(() => backend.value !== null)
   const isListening = computed(() => estado.value === 'listening')
 
+  // En Android nativo, SpeechRecognizer usa paquetes de idioma instalados
+  // localmente, así que si el motor está disponible, el STT funciona offline.
+  const sttOfflineDisponible = computed(() => esNativo.value && nativoDisponible.value === true)
+
   const nativoDisponible = ref(null)
   const permisoMicrofono = ref(false)
   async function check() {
@@ -313,6 +317,7 @@ function _useVoiceCommand() {
     esNativo,
     backend,
     esWebSoportado,
+    sttOfflineDisponible,
     nativoDisponible,
     permisoMicrofono,
     check,

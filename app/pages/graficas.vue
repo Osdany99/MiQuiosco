@@ -57,12 +57,11 @@ const SECCIONES_FILTRADAS = computed(() => SECCIONES.filter(s => perms.puedeAcci
 
 const graficas = [
   // ---------- Ganancia y caja ----------
-  { key: 'ganancia-por-periodo', seccion: 'ganancia', componente: 'bar', titulo: 'Ganancia por período', descripcion: 'Ganancia neta agrupada por día/semana/mes', icon: 'i-lucide-bar-chart-2', params: { agrupacion: 'dia' } },
+  { key: 'ganancia-por-periodo', seccion: 'ganancia', componente: 'bar', titulo: 'Ganancia por período', descripcion: 'Ganancia neta del cuadre (menos pago al trabajador) y de lo vendido fuera de cuadre, por período', icon: 'i-lucide-bar-chart-2', params: { agrupacion: 'dia' } },
   { key: 'ganancia-real-fifo', seccion: 'ganancia', componente: 'bar-horizontal', titulo: 'Ganancia real por producto', descripcion: 'Ingreso menos el costo FIFO del lote que se consumió', icon: 'i-lucide-coins' },
   { key: 'margen-porcentaje-producto', seccion: 'ganancia', componente: 'bar-horizontal', titulo: 'Margen real por producto', descripcion: 'Ganancia sobre el ingreso, en porcentaje', icon: 'i-lucide-percent' },
   { key: 'diferencia-estimada-real', seccion: 'ganancia', componente: 'bar-horizontal', titulo: 'Estimado vs. real', descripcion: 'Cuánto se desvía la estimación del FIFO real', icon: 'i-lucide-git-compare-arrows' },
-  { key: 'ingresos-por-periodo', seccion: 'ganancia', componente: 'bar', titulo: 'Ingresos por período', descripcion: 'Total de ventas agrupado por día/semana/mes', icon: 'i-lucide-dollar-sign', params: { agrupacion: 'dia' } },
-  { key: 'ingresos-fuera-de-cuadre', seccion: 'ganancia', componente: 'linea', titulo: 'Ingresos fuera de cuadre', descripcion: 'Ventas directas y deudas directas: venta y ganancia por período', icon: 'i-lucide-pocket', params: { agrupacion: 'dia' } },
+  { key: 'ingresos-por-periodo', seccion: 'ganancia', componente: 'bar', titulo: 'Ingresos por período', descripcion: 'Ventas del cuadre y de lo vendido fuera de cuadre, por período', icon: 'i-lucide-dollar-sign', params: { agrupacion: 'dia' } },
   { key: 'regalos-descuentos-por-periodo', seccion: 'ganancia', componente: 'bar', titulo: 'Regalos y descuentos', descripcion: 'Cantidad y valor de líneas tipo regalo/descuento familiar', icon: 'i-lucide-gift', params: { agrupacion: 'dia' } },
   { key: 'faltantes-sobrantes-acumulados', seccion: 'ganancia', componente: 'bar', titulo: 'Faltantes y sobrantes', descripcion: 'Suma de diferencias por día/mes', icon: 'i-lucide-minus-circle', params: { agrupacion: 'dia' } },
   { key: 'pagos-trabajadores', seccion: 'ganancia', componente: 'bar', titulo: 'Pagos a trabajadores', descripcion: 'Total pagado a cada trabajador por período', icon: 'i-lucide-users' },
@@ -129,9 +128,11 @@ const agrupacion = ref('dia')
 const productoSeleccionado = ref('')
 const ventanaCoberturaActiva = ref(null)
 const kpis = ref(null)
-// Detalle de una barra: qué productos dejaron la ganancia de ese período.
+// Detalle de una barra: qué productos dejaron la ganancia de ese período y de
+// qué canal ('cuadre' o 'fuera'), porque cada barra tiene su propio desglose.
 const detalleOpen = ref(false)
 const periodoDetalle = ref('')
+const tipoDetalle = ref('cuadre')
 
 const conexion = useModoConexion()
 
@@ -256,10 +257,14 @@ function getChartComponent(g) {
   return markRaw(comp)
 }
 
-/** El botón "Ver detalle" del tooltip entrega el período que se tocó. */
-function abrirDetalle(periodo) {
+/**
+ * El "Ver detalle" del tooltip entrega el período y el desglose que la gráfica
+ * declaró para esa serie ('cuadre' o 'fuera'), así que aquí no se adivina nada.
+ */
+function abrirDetalle({ periodo, tipo } = {}) {
   if (!periodo) return
   periodoDetalle.value = periodo
+  tipoDetalle.value = tipo === 'fuera' ? 'fuera' : 'cuadre'
   detalleOpen.value = true
 }
 
@@ -270,15 +275,13 @@ function getChartConfig(g) {
   })
   const configs = {
     // Ganancia y caja
-    // `detalle` pone el botón "Ver detalle" en el tooltip: abre el desglose por
-    // producto de esa barra. Solo tiene sentido donde la barra es dinero de
-    // cuadre, que es lo que el desglose reproduce.
-    'ganancia-por-periodo': barra('periodo', ['ganancia'], { periodo: 'Período', ganancia: 'Ganancia' }, { detalle: true }),
+    // `detalle` pone el "Ver detalle" de cada serie en el tooltip y declara qué
+    // desglose abre: la barra del cuadre y la de fuera de cuadre son distintas.
+    'ganancia-por-periodo': barra('periodo', ['gananciaCuadre', 'gananciaDirecta'], { periodo: 'Período', gananciaCuadre: 'Cuadre', gananciaDirecta: 'Fuera de cuadre' }, { detalle: { gananciaCuadre: 'cuadre', gananciaDirecta: 'fuera' } }),
     'ganancia-real-fifo': barra('nombre', ['valor'], { nombre: 'Producto', valor: 'Ganancia real' }),
     'margen-porcentaje-producto': barra('nombre', ['valor'], { nombre: 'Producto', valor: 'Margen' }),
     'diferencia-estimada-real': barra('nombre', ['diferencia'], { nombre: 'Producto', diferencia: 'Diferencia' }),
-    'ingresos-por-periodo': barra('periodo', ['ingresoTotal'], { periodo: 'Período', ingresoTotal: 'Ingreso total' }, { detalle: true }),
-    'ingresos-fuera-de-cuadre': { xKey: 'periodo', yKeys: ['ingresoDirecto', 'gananciaDirecta'], labels: { periodo: 'Período', ingresoDirecto: 'Venta directa', gananciaDirecta: 'Ganancia directa' } },
+    'ingresos-por-periodo': barra('periodo', ['ingresoCuadre', 'ingresoDirecto'], { periodo: 'Período', ingresoCuadre: 'Cuadre', ingresoDirecto: 'Fuera de cuadre' }, { detalle: { ingresoCuadre: 'cuadre', ingresoDirecto: 'fuera' } }),
     'regalos-descuentos-por-periodo': barra('periodo', ['valorRegalado', 'valorDescontado'], { periodo: 'Período', valorRegalado: 'Valor regalado', valorDescontado: 'Valor descontado' }),
     'faltantes-sobrantes-acumulados': barra('periodo', ['diferencia'], { periodo: 'Período', diferencia: 'Diferencia' }),
     'pagos-trabajadores': barra('trabajadorNombre', ['totalPagado'], { trabajadorNombre: 'Trabajador', totalPagado: 'Total pagado' }),
@@ -555,6 +558,7 @@ function getChartConfig(g) {
     <GraficasDialogoDetallePeriodo
       v-model="detalleOpen"
       :periodo="periodoDetalle"
+      :tipo="tipoDetalle"
       :agrupacion="agrupacion"
       :desde="fechaDesde?.toString() ?? ''"
       :hasta="fechaHasta?.toString() ?? ''"

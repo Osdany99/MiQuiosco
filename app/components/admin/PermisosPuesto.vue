@@ -5,7 +5,8 @@
     title="Permisos del puesto"
     :description="puesto ? `«${puesto.nombre}» — lo que el super admin deja ver o hacer en el equipo.` : undefined"
     confirm-text="Guardar permisos"
-    :loading="guardando"
+    :loading="loading"
+    :ui="{ content: 'sm:max-w-xl' }"
     @confirm="confirmar"
     @cancel="cerrar"
   >
@@ -19,7 +20,7 @@
       />
 
       <!-- Presets rápidos -->
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <UButton
           size="xs"
           variant="soft"
@@ -32,37 +33,14 @@
           size="xs"
           variant="soft"
           color="neutral"
-          icon="i-lucide-lock"
-          label="Solo cuadre"
-          @click="aplicarPreset('solo-cuadre')"
-        />
-        <UButton
-          size="xs"
-          variant="soft"
-          color="neutral"
-          icon="i-lucide-store"
-          label="Quiosco + cuadre"
-          @click="aplicarPreset('quiosco')"
-        />
-        <UButton
-          size="xs"
-          variant="soft"
-          color="neutral"
-          icon="i-lucide-smartphone"
-          label="Recargas"
-          @click="aplicarPreset('recargas')"
-        />
-        <UButton
-          size="xs"
-          variant="soft"
-          color="neutral"
           icon="i-lucide-eye"
           label="Solo consulta"
           @click="aplicarPreset('consulta')"
         />
         <UButton
+          class="ml-auto"
           size="xs"
-          variant="soft"
+          variant="ghost"
           color="neutral"
           icon="i-lucide-rotate-ccw"
           label="Restablecer defaults"
@@ -70,22 +48,36 @@
         />
       </div>
 
-      <!-- Vista previa -->
-      <UAlert
-        color="neutral"
-        variant="soft"
-        icon="i-lucide-info"
-        title="Aplicación"
-        description="Se aplican en la próxima sincronización del equipo."
-      />
-
-      <UInput
-        v-model="busqueda"
-        icon="i-lucide-search"
-        placeholder="Buscar vista o acción"
-        size="sm"
-        class="w-full"
-      />
+      <!-- Búsqueda y expansión -->
+      <div class="flex items-center gap-2">
+        <UInput
+          v-model="busqueda"
+          icon="i-lucide-search"
+          placeholder="Buscar vista o acción"
+          size="sm"
+          class="min-w-0 flex-1"
+        />
+        <template v-if="!hayBusqueda">
+          <UButton
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-chevrons-down"
+            label="Expandir"
+            aria-label="Expandir todas las vistas"
+            @click="expandirTodas"
+          />
+          <UButton
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-chevrons-up"
+            label="Contraer"
+            aria-label="Contraer todas las vistas"
+            @click="contraerTodas"
+          />
+        </template>
+      </div>
 
       <!-- Copiar de otro puesto -->
       <div v-if="otrosPuestos.length" class="flex items-center gap-2">
@@ -101,85 +93,121 @@
         />
       </div>
 
-      <div class="max-h-[50vh] overflow-auto space-y-3 pr-1">
-        <template v-for="(grupo, nombre) in gruposFiltrados" :key="nombre">
-          <UCard variant="soft">
-            <template #header>
-              <span class="font-semibold text-sm">{{ nombre }}</span>
-            </template>
-            <div class="space-y-2">
-              <template v-for="vista in grupo" :key="vista.key">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <UIcon :name="vista.icon" class="size-4 shrink-0 text-muted" />
-                    <div class="min-w-0">
-                      <p class="text-sm font-medium truncate">
-                        {{ vista.label }}
-                      </p>
-                      <p class="text-xs text-muted">
-                        {{ claveVista(vista.key) }}
-                      </p>
-                    </div>
-                  </div>
+      <div class="max-h-[52vh] overflow-auto rounded-lg border border-default">
+        <div class="divide-y divide-default">
+          <section v-for="(grupo, nombre) in gruposFiltrados" :key="nombre" class="px-3 py-2.5">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted">
+              {{ nombre }}
+            </h3>
+            <div class="mt-1 divide-y divide-default">
+              <div v-for="vista in grupo" :key="vista.key" class="py-0.5">
+                <div class="flex min-h-11 items-center gap-3">
+                  <UIcon :name="vista.icon" class="size-4 shrink-0 text-muted" />
+                  <button
+                    v-if="tieneAcciones(vista)"
+                    type="button"
+                    class="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    :aria-expanded="estaExpandida(vista.key)"
+                    :aria-controls="`perm-${vista.key}`"
+                    @click="alternarVista(vista.key)"
+                  >
+                    <span class="truncate text-sm font-medium">{{ vista.label }}</span>
+                    <UBadge
+                      size="sm"
+                      variant="soft"
+                      :color="resumenVista(vista).todas ? 'success' : 'neutral'"
+                      class="shrink-0"
+                    >
+                      {{ resumenVista(vista).activas }}/{{ resumenVista(vista).total }}
+                    </UBadge>
+                    <UIcon
+                      name="i-lucide-chevron-down"
+                      class="ml-auto size-4 shrink-0 text-muted transition-transform"
+                      :class="estaExpandida(vista.key) ? 'rotate-180' : ''"
+                    />
+                  </button>
+                  <span v-else class="min-w-0 flex-1 truncate text-sm font-medium">
+                    {{ vista.label }}
+                  </span>
                   <USwitch
                     v-model="estado[claveVista(vista.key)]"
                     :disabled="vista.obligatorio"
-                    @update:model-value="onCambioVista(vista.key)"
+                    :aria-label="vista.obligatorio ? `${vista.label} (obligatoria)` : vista.label"
+                    class="shrink-0"
                   />
                 </div>
 
-                <div v-if="(vista.acciones || []).length" class="ml-6 pl-2 border-l border-default space-y-1">
-                  <template v-for="acc in vista.acciones" :key="acc.key">
-                    <div class="flex items-center justify-between gap-3">
-                      <p class="text-xs text-muted truncate">
-                        {{ acc.label }}
-                      </p>
+                <template v-if="tieneAcciones(vista)">
+                  <div
+                    v-show="estaExpandida(vista.key)"
+                    :id="`perm-${vista.key}`"
+                    class="ml-6 space-y-1 border-l border-default pb-1.5 pl-3"
+                  >
+                    <div
+                      v-for="acc in accionesVisibles(vista)"
+                      :key="acc.key"
+                      class="flex min-h-9 items-center justify-between gap-3"
+                    >
+                      <span class="truncate text-xs text-muted">{{ acc.label }}</span>
                       <USwitch
-                        v-if="busquedaOk(vista, acc)"
                         v-model="estado[claveAccion(vista.key, acc.key)]"
                         :disabled="!estado[claveVista(vista.key)]"
+                        :aria-label="acc.label"
+                        class="shrink-0"
                       />
                     </div>
-                  </template>
-                </div>
-              </template>
+                  </div>
+                </template>
+              </div>
             </div>
-          </UCard>
-        </template>
+          </section>
 
-        <!-- Datos sensibles -->
-        <UCard variant="soft">
-          <template #header>
-            <span class="font-semibold text-sm">Datos sensibles</span>
-          </template>
-          <div class="space-y-2">
-            <template v-for="d in datosFiltrados" :key="d.key">
-              <div class="flex items-center justify-between gap-3">
-                <p class="text-sm font-medium">
-                  {{ d.label }}
-                </p>
-                <USwitch v-model="estado[claveDato(d.key)]" />
+          <!-- Datos sensibles -->
+          <section v-if="datosFiltrados.length" class="px-3 py-2.5">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted">
+              Datos sensibles
+            </h3>
+            <div class="mt-1 divide-y divide-default">
+              <div
+                v-for="d in datosFiltrados"
+                :key="d.key"
+                class="flex min-h-11 items-center justify-between gap-3"
+              >
+                <span class="text-sm">{{ d.label }}</span>
+                <USwitch
+                  v-model="estado[claveDato(d.key)]"
+                  :aria-label="d.label"
+                  class="shrink-0"
+                />
               </div>
-            </template>
-          </div>
-        </UCard>
+            </div>
+          </section>
 
-        <!-- Modalidades de venta -->
-        <UCard variant="soft">
-          <template #header>
-            <span class="font-semibold text-sm">Modalidades de venta</span>
-          </template>
-          <div class="space-y-2">
-            <template v-for="v in ventaFiltrada" :key="v.key">
-              <div class="flex items-center justify-between gap-3">
-                <p class="text-sm font-medium">
-                  {{ v.label }}
-                </p>
-                <USwitch v-model="estado[v.key]" />
+          <!-- Modalidades de venta -->
+          <section v-if="ventaFiltrada.length" class="px-3 py-2.5">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted">
+              Modalidades de venta
+            </h3>
+            <div class="mt-1 divide-y divide-default">
+              <div
+                v-for="v in ventaFiltrada"
+                :key="v.key"
+                class="flex min-h-11 items-center justify-between gap-3"
+              >
+                <span class="text-sm">{{ v.label }}</span>
+                <USwitch
+                  v-model="estado[v.key]"
+                  :aria-label="v.label"
+                  class="shrink-0"
+                />
               </div>
-            </template>
-          </div>
-        </UCard>
+            </div>
+          </section>
+        </div>
+
+        <p v-if="!hayResultados" class="px-3 py-6 text-center text-sm text-muted">
+          Sin resultados.
+        </p>
       </div>
 
       <!-- Resumen diff -->
@@ -196,7 +224,10 @@ import { VISTAS, DATOS, claveVista, claveAccion, claveDato, vistasPorGrupo, defe
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   puesto: { type: Object, default: null },
-  otrosPuestos: { type: Array, default: () => [] }
+  otrosPuestos: { type: Array, default: () => [] },
+  // El guardado lo hace la página: mientras corre, el diálogo no se cierra y
+  // el botón de confirmar muestra la carga real (antes cerraba a ciegas).
+  loading: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:modelValue', 'save'])
@@ -205,13 +236,16 @@ const permisos = computed(() => props.puesto?.permisos || {})
 const estado = ref({})
 const busqueda = ref('')
 const copiarDe = ref(null)
-const guardando = ref(false)
 const error = ref(null)
+// Vistas cuyas acciones están desplegadas. Por defecto todo contraído.
+const expandidas = ref(new Set())
 
 const open = computed({
   get: () => props.modelValue,
   set: v => emit('update:modelValue', v)
 })
+
+const hayBusqueda = computed(() => busqueda.value.trim().length > 0)
 
 function inicializar() {
   const completo = estadoCompleto(permisos.value || {})
@@ -229,6 +263,9 @@ watch(() => props.modelValue, (v) => {
   if (v) {
     inicializar()
     error.value = null
+    busqueda.value = ''
+    copiarDe.value = null
+    expandidas.value = new Set()
   }
 })
 
@@ -260,62 +297,84 @@ const ventaFiltrada = computed(() => {
   return vistasVenta.value.filter(v => !texto || v.label.toLowerCase().includes(texto))
 })
 
-function busquedaOk(vista, acc) {
+const hayResultados = computed(() => Object.keys(gruposFiltrados.value).length > 0
+  || datosFiltrados.value.length > 0
+  || ventaFiltrada.value.length > 0)
+
+function tieneAcciones(vista) {
+  return (vista.acciones || []).length > 0
+}
+
+function accionesVisibles(vista) {
+  const acciones = vista.acciones || []
   const texto = busqueda.value.trim().toLowerCase()
-  if (!texto) return true
-  return vista.label.toLowerCase().includes(texto) || acc.label.toLowerCase().includes(texto)
+  if (!texto) return acciones
+  if (vista.label.toLowerCase().includes(texto)) return acciones
+  return acciones.filter(a => a.label.toLowerCase().includes(texto))
+}
+
+function resumenVista(vista) {
+  const acciones = vista.acciones || []
+  const vistaOn = !!estado.value[claveVista(vista.key)]
+  const activas = vistaOn
+    ? acciones.filter(a => estado.value[claveAccion(vista.key, a.key)]).length
+    : 0
+  return { activas, total: acciones.length, todas: acciones.length > 0 && activas === acciones.length }
+}
+
+function alternarVista(key) {
+  const siguiente = new Set(expandidas.value)
+  if (siguiente.has(key)) siguiente.delete(key)
+  else siguiente.add(key)
+  expandidas.value = siguiente
+}
+
+function estaExpandida(key) {
+  // Mientras se busca, todo lo que coincide se muestra abierto.
+  return hayBusqueda.value || expandidas.value.has(key)
+}
+
+function expandirTodas() {
+  expandidas.value = new Set(
+    VISTAS.filter(v => !v.virtual && (v.acciones || []).length).map(v => v.key)
+  )
+}
+
+function contraerTodas() {
+  expandidas.value = new Set()
 }
 
 function aplicarPreset(nombre) {
   const nuevo = {}
   for (const k of Object.keys(estado.value)) nuevo[k] = defectoDeClave(k)
-  const vistasNormales = VISTAS.filter(v => !v.virtual)
-  const setVista = (key, on) => {
-    nuevo[claveVista(key)] = on
-  }
-  const setAccion = (vista, acc, on) => {
-    nuevo[claveAccion(vista, acc)] = on
-  }
 
-  if (nombre === 'defaults') {
-    // ya está en defaults
-  } else if (nombre === 'completo') {
+  if (nombre === 'completo') {
     for (const k of Object.keys(nuevo)) nuevo[k] = true
-  } else if (nombre === 'solo-cuadre') {
-    for (const v of vistasNormales) setVista(v.key, v.key === 'cuadre')
-    for (const v of VISTAS.filter(x => x.virtual)) nuevo[v.key] = false
-    for (const d of DATOS) nuevo[claveDato(d.key)] = false
-    for (const v of vistasNormales) for (const a of v.acciones) setAccion(v.key, a.key, (v.key === 'cuadre' && a.key !== 'cerrar' ? false : v.key === 'cuadre'))
-  } else if (nombre === 'quiosco') {
-    for (const v of vistasNormales) setVista(v.key, ['cuadre', 'quiosco', 'clientes', 'deudas'].includes(v.key))
-    for (const v of VISTAS.filter(x => x.virtual)) nuevo[v.key] = ['venta.contado', 'venta.fiado'].includes(v.key)
-    for (const d of DATOS) nuevo[claveDato(d.key)] = true
-    for (const v of vistasNormales) for (const a of v.acciones) setAccion(v.key, a.key, (['cuadre', 'quiosco', 'clientes', 'deudas'].includes(v.key)) ? a.defecto !== false : false)
-  } else if (nombre === 'recargas') {
-    for (const v of vistasNormales) setVista(v.key, ['cuadre', 'recargas', 'recargas-sms', 'clientes', 'deudas'].includes(v.key))
-    for (const v of VISTAS.filter(x => x.virtual)) nuevo[v.key] = false
-    for (const d of DATOS) nuevo[claveDato(d.key)] = true
-    for (const v of vistasNormales) for (const a of v.acciones) setAccion(v.key, a.key, (['cuadre', 'recargas', 'recargas-sms', 'clientes', 'deudas'].includes(v.key)) ? a.defecto !== false : false)
   } else if (nombre === 'consulta') {
     for (const k of Object.keys(nuevo)) {
       if (k.startsWith('vistas.') || k.startsWith('datos.') || k.startsWith('venta.')) nuevo[k] = true
       else nuevo[k] = false
     }
   }
+  // 'defaults' ya se resolvió con defectoDeClave() arriba.
+
   estado.value = nuevo
+  expandidas.value = new Set()
 }
 
-function onCambioVista() {
-  // No-op: resolver se hace al guardar.
-}
-
-function onCopiar(puesto) {
-  if (!puesto) return
-  const completo = estadoCompleto(puesto.permisos || {})
+function onCopiar(valor) {
+  if (!valor) return
+  // Con `value-key="id"` el select emite el id, no el objeto.
+  const otro = typeof valor === 'string'
+    ? props.otrosPuestos.find(p => p.id === valor)
+    : valor
+  if (!otro) return
+  const completo = estadoCompleto(otro.permisos || {})
   estado.value = { ...completo }
+  expandidas.value = new Set()
 }
 
-async function confirmar() {
+function confirmar() {
   error.value = null
   const overrides = estadoAOverrides(estado.value)
   // Validar que al menos una vista quede activa y cuadre obligatorio.
@@ -329,15 +388,9 @@ async function confirmar() {
     error.value = 'El cuadre del día no se puede desactivar.'
     return
   }
-  guardando.value = true
-  try {
-    emit('save', overrides)
-    open.value = false
-  } catch (e) {
-    error.value = e?.message || 'No se pudo guardar.'
-  } finally {
-    guardando.value = false
-  }
+  // El cierre lo decide la página cuando el PATCH termina bien: si falla, el
+  // diálogo sigue abierto con lo elegido y se muestra el error.
+  emit('save', overrides)
 }
 
 function cerrar() {

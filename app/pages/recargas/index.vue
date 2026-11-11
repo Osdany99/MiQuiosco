@@ -202,20 +202,13 @@ onUnmounted(() => soltarResume?.())
 </script>
 
 <template>
+  <!-- Sin botón "Adicionar": la recarga entra desde el SMS, no se crea a mano. -->
   <BaseHeaderPage
     title="Recargas"
     description="Historial de recargas registradas"
     leading-icon="i-lucide-smartphone-charging"
+    :show-button="false"
   >
-    <template #trailing>
-      <UButton
-        icon="i-lucide-bar-chart-2"
-        variant="outline"
-        label="Ver gráficas"
-        @click="navigateTo('/graficas?seccion=recargas')"
-      />
-    </template>
-
     <BaseTable
       ref="tableRef"
       :config="config"
