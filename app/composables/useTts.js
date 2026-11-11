@@ -114,12 +114,19 @@ function _useTts() {
   /** Carga voces vía plugin nativo (Android). */
   async function _cargarVocesNativas() {
     try {
-      const r = await TtsNative.getVoices({ language: '' })
+      const r = await TtsNative.getVoices({ language: 'es' })
       const lista = Array.isArray(r?.voices) ? r.voices : []
 
-      // Normalizar al formato { name, lang, voiceURI, offline }.
-      const normalizadas = lista.map(v => ({
+      // Filtrar estrictamente solo español
+      const soloEspanol = lista.filter(v => {
+        const l = String(v.lang || '').toLowerCase()
+        return l.startsWith('es') || l.startsWith('spa')
+      })
+
+      // Normalizar al formato { name, displayName, lang, voiceURI, offline, quality, installed }.
+      const normalizadas = soloEspanol.map(v => ({
         name: v.name || v.lang || '',
+        displayName: v.displayName || v.name || v.lang || '',
         lang: v.lang || '',
         voiceURI: v.name || v.lang || '',
         offline: Boolean(v.offline),
@@ -127,13 +134,10 @@ function _useTts() {
         installed: Boolean(v.installed)
       }))
 
-      // Ordenar: español primero, luego offline primero, luego nombre.
+      // Ordenar: offline primero, luego por nombre
       const ordenadas = normalizadas.sort((a, b) => {
-        const aEs = String(a.lang).toLowerCase().startsWith('es')
-        const bEs = String(b.lang).toLowerCase().startsWith('es')
-        if (aEs !== bEs) return aEs ? -1 : 1
         if (a.offline !== b.offline) return a.offline ? -1 : 1
-        return String(a.name).localeCompare(String(b.name))
+        return String(a.displayName || a.name).localeCompare(String(b.displayName || b.name))
       })
 
       voces.value = ordenadas
@@ -176,11 +180,21 @@ function _useTts() {
       }
     }
 
-    const ordenadas = [...lista].sort((a, b) => {
-      const aEs = String(a?.lang || '').toLowerCase().startsWith('es')
-      const bEs = String(b?.lang || '').toLowerCase().startsWith('es')
-      if (aEs !== bEs) return aEs ? -1 : 1
-      return String(a?.name || '').localeCompare(String(b?.name || ''))
+    const soloEspanol = lista.filter(v => {
+      const l = String(v?.lang || '').toLowerCase()
+      return l.startsWith('es') || l.startsWith('spa')
+    })
+
+    const normalizadas = soloEspanol.map(v => ({
+      name: v.name || v.lang || '',
+      displayName: v.name || v.lang || '',
+      lang: v.lang || '',
+      voiceURI: v.voiceURI || v.name || '',
+      offline: false
+    }))
+
+    const ordenadas = normalizadas.sort((a, b) => {
+      return String(a.displayName || a.name).localeCompare(String(b.displayName || b.name))
     })
 
     voces.value = ordenadas

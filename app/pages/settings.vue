@@ -384,8 +384,7 @@ const sttOfflineDisponible = computed(() => voz.esNativo.value && voz.sttOffline
 const probandoTts = ref(false)
 const itemsVocesTts = computed(() =>
   (tts.voces.value || []).map((v) => {
-    const partes = [v.name || v.lang || '(sin nombre)']
-    if (v.lang) partes.push(`(${v.lang})`)
+    const partes = [v.displayName || v.name || v.lang || '(sin nombre)']
     if (v.offline === true) partes.push('· offline')
     return { label: partes.join(' '), value: v.voiceURI }
   })

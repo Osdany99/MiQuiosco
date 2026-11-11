@@ -250,7 +250,7 @@ async function onPointerUp(e) {
   }
 }
 
-/** Acción de toque/teclado: en push-to-talk alternar; en modo tap, cancelar o activar. */
+/** Acción de toque/teclado: en push-to-talk alternar; en modo tap, detener escucha o activar. */
 function accion() {
   if (!props.disponible) {
     avisarNoDisponible()
@@ -262,7 +262,7 @@ function accion() {
     return
   }
   if (puedeCancelar.value) {
-    emit('cancelar')
+    emit('detener')
     return
   }
   if (props.ocupado) return

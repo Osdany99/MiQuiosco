@@ -8,6 +8,7 @@ export function calcularMotivoNoDisponible({
   webSoportado,
   nativoDisponible,
   permisoMicrofono,
+  modo,
   hayRed
 }) {
   if (!configLista) return 'Cargando…'
@@ -24,6 +25,7 @@ export function calcularMotivoNoDisponible({
   // En Android nativo, STT (plugin VoiceRecognitionNative) y TTS
   // funcionan sin red. No bloquear por modo local ni por falta de internet.
   if (esNativo) return null
-  if (!hayRed) return 'Sin conexión: la voz no está disponible en el navegador.'
+  if (modo === 'local') return 'Modo local: la voz no está disponible.'
+  if (!hayRed) return 'Sin conexión: la voz no está disponible.'
   return null
 }

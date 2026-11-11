@@ -48,6 +48,8 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     private PluginCall currentCall = null;
     private long startTime = 0L;
     private long ultimoNivelMs = 0L;
+    private String lastPartialText = "";
+    private ArrayList<String> lastPartialMatches = new ArrayList<>();
 
     @PluginMethod
     public void check(PluginCall call) {
@@ -116,15 +118,22 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                     return;
                 }
                 cleanupRecognizer();
+                lastPartialText = "";
+                lastPartialMatches.clear();
                 recognizer = SpeechRecognizer.createSpeechRecognizer(getContext());
                 Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
                 intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
                 if (language != null && !language.isEmpty()) {
                     intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
+                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language);
                 }
                 intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
                 intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+                try {
+                    intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getContext().getPackageName());
+                } catch (Exception ignored) {}
                 // Dar margen para que el usuario hable sin que el
                 // reconocedor se rinda por silencio.
                 intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000);
@@ -147,6 +156,10 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                             SpeechRecognizer.RESULTS_RECOGNITION);
                         if (matches == null || matches.isEmpty()) return;
                         String text = matches.get(0);
+                        if (text != null && !text.trim().isEmpty()) {
+                            lastPartialText = text.trim();
+                            lastPartialMatches = new ArrayList<>(matches);
+                        }
                         try {
                             JSObject data = new JSObject();
                             data.put("text", text == null ? "" : text);
@@ -171,31 +184,46 @@ public class VoiceRecognitionNativePlugin extends Plugin {
 
                     @Override
                     public void onResults(Bundle results) {
-                        ArrayList<String> matches = results.getStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION);
-                        float[] scores = results.getFloatArray(
-                            SpeechRecognizer.CONFIDENCE_SCORES);
+                        ArrayList<String> matches = results != null ? results.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION) : null;
+                        float[] scores = results != null ? results.getFloatArray(
+                            SpeechRecognizer.CONFIDENCE_SCORES) : null;
                         String text = (matches != null && !matches.isEmpty()) ? matches.get(0) : "";
                         float confidence = (scores != null && scores.length > 0) ? scores[0] : 0f;
+
+                        // Rescatar transcripción parcial si el resultado final viene vacío
+                        if ((text == null || text.trim().isEmpty()) && !lastPartialText.isEmpty()) {
+                            text = lastPartialText;
+                            confidence = 0.8f;
+                            if (matches == null || matches.isEmpty()) {
+                                matches = lastPartialMatches;
+                            }
+                        }
+
                         long duration = System.currentTimeMillis() - t0;
 
                         if (currentCall != null) {
                             JSObject data = new JSObject();
-                            data.put("text", text);
+                            data.put("text", text != null ? text : "");
                             data.put("confidence", confidence);
                             data.put("durationMs", duration);
-                        JSArray alternativas = new JSArray();
-                        if (matches != null) {
-                            int limite = Math.min(matches.size(), 5);
-                            for (int i = 0; i < limite; i++) {
+                            JSArray alternativas = new JSArray();
+                            if (matches != null) {
+                                int limite = Math.min(matches.size(), 5);
+                                for (int i = 0; i < limite; i++) {
+                                    JSObject alt = new JSObject();
+                                    alt.put("text", matches.get(i));
+                                    float sc = (scores != null && i < scores.length) ? scores[i] : 0.8f;
+                                    alt.put("confidence", sc);
+                                    alternativas.put(alt);
+                                }
+                            } else if (text != null && !text.isEmpty()) {
                                 JSObject alt = new JSObject();
-                                alt.put("text", matches.get(i));
-                                float sc = (scores != null && i < scores.length) ? scores[i] : 0f;
-                                alt.put("confidence", sc);
+                                alt.put("text", text);
+                                alt.put("confidence", confidence);
                                 alternativas.put(alt);
                             }
-                        }
-                        data.put("alternativas", alternativas);
+                            data.put("alternativas", alternativas);
                             currentCall.resolve(data);
                             currentCall = null;
                         }
@@ -204,6 +232,35 @@ public class VoiceRecognitionNativePlugin extends Plugin {
 
                     @Override
                     public void onError(int error) {
+                        // Si falló por no_match o timeout de silencio pero capturamos transcripción parcial válida:
+                        if ((error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                                && !lastPartialText.isEmpty()) {
+                            if (currentCall != null) {
+                                JSObject data = new JSObject();
+                                data.put("text", lastPartialText);
+                                data.put("confidence", 0.8f);
+                                data.put("durationMs", System.currentTimeMillis() - t0);
+                                JSArray alternativas = new JSArray();
+                                for (String m : lastPartialMatches) {
+                                    JSObject alt = new JSObject();
+                                    alt.put("text", m);
+                                    alt.put("confidence", 0.8f);
+                                    alternativas.put(alt);
+                                }
+                                if (alternativas.length() == 0) {
+                                    JSObject alt = new JSObject();
+                                    alt.put("text", lastPartialText);
+                                    alt.put("confidence", 0.8f);
+                                    alternativas.put(alt);
+                                }
+                                data.put("alternativas", alternativas);
+                                currentCall.resolve(data);
+                                currentCall = null;
+                            }
+                            cleanupRecognizer();
+                            return;
+                        }
+
                         String msg = mensajeError(error);
                         if (currentCall != null) {
                             currentCall.reject(msg, String.valueOf(error));

@@ -241,15 +241,25 @@ function _useVoiceCommand() {
           }, TIMEOUT_MS)
         })
       ])
-      transcript.value = resultado?.text ?? ''
-      transcriptParcial.value = transcript.value
-      confidence.value = Number(resultado?.confidence) || 0
-      alternativas.value = Array.isArray(resultado?.alternativas)
+      const textoFinal = resultado?.text?.trim() || transcriptParcial.value?.trim() || ''
+      transcript.value = textoFinal
+      transcriptParcial.value = textoFinal
+      confidence.value = Number(resultado?.confidence) || (textoFinal ? 0.8 : 0)
+      alternativas.value = Array.isArray(resultado?.alternativas) && resultado.alternativas.length > 0
         ? resultado.alternativas.map(a => ({ texto: a?.text ?? a?.texto ?? '', confianza: Number(a?.confidence ?? a?.confianza) || 0 }))
-        : []
+        : (textoFinal ? [{ texto: textoFinal, confianza: confidence.value }] : [])
       estado.value = 'ready'
     } catch (e) {
       const detalle = e?.message || 'Error desconocido'
+      // Si falló por no_match o timeout pero el oyente parcial capturó la frase del usuario:
+      const parcial = transcriptParcial.value?.trim()
+      if (parcial && (detalle.includes('no_match') || detalle.includes('timeout') || detalle.includes('speech_timeout'))) {
+        transcript.value = parcial
+        confidence.value = 0.8
+        alternativas.value = [{ texto: parcial, confianza: 0.8 }]
+        estado.value = 'ready'
+        return
+      }
       if (esCancelacion(detalle)) estado.value = 'cancelled'
       else {
         error.value = mensajeStt(detalle)

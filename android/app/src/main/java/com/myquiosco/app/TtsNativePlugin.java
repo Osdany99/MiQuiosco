@@ -116,7 +116,7 @@ public class TtsNativePlugin extends Plugin {
             return;
         }
 
-        String filtroLang = call.getString("language", "");
+        String filtroLang = call.getString("language", "es");
         JSArray arr = new JSArray();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -124,26 +124,21 @@ public class TtsNativePlugin extends Plugin {
                 Set<Voice> voices = tts.getVoices();
                 if (voices != null) {
                     for (Voice v : voices) {
-                        // Ignorar voces de red si el caller solo quiere offline.
-                        // Incluir todas para que la UI pueda filtrar.
-                        String lang = v.getLocale() != null
-                                ? v.getLocale().toLanguageTag()
-                                : "";
+                        Locale loc = v.getLocale();
+                        String lang = loc != null ? loc.toLanguageTag() : "";
 
-                        // Filtrar por idioma si se especificó (p. ej. "es").
-                        if (filtroLang != null && !filtroLang.isEmpty()) {
-                            if (!lang.toLowerCase().startsWith(filtroLang.toLowerCase())) {
-                                continue;
-                            }
+                        // Filtrar por idioma si se especificó
+                        if (!esIdiomaCoincidente(loc, lang, filtroLang)) {
+                            continue;
                         }
 
                         JSObject item = new JSObject();
                         item.put("name", v.getName());
                         item.put("lang", lang);
+                        String displayName = (loc != null) ? loc.getDisplayName(new Locale("es", "ES")) : v.getName();
+                        item.put("displayName", displayName);
                         item.put("offline", !v.isNetworkConnectionRequired());
                         item.put("quality", v.getQuality());
-                        // Marcar si está instalada/descargada.
-                        int features = v.getFeatures() != null ? v.getFeatures().size() : 0;
                         item.put("installed", !v.isNetworkConnectionRequired());
                         arr.put(item);
                     }
@@ -163,14 +158,13 @@ public class TtsNativePlugin extends Plugin {
                     int avail = tts.isLanguageAvailable(loc);
                     if (avail >= TextToSpeech.LANG_AVAILABLE) {
                         String lang = loc.toLanguageTag();
-                        if (filtroLang != null && !filtroLang.isEmpty()) {
-                            if (!lang.toLowerCase().startsWith(filtroLang.toLowerCase())) {
-                                continue;
-                            }
+                        if (!esIdiomaCoincidente(loc, lang, filtroLang)) {
+                            continue;
                         }
                         JSObject item = new JSObject();
                         item.put("name", lang);
                         item.put("lang", lang);
+                        item.put("displayName", loc.getDisplayName(new Locale("es", "ES")));
                         item.put("offline", avail == TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE
                                 || avail == TextToSpeech.LANG_COUNTRY_AVAILABLE
                                 || avail == TextToSpeech.LANG_AVAILABLE);
@@ -298,6 +292,29 @@ public class TtsNativePlugin extends Plugin {
     // ──────────────────────────────────────────────
     //  Utilidades
     // ──────────────────────────────────────────────
+
+    private static boolean esIdiomaCoincidente(Locale loc, String langTag, String filtro) {
+        if (filtro == null || filtro.isEmpty()) return true;
+        String f = filtro.toLowerCase().trim();
+        if (f.equals("es") || f.equals("spa") || f.startsWith("es")) {
+            if (loc != null) {
+                String language = loc.getLanguage();
+                if (language != null && (language.equalsIgnoreCase("es") || language.equalsIgnoreCase("spa"))) {
+                    return true;
+                }
+                try {
+                    String iso3 = loc.getISO3Language();
+                    if (iso3 != null && iso3.equalsIgnoreCase("spa")) return true;
+                } catch (Exception ignored) {}
+            }
+            if (langTag != null) {
+                String l = langTag.toLowerCase();
+                return l.startsWith("es") || l.startsWith("spa");
+            }
+            return false;
+        }
+        return (langTag != null && langTag.toLowerCase().startsWith(f));
+    }
 
     private static JSObject jsOk() {
         JSObject r = new JSObject();

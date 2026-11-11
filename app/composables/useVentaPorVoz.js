@@ -557,7 +557,7 @@ export function useVentaPorVoz(ubicacion) {
         return
       }
       if (voice.estado.value === 'error') throw new Error(voice.error.value || 'No te entendí.')
-      const texto = voice.transcript.value
+      const texto = voice.transcript.value?.trim() || voice.transcriptParcial.value?.trim()
       if (!texto) throw new Error('No te entendí. Prueba otra vez.')
       await procesar(texto, voice.confidence.value, gen, voice.alternativas.value)
     } catch (e) {
