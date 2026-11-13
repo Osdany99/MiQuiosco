@@ -118,7 +118,7 @@ function _useTts() {
       const lista = Array.isArray(r?.voices) ? r.voices : []
 
       // Filtrar estrictamente solo español
-      const soloEspanol = lista.filter(v => {
+      const soloEspanol = lista.filter((v) => {
         const l = String(v.lang || '').toLowerCase()
         return l.startsWith('es') || l.startsWith('spa')
       })
@@ -180,7 +180,7 @@ function _useTts() {
       }
     }
 
-    const soloEspanol = lista.filter(v => {
+    const soloEspanol = lista.filter((v) => {
       const l = String(v?.lang || '').toLowerCase()
       return l.startsWith('es') || l.startsWith('spa')
     })
@@ -259,19 +259,32 @@ function _useTts() {
     if (!texto) return
     await cargar()
     await cargarVoces()
-    if (!disponible.value || !habilitado.value) return
-
-    if (esNativo.value) {
-      return _speakNativo(texto)
+    const diag = useVoiceCommand()
+    const t0 = Date.now()
+    if (!disponible.value || !habilitado.value) {
+      diag.registrar('tts.skip', {
+        texto,
+        disponible: disponible.value,
+        habilitado: habilitado.value
+      })
+      return
     }
-    return _speakWeb(texto)
+    diag.registrar('tts.speak', { texto, nativo: esNativo.value })
+    if (esNativo.value) {
+      return _speakNativo(texto, diag, t0)
+    }
+    return _speakWeb(texto, diag, t0)
   }
 
   /** Habla usando el motor TTS nativo de Android. */
-  async function _speakNativo(texto) {
+  async function _speakNativo(texto, diag, t0) {
     const maxMs = Math.max(2500, String(texto).length * 90)
     return new Promise((resolve) => {
+      let terminado = false
       const terminar = () => {
+        if (terminado) return
+        terminado = true
+        diag?.registrar('tts.done', { ms: Date.now() - (t0 || Date.now()) })
         hablando.value = false
         pulsoHabla.value = 0
         if (ttsEventListener) {
@@ -301,6 +314,7 @@ function _useTts() {
             } else if (ev === 'boundary') {
               pulsoHabla.value = 0.55 + Math.random() * 0.45
             } else if (ev === 'end' || ev === 'error') {
+              if (ev === 'error') diag?.registrar('tts.error', { detalle: data?.error || 'error' })
               clearTimeout(timer)
               terminar()
             }
@@ -328,10 +342,14 @@ function _useTts() {
   }
 
   /** Habla usando Web Speech API (navegador). */
-  function _speakWeb(texto) {
+  function _speakWeb(texto, diag, t0) {
     const maxMs = Math.max(2500, String(texto).length * 90)
     return new Promise((resolve) => {
+      let terminado = false
       const terminar = () => {
+        if (terminado) return
+        terminado = true
+        diag?.registrar('tts.done', { ms: Date.now() - (t0 || Date.now()) })
         hablando.value = false
         pulsoHabla.value = 0
         resolve()
@@ -358,7 +376,8 @@ function _useTts() {
           clearTimeout(timer)
           terminar()
         }
-        u.onerror = () => {
+        u.onerror = (event) => {
+          diag?.registrar('tts.error', { detalle: event?.error || 'error' })
           clearTimeout(timer)
           terminar()
         }

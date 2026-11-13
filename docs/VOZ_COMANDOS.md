@@ -135,6 +135,152 @@ panel `/admin/voz` muestra los eventos no reconocidos agrupados por plantilla y
 permite marcarlos como resueltos o descartados. El filtro por estado se aplica
 en SQL y está indexado por `(estado, ultimo_en)`.
 
+## Voz de respuesta (TTS) vs reconocimiento (STT)
+
+Son dos subsistemas independientes de Android y **no comparten selector**:
+
+| | TTS — *hablar* | STT — *entender* |
+|---|---|---|
+| API nativa | `TextToSpeech` (`TtsNativePlugin`) | `SpeechRecognizer` (`VoiceRecognitionNativePlugin`) |
+| Ajuste en la app | Desplegable **Voz de respuesta (hablar)** | Solo lectura: **Reconocimiento (entender)** |
+| Qué lo determina | La voz de síntesis instalada | El motor STT, su paquete offline y la red |
+| Afecta a | Cómo la app lee el resultado | Qué tan bien entiende lo que dices |
+
+Elegir una voz en el desplegable **no cambia** el reconocimiento: `startListening()`
+siempre pide `language: 'es-ES'` y nunca lee `tts.vozUri`. Que una voz "suene"
+con *Probar voz* no dice nada sobre el micrófono.
+
+El paquete de **reconocimiento** sin conexión es una descarga distinta del paquete
+de **síntesis** offline: tener una voz offline en la lista no implica tener STT
+offline.
+
+## Diagnóstico del reconocimiento
+
+En **Ajustes → Reconocimiento (entender)** se muestra:
+
+- **Motor**: componente del reconocedor por defecto (`Settings.Secure.voice_recognition_service`).
+- **En el dispositivo**: si existe reconocimiento on-device (Android 12 / API 31+).
+- **Servicios**: cuántos servicios responden a `ACTION_RECOGNIZE_SPEECH`.
+
+Al pulsar **Probar micrófono**, si falla, el aviso incluye el **código nativo**
+(`Código 11`, `Código 13`, …) para identificar la causa. Además el plugin escribe
+en logcat con la etiqueta `MiQuioscoSTT`:
+
+```bash
+adb logcat -s MiQuioscoSTT
+```
+
+Cadena de intentos del plugin (`start`):
+
+La app elige el **motor de reconocimiento** según si hay acceso real a
+Internet (`hayInternet`, comprobación ligera a `generate_204` con 4 s de
+timeout), no solo si hay interfaz WiFi/datos (`hayRed`):
+
+- **Con Internet real** (`hayInternet = true`): motor **Google**
+  (`VoiceRecognitionNative`). Plan: idioma + online → idioma + on-device (si
+  está disponible) → idioma + offline → sin idioma + online. Si Google falla
+  por completo, se hace **fallback a Vosk** antes de reportar error.
+- **Sin Internet real** (`hayInternet = false` o desconocido): motor **Vosk**
+  empaquetado (`VoskVoice`, modelo `vosk-model-small-es-0.42`, 39 MB,
+  Apache 2.0). No requiere que el usuario descargue ningún paquete de voz.
+
+El orden depende de la red porque el modelo offline puede devolver un texto
+válido pero malo: si no hay error, el plan no llegaría nunca al motor online.
+Solo se reintenta ante errores `12`, `13`, `11`, `2` y `4`, con una pausa de
+300 ms y **fuera** del callback `onError` (recrear el reconocedor dentro de su
+propio callback provoca errores espurios como `SERVER_DISCONNECTED`). Se reporta
+el **primer** error, que es el accionable (p. ej. `13` = falta el paquete offline).
+
+> `hayRed` (de `useSync()`) solo indica que hay interfaz de red conectada, no
+> que se pueda alcanzar un servidor. Una WiFi sin internet da `hayRed = true`
+> pero `hayInternet = false`, y la app usa Vosk en lugar de Google.
+
+Márgenes de silencio: 4,5 s para `COMPLETE` / `POSSIBLY_COMPLETE` y 800 ms de
+mínimo de voz, para que una pausa corta no cierre la frase a mitad (en offline se
+observaba «vende un refresco» → «vende un»).
+
+### Tiempos de espera (JS)
+
+- **Por intento**: 20 s sin ninguna señal del motor (`start`, `ready`,
+  `partial`…). Se reinicia con cada evento, así que no corta una frase en curso.
+- **Tope absoluto**: 45 s para toda la escucha (incluye reintentos del plugin).
+- Si vence el reloj, se registra `stt.timeout` y **no** se rescata el parcial:
+  en ese punto está truncado y aceptarlo daría un comando incompleto.
+
+`microListo` (la UI de "Habla ahora") solo está en `true` tras `stt.ready`; pasa
+a `false` en `stt.start`, `stt.retry`, `stt.error` y `stt.end`. Antes se quedaba
+en `true` con el micrófono muerto mientras el plugin reintentaba en silencio.
+
+### Rescate de la voz ya capturada
+
+Si el motor entregó transcripción parcial y **después** falla (11, 2, 4, 13,
+incluso 6/7), el plugin resuelve con lo parcial en vez de reintentar y
+descartarlo. Solo se exceptúan `RECOGNIZER_BUSY` y `INSUFFICIENT_PERMISSIONS`.
+Así, si la interfaz llegó a mostrar lo que dijiste, el comando no se pierde.
+
+### Traza local (Ajustes → Diagnóstico de voz)
+
+La traza **se graba siempre**, sin pulsar nada: un ring buffer de 2000 eventos
+con escritura en `localStorage` (`voz.diagnostico.local`) y en `Preferences`
+(`voz.diagnostico`). Si Android mata la app o se recarga la página, se recupera
+al volver a Ajustes. Además, el plugin nativo guarda sus últimos 200 eventos y
+los expone con `VoiceRecognitionNative.diag()`; JS los fusiona al copiar aunque
+`notifyListeners` falle. Incluye:
+
+- Eventos nativos: `plan`, `start`, `ready`, `beginning`, `partial`, `end`,
+  `result`, `error`, `retry`, `rescue`, `stop`, `finish` (con `t` epoch ms).
+- Intento y variante (`offline`, `ondevice`, `online`, `sistema`), código de
+  error, texto parcial, alternativas y confianza.
+- Eventos TTS (`tts.speak`, `tts.done`, `tts.error`) para distinguir el audio de
+  la app del *chime* del reconocedor.
+- Interpretación (`voz.interpretar`, `voz.nbest`, `voz.catalogo`,
+  `voz.decision`) y modo de conexión (`online`/`local`, `red`).
+- Pulsaciones de UI (`stt.ui.probar`, `stt.ui.dock`) para saber si la prueba
+  ocurrió dentro de la ventana.
+
+Botones: **Preparar ronda** (limpia y anota modo/red), **Limpiar** y **Copiar**.
+Al copiar se vuelca primero el buffer nativo y lo persistido. Es un registro
+**local**: nunca se envía al servidor y puede contener texto crudo del dictado.
+
+> `servicios` cuenta los servicios que responden a
+> `android.speech.action.RECOGNIZE_SPEECH`; el `<queries>` del manifiesto debe
+> declarar esa acción (no `android.speech.RecognitionService`) o sale en 0.
+
+### Motor offline (Vosk)
+
+Cuando no hay acceso a Internet real, la app usa **Vosk** en lugar de Google:
+
+- **Modelo**: `vosk-model-small-es-0.42` (español, 39 MB, Apache 2.0).
+- **Empaquetado**: va dentro del APK en `android/app/src/main/assets/vosk/vosk-es.zip`.
+  Se descomprime una sola vez a `filesDir/vosk-es/` al primer uso offline.
+- **Cero descargas para el usuario**: no necesita instalar paquetes de idioma
+  ni configurar nada en Ajustes de Android.
+- **Tamaño del APK**: +~50 MB (modelo + librerías nativas arm64).
+- **RAM**: ~300 MB mientras el modelo está cargado. Se libera al pasar a
+  segundo plano.
+- **Calidad**: buena para comandos de venta cortos («vende dos refrescos»,
+  «cuánto hay de maní»). Puede confundir nombres propios no comunes
+  (p. ej. «Osdany»); para esos casos se recomienda el motor online (Google).
+
+### Frases de prueba
+
+Misma lista en online y en local/offline:
+
+1. «vende dos refrescos»
+2. «vende cinco panes del almacén»
+3. «cuánto hay de maní»
+4. «abre cuadre»
+5. «vende un refresco familiar»
+6. «hola» (control: no es un comando)
+
+Procedimiento: **Preparar ronda** → probar las frases con el micrófono del dock
+(flujo completo) y dos con **Probar micrófono** → **Copiar**.
+
+Para que la ronda offline sea real, apagar **WiFi y datos**, esperar unos
+segundos y reabrir la app: con red activa el plan empieza por el motor online y
+los resultados no son comparables.
+
+
 ## Privacidad
 
 Nunca sale texto crudo de voz al servidor. Solo plantillas enmascaradas tras
@@ -151,6 +297,12 @@ umbral de repetición y sin nombres.
    manual; el timeout elegido persiste tras recargar.
 7. El proof queda en `voice.proofs` con producto, cantidad, ubicación y
    resultado.
+8. En **Ajustes → Reconocimiento (entender)** se ven motor, on-device y nº de
+   servicios.
+9. *Probar micrófono* dicta correctamente y, si falla, el aviso muestra el
+   código nativo.
+10. Cambiar la **Voz de respuesta** no altera el resultado de *Probar micrófono*
+    (TTS ≠ STT).
 
 ## Limitaciones conocidas
 
@@ -160,3 +312,7 @@ umbral de repetición y sin nombres.
   única) en `server/utils/vozEventos.ts`; falta programarla o exponerla en UI.
 - El comportamiento del STT nativo sin conexión depende del paquete de idioma
   offline del dispositivo y debe probarse en modo avión.
+- El selector de **Voz de respuesta** es solo TTS; Android no expone una lista
+  de voces de reconocimiento para elegir en la app.
+- `ERROR_SERVER_DISCONNECTED` (11) puede ser transitorio: el plugin reintenta la
+  cadena completa antes de reportar el primer error.

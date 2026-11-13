@@ -147,7 +147,11 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     // Margen mínimo para que el eco final de la voz no entre al micrófono.
     await new Promise(r => setTimeout(r, 60))
     // startListening resuelve al terminar la escucha; no se espera aquí.
-    const escucha = voiceRaw.startListening().catch(() => {})
+    voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'modo_pro' })
+    const escucha = voiceRaw.startListening({
+      offline: !voiceRaw.hayInternet.value,
+      contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
+    }).catch(() => {})
     resultado = await esperarRespuestaVoz(zeroTouch.timeoutMs.value)
     confianza = Number(voiceRaw.confidence?.value) || 0
     try {

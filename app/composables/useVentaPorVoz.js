@@ -175,6 +175,11 @@ export function useVentaPorVoz(ubicacion) {
     modo.value = modoVenta
     producto.value = fila
     estado.value = 'listo'
+    voice.registrar('voz.listo', {
+      producto: fila?.nombre || '',
+      cantidad: prefill.value?.cantidad ?? null,
+      ubicacion: ubi
+    })
 
     // Read-back exacto del formulario (lo prellenado), no lo interpretado.
     // Se guarda la promesa para que la UI pueda esperarla antes de hablar
@@ -287,6 +292,13 @@ export function useVentaPorVoz(ubicacion) {
       }
     }
 
+    voice.registrar('voz.catalogo', {
+      ubicacion: destino.ubicacion,
+      total: catalogo.length,
+      hint: slots?.productoHint || '',
+      encontrados: encontrados.length
+    })
+
     if (!encontrados.length) {
       void (async () => {
         const plantilla = await plantillaPara(slots?.productoHint || '')
@@ -301,6 +313,12 @@ export function useVentaPorVoz(ubicacion) {
     }
 
     const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
+    voice.registrar('voz.decision', {
+      elegido: decision.elegido?.row?.nombre || '',
+      ambiguo: !decision.elegido && encontrados.length > 0,
+      encontrados: encontrados.length,
+      efectivo: decision.efectivo || 0
+    })
     if (!decision.elegido) {
       pendiente.value = { comando: 'venta_directa', slots, sttConfidence }
       candidatos.value = encontrados
@@ -484,6 +502,11 @@ export function useVentaPorVoz(ubicacion) {
       const gram = await import('#shared/voz/gramatica')
       const idx = gram.elegirAlternativa(items)
       textoElegido = unicos[idx] ?? unicos[0]
+      voice.registrar('voz.nbest', {
+        base: texto,
+        elegido: textoElegido,
+        candidatos: unicos.length
+      })
     }
 
     estado.value = 'interpretando'
@@ -494,6 +517,12 @@ export function useVentaPorVoz(ubicacion) {
     producto.value = null
 
     const interpretado = interpretar(textoElegido, vozLexico.lexico.value)
+    voice.registrar('voz.interpretar', {
+      texto: textoElegido,
+      comando: interpretado?.comando || '',
+      motivo: interpretado?.reasons?.[0] || '',
+      confianza: Number(interpretado?.confidence) || 0
+    })
     const validacion = voiceCommandSchema.safeParse(interpretado)
     if (!validacion.success) throw new Error('No te entendí. Prueba: "vende 5 panes".')
 
@@ -550,7 +579,15 @@ export function useVentaPorVoz(ubicacion) {
       estado.value = 'escuchando'
 
       // Idioma fijo de la app (español/Cuba): lo define useVoiceCommand.
-      await voice.startListening()
+      voice.registrar('stt.ui.dock', {
+        modo: conexion.modo.value,
+        red: voice.hayInternet.value
+      })
+      await voice.startListening({
+        language: 'es-ES',
+        offline: !voice.hayInternet.value,
+        contexto: { modo: conexion.modo.value, red: voice.hayInternet.value }
+      })
       if (gen !== generacion) return
       if (voice.estado.value === 'cancelled' || voice.estado.value === 'idle') {
         estado.value = 'idle'
@@ -563,6 +600,7 @@ export function useVentaPorVoz(ubicacion) {
     } catch (e) {
       if (gen !== generacion) return
       const mensaje = e?.message || 'Error de voz.'
+      voice.registrar('voz.error', { mensaje, code: voice.codigoError.value })
       ultimoError.value = mensaje
       estado.value = 'error'
       toast.add({ title: 'Voz', description: mensaje, color: 'error' })

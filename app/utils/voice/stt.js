@@ -9,7 +9,14 @@ export const MENSAJES_STT = {
   network_timeout: 'La conexión tardó demasiado.',
   recognizer_busy: 'El micrófono está ocupado. Intenta de nuevo.',
   insufficient_permissions: 'Falta el permiso de micrófono.',
-  not_available: 'Este dispositivo no tiene reconocimiento de voz.'
+  not_available: 'Este dispositivo no tiene reconocimiento de voz.',
+  language_unavailable:
+    'No hay reconocimiento de voz offline en español. Instálalo en Ajustes → Google → Voz → Reconocimiento de voz sin conexión.',
+  language_not_supported:
+    'El reconocedor no soporta español. Añade el idioma español al reconocimiento de voz del dispositivo.',
+  too_many_requests: 'Demasiadas peticiones al reconocedor. Espera unos segundos.',
+  server_disconnected:
+    'El servicio de voz del dispositivo no responde. Revisa la conexión o instala el paquete de reconocimiento offline.'
 }
 
 export function mensajeStt(detalle) {

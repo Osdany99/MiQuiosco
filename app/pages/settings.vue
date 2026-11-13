@@ -15,7 +15,7 @@ const pruebaMicrofono = ref('')
 const probandoMicrofono = ref(false)
 const update = useAppUpdate()
 const auth = useAuth()
-const { validarSincronizacion } = useSync()
+const { validarSincronizacion, hayRed } = useSync()
 // --- Permisos de recarga (solo Android) ---
 // Configuración es el ÚNICO sitio donde se piden. No hay asistente al arrancar:
 // la app no interrumpe a quien solo usa el quiosco, y quien sí quiere recargas
@@ -144,6 +144,8 @@ onMounted(() => {
 })
 onMounted(() => {
   void voz.check()
+  void voz.refrescarTraza()
+  void voz.sincronizarDiagNativo()
 })
 
 onUnmounted(() => {
@@ -379,8 +381,6 @@ const micMotivo = computed(() => {
 
 // En Android nativo, SpeechRecognizer funciona offline con paquetes de idioma
 // instalados localmente.
-const sttOfflineDisponible = computed(() => voz.esNativo.value && voz.sttOfflineDisponible.value === true)
-
 const probandoTts = ref(false)
 const itemsVocesTts = computed(() =>
   (tts.voces.value || []).map((v) => {
@@ -413,9 +413,20 @@ async function probarMicrofono() {
       toast.add({ title: 'Este dispositivo no tiene reconocimiento de voz', color: 'warning' })
       return
     }
-    await voz.startListening({ language: 'es-ES' })
+    voz.registrar('stt.ui.probar', { red: voz.hayInternet.value, modo: conexion.modo.value })
+    await voz.startListening({
+      language: 'es-ES',
+      offline: !voz.hayInternet.value,
+      contexto: { modo: conexion.modo.value, red: voz.hayInternet.value }
+    })
+    await voz.sincronizarDiagNativo()
     if (voz.estado.value === 'error') {
-      toast.add({ title: voz.error.value || 'No se pudo reconocer', color: 'error' })
+      const codigo = voz.codigoError.value
+      toast.add({
+        title: voz.error.value || 'No se pudo reconocer',
+        description: codigo ? `Código ${codigo}` : undefined,
+        color: 'error'
+      })
       return
     }
     pruebaMicrofono.value = voz.transcript.value || ''
@@ -428,6 +439,37 @@ async function probarMicrofono() {
     toast.add({ title: 'No se pudo probar el micrófono', description: e?.message, color: 'error' })
   } finally {
     probandoMicrofono.value = false
+  }
+}
+
+/** Limpia la traza y marca el inicio de una ronda (online u offline). */
+async function prepararRonda() {
+  await voz.iniciarTraza({ modo: conexion.modo.value, red: hayRed.value })
+  toast.add({
+    title: hayRed.value ? 'Ronda ONLINE preparada' : 'Ronda OFFLINE preparada',
+    description: 'La traza se graba siempre. Prueba ahora las frases de la lista.',
+    color: 'success'
+  })
+}
+
+async function copiarTraza() {
+  // Recupera lo que el plugin guardó por su cuenta y lo persistido antes de copiar.
+  await voz.sincronizarDiagNativo()
+  await voz.refrescarTraza()
+  const texto = voz.textoTraza.value
+  if (!texto) {
+    toast.add({ title: 'Todavía no hay registros', color: 'warning' })
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(texto)
+    toast.add({ title: 'Registro copiado', color: 'success' })
+  } catch {
+    toast.add({
+      title: 'No se pudo copiar',
+      description: 'Mantén pulsado el texto y elige Copiar.',
+      color: 'warning'
+    })
   }
 }
 
@@ -909,7 +951,7 @@ async function whOlvidarEste() {
 
         <p class="text-xs text-muted">
           Motor de voz (STT): {{ voz.disponible.value ? 'Disponible' : 'No disponible' }}
-          <span v-if="voz.esNativo.value" class="text-muted">· Reconocimiento offline: {{ sttOfflineDisponible ? 'Sí' : 'No' }}</span>
+          <span v-if="voz.esNativo.value" class="text-muted">· En el dispositivo: {{ voz.onDeviceStt.value ? 'Sí' : 'No' }}</span>
         </p>
         <p v-if="esNativo" class="text-xs text-muted">
           Motor TTS: {{ tts.disponible.value ? 'Disponible' : 'No disponible' }}
@@ -1012,9 +1054,15 @@ async function whOlvidarEste() {
           Enviar al administrador las frases no entendidas
         </USwitch>
 
-        <div class="space-y-2">
-          <div class="flex items-center justify-between gap-2">
-            <UFormField label="Voz" />
+        <!-- Voz de respuesta (TTS): SOLO afecta a cómo la app HABLA. -->
+        <div class="space-y-2 border-t border-default pt-3">
+          <div>
+            <h3 class="text-sm font-medium">
+              Voz de respuesta (hablar)
+            </h3>
+            <p class="text-xs text-muted">
+              Cómo el dispositivo te lee el resultado. No afecta a lo que el micrófono entiende.
+            </p>
           </div>
           <USelect
             :items="itemsVocesTts"
@@ -1027,48 +1075,146 @@ async function whOlvidarEste() {
           <p v-if="!tts.cargandoVoces.value && !itemsVocesTts.length" class="text-xs text-warning">
             No hay voces instaladas. Instala español en el dispositivo.
           </p>
+          <div class="flex items-center gap-2">
+            <UButton
+              color="primary"
+              variant="soft"
+              size="sm"
+              icon="i-lucide-volume-2"
+              :loading="probandoTts"
+              :disabled="!tts.disponible.value || probandoTts"
+              @click="probarTts"
+            >
+              Probar voz
+            </UButton>
+            <span class="text-xs text-muted">
+              Reproduce una frase corta con la voz seleccionada.
+            </span>
+          </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <UButton
-            color="primary"
-            variant="soft"
-            size="sm"
-            icon="i-lucide-volume-2"
-            :loading="probandoTts"
-            :disabled="!tts.disponible.value || probandoTts"
-            @click="probarTts"
-          >
-            Probar voz
-          </UButton>
-          <span class="text-xs text-muted">
-            Reproduce una frase corta con la voz seleccionada.
-          </span>
+        <!-- Reconocimiento (STT): lo que usa el micrófono para ENTENDER. -->
+        <div class="space-y-2 border-t border-default pt-3">
+          <div>
+            <h3 class="text-sm font-medium">
+              Reconocimiento (entender)
+            </h3>
+            <p class="text-xs text-muted">
+              Lo usa el micrófono para entender lo que dices. Depende del motor del dispositivo y de su paquete de idioma offline.
+            </p>
+          </div>
+          <p class="text-xs text-muted">
+            Motor:
+            {{ voz.motorStt.value || (voz.esNativo.value ? 'No detectado' : 'Navegador') }}
+            <span v-if="voz.esNativo.value">· En el dispositivo: {{ voz.onDeviceStt.value ? 'Sí' : 'No' }}</span>
+            <span v-if="voz.esNativo.value">· Servicios: {{ voz.serviciosStt.value.length }}</span>
+          </p>
+          <div class="flex items-center gap-2">
+            <UButton
+              color="primary"
+              variant="soft"
+              size="sm"
+              icon="i-lucide-headphones"
+              :loading="probandoMicrofono"
+              :disabled="!voz.disponible.value"
+              @click="probarMicrofono"
+            >
+              Probar micrófono
+            </UButton>
+            <span class="text-xs text-muted">
+              Dicta algo y verás lo que el micrófono captó.
+            </span>
+          </div>
+          <p v-if="pruebaMicrofono" class="text-xs text-muted">
+            Escuchado: {{ pruebaMicrofono }}
+          </p>
+          <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
+            {{ micMotivo }}
+          </p>
         </div>
 
-        <div class="flex items-center gap-2">
-          <UButton
-            color="primary"
-            variant="soft"
-            size="sm"
-            icon="i-lucide-headphones"
-            :loading="probandoMicrofono"
-            :disabled="!voz.disponible.value"
-            @click="probarMicrofono"
-          >
-            Probar micrófono
-          </UButton>
-          <span class="text-xs text-muted">
-            Dicta algo y verás lo que el micrófono captó.
-          </span>
-        </div>
+        <!-- Diagnóstico local: se copia a mano, nunca se envía al servidor. -->
+        <div class="space-y-2 border-t border-default pt-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-sm font-medium">
+              Diagnóstico de voz
+            </h3>
+            <UBadge
+              color="success"
+              variant="soft"
+              size="sm"
+            >
+              Grabando siempre
+            </UBadge>
+          </div>
+          <p class="text-xs text-muted">
+            La traza se graba sola: no hay que activar nada. Pulsa <strong>Preparar ronda</strong> antes de cada tanda (limpia y marca online/local), prueba las frases y luego <strong>Copiar</strong>. Es local.
+          </p>
 
-        <p v-if="pruebaMicrofono" class="text-xs text-muted">
-          Escuchado: {{ pruebaMicrofono }}
-        </p>
-        <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
-          {{ micMotivo }}
-        </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <UButton
+              size="sm"
+              color="primary"
+              variant="soft"
+              icon="i-lucide-circle-dot"
+              @click="prepararRonda"
+            >
+              Preparar ronda
+            </UButton>
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-copy"
+              @click="copiarTraza"
+            >
+              Copiar
+            </UButton>
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-trash-2"
+              :disabled="!voz.traza.value.length"
+              @click="voz.limpiarTraza()"
+            >
+              Limpiar
+            </UButton>
+            <span class="text-xs text-muted">
+              {{ voz.traza.value.length }} líneas
+            </span>
+          </div>
+
+          <p v-if="voz.ultimoEvento.value" class="text-xs text-muted">
+            Último: {{ voz.ultimoEvento.value.evento }}
+          </p>
+
+          <p v-if="voz.traza.value.length" class="text-xs text-muted">
+            {{ voz.textoResumenTraza.value }}
+          </p>
+
+          <pre
+            v-if="voz.traza.value.length"
+            class="max-h-64 overflow-auto rounded-lg border border-default bg-elevated/50 p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap break-words"
+          >{{ voz.textoTraza.value }}</pre>
+          <p v-else class="text-xs text-muted">
+            Sin registros todavía.
+          </p>
+
+          <div class="rounded-lg border border-default p-2">
+            <p class="text-xs font-medium">
+              Frases de prueba
+            </p>
+            <ol class="list-decimal pl-5 text-xs text-muted">
+              <li>«vende dos refrescos»</li>
+              <li>«vende cinco panes del almacén»</li>
+              <li>«cuánto hay de maní»</li>
+              <li>«abre cuadre»</li>
+              <li>«vende un refresco familiar»</li>
+              <li>«hola» (control: no es un comando)</li>
+            </ol>
+          </div>
+        </div>
 
         <p v-if="!tts.disponible.value" class="text-xs text-warning">
           Síntesis de voz no disponible en este dispositivo.
@@ -1093,6 +1239,28 @@ async function whOlvidarEste() {
           Activado: mantén el micrófono pulsado mientras hablas y suelta para enviar.
           Desactivado: pulsa una vez para empezar y usa el botón cuadrado para parar o cancelar.
         </p>
+      </div>
+    </UCard>
+
+    <!-- ⚠️ PILOTO TEMPORAL — voz offline con Vosk. Se retira con esta tarjeta al terminar el piloto. -->
+    <UCard v-if="esNativo">
+      <div class="space-y-3 border border-amber-200 bg-amber-50 rounded-lg p-3">
+        <h2 class="text-sm font-medium text-amber-800">
+          Piloto de voz offline
+        </h2>
+        <p class="text-sm text-amber-700">
+          Prueba aislada de Vosk (modelo empaquetado, sin Google). Graba y transcribe
+          sin tocar los comandos de la app. Ideal para decidir si entra al flujo real.
+        </p>
+        <UButton
+          size="sm"
+          color="amber"
+          variant="soft"
+          icon="i-lucide-flask-conical"
+          to="/laboratorio-voz"
+        >
+          Ir al laboratorio
+        </UButton>
       </div>
     </UCard>
   </div>

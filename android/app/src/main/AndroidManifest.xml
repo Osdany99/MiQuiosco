@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Visibilidad de paquetes (Android 11+): sin esto el sistema puede
+         ocultar el servicio de reconocimiento de voz a la app. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- `queryIntentServices` usa la acción ACTION_RECOGNIZE_SPEECH; sin
+             declararla, `servicios` salía en 0 aunque hubiera motor. -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

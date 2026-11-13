@@ -117,8 +117,20 @@ const vozDetectada = computed(() =>
 const tuTurno = computed(() => micActivo.value && !vozDetectada.value)
 
 // --- Textos ------------------------------------------------------------------
+// El título debe decir qué falló de verdad: "No te entendí" solo cuando no
+// llegó a captarse voz. Un fallo del servicio no es lo mismo que no entender.
+const tituloError = computed(() => {
+  const detalle = String(props.error || '').toLowerCase()
+  if (/servicio|no responde|desconect|conexión|internet|red/.test(detalle)) return 'El servicio de voz falló'
+  if (/no encontré/.test(detalle)) return 'No encontré el producto'
+  if (/todavía no sé|no entendí el comando/.test(detalle)) return 'No entendí el comando'
+  if (/micrófono|permiso/.test(detalle)) return 'Micrófono no disponible'
+  if (/no se escuchó|no te entendí/.test(detalle)) return 'No te entendí'
+  return 'No se pudo completar'
+})
+
 const titulo = computed(() => {
-  if (esError.value) return 'No te entendí'
+  if (esError.value) return tituloError.value
   if (hablando.value) return 'Hablando…'
   if (micActivo.value) return vozDetectada.value ? 'Te escucho' : 'Habla ahora'
   if (preparandoMic.value) return 'Preparando micrófono…'

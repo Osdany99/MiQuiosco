@@ -19,6 +19,13 @@ import { ubicacionActiva, esRutaInventario, evaluarDisparoVoz } from '../app/uti
 import { calcularMotivoNoDisponible } from '../app/utils/voice/disponibilidad.js'
 import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
 import { mensajeStt } from '../app/utils/voice/stt.js'
+import {
+  formatearEntrada,
+  formatearResumen,
+  formatearTraza,
+  fusionarTrazas,
+  resumirTraza
+} from '../app/utils/voice/diagnostico.js'
 import { esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
 import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
@@ -375,10 +382,81 @@ describe('voz: stt y prefill', () => {
     assert.equal(mensajeStt('algo'), 'algo')
   })
 
+  it('mapea errores de idioma y del servidor del reconocedor', () => {
+    assert.match(mensajeStt('language_unavailable'), /español/i)
+    assert.match(mensajeStt('language_unavailable'), /sin conexión/i)
+    assert.match(mensajeStt('language_not_supported'), /español/i)
+    assert.match(mensajeStt('too_many_requests'), /espera/i)
+    assert.match(mensajeStt('server_disconnected'), /conexión/i)
+    assert.match(mensajeStt('server_disconnected'), /offline/i)
+  })
+
   it('ajusta cantidad por voz sin bloquear y avisa si excede', () => {
     assert.deepEqual(ajustarCantidadVoz(5, 10), { cantidad: 5, excede: false, disponible: 10 })
     assert.deepEqual(ajustarCantidadVoz(15, 10), { cantidad: 15, excede: true, disponible: 10 })
     assert.deepEqual(ajustarCantidadVoz(3, null), { cantidad: 3, excede: false, disponible: null })
+  })
+})
+
+describe('voz: traza de diagnóstico', () => {
+  const base = { t: new Date(2026, 0, 2, 12, 3, 41, 220).getTime() }
+
+  it('formatea una entrada con hora, evento y campos', () => {
+    const linea = formatearEntrada({ ...base, evento: 'stt.start', intento: 1, texto: 'vende dos refrescos' })
+    assert.match(linea, /^\[12:03:41\.220\] stt\.start /)
+    assert.match(linea, /intento=1/)
+    assert.match(linea, /texto="vende dos refrescos"/)
+  })
+
+  it('omite t y evento de los campos y descarta entradas vacías', () => {
+    const linea = formatearEntrada({ ...base, evento: 'stt.ready' })
+    assert.equal(linea, '[12:03:41.220] stt.ready')
+    assert.equal(formatearEntrada(null), '')
+  })
+
+  it('une la traza y resume intentos, resultados, errores y rescates', () => {
+    const traza = [
+      { ...base, evento: 'stt.start', variante: 'offline' },
+      { ...base, evento: 'stt.error', code: 11 },
+      { ...base, evento: 'stt.rescue', code: 11 },
+      { ...base, evento: 'stt.start', variante: 'ondevice' },
+      { ...base, evento: 'stt.result' }
+    ]
+    assert.equal(formatearTraza(traza).split('\n').length, 5)
+    const resumen = resumirTraza(traza)
+    assert.equal(resumen.intentos, 2)
+    assert.equal(resumen.resultados, 1)
+    assert.equal(resumen.errores, 1)
+    assert.equal(resumen.rescates, 1)
+    assert.equal(resumen.porCodigo['11'], 1)
+    assert.equal(resumen.porVariante.offline, 1)
+    assert.match(formatearResumen(resumen), /Intentos: 2/)
+    assert.match(formatearResumen(resumen), /Rescates: 1/)
+  })
+
+  it('sin actividad devuelve un resumen neutro', () => {
+    assert.equal(formatearResumen(resumirTraza([])), 'Sin actividad de voz registrada.')
+  })
+
+  it('fusiona trazas sin duplicar y las ordena por tiempo', () => {
+    const js = [
+      { t: 300, evento: 'stt.listo', inst: 's1' },
+      { t: 100, evento: 'stt.begin', inst: 's1' }
+    ]
+    const nativo = [
+      { t: 100, evento: 'stt.start', inst: 'native' },
+      { t: 200, evento: 'stt.ready', inst: 'native' },
+      { t: 200, evento: 'stt.ready', inst: 'native' }
+    ]
+    const unida = fusionarTrazas(js, nativo, 100)
+    assert.deepEqual(unida.map(e => e.evento), ['stt.begin', 'stt.start', 'stt.ready', 'stt.listo'])
+  })
+
+  it('fusionar respeta el máximo y descarta entradas inválidas', () => {
+    const traza = Array.from({ length: 10 }, (_, i) => ({ t: i, evento: 'stt.partial', inst: 'n' }))
+    const unida = fusionarTrazas([], [...traza, null, { t: 1 }], 3)
+    assert.equal(unida.length, 3)
+    assert.deepEqual(unida.map(e => e.t), [7, 8, 9])
   })
 })
 

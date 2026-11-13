@@ -35,3 +35,10 @@
 # cualquier búsqueda por nombre.
 -keep class com.aparajita.capacitor.** { *; }
 -keep class com.getcapacitor.community.database.sqlite.** { *; }
+
+# Vosk + JNA (piloto de voz offline). Vosk llama a libvosk.so por JNA y usa
+# reflexión para mapear las clases; R8 renombrarlas rompe el reconocedor.
+-keep class org.vosk.** { *; }
+-keep class com.sun.jna.** { *; }
+-dontwarn org.vosk.**
+-dontwarn com.sun.jna.**
