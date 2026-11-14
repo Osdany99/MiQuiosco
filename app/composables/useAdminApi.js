@@ -36,7 +36,7 @@ export function useAdminApi() {
       // muestran en la vista para que el usuario pueda corregirlos.
       if (status === 401) {
         admin.limpiarSesion()
-        await navigateTo({ path: '/admin/login', query: { reason: 'session_expired' } })
+        await navigateTo({ path: '/login', query: { reason: 'session_expired' } })
       }
 
       const error = new Error(mensajeErrorAdmin(err))
@@ -99,6 +99,34 @@ export function useAdminApi() {
     return pedir(`/api/admin/fallos/${id}`, { method: 'PATCH', body: cambios })
   }
 
+  function listarEventosVoz(filtros = {}) {
+    return pedir('/api/admin/voz/eventos', { query: filtros })
+  }
+
+  function marcarEventoVoz(id, estado) {
+    return pedir(`/api/admin/voz/eventos/${id}`, { method: 'PATCH', body: { estado } })
+  }
+
+  function limpiarEventosVoz() {
+    return pedir('/api/admin/voz/limpiar', { method: 'POST' })
+  }
+
+  function listarConfirmacionesVoz(filtros = {}) {
+    return pedir('/api/admin/voz/confirmaciones', { query: filtros })
+  }
+
+  function listarLexicoVoz() {
+    return pedir('/api/admin/voz/lexico')
+  }
+
+  function crearEntradaLexicoVoz(datos) {
+    return pedir('/api/admin/voz/lexico', { method: 'POST', body: datos })
+  }
+
+  function actualizarEntradaLexicoVoz(id, cambios) {
+    return pedir(`/api/admin/voz/lexico/${id}`, { method: 'PATCH', body: cambios })
+  }
+
   return {
     resumen,
     listarPuestos,
@@ -110,6 +138,13 @@ export function useAdminApi() {
     obtenerDispositivo,
     actualizarDispositivo,
     listarFallos,
-    actualizarFallo
+    actualizarFallo,
+    listarEventosVoz,
+    marcarEventoVoz,
+    limpiarEventosVoz,
+    listarConfirmacionesVoz,
+    listarLexicoVoz,
+    crearEntradaLexicoVoz,
+    actualizarEntradaLexicoVoz
   }
 }

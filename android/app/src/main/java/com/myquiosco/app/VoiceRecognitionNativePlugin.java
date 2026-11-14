@@ -15,7 +15,6 @@ import android.util.Log;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.JSArray;
-import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -28,15 +27,18 @@ import java.util.ArrayDeque;
 import java.util.List;
 
 /**
- * Plugin nativo de STT (baseline de Fase 0). No se sustituye al futuro
- * composable de voz: solo sirve para medir SpeechRecognizer de Android en
- * dispositivo real sin depender de npm ni de la red.
+ * Plugin nativo de STT.
  *
  * API:
  *   VoiceRecognitionNative.check()
  *   VoiceRecognitionNative.requestPermission()
- *   VoiceRecognitionNative.start({ language: 'es-ES', offline: true }) -> { text, confidence, durationMs }
+ *   VoiceRecognitionNative.start({ language: 'es-US', offline: true }) -> { text, confidence, durationMs }
+ *   VoiceRecognitionNative.start({ language: null, offline: true })    // idioma del sistema
  *   VoiceRecognitionNative.stop()
+ *   VoiceRecognitionNative.finish()
+ *
+ * Un solo intento: no hay plan de reintentos ni fallback online/offline.
+ * `offline = true` pone EXTRA_PREFER_OFFLINE; `offline = false` usa el motor online.
  */
 @CapacitorPlugin(
     name = "VoiceRecognitionNative",
@@ -65,28 +67,11 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     private long ultimoNivelMs = 0L;
     private String lastPartialText = "";
     private ArrayList<String> lastPartialMatches = new ArrayList<>();
-    // Plan de intentos para este `start`: offline -> on-device -> online ->
-    // idioma del sistema. Solo se avanza ante errores reintentables.
-    private final ArrayList<Intento> plan = new ArrayList<>();
-    private int intentoActual = 0;
-    private int primerError = -1;
     private int partialContados = 0;
     private String servicioActual = "";
     private static final int MAX_DIAG = 200;
     private final ArrayDeque<JSObject> bufferDiag = new ArrayDeque<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
-
-    /** Una variante concreta de arranque del reconocedor. */
-    private static final class Intento {
-        final String idioma;    // null = idioma del sistema (sin EXTRA_LANGUAGE)
-        final boolean offline;  // EXTRA_PREFER_OFFLINE
-        final boolean onDevice; // crear el reconocedor on-device (API 31+)
-        Intento(String idioma, boolean offline, boolean onDevice) {
-            this.idioma = idioma;
-            this.offline = offline;
-            this.onDevice = onDevice;
-        }
-    }
 
     @PluginMethod
     public void check(PluginCall call) {
@@ -136,19 +121,18 @@ public class VoiceRecognitionNativePlugin extends Plugin {
         call.resolve(r);
     }
 
-    private static String nombreVariante(Intento intento) {
-        if (intento == null) return "desconocida";
-        if (intento.onDevice) return "ondevice";
-        if (intento.idioma == null) return "sistema";
-        return intento.offline ? "offline" : "online";
+    private static String nombreVariante(String idioma, boolean offline) {
+        if (idioma == null) {
+            return offline ? "offline-sistema" : "online-sistema";
+        }
+        return offline ? "offline" : "online";
     }
 
-    private JSObject datosIntento(Intento intento) {
+    private JSObject datosIntento(String idioma, boolean offline) {
         JSObject d = new JSObject();
-        d.put("intento", intentoActual + 1);
-        d.put("total", plan.size());
-        d.put("variante", nombreVariante(intento));
-        if (intento != null && intento.idioma != null) d.put("lang", intento.idioma);
+        d.put("variante", nombreVariante(idioma, offline));
+        d.put("offline", offline);
+        if (idioma != null && !idioma.isEmpty()) d.put("lang", idioma);
         if (servicioActual != null && !servicioActual.isEmpty()) d.put("servicio", servicioActual);
         return d;
     }
@@ -191,7 +175,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
         }
         currentCall = call;
         if (tienePermiso(Manifest.permission.RECORD_AUDIO)) {
-            comenzar(call.getString("language", "es-ES"), call.getBoolean("offline", true));
+            comenzar(call.getString("language"), call.getBoolean("offline", false));
         } else {
             requestPermissionForAliases(new String[]{ALIAS_RECORD}, call, "permisoResueltoStart");
         }
@@ -200,7 +184,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     @PermissionCallback
     private void permisoResueltoStart(PluginCall call) {
         if (tienePermiso(Manifest.permission.RECORD_AUDIO)) {
-            comenzar(call.getString("language", "es-ES"), call.getBoolean("offline", true));
+            comenzar(call.getString("language"), call.getBoolean("offline", false));
         } else {
             currentCall = null;
             call.reject("permission_denied");
@@ -208,52 +192,11 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     }
 
     private void comenzar(String language, boolean offline) {
-        String idioma = (language == null || language.isEmpty()) ? null : language;
+        final String idioma = (language == null || language.isEmpty()) ? null : language;
+        final boolean esOffline = offline;
         // Cancela reintentos pendientes de una prueba anterior.
         handler.removeCallbacksAndMessages(null);
-        plan.clear();
         servicioActual = servicioReconocimiento();
-        // Con red se empieza por el motor online (mejor transcripción); sin red,
-        // por el paquete offline. Si el primero devuelve algo válido pero malo,
-        // no hay error y nunca se probaría el otro, así que el orden importa.
-        if (offline) {
-            plan.add(new Intento(idioma, true, false));
-            if (onDeviceDisponible()) plan.add(new Intento(idioma, true, true));
-            plan.add(new Intento(idioma, false, false));
-        } else {
-            plan.add(new Intento(idioma, false, false));
-            if (onDeviceDisponible()) plan.add(new Intento(idioma, true, true));
-            plan.add(new Intento(idioma, true, false));
-        }
-        plan.add(new Intento(null, false, false));
-        intentoActual = 0;
-        primerError = -1;
-        partialContados = 0;
-        JSArray variantes = new JSArray();
-        for (Intento i : plan) variantes.put(nombreVariante(i));
-        JSObject planDatos = new JSObject();
-        planDatos.put("variantes", variantes);
-        planDatos.put("servicio", servicioActual == null ? "" : servicioActual);
-        planDatos.put("onDevice", onDeviceDisponible());
-        planDatos.put("sdk", Build.VERSION.SDK_INT);
-        emitir("plan", planDatos);
-        Log.d(TAG, "plan=" + variantes.toString() + " servicio=" + servicioActual);
-        iniciarReconocimiento();
-    }
-
-    /**
-     * Arranca (o re-arranca) el reconocedor con el intento actual del plan.
-     * El reintento se hace siempre desde fuera de `onError` (postDelayed) para
-     * no recrear el SpeechRecognizer dentro de su propio callback, que provoca
-     * errores espurios ERROR_SERVER_DISCONNECTED / ERROR_CLIENT.
-     */
-    private void iniciarReconocimiento() {
-        if (currentCall == null) return;
-        if (intentoActual >= plan.size()) {
-            rechazarConError(primerError);
-            return;
-        }
-        final Intento intento = plan.get(intentoActual);
         getActivity().runOnUiThread(() -> {
             try {
                 if (!SpeechRecognizer.isRecognitionAvailable(getContext())) {
@@ -267,17 +210,28 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                 lastPartialText = "";
                 lastPartialMatches.clear();
                 partialContados = 0;
-                recognizer = crearReconocedor(intento);
+                recognizer = SpeechRecognizer.createSpeechRecognizer(getContext());
                 if (recognizer == null) {
-                    // La variante on-device no está soportada: pasar a la siguiente.
-                    Log.d(TAG, "sin reconocedor para intento " + intentoActual + ", probando el siguiente");
-                    intentoActual++;
-                    iniciarReconocimiento();
+                    if (currentCall != null) {
+                        currentCall.reject("not_available");
+                        currentCall = null;
+                    }
                     return;
                 }
-                Intent intent = construirIntent(intento);
+                Intent intent = construirIntent(idioma, esOffline);
                 startTime = System.currentTimeMillis();
-                emitir("start", datosIntento(intento));
+
+                // Traza: un solo intento, sin variantes de fallback.
+                JSArray variantes = new JSArray();
+                variantes.put(nombreVariante(idioma, esOffline));
+                JSObject planDatos = new JSObject();
+                planDatos.put("variantes", variantes);
+                planDatos.put("servicio", servicioActual == null ? "" : servicioActual);
+                planDatos.put("onDevice", onDeviceDisponible());
+                planDatos.put("sdk", Build.VERSION.SDK_INT);
+                emitir("plan", planDatos);
+                emitir("start", datosIntento(idioma, esOffline));
+
                 recognizer.setRecognitionListener(new RecognitionListener() {
                     @Override
                     public void onReadyForSpeech(Bundle params) {
@@ -285,11 +239,14 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                         try {
                             notifyListeners("ready", new JSObject());
                         } catch (Exception ignored) { }
-                        emitir("ready", datosIntento(intento));
+                        emitir("ready", datosIntento(idioma, esOffline));
                     }
-                    @Override public void onBeginningOfSpeech() {
-                        emitir("beginning", datosIntento(intento));
+
+                    @Override
+                    public void onBeginningOfSpeech() {
+                        emitir("beginning", datosIntento(idioma, esOffline));
                     }
+
                     @Override
                     public void onPartialResults(Bundle partialResults) {
                         ArrayList<String> matches = partialResults == null ? null : partialResults.getStringArrayList(
@@ -306,11 +263,12 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                             data.put("text", text == null ? "" : text);
                             notifyListeners("partialResult", data);
                         } catch (Exception ignored) { }
-                        JSObject datos = datosIntento(intento);
+                        JSObject datos = datosIntento(idioma, esOffline);
                         datos.put("texto", text == null ? "" : text);
                         datos.put("parciales", partialContados);
                         emitir("partial", datos);
                     }
+
                     @Override
                     public void onRmsChanged(float rmsdB) {
                         // Nivel de voz para animar las ondas de la interfaz (máx. ~20/s).
@@ -323,10 +281,14 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                             notifyListeners("level", data);
                         } catch (Exception ignored) { }
                     }
+
                     @Override public void onBufferReceived(byte[] buffer) {}
-                    @Override public void onEndOfSpeech() {
-                        emitir("end", datosIntento(intento));
+
+                    @Override
+                    public void onEndOfSpeech() {
+                        emitir("end", datosIntento(idioma, esOffline));
                     }
+
                     @Override public void onEvent(int eventType, Bundle params) {}
 
                     @Override
@@ -338,7 +300,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                         String text = (matches != null && !matches.isEmpty()) ? matches.get(0) : "";
                         float confidence = (scores != null && scores.length > 0) ? scores[0] : 0f;
 
-                        // Rescatar transcripción parcial si el resultado final viene vacío
+                        // Rescatar transcripción parcial si el resultado final viene vacío.
                         if ((text == null || text.trim().isEmpty()) && !lastPartialText.isEmpty()) {
                             text = lastPartialText;
                             confidence = 0.8f;
@@ -380,7 +342,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
 
                     @Override
                     public void onError(int error) {
-                        JSObject diagnostico = datosIntento(intento);
+                        JSObject diagnostico = datosIntento(idioma, esOffline);
                         diagnostico.put("code", error);
                         diagnostico.put("mensaje", mensajeError(error));
                         diagnostico.put("parcial", lastPartialText);
@@ -388,13 +350,12 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                         emitir("error", diagnostico);
 
                         // Si ya capturamos voz, lo dicho vale más que el fallo final
-                        // del motor: se resuelve con la transcripción parcial en vez
-                        // de reintentar y descartarla. Solo se exceptúan busy/permisos.
+                        // del motor. Se resuelve con la transcripción parcial.
                         if (!lastPartialText.isEmpty() && esRescatableConParcial(error)) {
                             Log.d(TAG, "rescate parcial code=" + error
                                     + " parciales=" + partialContados
                                     + " texto=" + lastPartialText);
-                            JSObject rescate = datosIntento(intento);
+                            JSObject rescate = datosIntento(idioma, esOffline);
                             rescate.put("code", error);
                             rescate.put("texto", lastPartialText);
                             rescate.put("parciales", partialContados);
@@ -407,32 +368,19 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                             return;
                         }
 
-                        if (primerError < 0) primerError = error;
-                        Log.d(TAG, "onError code=" + error
-                                + " intento=" + intentoActual + "/" + (plan.size() - 1)
-                                + " reportado=" + (primerError >= 0 ? primerError : error));
-
-                        // Reintento con otra variante (offline / on-device / online /
-                        // idioma del sistema). Nunca se recrea el reconocedor dentro
-                        // de este callback: se limpia y se arranca de nuevo con una
-                        // pausa corta para no disparar errores espurios de servicio.
-                        if (esReintentable(error) && intentoActual + 1 < plan.size()) {
-                            intentoActual++;
-                            Intento siguiente = plan.get(intentoActual);
-                            JSObject reintento = datosIntento(siguiente);
-                            reintento.put("desde", error);
-                            emitir("retry", reintento);
-                            cleanupRecognizer();
-                            handler.postDelayed(VoiceRecognitionNativePlugin.this::iniciarReconocimiento, 300);
-                            return;
+                        // Un solo intento: se rechaza y no se prueba otra variante.
+                        String msg = mensajeError(error);
+                        Log.d(TAG, "onError code=" + error + " (" + msg + ")");
+                        if (currentCall != null) {
+                            currentCall.reject(msg, String.valueOf(error));
+                            currentCall = null;
                         }
-
-                        rechazarConError(error);
+                        cleanupRecognizer();
                     }
                 });
                 recognizer.startListening(intent);
             } catch (Exception ex) {
-                JSObject fallo = datosIntento(intento);
+                JSObject fallo = datosIntento(idioma, esOffline);
                 fallo.put("detalle", ex.getMessage() == null ? "" : ex.getMessage());
                 emitir("start_failed", fallo);
                 if (currentCall != null) {
@@ -445,52 +393,30 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     }
 
     /**
-     * Construye el Intent del reconocedor para un intento concreto. No se usa
-     * EXTRA_LANGUAGE_PREFERENCE (deprecado y fuente de conflictos de idioma).
+     * Construye el Intent del reconocedor para un intento único.
+     * No se usa EXTRA_LANGUAGE_PREFERENCE (deprecado y fuente de conflictos).
      */
-    private Intent construirIntent(Intento intento) {
+    private Intent construirIntent(String idioma, boolean offline) {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        if (intento.idioma != null) {
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, intento.idioma);
+        if (idioma != null) {
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, idioma);
+            // El servicio de reconocimiento de este teléfono necesita también
+            // la preferencia de idioma; sin ella el online devolvía no_match.
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, idioma);
         }
-        if (intento.offline) {
-            intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
-        }
+        // Online puro u offline puro. Sin plan de fallback.
+        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, offline);
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         try {
             intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getContext().getPackageName());
         } catch (Exception ignored) {}
-        // Dar margen para que el usuario hable sin que el reconocedor se rinda
-        // por una pausa corta: en offline cortaba frases a mitad ("vende un").
-        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4500);
-        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 4500);
-        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 800);
+        // Valores del plugin que funcionaba (8f2134b / e5d2a62).
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000);
         return intent;
-    }
-
-    /** Crea el reconocedor segun la variante; null si la on-device no esta soportada. */
-    private SpeechRecognizer crearReconocedor(Intento intento) {
-        try {
-            if (intento.onDevice && Build.VERSION.SDK_INT >= 31) {
-                return SpeechRecognizer.createOnDeviceSpeechRecognizer(getContext());
-            }
-            return SpeechRecognizer.createSpeechRecognizer(getContext());
-        } catch (Exception e) {
-            Log.d(TAG, "crearReconocedor fallo onDevice=" + intento.onDevice + ": " + e.getMessage());
-            return null;
-        }
-    }
-
-    /** Errores ante los que tiene sentido probar la siguiente variante. */
-    private static boolean esReintentable(int error) {
-        return error == ERROR_LANGUAGE_NOT_SUPPORTED_CODE
-            || error == ERROR_LANGUAGE_UNAVAILABLE_CODE
-            || error == ERROR_SERVER_DISCONNECTED_CODE
-            || error == SpeechRecognizer.ERROR_NETWORK
-            || error == SpeechRecognizer.ERROR_SERVER;
     }
 
     /** Si ya hay voz capturada, casi cualquier fallo final permite rescatarla. */
@@ -522,23 +448,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
         return data;
     }
 
-    /**
-     * Rechaza la llamada actual reportando el PRIMER error del plan: si el
-     * intento offline fallo por falta de paquete (13), ese es el dato accionable
-     * aunque los intentos online hayan fallado despues por red (11/2).
-     */
-    private void rechazarConError(int code) {
-        int reportado = primerError >= 0 ? primerError : code;
-        String msg = reportado >= 0 ? mensajeError(reportado) : "not_available";
-        Log.d(TAG, "rechazo final code=" + code + " reportado=" + reportado + " (" + msg + ")");
-        if (currentCall != null) {
-            currentCall.reject(msg, String.valueOf(reportado));
-            currentCall = null;
-        }
-        cleanupRecognizer();
-    }
-
-    /** El dispositivo soporta reconocimiento on-device (API 31+). */
+    /** El dispositivo soporta reconocimiento on-device (API 31+). Solo diagnóstico. */
     private boolean onDeviceDisponible() {
         if (Build.VERSION.SDK_INT < 31) return false;
         try {
@@ -577,8 +487,6 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     @PluginMethod
     public void stop(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            plan.clear();
-            intentoActual = 0;
             handler.removeCallbacksAndMessages(null);
             emitir("stop", null);
             if (recognizer != null) {

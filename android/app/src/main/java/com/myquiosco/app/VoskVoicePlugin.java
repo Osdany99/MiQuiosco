@@ -77,6 +77,7 @@ public class VoskVoicePlugin extends Plugin {
     private final AtomicBoolean grabando = new AtomicBoolean(false);
     private final AtomicBoolean detener = new AtomicBoolean(false);
     private final AtomicBoolean cancelado = new AtomicBoolean(false);
+    private final AtomicBoolean cargandoModelo = new AtomicBoolean(false);
 
     private long inicioMs = 0L;
     private long audioMs = 0L;
@@ -112,6 +113,22 @@ public class VoskVoicePlugin extends Plugin {
 
     @PluginMethod
     public void preparar(PluginCall call) {
+        if (cargandoModelo.getAndSet(true)) {
+            // Ya hay una carga en curso: resolver cuando termine.
+            // El listener 'listo' ya se emitirá desde el hilo de carga.
+            call.resolve(new JSObject());
+            return;
+        }
+        if (modelo != null) {
+            cargandoModelo.set(false);
+            JSObject r = new JSObject();
+            r.put("listo", true);
+            r.put("msCarga", 0);
+            r.put("ruta", "ya_cargado");
+            call.resolve(r);
+            emitir("listo", r);
+            return;
+        }
         new Thread(() -> {
             try {
                 long t0 = System.currentTimeMillis();
@@ -120,6 +137,7 @@ public class VoskVoicePlugin extends Plugin {
                     emitir("carga", null);
                     modelo = new Model(carpetaModelo.getAbsolutePath());
                 }
+                cargandoModelo.set(false);
                 JSObject r = new JSObject();
                 r.put("listo", true);
                 r.put("msCarga", System.currentTimeMillis() - t0);
@@ -127,6 +145,7 @@ public class VoskVoicePlugin extends Plugin {
                 call.resolve(r);
                 emitir("listo", r);
             } catch (Throwable e) {
+                cargandoModelo.set(false);
                 Log.e(TAG, "preparar falló", e);
                 call.reject("modelo: " + e.getMessage());
             }
@@ -211,7 +230,7 @@ public class VoskVoicePlugin extends Plugin {
     @PluginMethod
     public void start(PluginCall call) {
         if (modelo == null) {
-            call.reject("modelo_no_listo");
+            call.reject("modelo_no_cargado: llama a preparar() antes de start()");
             return;
         }
         if (grabando.get()) {
@@ -396,6 +415,8 @@ public class VoskVoicePlugin extends Plugin {
             recognizer = null;
         }
         hilo = null;
+        grabando.set(false);
+        llamadaInicio = null;
         if (!cancelado.get()) emitir("stop", null);
     }
 

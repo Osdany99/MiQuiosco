@@ -1,7 +1,7 @@
 <script setup>
 import { evaluarCambio } from '#shared/voz/evaluarCambio'
 import { FRASES_DORADAS } from '#shared/voz/frasesDoradas'
-import { LEXICO_BASE } from '#shared/voz/lexico'
+import { useVozLexico } from '../../composables/useVozLexico'
 
 definePageMeta({
   layout: 'admin',
@@ -9,6 +9,9 @@ definePageMeta({
 })
 
 const toast = useToast()
+const api = useAdminApi()
+const { lexico: lexicoVoz } = useVozLexico()
+
 const filas = ref([])
 const cargando = ref(false)
 const route = useRoute()
@@ -20,7 +23,9 @@ function probar() {
   try {
     const entrada = { categoria: prueba.value.categoria, valor: prueba.value.valor, clave: prueba.value.clave || null, activo: true }
     const plantillas = prueba.value.plantillas.split('\n').map(x => x.trim()).filter(Boolean)
-    resultadoPrueba.value = evaluarCambio(LEXICO_BASE, entrada, { frasesDoradas: FRASES_DORADAS, plantillas })
+    // Se prueba contra el léxico efectivo (base + entradas activas), no solo
+    // contra LEXICO_BASE: es lo que el reconocimiento usa de verdad.
+    resultadoPrueba.value = evaluarCambio(lexicoVoz.value, entrada, { frasesDoradas: FRASES_DORADAS, plantillas })
   } catch (e) {
     toast.add({ title: 'Voz', description: e?.message || 'Error al probar.', color: 'error' })
   }
@@ -30,10 +35,19 @@ const categorias = [
   'venta_fuerte', 'venta_debil', 'navegacion_verbo', 'navegacion_complemento', 'consulta_marca', 'navegacion_destino'
 ]
 
+const columnas = [
+  { accessorKey: 'categoria', header: 'Categoría' },
+  { accessorKey: 'valor', header: 'Valor' },
+  { accessorKey: 'clave', header: 'Clave' },
+  { accessorKey: 'activo', header: 'Activo' },
+  { accessorKey: 'version', header: 'Versión' },
+  { accessorKey: 'acciones', header: '' }
+]
+
 async function cargar() {
   cargando.value = true
   try {
-    filas.value = await $fetch('/api/admin/voz/lexico')
+    filas.value = await api.listarLexicoVoz()
   } catch (e) {
     toast.add({ title: 'Voz', description: e?.message || 'Error', color: 'error' })
   } finally {
@@ -44,7 +58,7 @@ async function cargar() {
 async function crear() {
   if (!nueva.value.valor) return
   try {
-    await $fetch('/api/admin/voz/lexico', { method: 'POST', body: { ...nueva.value } })
+    await api.crearEntradaLexicoVoz({ ...nueva.value })
     nueva.value.valor = ''
     nueva.value.clave = null
     nueva.value.nota = ''
@@ -57,7 +71,7 @@ async function crear() {
 
 async function alternar(fila) {
   try {
-    await $fetch(`/api/admin/voz/lexico/${fila.id}`, { method: 'PATCH', body: { activo: !fila.activo } })
+    await api.actualizarEntradaLexicoVoz(fila.id, { activo: !fila.activo })
     await cargar()
   } catch (e) {
     toast.add({ title: 'Voz', description: e?.message || 'Error', color: 'error' })
@@ -71,10 +85,22 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="p-4 md:p-6 space-y-4">
-    <h1 class="text-xl font-semibold">
-      Léxico de voz
-    </h1>
+  <BaseHeaderPage
+    title="Léxico de voz"
+    description="Sinónimos que el reconocimiento acepta además del vocabulario base."
+    leading-icon="i-lucide-book"
+    :show-button="false"
+  >
+    <template #trailing>
+      <span class="text-sm text-muted">{{ filas.length }} entradas</span>
+      <UButton
+        icon="i-lucide-refresh-cw"
+        variant="outline"
+        label="Actualizar"
+        :loading="cargando"
+        @click="cargar"
+      />
+    </template>
 
     <div class="flex flex-col gap-2 md:flex-row md:items-end">
       <USelect v-model="nueva.categoria" :items="categorias" class="w-56" />
@@ -86,57 +112,39 @@ onMounted(() => {
       </UButton>
     </div>
 
-    <table class="min-w-full text-sm">
-      <thead>
-        <tr class="text-left border-b">
-          <th class="py-2 pr-4">
-            Categoría
-          </th>
-          <th class="py-2 pr-4">
-            Valor
-          </th>
-          <th class="py-2 pr-4">
-            Clave
-          </th>
-          <th class="py-2 pr-4">
-            Activo
-          </th>
-          <th class="py-2 pr-4">
-            Versión
-          </th>
-          <th class="py-2 pr-4">
-            Acciones
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="fila in filas" :key="fila.id" class="border-b">
-          <td class="py-2 pr-4">
-            {{ fila.categoria }}
-          </td>
-          <td class="py-2 pr-4 font-mono text-xs">
-            {{ fila.valor }}
-          </td>
-          <td class="py-2 pr-4">
-            {{ fila.clave || '—' }}
-          </td>
-          <td class="py-2 pr-4">
-            {{ fila.activo ? 'Sí' : 'No' }}
-          </td>
-          <td class="py-2 pr-4">
-            {{ fila.version }}
-          </td>
-          <td class="py-2 pr-4">
-            <UButton size="xs" @click="alternar(fila)">
-              {{ fila.activo ? 'Desactivar' : 'Activar' }}
-            </UButton>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <div v-if="!filas.length" class="py-4 text-sm opacity-60">
-      Sin entradas.
-    </div>
+    <BaseTable
+      :data="filas"
+      :columns="columnas"
+      :loading-prop="cargando"
+      :show-edit="false"
+      :show-delete="false"
+      :pagination="false"
+      empty-state="Sin entradas."
+      @reload="cargar"
+    >
+      <template #valor-cell="{ row }">
+        <span class="font-mono text-xs">{{ row.original.valor }}</span>
+      </template>
+
+      <template #clave-cell="{ row }">
+        {{ row.original.clave || '—' }}
+      </template>
+
+      <template #activo-cell="{ row }">
+        <UBadge
+          :color="row.original.activo ? 'success' : 'neutral'"
+          variant="soft"
+          size="sm"
+          :label="row.original.activo ? 'Sí' : 'No'"
+        />
+      </template>
+
+      <template #acciones-cell="{ row }">
+        <UButton size="xs" variant="outline" @click="alternar(row.original)">
+          {{ row.original.activo ? 'Desactivar' : 'Activar' }}
+        </UButton>
+      </template>
+    </BaseTable>
 
     <div class="mt-6 space-y-2 border rounded p-4">
       <h2 class="font-semibold">
@@ -161,5 +169,5 @@ onMounted(() => {
         </ul>
       </div>
     </div>
-  </section>
+  </BaseHeaderPage>
 </template>

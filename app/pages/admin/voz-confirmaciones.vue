@@ -7,6 +7,7 @@ definePageMeta({
 const cargando = ref(false)
 const errorCarga = ref(null)
 const filas = ref([])
+const api = useAdminApi()
 
 const columnas = [
   { accessorKey: 'creadoEn', header: 'Cuándo' },
@@ -37,7 +38,7 @@ async function cargar() {
   cargando.value = true
   errorCarga.value = null
   try {
-    filas.value = await $fetch('/api/admin/voz/confirmaciones')
+    filas.value = await api.listarConfirmacionesVoz()
   } catch (e) {
     errorCarga.value = e?.message || 'Error al cargar confirmaciones.'
   } finally {

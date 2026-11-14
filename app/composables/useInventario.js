@@ -361,6 +361,62 @@ export function useInventario() {
   }
 
   /**
+   * Anula una venta directa (deshacer / "cancela").
+   *
+   * Marca `anulado = true` en la venta y en sus movimientos de inventario,
+   * con `sincronizado = 0` para que el push suba el cambio. Como
+   * `lotesConSaldo` ignora los movimientos anulados, el stock se restaura
+   * automáticamente al recargar saldos.
+   *
+   * Solo jefe. Válida mientras `sincronizado = 0` (no subida aún al servidor).
+   */
+  async function anularVentaDirecta(ventaId) {
+    exigirJefe()
+    const pid = puestoIdActual()
+    if (!pid) throw new Error('Sin puesto asignado.')
+    cargando.value = true
+    try {
+      const venta = await r(ventasDirectasRepo).read(ventaId)
+      if (!venta) throw new Error('Venta no encontrada.')
+      if (venta.anulado) throw new Error('La venta ya está anulada.')
+      if (venta.puestoId !== pid) throw new Error('La venta no pertenece a este puesto.')
+
+      // 1. Marcar la venta como anulada (sincronizado = 0 para que suba al push).
+      await r(ventasDirectasRepo).update(ventaId, {
+        anulado: true,
+        sincronizado: 0,
+        actualizadoEn: Date.now()
+      })
+
+      // 2. Marcar los movimientos de inventario relacionados como anulados.
+      const movs = await r(movimientosRepo).readAll({ query: { ventaDirectaId: ventaId } })
+      const usuarioId = auth.usuarioActual.value?.id ?? null
+      const ahora = Date.now()
+      for (const m of (movs ?? [])) {
+        if (!m.anulado) {
+          await r(movimientosRepo).update(m.id, {
+            anulado: true,
+            anuladoPor: usuarioId,
+            anuladoEn: ahora,
+            sincronizado: 0,
+            actualizadoEn: ahora
+          })
+        }
+      }
+
+      // 3. Recargar saldos para que el stock se vea restaurado (FIFO ignora anulados).
+      await cargarSaldos().catch(() => {})
+
+      return { id: ventaId, anulado: true, montoTotal: venta.montoTotal }
+    } catch (err) {
+      toast.add({ title: 'Error al anular', description: err.message, color: 'error' })
+      throw err
+    } finally {
+      cargando.value = false
+    }
+  }
+
+  /**
    * Ventas directas del puesto para la vista /venta-directa.
    *
    * Normaliza la forma de la fila para que sea la misma online y local, porque
@@ -636,6 +692,7 @@ export function useInventario() {
     registrarTraspaso,
     registrarAjuste,
     registrarVentaDirecta,
+    anularVentaDirecta,
     cargarVentasDirectas,
     cargarDesgloseLote,
     corregirLote,

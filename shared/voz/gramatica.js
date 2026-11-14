@@ -164,6 +164,22 @@ const PALABRAS_NO_CLIENTE = new Set([
 // ("pan de leche").
 const BORDE_VACIAS = new Set([...PALABRAS_VACIAS, 'para', 'desde', 'en', 'al', 'con', 'sin'])
 
+const RE_UBICACION = /\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/
+
+/**
+ * Extrae la ubicación dicha ("del almacén", "en el quiosco") y la quita del
+ * texto. Devuelve `{ ubicacion, texto }` para que `extraerBase` y
+ * `extraerConsultaPura` no repitan la regex.
+ */
+function extraerUbicacion(texto) {
+  const loc = texto.match(RE_UBICACION)
+  if (!loc) return { ubicacion: null, texto }
+  return {
+    ubicacion: loc[1] === 'almacen' ? 'almacen' : 'quiosco',
+    texto: texto.replace(loc[0], ' ')
+  }
+}
+
 function limpiarBordes(tokens) {
   while (tokens.length && BORDE_VACIAS.has(tokens[0])) tokens.shift()
   while (tokens.length && BORDE_VACIAS.has(tokens[tokens.length - 1])) tokens.pop()
@@ -336,31 +352,44 @@ function compilar(lexico) {
   return out
 }
 
-function resolverNavegacionPuro(texto, c, lexico) {
-  const RELLENOS_NAV = new Set(['a', 'al', 'la', 'el', 'los', 'las', 'de', 'del', 'mi', 'mis', 'por', 'favor', 'pantalla', 'vista', 'seccion', 'modulo', 'en', 'ya', 'ahora', 'me'])
-  const RELLENOS_COMPLEMENTO = new Set(['hoy', 'dia', 'ayer', 'actual'])
-  const tokens = texto.split(' ').filter(Boolean)
-  const verboIdx = tokens.findIndex(t => c.navegacionVerbo.map(x => x).includes(t))
-  if (verboIdx < 0) return false
+const RELLENOS_NAV = new Set(['a', 'al', 'la', 'el', 'los', 'las', 'de', 'del', 'mi', 'mis', 'por', 'favor', 'pantalla', 'vista', 'seccion', 'modulo', 'en', 'ya', 'ahora', 'me'])
+const RELLENOS_COMPLEMENTO = new Set(['hoy', 'dia', 'ayer', 'actual'])
 
-  // inverted map word -> vista key
+// Mapa palabra → destino, cacheado por léxico compilado (`compilar` ya cachea
+// el objeto, así que la clave es estable).
+const CACHE_DESTINOS = new WeakMap()
+
+function mapaDestinos(c) {
+  const cacheado = CACHE_DESTINOS.get(c)
+  if (cacheado) return cacheado
   const inverted = {}
   if (c.destinos) {
     for (const [key, palabras] of Object.entries(c.destinos)) {
       for (const w of palabras) inverted[w] = key
     }
   }
-  // also from lexicon BASE strings in lexico.destinos? yes c.destinos.
+  CACHE_DESTINOS.set(c, inverted)
+  return inverted
+}
 
+/** Índice del token que nombra el destino, o -1 si no hay verbo de navegación. */
+function indiceDespuesDeVerbo(tokens, c) {
+  const verboIdx = tokens.findIndex(t => Array.isArray(c.navegacionVerbo) && c.navegacionVerbo.includes(t))
+  if (verboIdx < 0) return -1
   let i = verboIdx + 1
   while (i < tokens.length && RELLENOS_NAV.has(tokens[i])) i++
-  if (i >= tokens.length) return false
-  const destino = inverted[tokens[i]]
-  if (!destino) return false
-  i++
+  return i
+}
 
-  // resto solo rellenos nav o complemento
-  for (let j = i; j < tokens.length; j++) {
+function resolverNavegacionPuro(texto, c, lexico) {
+  const tokens = texto.split(' ').filter(Boolean)
+  const i = indiceDespuesDeVerbo(tokens, c)
+  if (i < 0 || i >= tokens.length) return false
+  const destino = mapaDestinos(c)[tokens[i]]
+  if (!destino) return false
+
+  // El resto solo puede ser relleno de navegación o complemento temporal.
+  for (let j = i + 1; j < tokens.length; j++) {
     const t = tokens[j]
     if (RELLENOS_NAV.has(t)) continue
     if (RELLENOS_COMPLEMENTO.has(t)) continue
@@ -374,13 +403,9 @@ function extraerConsultaPura(texto) {
   const RELLENOS_CONSULTA = new Set(['unidades', 'unidad', 'dime', 'dame', 'decir', 'dices', 'cual', 'cuales', 'es', 'son', 'esta', 'estan', 'me', 'nos'])
   let work = texto
 
-  // Ubicación propia (duplicada; no tocar extraerBase)
-  const loc = work.match(/\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/)
-  let ubicacion = null
-  if (loc) {
-    ubicacion = loc[1] === 'almacen' ? 'almacen' : 'quiosco'
-    work = work.replace(loc[0], ' ')
-  }
+  // Ubicación: mismo helper que `extraerBase` (antes estaba duplicado).
+  const { ubicacion, texto: sinUbicacion } = extraerUbicacion(work)
+  work = sinUbicacion
 
   const toks = work.split(' ').filter(Boolean)
   const marcaSet = new Set(['cuanto', 'cuanta', 'cuantos', 'cuantas', 'hay', 'queda', 'quedan', 'stock', 'existencia', 'existencias', 'tenemos', 'tengo', 'disponible', 'disponibles', 'inventario'])
@@ -526,11 +551,9 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
 
   // Ubicación se extrae sobre TODO el texto (incluso si el verbo va al final),
   // para no perderla al recortar el verbo.
-  const loc = texto.match(/\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/)
-  if (loc) {
-    slots.ubicacion = loc[1] === 'almacen' ? 'almacen' : 'quiosco'
-    texto = texto.replace(loc[0], ' ')
-  }
+  const ubicacion = extraerUbicacion(texto)
+  if (ubicacion.ubicacion) slots.ubicacion = ubicacion.ubicacion
+  texto = ubicacion.texto
 
   let work = recortarVerbo(texto, c.ventaFuerte, c.ventaDebil)
 
@@ -669,22 +692,10 @@ export function preferirHintConTipo(candidatosAlternativa) {
 }
 
 function resolverNavegacionDestino(transcript, c) {
-  const RELLENOS_NAV = new Set(['a', 'al', 'la', 'el', 'los', 'las', 'de', 'del', 'mi', 'mis', 'por', 'favor', 'pantalla', 'vista', 'seccion', 'modulo', 'en', 'ya', 'ahora', 'me'])
-  const inverted = {}
-  if (c.destinos) {
-    for (const [key, palabras] of Object.entries(c.destinos)) {
-      for (const w of palabras) inverted[w] = key
-    }
-  }
   const tokens = normalizar(transcript).split(' ').filter(Boolean)
-  const verboIdx = tokens.findIndex(t => Array.isArray(c.navegacionVerbo) && c.navegacionVerbo.includes(t))
-  if (verboIdx < 0) return null
-  let i = verboIdx + 1
-  while (i < tokens.length && RELLENOS_NAV.has(tokens[i])) i++
-  if (i >= tokens.length) return null
-  const destino = inverted[tokens[i]]
-  if (!destino) return null
-  return destino
+  const i = indiceDespuesDeVerbo(tokens, c)
+  if (i < 0 || i >= tokens.length) return null
+  return mapaDestinos(c)[tokens[i]] ?? null
 }
 
 /**

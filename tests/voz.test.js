@@ -26,7 +26,8 @@ import {
   fusionarTrazas,
   resumirTraza
 } from '../app/utils/voice/diagnostico.js'
-import { esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
+import { clasificarRespuesta, esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
+import { cabecerasDePrueba } from '../app/utils/voice/auditoria.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
 import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
 
@@ -372,6 +373,19 @@ describe('voz: auto-disparo y disponibilidad', () => {
       webSoportado: true, nativoDisponible: null, permisoMicrofono: null,
       modo: 'online', hayRed: false
     }), 'Sin conexión: la voz no está disponible.')
+
+    // Vosk trae su propio modelo/permiso: el check de Google no debe bloquearlo.
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: true,
+      webSoportado: true, nativoDisponible: false, permisoMicrofono: false,
+      modo: 'online', hayRed: true, motor: 'vosk'
+    }), null)
+
+    assert.equal(calcularMotivoNoDisponible({
+      configLista: true, tienePermiso: true, esNativo: true,
+      webSoportado: true, nativoDisponible: false, permisoMicrofono: true,
+      modo: 'online', hayRed: true, motor: 'google-offline'
+    }), 'Este dispositivo no tiene reconocimiento de voz.')
   })
 })
 
@@ -743,6 +757,33 @@ describe('voz: confirmación hablada (Modo PRO)', () => {
     for (const texto of ['no sé', 'no hay', 'sí']) {
       assert.equal(esNegacion(texto), false, texto)
     }
+  })
+})
+
+describe('voz: clasificación de respuesta hablada', () => {
+  it('clasifica afirmaciones y negaciones', () => {
+    assert.equal(clasificarRespuesta('sí'), 'afirmado')
+    assert.equal(clasificarRespuesta('vale'), 'afirmado')
+    assert.equal(clasificarRespuesta('no, gracias'), 'negado')
+    assert.equal(clasificarRespuesta('cancela'), 'negado')
+  })
+
+  it('separa vacío de otras frases', () => {
+    assert.equal(clasificarRespuesta(''), 'vacio')
+    assert.equal(clasificarRespuesta('   '), 'vacio')
+    assert.equal(clasificarRespuesta('sí pero no'), 'otro')
+    assert.equal(clasificarRespuesta('mañana'), 'otro')
+  })
+})
+
+describe('voz: cabeceras de auditoría', () => {
+  it('añade Authorization solo si hay token', () => {
+    assert.deepEqual(cabecerasDePrueba('abc'), { Authorization: 'Bearer abc' })
+  })
+
+  it('sin token no envía cabecera de autenticación', () => {
+    assert.deepEqual(cabecerasDePrueba(null), {})
+    assert.deepEqual(cabecerasDePrueba(''), {})
   })
 })
 

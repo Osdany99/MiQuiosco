@@ -6,7 +6,7 @@ import { validarEntrada } from '#shared/schemas/vozLexico'
 const KEY_ENTRIES = 'voz.lexico.entradas'
 const KEY_VERSION = 'voz.lexico.version'
 
-export function useVozLexico() {
+function _create() {
   const entradas = ref([])
   const version = ref(0)
   const lexico = computed(() => {
@@ -73,5 +73,22 @@ export function useVozLexico() {
     }
   }
 
+  // Carga las entradas guardadas (localStorage/Preferences) al crear la
+  // instancia. Sin esto, `useVentaPorVoz` interpretaba siempre con LEXICO_BASE:
+  // el léxico que edita el super admin nunca llegaba al reconocimiento.
+  if (import.meta.client) void cargarLocal()
+
   return { entradas, version, lexico, cargarLocal, refrescar, validarEntrada }
+}
+
+let singleton = null
+
+/**
+ * Singleton: el intérprete (`useVentaPorVoz`) y el sync (`useSync`) deben ver
+ * las mismas entradas. Si cada uno crea su instancia, `refrescar()` del sync
+ * actualiza una copia que nadie usa.
+ */
+export function useVozLexico() {
+  if (!singleton) singleton = _create()
+  return singleton
 }

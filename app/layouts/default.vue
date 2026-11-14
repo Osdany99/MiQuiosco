@@ -1,7 +1,7 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
-import { esAfirmacion, esNegacion } from '../utils/voice/confirmacion'
 import { registrarProof } from '../utils/voice/proofs'
+import { useConfirmacionVoz } from '../composables/useConfirmacionVoz'
 import { FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
 
 const auth = useAuth()
@@ -12,6 +12,7 @@ const vozDialogRef = ref(null)
 const zeroTouch = useVoiceZeroTouch()
 const voiceRaw = useVoiceCommand()
 const ttsRaw = useTts()
+const confirmacion = useConfirmacionVoz()
 const ceroToquesActivo = computed(() => zeroTouch.activo.value)
 const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
@@ -49,7 +50,6 @@ watch(
 // Conversación de confirmación del Modo PRO (anuncio + "di sí"). Mientras dura,
 // el panel de voz sigue visible aunque el diálogo de venta esté abierto.
 const confirmandoVoz = ref(false)
-let abortarEspera = null
 
 // El panel acompaña toda la conversación: escucha, anuncios, y la escucha de
 // la confirmación (que abre el micrófono por fuera de vozActiva.estado).
@@ -66,51 +66,11 @@ const panelVozVisible = computed(() => {
 function cancelarPanelVoz() {
   // Durante la confirmación: dejar de escuchar y volver al toque manual.
   if (confirmandoVoz.value) {
-    abortarEspera?.()
+    confirmacion.cancelar()
     void voiceRaw.stopListening()
     return
   }
   void vozActiva.value.cancelarEscucha()
-}
-
-/**
- * Espera una respuesta hablada ("sí"/"no") durante `timeoutMs`. Resuelve una
- * sola vez y limpia watcher y timer, para que un "sí" tardío no confirme dos
- * veces ni deje el micrófono colgado.
- */
-function esperarRespuestaVoz(timeoutMs) {
-  return new Promise((resolve) => {
-    let resuelto = false
-    let detener = null
-    let timer = null
-    const terminar = (valor) => {
-      if (resuelto) return
-      resuelto = true
-      if (timer) clearTimeout(timer)
-      try {
-        detener?.()
-      } catch {
-        /* noop */
-      }
-      abortarEspera = null
-      resolve(valor)
-    }
-    const revisar = () => {
-      const texto = String(voiceRaw.transcript?.value || voiceRaw.transcriptParcial?.value || '')
-      if (esNegacion(texto)) return terminar('negado')
-      if (esAfirmacion(texto)) return terminar('afirmado')
-      if (voiceRaw.estado.value === 'error') return terminar('error')
-      // La escucha terminó sin una respuesta reconocible: no esperar de más.
-      if (voiceRaw.estado.value === 'ready') return terminar('timeout')
-    }
-    abortarEspera = () => terminar('timeout')
-    detener = watch(
-      [() => voiceRaw.transcript?.value, () => voiceRaw.transcriptParcial?.value, () => voiceRaw.estado.value],
-      revisar
-    )
-    timer = setTimeout(() => terminar('timeout'), timeoutMs)
-    revisar()
-  })
 }
 
 watch(() => vozActiva.value.producto.value, async (fila) => {
@@ -149,10 +109,9 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     // startListening resuelve al terminar la escucha; no se espera aquí.
     voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'modo_pro' })
     const escucha = voiceRaw.startListening({
-      offline: !voiceRaw.hayInternet.value,
       contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
     }).catch(() => {})
-    resultado = await esperarRespuestaVoz(zeroTouch.timeoutMs.value)
+    resultado = await confirmacion.esp({ timeoutMs: zeroTouch.timeoutMs.value })
     confianza = Number(voiceRaw.confidence?.value) || 0
     try {
       await voiceRaw.stopListening()
@@ -179,6 +138,8 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       outcome: resultado === 'afirmado'
         ? 'auto-confirmado'
         : (resultado === 'negado' ? 'cancelado' : 'abandonado')
+    }, {
+      token: auth.jwtSync.value
     })
   } catch { /* noop */ }
   if (resultado === 'negado') {
@@ -443,6 +404,9 @@ const userMenuItems = computed(() => {
         :disponible="vozActiva.disponible.value"
         :ocupado="vozActiva.ocupado.value"
         :estado="vozActiva.estado.value"
+        :voz-estado="voiceRaw.estado.value"
+        :fase-stt="voiceRaw.faseStt.value"
+        :deshaciendo="Boolean(vozActiva.ventaParaCancela.value)"
         :motivo="vozActiva.motivoNoDisponible.value"
         :push-to-talk="dictadoModo.pushToTalk.value"
         :error="vozActiva.ultimoError.value"
@@ -503,6 +467,8 @@ const userMenuItems = computed(() => {
       :confirmando="confirmandoVoz"
       :ocupado="vozActiva.ocupado.value"
       :estado="vozActiva.estado.value"
+      :fase-stt="voiceRaw.faseStt.value"
+      :deshaciendo="Boolean(vozActiva.ventaParaCancela.value)"
       :error="vozActiva.ultimoError.value || ''"
       :transcript="vozActiva.transcriptParcial.value"
       @reintentar="vozActiva.reintentar()"

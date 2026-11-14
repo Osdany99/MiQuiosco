@@ -10,6 +10,6 @@ export default defineNuxtRouteMiddleware((to) => {
   admin.cargarDesdeAlmacen()
 
   if (!admin.sesionVigente()) {
-    return navigateTo({ path: '/admin/login', query: { redirect: to.fullPath } })
+    return navigateTo({ path: '/login', query: { redirect: to.fullPath } })
   }
 })

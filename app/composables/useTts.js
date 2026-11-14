@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
+import { useVoiceCommand } from './useVoiceCommand'
 
 const TtsNative = registerPlugin('TtsNative')
 
@@ -358,13 +359,21 @@ function _useTts() {
       try {
         window.speechSynthesis.cancel()
         const u = new SpeechSynthesisUtterance(String(texto))
-        u.lang = 'es-ES'
-        u.rate = 1
         const v = vozActual()
-        if (v) {
-          u.voice = v
-          if (v.lang) u.lang = v.lang
+        // La voz elegida manda; si no hay ninguna, el idioma del reconocimiento
+        // y, en último caso, el del navegador. Antes se forzaba es-ES.
+        let idiomaPreferido = null
+        try {
+          idiomaPreferido = useVoiceCommand().idiomaEfectivo.value
+        } catch {
+          /* el STT no está disponible (web sin voz) */
         }
+        const idiomaNavegador = idiomaPreferido
+          || (typeof navigator !== 'undefined' && navigator.language)
+          || 'es-ES'
+        u.lang = v?.lang || idiomaNavegador
+        u.rate = 1
+        if (v) u.voice = v
         u.onstart = () => {
           hablando.value = true
         }

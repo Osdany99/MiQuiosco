@@ -75,3 +75,20 @@ export function esNegacion(texto) {
   if (NEGATIVAS.has(t.join(' '))) return true
   return t[0] === 'no' && t.slice(1).every(x => RELLENO_NO.has(x))
 }
+
+/**
+ * Clasifica una respuesta hablada en una sola categoría.
+ *
+ * - `vacio`: no se capturó texto (aún).
+ * - `negado` / `afirmado`: respuestas claras.
+ * - `otro`: se escuchó algo, pero no confirma ni cancela.
+ *
+ * Se usa en la espera de confirmación (Modo PRO y venta directa) para no
+ * repetir la lógica de sí/no en cada flujo.
+ */
+export function clasificarRespuesta(texto) {
+  if (!tokens(texto).length) return 'vacio'
+  if (esNegacion(texto)) return 'negado'
+  if (esAfirmacion(texto)) return 'afirmado'
+  return 'otro'
+}

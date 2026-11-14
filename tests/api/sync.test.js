@@ -47,6 +47,19 @@ function filaProducto(puestoId, nombre) {
   }
 }
 
+/**
+ * Fecha aleatoria (2000–2099) para no chocar con la restricción única
+ * `(puesto_id, fecha)` al repetir la suite con KEEP_DB=1.
+ */
+function fechaUnica() {
+  const ms = Date.UTC(
+    2000 + Math.floor(Math.random() * 100),
+    Math.floor(Math.random() * 12),
+    1 + Math.floor(Math.random() * 28)
+  )
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
 describe('push: insercion y herencia de puesto', () => {
   it('fila nueva con puesto propio se acepta', async () => {
     const row = filaProducto(puestoA, nombreUnico('push_ok'))
@@ -183,10 +196,11 @@ describe('push: insercion y herencia de puesto', () => {
     })
     assert.equal(ajeno.status, 403)
 
+    const huerfanoId = randomUUID()
     const huerfano = await raw('POST', '/api/sync/push', {
       body: {
         cuentas_fiado_items: [{
-          id: randomUUID(), cuentaFiadoId: randomUUID(), productoId: prodA,
+          id: huerfanoId, cuentaFiadoId: randomUUID(), productoId: prodA,
           cantidad: 1, precioVentaUsado: 10, subtotal: 10,
           creadoEn: ahora, actualizadoEn: ahora
         }],
@@ -194,8 +208,14 @@ describe('push: insercion y herencia de puesto', () => {
       },
       token: tokenA
     })
-    // Antes era un 500 opaco por violacion de FK.
-    assert.equal(huerfano.status, 404)
+    // Rechazo por fila (no 500): el push sigue vivo y el resto se aplica.
+    assert.equal(huerfano.status, 200)
+    const rechazo = (huerfano.body.rechazos ?? []).find(r => r.id === huerfanoId)
+    assert.ok(rechazo, 'debe reportar el rechazo de la fila huerfana')
+    assert.equal(rechazo.codigo, '404')
+    assert.equal(rechazo.motivo, 'padre_ausente')
+    assert.equal(rechazo.transitorio, true)
+    assert.equal((await filas('cuentas_fiado_items', `id = '${huerfanoId}'`)).length, 0)
   })
 
   it('payload con tabla no-sync se ignora (200, sin aceptados)', async () => {
@@ -277,10 +297,10 @@ describe('pull: solo lo propio', () => {
 
   it('pull filtra hijas por el puesto del padre', async () => {
     const cuadA = await insertar('cuadres', {
-      puesto_id: puestoA, fecha: '2026-03-01', jefe_id: (await filaJefeA()), total_esperado: 0
+      puesto_id: puestoA, fecha: fechaUnica(), jefe_id: (await filaJefeA()), total_esperado: 0
     })
     const cuadS = await insertar('cuadres', {
-      puesto_id: puestoS, fecha: '2026-03-02', jefe_id: (await filaJefeS()), total_esperado: 0
+      puesto_id: puestoS, fecha: fechaUnica(), jefe_id: (await filaJefeS()), total_esperado: 0
     })
     const prodA = await insertar('productos', { puesto_id: puestoA, nombre: nombreUnico('pull_pa') })
     const prodS = await insertar('productos', { puesto_id: puestoS, nombre: nombreUnico('pull_ps') })
@@ -371,15 +391,21 @@ describe('push usuarios: pinHash del dispositivo (Fase 3)', () => {
     assert.equal(enBd[0].pin_hash, 'hash-falso-f3')
   })
 
-  it('usuario nuevo SIN pinHash da 422 (no 500) y no escribe nada', async () => {
+  it('usuario nuevo SIN pinHash se rechaza por fila y el resto se aplica', async () => {
     const mala = filaUsuario(nombreUnico('push_unohash'), false)
     const buena = filaProducto(puestoA, nombreUnico('push_unohash_ok'))
     const r = await raw('POST', '/api/sync/push', {
       body: { usuarios: [mala], productos: [buena], deletes: [] }, token: tokenA
     })
-    assert.equal(r.status, 422)
+    assert.equal(r.status, 200)
+    const rechazo = (r.body.rechazos ?? []).find(x => x.id === mala.id)
+    assert.ok(rechazo, 'debe reportar el rechazo del usuario sin pinHash')
+    assert.equal(rechazo.codigo, '422')
+    assert.equal(rechazo.motivo, 'validacion')
+    assert.equal(rechazo.transitorio, false)
     assert.equal((await filas('usuarios', `id = '${mala.id}'`)).length, 0)
-    assert.equal((await filas('productos', `id = '${buena.id}'`)).length, 0)
+    // El savepoint solo revierte la fila mala: el producto del mismo push sí entra.
+    assert.equal((await filas('productos', `id = '${buena.id}'`)).length, 1)
   })
 })
 

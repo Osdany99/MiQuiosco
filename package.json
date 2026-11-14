@@ -14,7 +14,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:generate:sqlite": "drizzle-kit generate --config drizzle.sqlite.config.ts",
-    "test": "node --test tests/unit.test.js tests/inventario.test.js tests/recargas.test.js tests/clientes.test.js tests/syncFallos.test.js tests/admin.test.js tests/permisos.test.js tests/voz.test.js tests/consumoLotes.test.js",
+    "test": "node --test tests/unit.test.js tests/inventario.test.js tests/recargas.test.js tests/clientes.test.js tests/syncFallos.test.js tests/admin.test.js tests/permisos.test.js tests/voz.test.js tests/consumoLotes.test.js tests/voiceMotor.test.js tests/voiceIdioma.test.js tests/voiceFases.test.js",
     "test:api": "node tests/api/run.mjs",
     "test:todo": "pnpm test && pnpm test:api",
     "db:reset:local": "echo 'Usa resetLocalDatabase() desde la consola del navegador (F12 > App > Consola). Se exporta por useLocalDb().'",
@@ -22,6 +22,7 @@
     "cap:sync": "cap sync android",
     "cap:open": "cap open android",
     "android:build": "node scripts/gradle.mjs assembleDebug",
+    "android:dev": "node scripts/dev-android.mjs",
     "android:assemble-release": "node scripts/gradle.mjs assembleRelease",
     "iconos": "node scripts/generar-iconos.mjs"
   },

@@ -69,7 +69,7 @@ export function haySyncEnCurso() {
   return controlesSync.size > 0
 }
 
-export function useSync() {
+function _create() {
   const auth = (import.meta.client && getAuthInstance()) || useAuth()
   const toast = (() => {
     try {
@@ -775,6 +775,19 @@ export function useSync() {
     descargarCatalogo,
     aplicarPull: pullOffline
   }
+}
+
+let _syncSingleton = null
+
+/**
+ * Singleton: `useSync()` se instancia en el layout, el dock, el login y Ajustes.
+ * Sin esto cada uno tenía su propio `hayRed`, `sincronizando`, `ultimaSync` y
+ * `pendientesCount`, así que el banner y el dock podían mostrar estados
+ * distintos (y la red detectada en un sitio no llegaba a otro).
+ */
+export function useSync() {
+  if (!_syncSingleton) _syncSingleton = _create()
+  return _syncSingleton
 }
 
 // mergeFields re-export removed to avoid Nuxt auto-import duplicate warning;

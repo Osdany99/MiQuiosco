@@ -5,12 +5,14 @@ import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
 import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
 import { useVoiceZeroTouch } from '../composables/useVoiceZeroTouch'
+import { useVentaPorVoz } from '../composables/useVentaPorVoz'
 
 const toast = useToast()
 const conexion = useModoConexion()
 const tts = useTts()
 const dictadoModo = useDictadoModo()
 const voz = useVoiceCommand()
+const vozQuiosco = useVentaPorVoz('quiosco')
 const pruebaMicrofono = ref('')
 const probandoMicrofono = ref(false)
 const update = useAppUpdate()
@@ -373,10 +375,28 @@ const dictadoPushToTalk = computed({
   set: (value) => { dictadoModo.set(value) }
 })
 const micMotivo = computed(() => {
-  if (voz.esNativo.value && voz.nativoDisponible.value === false) return 'Este dispositivo no tiene reconocimiento de voz.'
+  if (voz.esNativo.value && voz.preferenciaMotor.value !== 'vosk' && voz.nativoDisponible.value === false) {
+    return 'Este dispositivo no tiene reconocimiento de voz.'
+  }
   if (voz.esNativo.value && voz.permisoMicrofono.value === false) return 'Falta el permiso de micrófono.'
   if (!voz.disponible.value) return 'No disponible.'
   return ''
+})
+
+const itemsMotorVoz = computed(() =>
+  (voz.opcionesMotor || []).map(opcion => ({ label: opcion.label, value: opcion.id }))
+)
+const itemsIdiomaVoz = computed(() =>
+  (voz.opcionesIdioma || []).map(opcion => ({ label: opcion.label, value: opcion.id }))
+)
+const modoActualTexto = computed(() => voz.modoActual?.value === 'offline' ? 'offline' : 'online')
+const avisoConexion = computed(() => {
+  if (voz.hayInternet.value === null) return 'Comprobando conexión…'
+  if (voz.hayInternet.value === true) return ''
+  const pref = voz.preferenciaMotor.value
+  if (pref === 'google') return 'Sin conexión: el modo “solo online” no puede reconocer.'
+  if (pref === 'google-offline' || pref === 'vosk') return 'Sin conexión: este modo trabaja offline.'
+  return 'Sin conexión: usará el modo offline.'
 })
 
 // En Android nativo, SpeechRecognizer funciona offline con paquetes de idioma
@@ -409,14 +429,18 @@ async function probarMicrofono() {
   pruebaMicrofono.value = ''
   try {
     await voz.check()
-    if (voz.esNativo.value && !voz.nativoDisponible.value) {
+    if (voz.esNativo.value && voz.preferenciaMotor.value !== 'vosk' && !voz.nativoDisponible.value) {
       toast.add({ title: 'Este dispositivo no tiene reconocimiento de voz', color: 'warning' })
       return
     }
-    voz.registrar('stt.ui.probar', { red: voz.hayInternet.value, modo: conexion.modo.value })
+    voz.registrar('stt.ui.probar', {
+      red: voz.hayInternet.value,
+      modo: conexion.modo.value,
+      motor: voz.motorVoz.value,
+      idioma: voz.idiomaEtiqueta.value,
+      offline: voz.modoActual.value === 'offline'
+    })
     await voz.startListening({
-      language: 'es-ES',
-      offline: !voz.hayInternet.value,
       contexto: { modo: conexion.modo.value, red: voz.hayInternet.value }
     })
     await voz.sincronizarDiagNativo()
@@ -1053,6 +1077,71 @@ async function whOlvidarEste() {
         >
           Enviar al administrador las frases no entendidas
         </USwitch>
+
+        <!-- Voz directa: salta el formulario y registra tras confirmación hablada. -->
+        <USwitch
+          v-if="auth.esJefe"
+          v-model="vozQuiosco.ventaDirectaVoz"
+          color="warning"
+          :disabled="!tts.disponible.value || !voz.disponible.value"
+          description="Solo jefe. Salta el DialogoVenta: TTS lee el resumen, espera “sí” hablado y registra directo. Incluye ventana de cancela por voz."
+        >
+          Venta directa por voz (sin formulario)
+        </USwitch>
+
+        <div v-if="vozQuiosco.ventaDirectaVoz && auth.esJefe" class="space-y-2 border-t border-default pt-3">
+          <p class="text-xs text-muted">
+            Cuando está activa, comandos como “vende 2 refrescos” se confirman con “sí”
+            hablado y se registran sin abrir el formulario. Se puede deshacer diciendo
+            “cancela” durante los 5 segundos siguientes.
+          </p>
+        </div>
+
+        <!-- Motor de reconocimiento (STT). -->
+        <div class="space-y-2 border-t border-default pt-3">
+          <div>
+            <h3 class="text-sm font-medium">
+              Motor de reconocimiento (entender)
+            </h3>
+            <p class="text-xs text-muted">
+              Cada modo hace un solo intento: online no cae a offline y
+              offline no cae a online. Vosk solo se usa si lo seleccionas.
+            </p>
+          </div>
+          <USelect
+            :items="itemsMotorVoz"
+            :model-value="voz.preferenciaMotor.value"
+            class="w-full"
+            @update:model-value="(value) => { void voz.guardarPreferenciaMotor(value) }"
+          />
+          <p class="text-xs text-muted">
+            Motor actual: {{ voz.nombreMotor.value ?? '—' }} · {{ modoActualTexto }}
+          </p>
+          <p v-if="avisoConexion" class="text-xs text-warning">
+            {{ avisoConexion }}
+          </p>
+
+          <div class="space-y-2 border-t border-default pt-3">
+            <div>
+              <label class="text-sm font-medium">
+                Idioma del reconocimiento
+              </label>
+              <p class="text-xs text-muted">
+                Usa el idioma que tengas instalado para el reconocimiento offline.
+                “Sistema” usa el mismo del teléfono (recomendado).
+              </p>
+            </div>
+            <USelect
+              :items="itemsIdiomaVoz"
+              :model-value="voz.preferenciaIdioma.value"
+              class="w-full"
+              @update:model-value="(value) => { void voz.guardarPreferenciaIdioma(value) }"
+            />
+            <p class="text-xs text-muted">
+              Sistema: {{ voz.idiomaSistema.value }} · Usando: {{ voz.idiomaEtiqueta.value }}
+            </p>
+          </div>
+        </div>
 
         <!-- Voz de respuesta (TTS): SOLO afecta a cómo la app HABLA. -->
         <div class="space-y-2 border-t border-default pt-3">

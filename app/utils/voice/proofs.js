@@ -7,7 +7,8 @@
  * localStorage (web) para no perderlo al recargar.
  */
 import { Preferences } from '@capacitor/preferences'
-import { getApiBaseUrl } from '../api'
+import { $api } from '../api'
+import { cabecerasDePrueba } from './auditoria'
 
 const KEY = 'voice.proofs'
 const MAX = 50
@@ -44,25 +45,26 @@ export async function leerProofs() {
  * @param {object} proof Datos estructurados del intento (sin texto crudo).
  * @returns {Promise<object|null>} El registro guardado, o null si no se pudo.
  */
-async function subirProof(proof) {
+async function subirProof(proof, token = null) {
   // Auditoría central best-effort: si no hay red o el servidor falla, no se
   // bloquea (el proof ya quedó guardado localmente).
+  //
+  // Va por `$api` (no `fetch` crudo): el endpoint exige `Authorization` y el
+  // wrapper añade además `x-dispositivo-id` y `x-app-version-code` en nativo.
+  // Con `fetch` + `credentials:'include'` el servidor respondía 401 siempre.
   try {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return
-    const baseUrl = await getApiBaseUrl()
-    const url = `${baseUrl || ''}/api/voz/confirmaciones`
-    await fetch(url, {
+    await $api('/api/voz/confirmaciones', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(proof)
+      body: proof,
+      headers: cabecerasDePrueba(token)
     })
   } catch {
     /* noop: auditoría central opcional */
   }
 }
 
-export async function registrarProof(proof) {
+export async function registrarProof(proof, { token = null } = {}) {
   if (!proof || typeof proof !== 'object') return null
   const item = { ts: new Date().toISOString(), ...proof }
   const previos = await leerProofs()
@@ -77,6 +79,6 @@ export async function registrarProof(proof) {
   } catch {
     /* noop */
   }
-  void subirProof(item)
+  void subirProof(item, token)
   return item
 }

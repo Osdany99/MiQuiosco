@@ -16,6 +16,13 @@ import { Capacitor } from '@capacitor/core'
 const nivel = ref(0)
 const detectandoVoz = ref(false)
 
+// Histéresis: encender exige un pico claro; apagar espera a que el nivel caiga
+// de verdad y se mantenga bajo un instante. Sin esto, el ruido de fondo hacía
+// parpadear «Te escucho» entre sílabas.
+const UMBRAL_ALTO = 0.2
+const UMBRAL_BAJO = 0.1
+const PERMANENCIA_MS = 350
+
 let objetivo = 0
 let rafId = null
 let flujo = null
@@ -24,12 +31,29 @@ let analizador = null
 let datos = null
 let escuchaNativa = null
 let activo = false
+let ultimaVozMs = 0
+
+function actualizarDeteccion(ahora) {
+  if (nivel.value >= UMBRAL_ALTO) {
+    detectandoVoz.value = true
+    ultimaVozMs = ahora
+    return
+  }
+  if (nivel.value <= UMBRAL_BAJO) {
+    if (detectandoVoz.value && ahora - ultimaVozMs >= PERMANENCIA_MS) {
+      detectandoVoz.value = false
+    }
+    return
+  }
+  // Zona intermedia: mantener el estado y refrescar el pulso.
+  if (detectandoVoz.value) ultimaVozMs = ahora
+}
 
 function suavizar() {
   const sube = objetivo > nivel.value
   nivel.value += (objetivo - nivel.value) * (sube ? 0.45 : 0.12)
   if (nivel.value < 0.001) nivel.value = 0
-  detectandoVoz.value = nivel.value > 0.12
+  actualizarDeteccion(Date.now())
   if (activo) rafId = requestAnimationFrame(suavizar)
 }
 
@@ -124,6 +148,7 @@ function iniciar() {
 function detener() {
   activo = false
   objetivo = 0
+  ultimaVozMs = 0
   if (rafId) cancelAnimationFrame(rafId)
   rafId = null
   cerrarWeb()

@@ -1,11 +1,16 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { derivarFaseVoz } from '../../utils/voice/faseVoz'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   disponible: { type: Boolean, default: false },
   ocupado: { type: Boolean, default: false },
   estado: { type: String, default: 'idle' },
+  // Estado del STT y fase real de la escucha, para no adivinar por booleanos.
+  vozEstado: { type: String, default: 'idle' },
+  faseStt: { type: String, default: 'idle' },
+  deshaciendo: { type: Boolean, default: false },
   motivo: { type: String, default: null },
   error: { type: String, default: null },
   pushToTalk: { type: Boolean, default: false }
@@ -37,16 +42,28 @@ function avisarNoDisponible() {
 }
 
 const hablando = computed(() => Boolean(tts.hablando?.value))
-const escuchando = computed(() => props.estado === 'escuchando')
-const preparando = computed(() => props.estado === 'preparando')
-const interpretando = computed(() => props.estado === 'interpretando')
-// Solo se cancela cuando el micrófono ya está abierto: durante "preparando" un
-// doble toque accidental no debe abortar el dictado que acaba de empezar.
+// Una sola derivación de fase; el dock ya no combina booleanos por su cuenta.
+const fase = computed(() => derivarFaseVoz({
+  estado: props.estado,
+  vozEstado: props.vozEstado,
+  faseStt: props.faseStt,
+  hablando: hablando.value,
+  deshaciendo: props.deshaciendo,
+  error: props.error || '',
+  vozDetectada: detectandoVoz.value
+}))
+// «Escuchando» de verdad = el motor ya captura. Durante `preparando` no se
+// cancela con un toque (evita abortar el dictado recién empezado).
+const escuchando = computed(() => props.faseStt === 'capturando')
+const preparando = computed(() => props.faseStt === 'preparando' || props.estado === 'preparando')
+const procesando = computed(() =>
+  props.faseStt === 'procesando' || props.estado === 'interpretando' || props.estado === 'registrando'
+)
 const puedeCancelar = computed(() => escuchando.value)
 
-const esError = computed(() => props.estado === 'error')
-const trabajando = computed(() => preparando.value || interpretando.value)
-const vozDetectada = computed(() => escuchando.value && detectandoVoz.value)
+const esError = computed(() => fase.value.clave === 'error')
+const trabajando = computed(() => preparando.value || procesando.value)
+const vozDetectada = computed(() => escuchando.value && fase.value.detectando)
 const icono = computed(() => {
   if (esError.value) return 'i-lucide-mic-off'
   if (hablando.value) return 'i-lucide-audio-lines'
@@ -64,23 +81,20 @@ const isDragging = ref(false)
 const moved = ref(false)
 
 const etiquetaTooltip = computed(() => {
+  const f = fase.value
+  if (f.clave === 'error') return `${props.error || 'No te entendí.'} Toca para reintentar.`
+  if (!props.disponible && props.motivo) return `Voz no disponible: ${props.motivo}`
   if (props.pushToTalk) {
-    if (preparando.value) return 'Preparando micrófono…'
     if (escuchando.value) return 'Suelta para enviar'
-    if (interpretando.value) return 'Interpretando…'
     if (props.estado === 'ambiguo') return 'Elegir producto'
     if (props.estado === 'listo') return 'Listo para confirmar'
-    if (props.estado === 'error') return `${props.error || 'No te entendí.'} Toca para reintentar.`
-    if (!props.disponible && props.motivo) return `Voz no disponible: ${props.motivo}`
+    if (trabajando.value) return f.titulo
     return 'Mantén pulsado para hablar (arrastra para mover)'
   }
-  if (preparando.value) return 'Preparando micrófono…'
-  if (escuchando.value) return 'Escuchando… (toca para detener)'
-  if (interpretando.value) return 'Interpretando…'
+  if (escuchando.value) return 'Escuchando… (toca para enviar)'
   if (props.estado === 'ambiguo') return 'Elegir producto'
   if (props.estado === 'listo') return 'Listo para confirmar'
-  if (props.estado === 'error') return `${props.error || 'No te entendí.'} Toca para reintentar.`
-  if (!props.disponible && props.motivo) return `Voz no disponible: ${props.motivo}`
+  if (trabajando.value) return f.titulo
   return 'Iniciar dictado por voz (arrastra para mover)'
 })
 
@@ -239,7 +253,7 @@ async function onPointerUp(e) {
   if (presionando) {
     presionando = false
     emit('detener')
-  } else if (props.pushToTalk && (props.estado === 'escuchando' || props.estado === 'preparando') && !moved.value) {
+  } else if (props.pushToTalk && (puedeCancelar.value || preparando.value) && !moved.value) {
     emit('detener')
   }
   if (moved.value) {

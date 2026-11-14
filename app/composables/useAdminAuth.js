@@ -125,7 +125,7 @@ export function useAdminAuth() {
       }).catch(() => {})
     }
 
-    await navigateTo('/admin/login')
+    await navigateTo('/login')
   }
 
   function cabeceras() {

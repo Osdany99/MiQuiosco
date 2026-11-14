@@ -17,6 +17,12 @@ const nombreUsuario = ref('')
 const pin = ref('')
 const error = ref(null)
 
+const avisoSesion = computed(() =>
+  route.query.reason === 'session_expired'
+    ? 'Tu sesión expiró. Vuelve a iniciar sesión.'
+    : null
+)
+
 // --- Modos de entrada ---
 // Nativo con biometría: tabs Huella (plugin) / Normal.
 // Web con autenticador de plataforma: tabs Huella (WebAuthn, online) / Normal.
@@ -219,6 +225,15 @@ async function onSubmit() {
           </div>
         </div>
       </template>
+
+      <UAlert
+        v-if="avisoSesion && !error"
+        color="warning"
+        variant="soft"
+        icon="i-lucide-clock"
+        :title="avisoSesion"
+        class="mb-4"
+      />
 
       <UTabs
         v-if="mostrarTabs"

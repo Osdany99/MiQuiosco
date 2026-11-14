@@ -5,14 +5,17 @@ definePageMeta({
 })
 
 const toast = useToast()
+const api = useAdminApi()
 const cargando = ref(false)
 const errorCarga = ref(null)
 const limpiando = ref(false)
+const confirmarDepurar = ref(false)
 
 async function limpiarAntiguos() {
+  confirmarDepurar.value = false
   limpiando.value = true
   try {
-    await $fetch('/api/admin/voz/limpiar', { method: 'POST' })
+    await api.limpiarEventosVoz()
     toast.add({ title: 'Voz', description: 'Eventos antiguos depurados.', color: 'success' })
     await cargar()
   } catch (e) {
@@ -61,7 +64,7 @@ async function cargar() {
   errorCarga.value = null
   try {
     const query = filtroEstado.value === 'todos' ? {} : { estado: filtroEstado.value }
-    filas.value = await $fetch('/api/admin/voz/eventos', { query })
+    filas.value = await api.listarEventosVoz(query)
   } catch (e) {
     errorCarga.value = e?.message || 'Error al cargar eventos de voz.'
   } finally {
@@ -71,7 +74,7 @@ async function cargar() {
 
 async function marcar(id, estado) {
   try {
-    await $fetch(`/api/admin/voz/eventos/${id}`, { method: 'PATCH', body: { estado } })
+    await api.marcarEventoVoz(id, estado)
     toast.add({ title: 'Voz', description: `Marcado como ${estado}.`, color: 'success' })
     await cargar()
   } catch (e) {
@@ -104,7 +107,7 @@ watch(filtroEstado, cargar)
         label="Depurar"
         color="warning"
         :loading="limpiando"
-        @click="limpiarAntiguos"
+        @click="confirmarDepurar = true"
       />
       <UButton
         icon="i-lucide-refresh-cw"
@@ -216,5 +219,20 @@ watch(filtroEstado, cargar)
         </div>
       </template>
     </BaseTable>
+
+    <BaseDialog
+      v-model="confirmarDepurar"
+      title="Depurar eventos antiguos"
+      description="Se eliminan los eventos con más de 30 días y menos de 3 intentos."
+      confirm-text="Depurar"
+      confirm-color="warning"
+      :loading="limpiando"
+      @confirm="limpiarAntiguos"
+    >
+      <p class="text-sm text-muted">
+        La operación no se puede deshacer. Los eventos con muchos intentos o
+        recientes se conservan.
+      </p>
+    </BaseDialog>
   </BaseHeaderPage>
 </template>

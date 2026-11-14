@@ -1,7 +1,16 @@
-import { Capacitor, registerPlugin } from '@capacitor/core'
+import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { mensajeStt } from '../utils/voice/stt'
-import { hayInternet, cargarEstadoConectividad } from '../composables/useConectividad'
+import { hayInternet, cargarEstadoConectividad, esperarInternet } from '../composables/useConectividad'
+import { MOTORES, OPCIONES_MOTOR, resolverSeleccion } from '../utils/voice/engines'
+import { IDIOMAS_VOZ, etiquetaIdioma, resolverIdioma } from '../utils/voice/idioma'
+import { avanzarFaseStt } from '../utils/voice/faseVoz'
+import {
+  MS_RESCATE,
+  MS_SIN_VOZ,
+  MS_TEXTO_ESTABLE,
+  decidirVigilancia
+} from '../utils/voice/vigilancia'
 import {
   formatearEntrada,
   formatearResumen,
@@ -10,8 +19,9 @@ import {
   resumirTraza
 } from '../utils/voice/diagnostico'
 
-const VoiceRecognitionNative = registerPlugin('VoiceRecognitionNative')
-const VoskVoice = registerPlugin('VoskVoice')
+const PREFERENCIAS_MOTOR = new Set(['automatico', ...OPCIONES_MOTOR.map(opcion => opcion.id)])
+const GOOGLE_PLUGIN = MOTORES.find(motor => motor.id === 'google')?.plugin
+const IDIOMAS_VALIDOS = new Set(IDIOMAS_VOZ.map(opcion => opcion.id))
 
 // Tiempo máximo SIN actividad del reconocedor dentro de un intento. Se reinicia
 // con cada `start`/`ready`/`partial` nativo, así que ya no corta una frase a
@@ -19,12 +29,16 @@ const VoskVoice = registerPlugin('VoskVoice')
 const INTENTO_TIMEOUT_MS = 20_000
 // Tope absoluto de una escucha completa (incluye reintentos del plugin).
 const MAX_ESCUCHA_MS = 45_000
+// Cuánto dura el resaltado «Te escucho» después de un cambio de texto.
+const TEXTO_RECIENTE_MS = 1500
 const MAX_TRAZA = 2000
 const KEY_TRAZA = 'voz.diagnostico'
 // Escritura síncrona en localStorage: sobrevive a recargas y a que Android
 // mate la app, aunque el guardado asíncrono en Preferences no llegue.
 const KEY_TRAZA_LOCAL = 'voz.diagnostico.local'
 const PERSISTIR_CADA_MS = 1500
+const PREF_MOTOR_VOZ = 'voz.motor'
+const PREF_IDIOMA_VOZ = 'voz.idioma'
 
 function esCancelacion(mensaje) {
   return String(mensaje ?? '').toLowerCase().includes('cancel')
@@ -41,20 +55,109 @@ function _useVoiceCommand() {
   // true cuando el micrófono ya está capturando de verdad (no solo "pedido").
   // La UI lo usa para decir "Habla ahora" en el momento exacto.
   const microListo = ref(false)
+  // Fase visible del STT dentro de la escucha actual:
+  //   preparando → capturando → procesando. Solo avanza, nunca retrocede
+  // (el churn `end`/`beginning` del motor offline no la mueve).
+  const faseStt = ref('idle')
+  // Hubo un cambio de texto reconocido hace menos de TEXTO_RECIENTE_MS. Es la
+  // señal real de "te estoy entendiendo"; el nivel de audio solo apoya.
+  const textoReciente = ref(false)
   let instanciaWeb = null
   // Reloj por intento del reconocedor nativo. Se reinicia con cada evento del
   // motor, así que solo dispara si el intento se queda realmente colgado.
   let relojIntento = null
   let topeEscucha = null
   let cancelarIntento = null
+  // Resolución del intento en curso, para el rescate con el último parcial.
+  let resolverIntento = null
+  let rechazarIntento = null
+  // Vigilantes de la escucha (ver utils/voice/vigilancia.js).
+  let vigilanteTexto = null
+  let vigilanteReciente = null
+  let vigilanteSinVoz = null
+  let vigilanteRescate = null
+  let finalizando = false
+  let ultimoTextoVigilado = ''
+  let ultimoParcialTraza = null
+  let inicioReady = 0
+  let ultimoCambioTexto = 0
+  // Firma del último evento nativo registrado (D: traza sin duplicados).
+  let firmaNativaPrevia = ''
   // Plugin nativo activo en la escucha actual (Google o Vosk). stopListening
   // lo necesita para detener el motor correcto.
   let pluginActivo = null
 
-  /** Devuelve true si debe usarse Vosk (offline empaquetado) en lugar de Google. */
-  function motorVozOffline() {
-    // null = aún no se comprobó: asume offline para no depender de Google.
-    return hayInternet.value !== true
+  // Preferencia de motor de voz guardada en Ajustes: 'google' | 'vosk' | 'automatico'.
+  const preferenciaMotor = ref('automatico')
+
+  async function cargarPreferenciaMotor() {
+    try {
+      const { value } = await Preferences.get({ key: PREF_MOTOR_VOZ })
+      if (PREFERENCIAS_MOTOR.has(value)) {
+        preferenciaMotor.value = value
+      }
+    } catch {
+      preferenciaMotor.value = 'automatico'
+    }
+  }
+  async function guardarPreferenciaMotor(valor) {
+    if (!PREFERENCIAS_MOTOR.has(valor)) return
+    preferenciaMotor.value = valor
+    try {
+      await Preferences.set({ key: PREF_MOTOR_VOZ, value: valor })
+    } catch {}
+  }
+
+  // Selección resuelta: motor + modo (online/offline) según Ajustes y conexión.
+  const seleccionMotor = computed(() => resolverSeleccion(preferenciaMotor.value, hayInternet.value))
+  const modoActual = computed(() => (seleccionMotor.value?.offline ? 'offline' : 'online'))
+
+  /**
+   * Devuelve el plugin a usar para la escucha actual.
+   * Se mantiene por compatibilidad; el flujo real usa `seleccionMotor`.
+   */
+  function pluginParaMotor() {
+    return seleccionMotor.value?.plugin || null
+  }
+
+  /** Nombre legible del motor activo para mostrar en la UI. */
+  const nombreMotor = computed(() => {
+    return seleccionMotor.value?.opcion?.label || seleccionMotor.value?.label || null
+  })
+
+  // Idioma del reconocimiento: 'sistema' | 'es-US' | 'es-ES' | 'es-419'.
+  // `sistema` deja que Android use su locale (el mismo del teclado); si el
+  // sistema no está en español, se usa es-US para no transcribir en inglés.
+  const preferenciaIdioma = ref('sistema')
+  const idiomaSistema = computed(() => {
+    if (typeof navigator === 'undefined') return 'es-US'
+    return navigator.language || 'es-US'
+  })
+  const idiomaEfectivo = computed(() => resolverIdioma(preferenciaIdioma.value, idiomaSistema.value))
+  const idiomaEtiqueta = computed(() => etiquetaIdioma(preferenciaIdioma.value, idiomaEfectivo.value, idiomaSistema.value))
+  const idiomaWeb = computed(() => {
+    if (idiomaEfectivo.value) return idiomaEfectivo.value
+    const sistema = String(idiomaSistema.value || '').toLowerCase()
+    return sistema.startsWith('es') ? idiomaSistema.value : 'es-US'
+  })
+  const idiomaTexto = computed(() => idiomaEfectivo.value || `sistema:${idiomaSistema.value}`)
+
+  async function cargarPreferenciaIdioma() {
+    try {
+      const { value } = await Preferences.get({ key: PREF_IDIOMA_VOZ })
+      if (IDIOMAS_VALIDOS.has(value)) {
+        preferenciaIdioma.value = value
+      }
+    } catch {
+      preferenciaIdioma.value = 'sistema'
+    }
+  }
+  async function guardarPreferenciaIdioma(valor) {
+    if (!IDIOMAS_VALIDOS.has(valor)) return
+    preferenciaIdioma.value = valor
+    try {
+      await Preferences.set({ key: PREF_IDIOMA_VOZ, value: valor })
+    } catch {}
   }
   const esNativo = computed(() => {
     try {
@@ -99,6 +202,9 @@ function _useVoiceCommand() {
   const motorVoz = ref(null)
   // Código nativo del último error (p. ej. "13"), para mostrarlo en la UI.
   const codigoError = ref(null)
+  // Carga del modelo Vosk (solo Android nativo). Se muestra en la UI para que
+  // el usuario no piense que la app está congelada durante los ~30 s de carga.
+  const cargandoModelo = ref(false)
 
   // Conexión real a Internet (no solo interfaz WiFi/datos). Se inicializa al
   // arrancar y se reevalúa al cambiar la red.
@@ -154,6 +260,17 @@ function _useVoiceCommand() {
       if (clave === 't' || clave === 'inst' || valor === undefined) continue
       entrada[clave] = valor
     }
+    // D: los motores nativos repiten el mismo evento en ráfaga (sobre todo el
+    // churn `end`/`beginning`). Se deduplica la traza, no la lógica.
+    if (inst === 'native') {
+      const sinTiempo = { ...entrada }
+      delete sinTiempo.t
+      const firma = JSON.stringify(sinTiempo)
+      if (firma === firmaNativaPrevia) return
+      firmaNativaPrevia = firma
+    } else {
+      firmaNativaPrevia = ''
+    }
     traza.value.push(entrada)
     if (traza.value.length > MAX_TRAZA) {
       traza.value.splice(0, traza.value.length - MAX_TRAZA)
@@ -171,6 +288,189 @@ function _useVoiceCommand() {
     } catch {
       /* noop */
     }
+  }
+
+  /** Marca el cambio de texto y enciende «Te escucho» durante 1,5 s. */
+  function marcarTextoReciente() {
+    textoReciente.value = true
+    if (vigilanteReciente) clearTimeout(vigilanteReciente)
+    vigilanteReciente = setTimeout(() => {
+      vigilanteReciente = null
+      textoReciente.value = false
+    }, TEXTO_RECIENTE_MS)
+  }
+
+  /**
+   * Actualiza el parcial y reinicia el vigilante de silencio. Solo cuenta si
+   * el texto cambió: los parciales repetidos no deben posponer el cierre.
+   */
+  function marcarParcial(textoCrudo) {
+    const crudo = String(textoCrudo ?? '')
+    const limpio = crudo.trim()
+    if (!limpio || limpio === ultimoTextoVigilado) return
+    ultimoTextoVigilado = limpio
+    ultimoCambioTexto = Date.now()
+    transcriptParcial.value = crudo
+    marcarTextoReciente()
+    if (vigilanteSinVoz) {
+      clearTimeout(vigilanteSinVoz)
+      vigilanteSinVoz = null
+    }
+    if (estado.value === 'listening') reiniciarVigilanteTexto()
+  }
+
+  /** Si hay texto y deja de cambiar, pedir el resultado al motor. */
+  function reiniciarVigilanteTexto() {
+    if (vigilanteTexto) clearTimeout(vigilanteTexto)
+    vigilanteTexto = setTimeout(() => {
+      vigilanteTexto = null
+      evaluarVigilancia()
+    }, MS_TEXTO_ESTABLE + 60)
+  }
+
+  /** Tope sin una sola palabra: cerrar en vez de esperar 45 s. */
+  function armarVigilanteSinVoz() {
+    if (vigilanteSinVoz) clearTimeout(vigilanteSinVoz)
+    if (ultimoTextoVigilado) return
+    vigilanteSinVoz = setTimeout(() => {
+      vigilanteSinVoz = null
+      evaluarVigilancia()
+    }, MS_SIN_VOZ + 60)
+  }
+
+  function evaluarVigilancia() {
+    if (estado.value !== 'listening' || !pluginActivo) return
+    const ahora = Date.now()
+    const accion = decidirVigilancia({
+      desdeReadyMs: inicioReady ? ahora - inicioReady : null,
+      desdeTextoMs: ultimoCambioTexto ? ahora - ultimoCambioTexto : null,
+      hayTexto: Boolean(ultimoTextoVigilado),
+      finalizando
+    })
+    if (accion === 'terminar' || accion === 'sin_voz') {
+      pedirFinal(accion)
+    }
+  }
+
+  /**
+   * Cierra la escucha para consumir el resultado. `finish()` hace que Google
+   * offline y Vosk llamen a `onResults` (probado: 78 ms en el APK). Si no
+   * responden en MS_RESCATE, se resuelve con el último parcial.
+   */
+  function pedirFinal(motivo) {
+    if (finalizando) return
+    finalizando = true
+    faseStt.value = avanzarFaseStt(faseStt.value, 'procesando')
+    microListo.value = false
+    if (relojIntento) {
+      clearTimeout(relojIntento)
+      relojIntento = null
+    }
+    if (topeEscucha) {
+      clearTimeout(topeEscucha)
+      topeEscucha = null
+    }
+    if (vigilanteTexto) {
+      clearTimeout(vigilanteTexto)
+      vigilanteTexto = null
+    }
+    if (vigilanteSinVoz) {
+      clearTimeout(vigilanteSinVoz)
+      vigilanteSinVoz = null
+    }
+    registrar('stt.fin', { motivo, texto: ultimoTextoVigilado })
+    if (!pluginActivo) return // web: el cierre lo hace SpeechRecognition
+    try {
+      const p = pluginActivo.finish?.()
+      if (p && typeof p.catch === 'function') p.catch(() => {})
+    } catch {
+      /* el plugin pudo terminar solo */
+    }
+    if (vigilanteRescate) clearTimeout(vigilanteRescate)
+    vigilanteRescate = setTimeout(() => {
+      vigilanteRescate = null
+      const rescate = ultimoTextoVigilado
+      const resolver = resolverIntento
+      const rechazar = rechazarIntento
+      resolverIntento = null
+      rechazarIntento = null
+      if (rescate) {
+        registrar('stt.rescate_js', { texto: rescate, motivo: 'sin_resultado' })
+        resolver?.({ text: rescate, confidence: 0.8, alternativas: [{ text: rescate, confidence: 0.8 }] })
+      } else {
+        registrar('stt.sin_resultado', { motivo, ms: MS_RESCATE })
+        rechazar?.(new Error(motivo === 'sin_voz' ? 'speech_timeout' : 'no_match'))
+      }
+    }, MS_RESCATE)
+  }
+
+  function limpiarVigilantes() {
+    if (vigilanteTexto) {
+      clearTimeout(vigilanteTexto)
+      vigilanteTexto = null
+    }
+    if (vigilanteReciente) {
+      clearTimeout(vigilanteReciente)
+      vigilanteReciente = null
+    }
+    if (vigilanteSinVoz) {
+      clearTimeout(vigilanteSinVoz)
+      vigilanteSinVoz = null
+    }
+    if (vigilanteRescate) {
+      clearTimeout(vigilanteRescate)
+      vigilanteRescate = null
+    }
+    finalizando = false
+    resolverIntento = null
+    rechazarIntento = null
+    inicioReady = 0
+    ultimoCambioTexto = 0
+    ultimoTextoVigilado = ''
+    ultimoParcialTraza = null
+    textoReciente.value = false
+  }
+
+  /**
+   * Procesa un evento `sttEvent` del motor activo (Google global o Vosk por
+   * escucha). Centraliza la actualización del parcial, la fase y el micrófono.
+   */
+  function procesarEventoStt(nombre, resto = {}) {
+    // Mientras se cierra, el motor offline sigue emitiendo `beginning`/`end`:
+    // no toca la UI (era la causa del parpadeo «Habla ahora / Te escucho»).
+    if (finalizando && (nombre === 'beginning' || nombre === 'end' || nombre === 'ready')) {
+      return
+    }
+    const crudo = typeof resto?.texto === 'string' ? resto.texto : ''
+    const escuchando = estado.value === 'listening'
+    if (nombre === 'partial') {
+      // Un parcial idéntico no aporta nada y ensuciaba la traza.
+      if (crudo === ultimoParcialTraza) return
+      ultimoParcialTraza = crudo
+      if (escuchando) marcarParcial(crudo)
+      reiniciarRelojIntento()
+    } else if (nombre === 'ready') {
+      if (escuchando) {
+        microListo.value = true
+        faseStt.value = avanzarFaseStt(faseStt.value, 'capturando')
+        inicioReady = Date.now()
+        armarVigilanteSinVoz()
+      }
+    } else if (nombre === 'beginning') {
+      if (escuchando) {
+        microListo.value = true
+        faseStt.value = avanzarFaseStt(faseStt.value, 'capturando')
+      }
+    } else if (nombre === 'finish') {
+      if (escuchando) faseStt.value = avanzarFaseStt(faseStt.value, 'procesando')
+    } else if (nombre === 'error' || nombre === 'stop') {
+      microListo.value = false
+    }
+    if (nombre === 'start' || nombre === 'ready' || nombre === 'beginning'
+      || nombre === 'partial' || nombre === 'end') {
+      reiniciarRelojIntento()
+    }
+    registrar(`stt.${nombre}`, { ...resto, inst: 'native' })
   }
 
   async function persistirTraza() {
@@ -211,9 +511,9 @@ function _useVoiceCommand() {
    * sus últimos eventos y aquí se recuperan.
    */
   async function sincronizarDiagNativo() {
-    if (!esNativo.value || typeof VoiceRecognitionNative.diag !== 'function') return
+    if (!esNativo.value || typeof GOOGLE_PLUGIN?.diag !== 'function') return
     try {
-      const r = await VoiceRecognitionNative.diag()
+      const r = await GOOGLE_PLUGIN.diag()
       const eventos = Array.isArray(r?.eventos) ? r.eventos : []
       if (!eventos.length) return
       const normalizados = eventos.map(e => ({
@@ -272,7 +572,7 @@ function _useVoiceCommand() {
   async function check() {
     if (!esNativo.value) return null
     try {
-      const r = await VoiceRecognitionNative.check()
+      const r = await GOOGLE_PLUGIN.check()
       nativoDisponible.value = Boolean(r?.available)
       permisoMicrofono.value = Boolean(r?.permission)
       motorStt.value = String(r?.service || '')
@@ -291,7 +591,7 @@ function _useVoiceCommand() {
   async function pedirPermisoMicrofono() {
     if (!esNativo.value) return true
     try {
-      const r = await VoiceRecognitionNative.requestPermission()
+      const r = await GOOGLE_PLUGIN.requestPermission()
       const ok = !r || r.ok !== false
       await check()
       return ok
@@ -301,7 +601,7 @@ function _useVoiceCommand() {
     }
   }
 
-  async function startListening(options = { language: 'es-ES' }) {
+  async function startListening(options = {}) {
     if (estado.value === 'listening') return
     if (options?.contexto) {
       contextoInicio = {
@@ -309,14 +609,18 @@ function _useVoiceCommand() {
         red: options.contexto.red ?? contextoInicio?.red ?? null
       }
     }
+    const idioma = idiomaEfectivo.value
     registrar('stt.begin', {
-      idioma: options?.language || 'es-ES',
+      idioma: idiomaTexto.value,
       offline: options?.offline ?? null,
       backend: backend.value,
       microListo: microListo.value
     })
     estado.value = 'listening'
     microListo.value = false
+    limpiarVigilantes()
+    faseStt.value = 'preparando'
+    firmaNativaPrevia = ''
     transcript.value = ''
     transcriptParcial.value = ''
     confidence.value = 0
@@ -343,12 +647,13 @@ function _useVoiceCommand() {
             reject(e)
             return
           }
-          rec.lang = options?.language || 'es-ES'
+          rec.lang = idiomaWeb.value
           rec.interimResults = true
           rec.maxAlternatives = 5
           rec.continuous = false
           rec.onaudiostart = () => {
             microListo.value = true
+            faseStt.value = avanzarFaseStt(faseStt.value, 'capturando')
           }
           timer = setTimeout(() => {
             if (timer) {
@@ -369,7 +674,12 @@ function _useVoiceCommand() {
             if (!actual) return
             const txt = actual?.[0]?.transcript ?? ''
             transcriptParcial.value = txt
+            if (txt.trim() && txt.trim() !== ultimoTextoVigilado) {
+              ultimoTextoVigilado = txt.trim()
+              marcarTextoReciente()
+            }
             if (actual.isFinal) {
+              faseStt.value = avanzarFaseStt(faseStt.value, 'procesando')
               if (timer) {
                 clearTimeout(timer)
                 timer = null
@@ -451,45 +761,105 @@ function _useVoiceCommand() {
         }
         instanciaWeb = null
         microListo.value = false
+        faseStt.value = 'idle'
+        limpiarVigilantes()
       }
       return
     }
 
-    // Elige el motor: Google si hay Internet real, Vosk si no.
-    const plugin = motorVozOffline() ? VoskVoice : VoiceRecognitionNative
-    motorVoz.value = plugin === VoskVoice ? 'vosk' : 'google'
+    // El modo automático decide online/offline según Internet real. El dato se
+    // reutiliza si es reciente (< 30 s); si no, se sondea antes de elegir.
+    // Con un motor explícito (Google online/offline, Vosk) el modo ya está
+    // fijado: esperar aquí solo retrasaría el micrófono.
+    if (preferenciaMotor.value === 'automatico') {
+      await esperarInternet()
+      if (contextoInicio) contextoInicio.red = hayInternet.value
+    }
+    const seleccion = resolverSeleccion(preferenciaMotor.value, hayInternet.value)
+    if (!seleccion?.plugin) {
+      error.value = 'No hay un motor de voz disponible.'
+      estado.value = 'error'
+      return
+    }
+    const plugin = seleccion.plugin
+    motorVoz.value = seleccion.id
     pluginActivo = plugin
     registrar('stt.begin', {
-      idioma: options?.language || 'es-ES',
-      offline: plugin === VoskVoice,
-      motor: motorVoz.value,
+      idioma: idiomaTexto.value,
+      offline: seleccion.offline,
+      motor: seleccion.id,
+      modo: seleccion.offline ? 'offline' : 'online',
+      opcion: seleccion.opcion?.id ?? null,
       backend: backend.value,
       microListo: microListo.value
     })
     let nativePartial = null
     let nativeReady = null
+    let nativeStt = null
+    let timerMicroListo = null
     try {
       auth.registrarActividad()
       const permiso = await plugin.requestPermission()
       if (permiso && permiso.ok === false) throw new Error('insufficient_permissions')
+      // Vosk (y cualquier motor futuro con modelo) carga antes de start.
+      // No se comprueba `typeof plugin.preparar`: el Proxy de Capacitor
+      // devuelve una función aunque el plugin nativo no la implemente.
+      // El catálogo declara `preparar: true` solo en los motores que lo usan.
+      if (seleccion.requierePreparacion) {
+        cargandoModelo.value = true
+        try {
+          await plugin.preparar()
+        } catch (e) {
+          throw new Error(`${seleccion.id}_no_listo: ${e?.message || 'no se pudo preparar el motor'}`)
+        } finally {
+          cargandoModelo.value = false
+        }
+      }
       // Ambos plugins emiten sttEvent (start/ready/partial/result/error/stop/finish).
       // VoiceRecognitionNative además expone partialResult y ready como eventos
       // propios; VoskVoice solo usa sttEvent. Escuchamos ambos para no perder
       // parciales en ningún motor.
       if (plugin.addListener) {
         nativePartial = await plugin.addListener('partialResult', (d) => {
-          transcriptParcial.value = d?.text ?? transcriptParcial.value
+          marcarParcial(d?.text)
           reiniciarRelojIntento()
         })
       }
       if (plugin.addListener) {
         nativeReady = await plugin.addListener('ready', () => {
+          if (estado.value !== 'listening') return
           microListo.value = true
+          faseStt.value = avanzarFaseStt(faseStt.value, 'capturando')
+          inicioReady = Date.now()
+          armarVigilanteSinVoz()
           reiniciarRelojIntento()
         })
       }
+      // Google ya tiene listener global; Vosk/futuros solo durante su escucha.
+      if (!seleccion.eventoGlobal && plugin.addListener) {
+        nativeStt = await plugin.addListener('sttEvent', (data = {}) => {
+          const { event, ...resto } = data
+          procesarEventoStt(event || 'evento', resto)
+        })
+      }
+      // Fallback de UI: si el evento `ready` no llega, a los 1200 ms el motor
+      // ya está capturando. También arma el tope sin voz.
+      timerMicroListo = setTimeout(() => {
+        timerMicroListo = null
+        if (estado.value !== 'listening' || finalizando) return
+        microListo.value = true
+        faseStt.value = avanzarFaseStt(faseStt.value, 'capturando')
+        if (!inicioReady) inicioReady = Date.now()
+        armarVigilanteSinVoz()
+      }, 1200)
       const resultado = await new Promise((resolver, rechazar) => {
         cancelarIntento = rechazar
+        resolverIntento = resolver
+        rechazarIntento = rechazar
+        finalizando = false
+        ultimoTextoVigilado = ''
+        ultimoParcialTraza = null
+        faseStt.value = 'preparando'
         // Tope absoluto de la escucha completa (incluye los reintentos del plugin).
         topeEscucha = setTimeout(() => {
           topeEscucha = null
@@ -500,7 +870,7 @@ function _useVoiceCommand() {
           if (cancelar) cancelar(new Error('timeout'))
         }, MAX_ESCUCHA_MS)
         reiniciarRelojIntento()
-        plugin.start(options).then(resolver, rechazar)
+        plugin.start({ ...options, language: idioma, offline: seleccion.offline }).then(resolver, rechazar)
       })
       const textoFinal = resultado?.text?.trim() || transcriptParcial.value?.trim() || ''
       transcript.value = textoFinal
@@ -549,7 +919,11 @@ function _useVoiceCommand() {
       }
     } finally {
       detenerRelojes()
-      for (const escucha of [nativePartial, nativeReady]) {
+      if (timerMicroListo) {
+        clearTimeout(timerMicroListo)
+        timerMicroListo = null
+      }
+      for (const escucha of [nativePartial, nativeReady, nativeStt]) {
         if (!escucha) continue
         try {
           await escucha.remove()
@@ -558,6 +932,8 @@ function _useVoiceCommand() {
         }
       }
       microListo.value = false
+      faseStt.value = 'idle'
+      limpiarVigilantes()
       await sincronizarDiagNativo()
     }
   }
@@ -572,7 +948,7 @@ function _useVoiceCommand() {
       cancelarIntento = null
       if (!cancelar) return
       registrar('stt.timeout', { ms: INTENTO_TIMEOUT_MS, microListo: microListo.value })
-      VoiceRecognitionNative.stop().catch(() => {})
+      if (pluginActivo?.stop) pluginActivo.stop().catch(() => {})
       cancelar(new Error('timeout'))
     }, INTENTO_TIMEOUT_MS)
   }
@@ -592,11 +968,18 @@ function _useVoiceCommand() {
   async function stopListening(abandon = true) {
     auth.registrarActividad()
     detenerRelojes()
+    if (abandon) {
+      limpiarVigilantes()
+      faseStt.value = 'idle'
+    } else {
+      // Push-to-talk / toque para enviar: se pide el resultado sin descartarlo.
+      pedirFinal('manual')
+    }
     if (esNativo.value) {
-      const plugin = pluginActivo || VoiceRecognitionNative
+      const plugin = pluginActivo || seleccionMotor.value?.plugin
       try {
+        // En !abandon, pedirFinal() ya llamó a finish().
         if (abandon) await plugin.stop()
-        else await plugin.finish()
       } catch {
         // ignore
       }
@@ -614,7 +997,7 @@ function _useVoiceCommand() {
       if (abandon) instanciaWeb = null
     }
     if (abandon) estado.value = 'idle'
-    microListo.value = false
+    else microListo.value = false
   }
 
   function reset() {
@@ -626,39 +1009,34 @@ function _useVoiceCommand() {
     codigoError.value = null
     alternativas.value = []
     microListo.value = false
+    faseStt.value = 'idle'
+    limpiarVigilantes()
   }
 
   // Recupera la traza de la última sesión (queda visible hasta iniciar otra).
   void cargarTrazaGuardada()
   // Comprueba acceso real a Internet para elegir motor (Google / Vosk).
   void asegurarConectividad()
+  void cargarPreferenciaMotor()
+  void cargarPreferenciaIdioma()
 
   // Cada callback nativo del reconocedor se vuelca en la traza local y ajusta
   // la UI: "Habla ahora" solo mientras el motor está capturando de verdad.
-  if (esNativo.value && typeof VoiceRecognitionNative.addListener === 'function') {
-    try {
-      const handle = VoiceRecognitionNative.addListener('sttEvent', (data = {}) => {
-        const { event, ...resto } = data
-        const nombre = event || 'evento'
-        // Vosk solo emite sttEvent: actualiza el parcial en vivo desde ahí.
-        if (nombre === 'partial' && resto?.texto) {
-          transcriptParcial.value = resto.texto
-          reiniciarRelojIntento()
-        }
-        if (nombre === 'ready') microListo.value = true
-        else if (nombre === 'start' || nombre === 'retry' || nombre === 'error'
-          || nombre === 'end' || nombre === 'stop' || nombre === 'finish') {
-          microListo.value = false
-        }
-        if (nombre === 'start' || nombre === 'ready' || nombre === 'beginning'
-          || nombre === 'partial' || nombre === 'end') {
-          reiniciarRelojIntento()
-        }
-        registrar(`stt.${nombre}`, { ...resto, inst: 'native' })
-      })
-      if (handle && typeof handle.catch === 'function') handle.catch(() => {})
-    } catch {
-      /* noop */
+  // Solo se escuchan motores con evento global (Google). Vosk/futuros se
+  // escuchan por escucha, y solo si el usuario los selecciona.
+  if (esNativo.value) {
+    for (const motor of MOTORES) {
+      if (!motor.enabled || !motor.eventoGlobal) continue
+      if (typeof motor.plugin?.addListener !== 'function') continue
+      try {
+        const handle = motor.plugin.addListener('sttEvent', (data = {}) => {
+          const { event, ...resto } = data
+          procesarEventoStt(event || 'evento', resto)
+        })
+        if (handle && typeof handle.catch === 'function') handle.catch(() => {})
+      } catch {
+        /* noop */
+      }
     }
   }
 
@@ -677,7 +1055,12 @@ function _useVoiceCommand() {
     alternativas,
     error,
     codigoError,
+    cargandoModelo,
     microListo,
+    // Fase del STT para la UI: idle | preparando | capturando | procesando.
+    faseStt,
+    // Cambio de texto en los últimos 1,5 s (señal real de "te escucho").
+    textoReciente,
     esNativo,
     backend,
     esWebSoportado,
@@ -710,7 +1093,25 @@ function _useVoiceCommand() {
     textoTraza,
     resumenTraza,
     textoResumenTraza,
-    registrar
+    registrar,
+    // Selección de motor
+    preferenciaMotor,
+    nombreMotor,
+    seleccionMotor,
+    modoActual,
+    opcionesMotor: OPCIONES_MOTOR,
+    cargarPreferenciaMotor,
+    guardarPreferenciaMotor,
+    pluginParaMotor,
+    // Idioma del reconocimiento
+    preferenciaIdioma,
+    opcionesIdioma: IDIOMAS_VOZ,
+    idiomaSistema,
+    idiomaEfectivo,
+    idiomaEtiqueta,
+    idiomaTexto,
+    cargarPreferenciaIdioma,
+    guardarPreferenciaIdioma
   }
 }
 

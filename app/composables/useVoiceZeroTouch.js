@@ -14,7 +14,7 @@ function acotarTimeout(valor) {
   return Math.min(TIMEOUT_MAX, Math.max(TIMEOUT_MIN, Math.trunc(n)))
 }
 
-export function useVoiceZeroTouch() {
+function _create() {
   const auth = useAuth()
   const activo = ref(false)
   const cargado = ref(false)
@@ -68,4 +68,16 @@ export function useVoiceZeroTouch() {
   })
 
   return { activo, cargado, timeoutMs, setActivo, setTimeoutMs, esJefe, cargar }
+}
+
+let singleton = null
+
+/**
+ * Singleton: el Modo PRO (activo + timeout) lo consumen el layout, Ajustes y la
+ * venta directa por voz. Sin esto cada `useVoiceZeroTouch()` tenía su propio
+ * `timeoutMs` y podía diferir del que muestra la pantalla.
+ */
+export function useVoiceZeroTouch() {
+  if (!singleton) singleton = _create()
+  return singleton
 }

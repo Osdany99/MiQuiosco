@@ -12,6 +12,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
+import { Preferences } from '@capacitor/preferences'
 import { useAuth } from './useAuth'
 import { useVozLexico } from './useVozLexico'
 import { useCuentasFiado } from './useCuentasFiado'
@@ -28,10 +29,13 @@ import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
 
 import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
 import { registrarEventoVoz } from '../utils/vozEventos'
+import { registrarProof } from '../utils/voice/proofs'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, describirDestino } from '../utils/voice/respuestasVoz'
-import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR, describirCantidad } from '../utils/voice/frasesVoz'
+import { esNegacion } from '../utils/voice/confirmacion'
+import { useConfirmacionVoz } from './useConfirmacionVoz'
 import { evaluarDisparoVoz, esRutaInventario, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
 
@@ -42,6 +46,9 @@ const MODO_POR_TIPO = {
   regalo: 'regalo'
 }
 
+// Ventana para deshacer la venta directa diciendo "cancela".
+const CANCELA_MS = 5000
+
 function esNativo() {
   try {
     return Capacitor.isNativePlatform()
@@ -50,11 +57,7 @@ function esNativo() {
   }
 }
 
-export function useVentaPorVoz(ubicacion) {
-  if (ubicacion !== 'quiosco' && ubicacion !== 'almacen') {
-    throw new Error(`useVentaPorVoz: ubicación no válida (${ubicacion})`)
-  }
-
+function _create(ubicacion) {
   const inv = useInventario()
   const voice = useVoiceCommand()
   const tts = useTts()
@@ -64,26 +67,55 @@ export function useVentaPorVoz(ubicacion) {
   const conexion = useModoConexion()
   const { hayRed } = useSync()
   const vozLexico = useVozLexico()
+  const zeroTouch = useVoiceZeroTouch()
+  const confirmacion = useConfirmacionVoz()
   const toast = useToast()
   const route = useRoute()
 
-  // idle | preparando | escuchando | interpretando | ambiguo | listo | error
+  // Máquina de estados del flujo de voz:
+  //
+  //   idle ──venderPorVoz──▶ preparando ──▶ escuchando ──▶ interpretando
+  //     ▲                                                    │
+  //     │                                                    ├─ ambiguo    (diálogo de candidatos)
+  //     │                                                    ├─ listo      (prefill + DialogoVenta)
+  //     │                                                    └─ confirmando (venta directa) ─▶ registrando ─▶ listo
+  //     └────────────────────────────── error ◀──────────────┘
+  //
+  // `cancelarEscucha()` / `limpiar()` vuelven a `idle`. `confirmando` y
+  // `registrando` solo existen en la venta directa por voz; `ocupado` los
+  // incluye para que el dock no quede habilitado mientras se confirma.
   const estado = ref('idle')
   const candidatos = ref([])
   const prefill = ref(null)
   const producto = ref(null)
   const modo = ref('venta')
-  // Promesa del TTS de lectura (read-back). Existe para que PREPARAR ... "
-  // se pueda esperar antes de hablar otra locución (Modo PRO).
-  // Se asigna en prepararVenta y se limpia en limpiar/procesar.
+  // Promesa del TTS de lectura (read-back).
   const readBackPromise = ref(null)
   // El layout lo activa con el Modo PRO: el anuncio incluye "Diga sí para confirmar"
-  // en la misma locución, para que no haya pausa entre una frase y otra.
   const confirmacionHablada = ref(false)
   const readBackIncluyeConfirmacion = ref(false)
   const showCandidatos = ref(false)
   const pendiente = ref(null)
   const ultimoError = ref(null)
+  // Voz directa: salta el DialogoVenta y registra tras confirmación hablada.
+  const ventaDirectaVoz = ref(false)
+  // Venta pendiente de ventana "cancela" (undo por voz durante X segundos).
+  const ventaParaCancela = ref(null)
+
+  // Persistencia de ventaDirectaVoz en Preferences (compartida entre instancias).
+  const PREF_VDV = 'voz.ventaDirectaVoz'
+  async function cargarPreferenciaVDV() {
+    try {
+      const { value } = await Preferences.get({ key: PREF_VDV })
+      ventaDirectaVoz.value = value === 'true'
+    } catch {}
+  }
+  watch(ventaDirectaVoz, async (val) => {
+    try {
+      await Preferences.set({ key: PREF_VDV, value: String(val) })
+    } catch {}
+  })
+  void cargarPreferenciaVDV()
 
   // Cada comando tiene una generación: cancelar o reiniciar invalida la
   // anterior para que una promesa tardía no reabra el diálogo.
@@ -110,7 +142,8 @@ export function useVentaPorVoz(ubicacion) {
       nativoDisponible: esNativo() ? voice.nativoDisponible.value : null,
       permisoMicrofono: esNativo() ? voice.permisoMicrofono.value : null,
       modo: conexion.modo.value,
-      hayRed: hayRed.value
+      hayRed: hayRed.value,
+      motor: voice.preferenciaMotor.value
     })
   )
 
@@ -132,9 +165,13 @@ export function useVentaPorVoz(ubicacion) {
     estado.value === 'preparando'
     || estado.value === 'escuchando'
     || estado.value === 'interpretando'
+    || estado.value === 'confirmando'
+    || estado.value === 'registrando'
   )
 
   function limpiar() {
+    // Si había una espera de confirmación en curso, abortarla: el flujo cambió.
+    confirmacion.cancelar()
     if (errorTimer) {
       clearTimeout(errorTimer)
       errorTimer = null
@@ -149,6 +186,7 @@ export function useVentaPorVoz(ubicacion) {
     modo.value = 'venta'
     ultimoError.value = null
     estado.value = 'idle'
+    ventaParaCancela.value = null
   }
 
   /** Tras un error, el aviso se retira solo para no tapar la pantalla. */
@@ -348,6 +386,12 @@ export function useVentaPorVoz(ubicacion) {
       }
       throw new Error(fraseStockInsuficiente({ disponible: maxDisp, nombre: filaElegida?.nombre, lugar: ubiLabel }))
     }
+
+    // Voz directa: salta el DialogoVenta y confirma por voz.
+    if (ventaDirectaVoz.value && slots.tipoVenta === 'directa') {
+      return venderVozDirecta(slots, sttConfidence, vigente, filaElegida, destino)
+    }
+
     prepararVenta(filaElegida, slots, destino.ubicacion)
   }
 
@@ -474,6 +518,13 @@ export function useVentaPorVoz(ubicacion) {
     if (unicos.length > 1) {
       const { interpretar } = await import('#shared/voz/gramatica')
       const items = []
+      // Un emparejador por catálogo: las alternativas suelen resolver el mismo
+      // catálogo y el fuzzy es el trabajo pesado del N-best.
+      const emparejadores = new Map()
+      const emparejarPara = (cat) => {
+        if (!emparejadores.has(cat)) emparejadores.set(cat, crearEmparejador(cat, sttConfidence))
+        return emparejadores.get(cat)
+      }
       for (const t of unicos) {
         const clas = interpretar(t, vozLexico.lexico.value)
         let rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
@@ -485,8 +536,7 @@ export function useVentaPorVoz(ubicacion) {
             const cat = clas.comando === 'consulta_stock'
               ? await catalogoDe('global', { soloVendibles: false })
               : await catalogoDe(destinoUbi)
-            const emparejar = crearEmparejador(cat, sttConfidence)
-            const encontrados = emparejar(clas.slots?.productoHint || '')
+            const encontrados = emparejarPara(cat)(clas.slots?.productoHint || '')
             const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
             rec.elegido = !!decision.elegido
             rec.ambiguo = !decision.elegido && encontrados.length > 0
@@ -549,6 +599,257 @@ export function useVentaPorVoz(ubicacion) {
     return procesarVenta(slots, sttConfidence, vigente)
   }
 
+  /**
+   * Espera una respuesta hablada ("sí"/"no"/"cancela") durante `timeoutMs`.
+   * Requiere que ya se haya abierto el micrófono con `voice.startListening()`.
+   */
+  async function esperarConfirmacionVoz(timeoutMs = 5000) {
+    return confirmacion.esp({ timeoutMs })
+  }
+
+  /**
+   * Venta directa por voz: salta el DialogoVenta.
+   * Flujo: STT → match producto → TTS read-back → confirmación hablada "sí" →
+   * registrarVentaDirecta → ventana de cancela (undo por voz durante X s).
+   *
+   * Si hay ambigüedad o stock insuficiente, cae al formulario normal.
+   * Solo jefe (exigirJefe dentro de registrarVentaDirecta).
+   */
+  async function venderVozDirecta(slots, sttConfidence = 0, gen = null, filaResuelta = null, destinoResuelto = null) {
+    const vigente = () => gen == null || gen === generacion
+    if (!vigente()) return
+
+    // 1. Ubicación (sin conflicto: si no se dijo, usa la de la vista actual).
+    const destino = destinoResuelto || resolverUbicacion(slots, ubicacion, { permitirConflicto: false })
+    if (destino.conflicto) {
+      // No se sabe la ubicación: abrir formulario para que elija.
+      return procesarVenta(slots, sttConfidence, vigente)
+    }
+    if (!vigente()) return
+
+    // 2. Producto. Normalmente ya viene resuelto desde `procesarVenta` (evita
+    // repetir el fuzzy y el chequeo de stock). Si se llama por otra vía, se
+    // resuelve aquí.
+    let filaElegida = filaResuelta
+    if (!filaElegida) {
+      const catalogo = await catalogoDe(destino.ubicacion)
+      if (!vigente()) return
+
+      const emparejar = crearEmparejador(catalogo, sttConfidence)
+      let encontrados = emparejar(slots.productoHint)
+
+      if (slots.alternativaTipo) {
+        const alterna = emparejar(slots.alternativaTipo.productoHint)
+        if (preferirHintConTipo(alterna)) {
+          encontrados = alterna
+          slots.productoHint = slots.alternativaTipo.productoHint
+          slots.tipoVenta = slots.alternativaTipo.tipoVenta
+        }
+      }
+
+      if (!encontrados.length) {
+        void (async () => {
+          await registrarEventoVoz({
+            comando: 'venta_directa',
+            motivo: 'producto_no_encontrado',
+            confianza: Number(sttConfidence) || 0
+          })
+        })()
+        throw new Error(`No encontré "${slots.productoHint || 'ese producto'}".`)
+      }
+
+      const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
+      if (!decision.elegido) {
+        pendiente.value = { comando: 'venta_directa', slots, sttConfidence }
+        candidatos.value = encontrados
+        showCandidatos.value = true
+        estado.value = 'ambiguo'
+        return
+      }
+      filaElegida = decision.elegido.row
+    }
+
+    const ubiLabel = destino.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
+    const maxDisp = Number(filaElegida?.[destino.ubicacion] ?? 0)
+    const cantidadSolicitada = Math.max(1, Math.trunc(Number(slots?.cantidad) || 1))
+
+    // Auditoría central (misma tabla que el Modo PRO). Sin esto, las ventas
+    // directas por voz no aparecían en `/admin/voz-confirmaciones`.
+    const registrarPrueba = (outcome) => {
+      void registrarProof({
+        comando: 'venta_directa',
+        productoId: filaElegida?.productoId ?? filaElegida?.id ?? null,
+        productoNombre: filaElegida?.nombre ?? null,
+        cantidad: cantidadSolicitada,
+        ubicacion: destino.ubicacion,
+        modo: 'venta',
+        confianza: Number(sttConfidence) || 0,
+        outcome
+      }, { token: auth.jwtSync.value })
+    }
+
+    if (cantidadSolicitada > maxDisp) {
+      void (async () => {
+        await registrarEventoVoz({
+          comando: 'venta_directa',
+          motivo: 'stock_insuficiente',
+          confianza: Number(sttConfidence) || 0
+        })
+      })()
+      try {
+        await tts.speak(fraseStockInsuficiente({ disponible: maxDisp, nombre: filaElegida?.nombre, lugar: ubiLabel }))
+      } catch {}
+      throw new Error(fraseStockInsuficiente({ disponible: maxDisp, nombre: filaElegida?.nombre, lugar: ubiLabel }))
+    }
+
+    // 3. TTS read-back + confirmación hablada.
+    const precioUnitario = Number(filaElegida?.precioVentaActual ?? 0)
+    const importe = Math.trunc(precioUnitario * cantidadSolicitada)
+    const textoReadBack
+      = `Voy a vender ${describirCantidad(cantidadSolicitada, filaElegida.nombre)} del ${ubiLabel}, ${importe} pesos. ${FRASE_CONFIRMAR}`
+
+    estado.value = 'confirmando'
+    try {
+      await tts.speak(textoReadBack)
+    } catch {}
+    if (!vigente()) return
+
+    // 4. Escuchar "sí" / "no". Hay que abrir el micrófono: la escucha del
+    // comando ya terminó y `voice.transcript` aún tiene la frase anterior.
+    voice.reset()
+    const escuchaConfirmacion = voice.startListening({
+      contexto: { modo: conexion.modo.value, red: voice.hayInternet.value }
+    }).catch(() => {})
+    const resultado = await esperarConfirmacionVoz(zeroTouch.timeoutMs.value)
+    try {
+      await voice.stopListening()
+    } catch {}
+    await escuchaConfirmacion
+    if (!vigente()) return
+
+    if (resultado === 'negado') {
+      registrarPrueba('cancelado')
+      estado.value = 'idle'
+      try {
+        await tts.speak('Cancelado.')
+      } catch {}
+      return
+    }
+    if (resultado !== 'afirmado') {
+      // Sin respuesta: se abre el formulario, como promete la locución.
+      registrarPrueba('abandonado')
+      try {
+        await tts.speak('Sin respuesta, se abre el formulario.')
+      } catch {}
+      prepararVenta(filaElegida, slots, destino.ubicacion)
+      return
+    }
+
+    // 5. Registrar venta directa (sin formulario).
+    if (!vigente()) return
+    estado.value = 'registrando'
+    const lineas = [{
+      productoId: filaElegida.productoId ?? filaElegida.id,
+      cantidad: cantidadSolicitada,
+      precioVentaUsado: precioUnitario,
+      secuencia: 0,
+      loteId: null // FIFO lo selecciona en construirVentaDirecta
+    }]
+
+    let resultadoVenta
+    try {
+      resultadoVenta = await inv.registrarVentaDirecta({
+        ubicacion: destino.ubicacion,
+        tipoVenta: slots.tipoVenta || 'directa',
+        clienteId: slots.clienteId || null,
+        lineas
+      })
+    } catch (e) {
+      estado.value = 'error'
+      ultimoError.value = e?.message || 'Error al registrar la venta.'
+      toast.add({ title: 'Voz', description: ultimoError.value, color: 'error' })
+      programarLimpiezaError()
+      return
+    }
+
+    // 6. Auditoría de voz.
+    void (async () => {
+      await registrarEventoVoz({
+        comando: 'venta_directa',
+        motivo: 'ok',
+        confianza: Number(sttConfidence) || 0
+      })
+    })()
+    registrarPrueba('auto-confirmado')
+
+    // 7. TTS de confirmación.
+    try {
+      await tts.speak(`Venta registrada. ${cantidadSolicitada} ${filaElegida.nombre}.`)
+    } catch {}
+
+    // 8. Ventana de cancela: escuchar "cancela" durante 5 segundos para deshacer.
+    ventaParaCancela.value = { id: resultadoVenta.id, producto: filaElegida.nombre, cantidad: cantidadSolicitada }
+    estado.value = 'listo'
+    toast.add({
+      title: 'Venta registrada',
+      description: `Di "cancela" para deshacer (${CANCELA_MS / 1000} s).`,
+      color: 'warning',
+      duration: 6000
+    })
+
+    const cancelaMs = CANCELA_MS
+    let cancelaTimer = null
+    let cancelaWatcher = null
+    const terminarCancela = async () => {
+      if (cancelaTimer) clearTimeout(cancelaTimer)
+      if (cancelaWatcher) cancelaWatcher()
+      try {
+        await voice.stopListening()
+      } catch {
+        /* noop */
+      }
+      ventaParaCancela.value = null
+      estado.value = 'idle'
+    }
+    cancelaTimer = setTimeout(() => void terminarCancela(), cancelaMs)
+
+    voice.startListening({
+      contexto: { modo: conexion.modo.value, red: voice.hayInternet.value }
+    }).catch(() => terminarCancela())
+
+    cancelaWatcher = watch(
+      [() => voice.transcript?.value, () => voice.transcriptParcial?.value],
+      () => {
+        const texto = String(voice.transcript?.value || voice.transcriptParcial?.value || '')
+        if (esNegacion(texto) && ventaParaCancela.value) {
+          terminarCancela()
+          void anularVentaDirectaDesdeVoz(ventaParaCancela.value.id)
+        }
+      }
+    )
+
+    return resultadoVenta
+  }
+
+  async function anularVentaDirectaDesdeVoz(ventaId) {
+    try {
+      await inv.anularVentaDirecta(ventaId)
+      estado.value = 'idle'
+      try {
+        await tts.speak('Venta anulada. Stock restaurado.')
+      } catch {}
+      toast.add({ title: 'Venta anulada', description: 'Se deshizo la última venta por voz.', color: 'warning' })
+      void (async () => {
+        await registrarEventoVoz({ comando: 'venta_anulada', motivo: 'cancela_voz', confianza: 0 })
+      })()
+    } catch (e) {
+      estado.value = 'error'
+      ultimoError.value = e?.message || 'No se pudo anular.'
+      toast.add({ title: 'Voz', description: ultimoError.value, color: 'error' })
+      programarLimpiezaError()
+    }
+  }
+
   async function venderPorVoz() {
     if (!disponible.value) {
       if (motivoNoDisponible.value) {
@@ -583,9 +884,9 @@ export function useVentaPorVoz(ubicacion) {
         modo: conexion.modo.value,
         red: voice.hayInternet.value
       })
+      // El motor, el idioma y si va online/offline los decide useVoiceCommand
+      // según Ajustes y la conexión real.
       await voice.startListening({
-        language: 'es-ES',
-        offline: !voice.hayInternet.value,
         contexto: { modo: conexion.modo.value, red: voice.hayInternet.value }
       })
       if (gen !== generacion) return
@@ -717,10 +1018,14 @@ export function useVentaPorVoz(ubicacion) {
     prefill,
     producto,
     modo,
+    ventaDirectaVoz,
+    ventaParaCancela,
     readBackPromise,
     confirmacionHablada,
     readBackIncluyeConfirmacion,
     venderPorVoz,
+    venderVozDirecta,
+    anularVentaDirectaDesdeVoz,
     reintentar,
     detenerEscucha,
     cancelarEscucha,
@@ -731,4 +1036,23 @@ export function useVentaPorVoz(ubicacion) {
     simular,
     tituloCandidatos
   }
+}
+
+/**
+ * Una instancia por ubicación.
+ *
+ * El layout crea quiosco y almacén, y Ajustes vuelve a pedir quiosco: sin
+ * caché eran dos flujos (y dos `ventaDirectaVoz`) distintos, así que el
+ * interruptor de Ajustes no se reflejaba en el dock hasta recargar.
+ *
+ * `ssr: false`: no hay estado compartido entre peticiones.
+ */
+const instancias = new Map()
+
+export function useVentaPorVoz(ubicacion) {
+  if (ubicacion !== 'quiosco' && ubicacion !== 'almacen') {
+    throw new Error(`useVentaPorVoz: ubicación no válida (${ubicacion})`)
+  }
+  if (!instancias.has(ubicacion)) instancias.set(ubicacion, _create(ubicacion))
+  return instancias.get(ubicacion)
 }

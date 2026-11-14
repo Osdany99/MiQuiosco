@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { derivarFaseVoz } from '../../utils/voice/faseVoz'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -9,7 +10,11 @@ const props = defineProps({
   transcript: { type: String, default: '' },
   // Conversación de confirmación (Modo PRO): el micrófono se abre fuera del
   // flujo normal, así que el layout avisa para no perder el panel.
-  confirmando: { type: Boolean, default: false }
+  confirmando: { type: Boolean, default: false },
+  // Fase real del STT: idle | preparando | capturando | procesando.
+  faseStt: { type: String, default: 'idle' },
+  // Ventana de 5 s para deshacer la última venta diciendo «cancela».
+  deshaciendo: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['reintentar', 'cancelar'])
@@ -19,21 +24,37 @@ const voice = useVoiceCommand()
 const { nivel, detectandoVoz, iniciar, detener } = useVoiceLevel()
 
 const hablando = computed(() => Boolean(tts.hablando?.value))
-const esError = computed(() => props.estado === 'error')
-// Micrófono realmente capturando (no solo "pedido"): aquí es cuando toca hablar.
-const micActivo = computed(() => voice.estado.value === 'listening' && Boolean(voice.microListo?.value))
-// Micrófono pedido pero aún no abierto, o hueco entre que termina de hablar y se abre.
-const preparandoMic = computed(() =>
-  !hablando.value
-  && !micActivo.value
-  && (props.estado === 'preparando'
-    || (props.estado === 'escuchando' && !micActivo.value)
-    || voice.estado.value === 'listening'
-    || props.confirmando)
+// Micrófono realmente capturando. La fase la decide `useVoiceCommand`; así el
+// churn `end`/`beginning` del motor offline no la mueve.
+const micActivo = computed(() =>
+  voice.estado.value === 'listening'
+  && (props.faseStt === 'capturando' || Boolean(voice.microListo?.value))
 )
-const puedeCancelar = computed(() =>
-  props.estado === 'escuchando' || props.estado === 'preparando' || props.confirmando || voice.estado.value === 'listening'
-)
+
+// Una sola derivación para título, subtítulo y onda.
+const fase = computed(() => derivarFaseVoz({
+  estado: props.estado,
+  vozEstado: voice.estado.value,
+  faseStt: props.faseStt,
+  hablando: hablando.value,
+  confirmando: props.confirmando,
+  deshaciendo: props.deshaciendo,
+  cargandoModelo: Boolean(voice.cargandoModelo?.value),
+  error: props.error || '',
+  transcript: props.transcript || '',
+  vozDetectada: detectandoVoz.value,
+  textoReciente: Boolean(voice.textoReciente?.value)
+}))
+
+const esError = computed(() => fase.value.clave === 'error')
+const puedeCancelar = computed(() => fase.value.puedeCancelar)
+const modoOnda = computed(() => fase.value.modoOnda)
+const vozDetectada = computed(() => fase.value.detectando)
+// Es tu turno y todavía no has dicho nada: lo destacamos con fuerza.
+const tuTurno = computed(() => fase.value.esperandoVoz)
+const titulo = computed(() => fase.value.titulo)
+const subtitulo = computed(() => fase.value.subtitulo)
+const hayTranscript = computed(() => fase.value.transcriptEnSubtitulo)
 
 // --- Nivel de la onda ------------------------------------------------------
 // Al escuchar: nivel real del micrófono. Al hablar: pulso de la síntesis, que
@@ -101,66 +122,13 @@ onBeforeUnmount(() => {
   if (rafHabla) cancelAnimationFrame(rafHabla)
 })
 
-const modoOnda = computed(() => {
-  if (esError.value) return 'error'
-  if (hablando.value) return 'hablando'
-  if (micActivo.value) return 'escuchando'
-  if (preparandoMic.value || props.estado === 'interpretando') return 'procesando'
-  return 'idle'
-})
-
 const nivelOnda = computed(() => (hablando.value ? nivelHabla.value : Math.max(nivel.value, nivelHabla.value)))
-const vozDetectada = computed(() =>
-  micActivo.value && (detectandoVoz.value || nivelHabla.value > 0.3 || Boolean(props.transcript))
-)
-// Es tu turno y todavía no has dicho nada: lo destacamos con fuerza.
-const tuTurno = computed(() => micActivo.value && !vozDetectada.value)
-
-// --- Textos ------------------------------------------------------------------
-// El título debe decir qué falló de verdad: "No te entendí" solo cuando no
-// llegó a captarse voz. Un fallo del servicio no es lo mismo que no entender.
-const tituloError = computed(() => {
-  const detalle = String(props.error || '').toLowerCase()
-  if (/servicio|no responde|desconect|conexión|internet|red/.test(detalle)) return 'El servicio de voz falló'
-  if (/no encontré/.test(detalle)) return 'No encontré el producto'
-  if (/todavía no sé|no entendí el comando/.test(detalle)) return 'No entendí el comando'
-  if (/micrófono|permiso/.test(detalle)) return 'Micrófono no disponible'
-  if (/no se escuchó|no te entendí/.test(detalle)) return 'No te entendí'
-  return 'No se pudo completar'
-})
-
-const titulo = computed(() => {
-  if (esError.value) return tituloError.value
-  if (hablando.value) return 'Hablando…'
-  if (micActivo.value) return vozDetectada.value ? 'Te escucho' : 'Habla ahora'
-  if (preparandoMic.value) return 'Preparando micrófono…'
-  if (props.estado === 'interpretando') return 'Interpretando…'
-  if (props.estado === 'ambiguo') return 'Elige un producto'
-  if (props.estado === 'listo') return 'Listo para confirmar'
-  return 'Escuchando…'
-})
-
-const subtitulo = computed(() => {
-  if (esError.value) return props.error || 'Prueba otra vez.'
-  // Solo se muestra lo que dices ahora; el texto del comando anterior no debe asomar entre fases.
-  if (props.transcript && (micActivo.value || props.estado === 'interpretando')) return props.transcript
-  if (hablando.value) return props.confirmando ? 'Enseguida te toca hablar' : ''
-  if (preparandoMic.value) return 'Espera un momento…'
-  if (micActivo.value) {
-    return props.confirmando
-      ? 'Di «sí» para confirmar o «no» para cancelar'
-      : 'Por ejemplo: «vender dos refrescos»'
-  }
-  return ''
-})
-
-const hayTranscript = computed(() => !esError.value && Boolean(props.transcript) && subtitulo.value === props.transcript)
 
 const colorPunto = computed(() => {
   if (esError.value) return 'bg-error'
   if (hablando.value) return 'bg-violet-400'
   if (vozDetectada.value) return 'bg-emerald-400'
-  if (micActivo.value) return 'bg-sky-400'
+  if (fase.value.modoOnda === 'escuchando') return 'bg-sky-400'
   return 'bg-slate-400'
 })
 </script>
