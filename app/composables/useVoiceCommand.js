@@ -1,7 +1,12 @@
 import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { mensajeStt } from '../utils/voice/stt'
-import { hayInternet, cargarEstadoConectividad, esperarInternet } from '../composables/useConectividad'
+import {
+  hayInternet,
+  ultimaSonda,
+  cargarEstadoConectividad,
+  esperarInternet
+} from '../composables/useConectividad'
 import { MOTORES, OPCIONES_MOTOR, resolverSeleccion } from '../utils/voice/engines'
 import { IDIOMAS_VOZ, etiquetaIdioma, resolverIdioma } from '../utils/voice/idioma'
 import { avanzarFaseStt } from '../utils/voice/faseVoz'
@@ -616,6 +621,11 @@ function _useVoiceCommand() {
       backend: backend.value,
       microListo: microListo.value
     })
+    // Motivo exacto de la última medición de red: sin esto, un «sin red» en el
+    // APK no dice si fue timeout, rechazo del fetch o red caída.
+    if (ultimaSonda.value) {
+      registrar('red.sonda', { ...ultimaSonda.value, internet: hayInternet.value })
+    }
     estado.value = 'listening'
     microListo.value = false
     limpiarVigilantes()

@@ -3,43 +3,62 @@
  *
  * `hayRed` de `useSync()` solo dice si hay interfaz de red (WiFi/datos)
  * conectada, no si se puede alcanzar un servidor externo. Aquí comprobamos
- * conectividad real con una sonda ligera a `generate_204` (Google) y un
- * timeout corto, para decidir si usamos el motor Google (online) u offline.
+ * conectividad real con sondas ligeras a `generate_204` y decidimos si usamos
+ * el motor Google (online) u offline.
  *
- * La sonda usa `mode: 'no-cors'`: el APK corre en `https://localhost`
- * (`androidScheme: "https"`) y `generate_204` no manda cabeceras CORS, así que
- * un `fetch` normal siempre se rechazaba y `hayInternet` quedaba en `false`.
- * Con `no-cors` la respuesta es opaca, pero la promesa resuelve si hubo salida
- * a la red; si falla, o el timeout aborta, no hay Internet.
+ * Detalles que importan en el APK:
  *
- * Estado: `hayInternet` es `null` hasta la primera comprobación, luego
- * `true` / `false`. Se reevalúa al arrancar, al cambiar la red y al volver a
- * primer plano; un dato de más de 30 s se vuelve a comprobar.
+ * - `mode: 'no-cors'`: la app corre en `https://localhost` y `generate_204` no
+ *   manda cabeceras CORS; un `fetch` normal siempre se rechazaba.
+ * - Dos destinos en paralelo (`connectivitycheck.gstatic.com`, que es el que usa
+ *   Android para marcar la red como VALIDATED, y `clients3`). Si uno está
+ *   bloqueado por la red/VPN, el otro decide.
+ * - Un **timeout no cuenta como «sin Internet»**: se marca como desconocido y,
+ *   si la interfaz está conectada, se asume online. Medido en red móvil real:
+ *   la sonda tarda 1,5–4,2 s, así que un timeout corto daba falsos negativos.
+ * - La sonda **nunca bloquea** el arranque del micrófono: `esperarInternet()`
+ *   devuelve el último dato conocido y la medición sigue en segundo plano.
+ *
+ * Estado: `hayInternet` es `null` hasta la primera medición, luego `true` /
+ * `false`. Se reevalúa al arrancar, al cambiar la red, al volver a primer
+ * plano, cuando el dato tiene más de 30 s y con un reintento rápido si la
+ * medición quedó en duda.
  */
 
 import { ref } from 'vue'
 import { Network } from '@capacitor/network'
 import { App } from '@capacitor/app'
 import {
+  MS_REINTENTO_INTERNET,
   MS_TIMEOUT_SONDA,
   MS_VIGENCIA_INTERNET,
+  combinarSondas,
   datoInternetVigente,
   decidirInternet
 } from '../utils/voice/conectividad'
 
-const URL_COMPROBACION = 'https://clients3.google.com/generate_204'
+// `connectivitycheck.gstatic.com` es el endpoint que usa Android para validar
+// la red; `clients3` queda como respaldo.
+const URLES_SONDA = [
+  'https://connectivitycheck.gstatic.com/generate_204',
+  'https://clients3.google.com/generate_204'
+]
 
 const hayInternet = ref(null)
+// Última medición completa, para diagnóstico (`red.sonda` en la traza).
+const ultimaSonda = ref(null)
 
 let comprobando = null
 let ultimaComprobacion = 0
 let iniciado = false
+let reintento = null
 
 /**
- * Sonda `no-cors`. Devuelve `true` si resolvió, `false` si falló o expiró y
- * `null` si no existe `fetch` (no se puede sondear).
+ * Sonda `no-cors` a una URL.
+ * Devuelve `true` si resolvió, `false` si falló de forma definitiva y `null`
+ * si se abortó por timeout (desconocido) o no hay `fetch`.
  */
-async function sondar() {
+async function sondarUrl(url) {
   if (typeof fetch !== 'function') return null
   const ctrl = typeof AbortController === 'function' ? new AbortController() : null
   const temporizador = setTimeout(() => {
@@ -50,7 +69,7 @@ async function sondar() {
     }
   }, MS_TIMEOUT_SONDA)
   try {
-    await fetch(URL_COMPROBACION, {
+    await fetch(url, {
       mode: 'no-cors',
       method: 'GET',
       cache: 'no-store',
@@ -59,10 +78,17 @@ async function sondar() {
     })
     return true
   } catch {
-    return false
+    // Abortar es «no lo sé», no un «no hay red».
+    return ctrl?.signal?.aborted ? null : false
   } finally {
     clearTimeout(temporizador)
   }
+}
+
+/** Sondea todos los destinos en paralelo y combina el resultado. */
+async function sondarTodas() {
+  const resultados = await Promise.all(URLES_SONDA.map(url => sondarUrl(url)))
+  return combinarSondas(resultados)
 }
 
 /** Interfaz de red según Capacitor (con tope propio, nunca bloquea la sonda). */
@@ -77,8 +103,11 @@ async function estadoRed() {
   }
 }
 
+/** Mide Internet real y devuelve el detalle para diagnosticar. */
 async function medirInternet() {
-  const [red, sonda] = await Promise.all([estadoRed(), sondar()])
+  const inicio = Date.now()
+  const [red, sonda] = await Promise.all([estadoRed(), sondarTodas()])
+  const redConectada = red && typeof red.connected === 'boolean' ? red.connected : null
   let onLine = null
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
@@ -87,26 +116,49 @@ async function medirInternet() {
   } catch {
     onLine = null
   }
-  return decidirInternet({
-    redConectada: red && typeof red.connected === 'boolean' ? red.connected : null,
+  return {
+    internet: decidirInternet({ redConectada, sonda, onLine }),
     sonda,
-    onLine
-  })
+    red: redConectada,
+    onLine,
+    ms: Date.now() - inicio
+  }
+}
+
+/** Un «sin red» con la sonda en duda y red conectada se reintenta pronto. */
+function programarReintento(dato) {
+  if (reintento) {
+    clearTimeout(reintento)
+    reintento = null
+  }
+  const dudoso = dato && !dato.internet && dato.sonda === null && dato.red !== false
+  if (!dudoso) return
+  reintento = setTimeout(() => {
+    reintento = null
+    void comprobarInternet({ forzar: true })
+  }, MS_REINTENTO_INTERNET)
 }
 
 async function comprobarInternet({ forzar = false } = {}) {
   if (comprobando) return comprobando
   if (!forzar && datoInternetVigente(ultimaComprobacion)) return hayInternet.value
   comprobando = (async () => {
-    let resultado = false
+    let dato
     try {
-      resultado = await medirInternet()
+      dato = await medirInternet()
     } catch {
-      resultado = false
+      dato = { internet: false, sonda: null, red: null, onLine: null, ms: 0 }
     }
-    hayInternet.value = resultado
+    hayInternet.value = dato.internet
     ultimaComprobacion = Date.now()
-    return resultado
+    ultimaSonda.value = { ...dato, medidoEn: ultimaComprobacion }
+    try {
+      console.log('[VOZDIAG-RED]', JSON.stringify(ultimaSonda.value))
+    } catch {
+      /* noop */
+    }
+    programarReintento(dato)
+    return dato.internet
   })()
   try {
     return await comprobando
@@ -144,6 +196,14 @@ function cargarEstadoConectividad() {
   window.addEventListener('offline', () => {
     hayInternet.value = false
     ultimaComprobacion = Date.now()
+    ultimaSonda.value = {
+      internet: false,
+      sonda: null,
+      red: false,
+      onLine: false,
+      ms: 0,
+      medidoEn: ultimaComprobacion
+    }
   })
   window.addEventListener('online', () => {
     void comprobarInternet({ forzar: true })
@@ -155,15 +215,25 @@ function cargarEstadoConectividad() {
 }
 
 /**
- * Espera como máximo `timeoutMs` a conocer el estado real de Internet.
- * Si el dato es reciente devuelve al instante; si está viejo o no existe,
- * sondea y espera el resultado. Devuelve `null` si no se pudo confirmar.
+ * Devuelve el estado de Internet para decidir motor, **sin bloquear**.
+ *
+ * - Dato reciente → se devuelve al instante.
+ * - Primera vez (`null`) → se devuelve `null` (que ya resuelve a online) y la
+ *   medición sigue en segundo plano. Antes se esperaban hasta 3 s aquí.
+ * - Dato viejo en `true` → se devuelve `true` y se refresca en segundo plano.
+ * - Dato viejo en `false` → se reintenta, con un tope corto de espera.
  */
-async function esperarInternet(timeoutMs = MS_TIMEOUT_SONDA + 500) {
-  if (hayInternet.value !== null && datoInternetVigente(ultimaComprobacion)) {
-    return hayInternet.value
+async function esperarInternet(timeoutMs = 1000) {
+  if (hayInternet.value === null) {
+    void comprobarInternet()
+    return null
   }
-  const sonda = comprobarInternet({ forzar: hayInternet.value !== null })
+  if (datoInternetVigente(ultimaComprobacion)) return hayInternet.value
+  if (hayInternet.value === true) {
+    void comprobarInternet()
+    return true
+  }
+  const sonda = comprobarInternet({ forzar: true })
   return await Promise.race([
     sonda,
     new Promise(resolve => setTimeout(() => resolve(hayInternet.value), timeoutMs))
@@ -177,6 +247,7 @@ function internetConocido() {
 
 export {
   hayInternet,
+  ultimaSonda,
   comprobarInternet,
   cargarEstadoConectividad,
   esperarInternet,

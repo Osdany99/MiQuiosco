@@ -1,7 +1,10 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  MS_REINTENTO_INTERNET,
+  MS_TIMEOUT_SONDA,
   MS_VIGENCIA_INTERNET,
+  combinarSondas,
   datoInternetVigente,
   decidirInternet
 } from '../app/utils/voice/conectividad.js'
@@ -36,6 +39,30 @@ describe('voz: sonda de Internet', () => {
     assert.equal(decidirInternet({ redConectada: null, sonda: null, onLine: true }), true)
     assert.equal(decidirInternet({ redConectada: null, sonda: null, onLine: false }), false)
     assert.equal(decidirInternet({}), false)
+  })
+
+  it('un timeout de la sonda con red conectada NO es «sin Internet» (bug del APK)', () => {
+    // Medido en el móvil real: la sonda tarda 1,5–4,2 s por datos móviles + VPN
+    // y el timeout era de 2,5 s, así que fallaba la mitad de las veces.
+    assert.equal(decidirInternet({ redConectada: true, sonda: null, onLine: true }), true)
+    assert.equal(decidirInternet({ redConectada: true, sonda: null, onLine: false }), true)
+    assert.equal(decidirInternet({ redConectada: null, sonda: null, onLine: true }), true)
+  })
+
+  it('el timeout es holgado porque la sonda ya no bloquea el micrófono', () => {
+    assert.ok(MS_TIMEOUT_SONDA >= 5000, 'un timeout corto da falsos «sin red»')
+    assert.ok(MS_REINTENTO_INTERNET < MS_VIGENCIA_INTERNET)
+  })
+
+  it('combina sondas en paralelo: basta una que responda', () => {
+    assert.equal(combinarSondas([false, true]), true)
+    assert.equal(combinarSondas([true, null]), true)
+    assert.equal(combinarSondas([false, false]), false)
+    // Una bloqueada y otra en duda no prueban que falte Internet.
+    assert.equal(combinarSondas([false, null]), null)
+    assert.equal(combinarSondas([null, null]), null)
+    assert.equal(combinarSondas([]), null)
+    assert.equal(combinarSondas([false, undefined]), null)
   })
 
   it('un dato de conectividad caduca a los 30 s', () => {
