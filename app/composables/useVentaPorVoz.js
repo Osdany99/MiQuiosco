@@ -33,11 +33,13 @@ import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
 import { buscarClienteDeuda, formatearDeuda, resumirDeudas } from '#shared/voz/deudas'
 import { formatearDia } from '#shared/voz/dia'
-import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseStockInsuficiente, fraseFiado, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { proyectarStock } from '../utils/voice/pendientes'
 import { ajustarCantidadVoz } from '../utils/voice/prefill'
 import { useConfirmacionVoz } from './useConfirmacionVoz'
+import { useVoiceZeroTouch } from './useVoiceZeroTouch'
 import { useVozDisparo } from './useVozDisparo'
 import { evaluarDisparoVoz, esRutaInventario, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
@@ -69,6 +71,7 @@ function _create(ubicacion) {
   const { hayRed } = useSync()
   const vozLexico = useVozLexico()
   const confirmacion = useConfirmacionVoz()
+  const zeroTouch = useVoiceZeroTouch()
   const disparo = useVozDisparo()
   const snapshotVoz = useVozSnapshot()
   const toast = useToast()
@@ -482,6 +485,249 @@ function _create(ubicacion) {
     if (estado.value !== 'idle') estado.value = 'idle'
   }
 
+  /**
+   * Fiar SIN efectos: cliente claro, producto del catálogo y stock suficiente.
+   *
+   * Reutiliza el resolvedor de venta para el producto (misma ambigüedad y mismo
+   * stock proyectado) y añade lo propio del fiado: el cliente y el aviso cuando
+   * hay varios parecidos.
+   */
+  async function resolverFiadoAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!perms.puedeVista('deudas')) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No tienes permiso para fiar.',
+        auditar: { comando: 'venta_fiada', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const pid = auth.usuarioActual.value?.puestoId
+    if (!pid) {
+      return {
+        tipo: 'error',
+        comando: 'venta_fiada',
+        motivo: 'sin_puesto',
+        mensaje: 'No hay un puesto activo para fiar.',
+        texto: slots?.productoHint || ''
+      }
+    }
+
+    const hintCliente = String(slots?.clienteHint ?? '').trim()
+    if (!hintCliente) {
+      return {
+        tipo: 'aviso',
+        mensaje: '¿A quién se lo fío? Di por ejemplo: fía dos panes a Juan.',
+        auditar: { comando: 'venta_fiada', motivo: 'sin_cliente', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const clientes = await fiado.cargarClientes(pid, { incluirSinCliente: false }).catch(() => [])
+    const parecidos = clientesSimilares(hintCliente, clientes, { umbral: 0.72 })
+    if (!parecidos.length) {
+      return {
+        tipo: 'error',
+        comando: 'venta_fiada',
+        motivo: 'cliente_no_encontrado',
+        mensaje: `No encontré a "${hintCliente}" entre los clientes.`,
+        texto: hintCliente,
+        auditar: { comando: 'venta_fiada', motivo: 'cliente_no_encontrado', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const [mejor, segundo] = parecidos
+    if (segundo && mejor.similitud - segundo.similitud < 0.05) {
+      const nombres = parecidos.slice(0, 3).map(p => p.cliente.nombre).join(', ')
+      return {
+        tipo: 'aviso',
+        mensaje: `Hay varios clientes parecidos: ${nombres}. Di el nombre completo.`,
+        auditar: { comando: 'venta_fiada', motivo: 'cliente_ambiguo', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    if (!vigente()) return { tipo: 'cancelado' }
+
+    // El cliente ya está decidido: el resolvedor de venta no vuelve a buscarlo.
+    const accion = await resolverVentaAccion(
+      { ...slots, clienteId: mejor.cliente.id, clienteHint: '', tipoVenta: 'directa' },
+      sttConfidence,
+      vigente,
+      { permitirConflicto: false }
+    )
+    if (accion.tipo === 'venta') {
+      return {
+        tipo: 'fiar',
+        fila: accion.fila,
+        cliente: mejor.cliente,
+        cantidad: Number(accion.slots?.cantidad) || Number(slots?.cantidad) || 1,
+        importe: accion.importe,
+        destino: accion.destino,
+        slots: accion.slots
+      }
+    }
+    if (accion.tipo === 'ambiguo') {
+      return {
+        ...accion,
+        comando: 'venta_fiada',
+        cliente: mejor.cliente,
+        slots: { ...accion.slots, clienteId: mejor.cliente.id, clienteHint: hintCliente }
+      }
+    }
+    return accion
+  }
+
+  /** Fiar el producto elegido en el diálogo de candidatos. */
+  function fiarCandidato(candidato, datos) {
+    const fila = candidato?.row
+    if (!fila) return
+    const cantidad = Math.max(1, Math.trunc(Number(datos.slots?.cantidad) || 1))
+    const precio = Number(fila.precioVentaActual) || 0
+    const ubi = datos.slots?.ubicacion || ubicacion
+    return prepararFiado({
+      fila,
+      cliente: datos.cliente,
+      cantidad,
+      importe: Math.round(precio * cantidad * 100) / 100,
+      destino: { ubicacion: ubi },
+      slots: datos.slots
+    })
+  }
+
+  /**
+   * Confirma y registra un fiado. La deuda se crea directa (fuera de cuadre),
+   * igual que desde `/deudas`: descuenta stock y congela el costo.
+   */
+  async function prepararFiado(accion) {
+    const fila = accion?.fila
+    const cliente = accion?.cliente
+    if (!fila?.productoId || !cliente?.id) {
+      estado.value = 'idle'
+      throw new Error('Falta el producto o el cliente para fiar.')
+    }
+
+    const ubi = accion.destino?.ubicacion === 'almacen' ? 'almacen' : (accion.destino?.ubicacion || ubicacion)
+    const precio = Number(fila.precioVentaActual) || 0
+    let cantidad = Math.max(1, Math.trunc(Number(accion.cantidad) || 1))
+    let importe = Number(accion.importe) || Math.round(precio * cantidad * 100) / 100
+    let frase = fraseFiado({ cantidad, nombre: fila.nombre, cliente: cliente.nombre, importe })
+
+    modo.value = 'fiado'
+    estado.value = 'confirmando'
+    ultimaRespuestaVoz.value = frase
+    readBackTexto.value = frase
+    readBackIncluyeConfirmacion.value = true
+    toast.add({ title: 'Fiar por voz', description: frase, color: 'success', duration: 8000 })
+
+    // Sin lectura de voz no hay confirmación posible: mejor no fiar nada que
+    // fiar a ciegas. La deuda se hace desde /deudas.
+    if (!tts.habilitado.value) {
+      estado.value = 'idle'
+      toast.add({
+        title: 'Voz',
+        description: 'La lectura de voz está apagada: no se fió nada.',
+        color: 'warning'
+      })
+      return
+    }
+
+    /** Una escucha corta: solo para el sí/no (o una corrección de cantidad). */
+    async function escuchar() {
+      try {
+        await tts.speak(frase)
+      } catch {
+        /* noop */
+      }
+      await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+      voice.reset()
+      const escucha = voice.startListening({
+        contexto: { modo: conexion.modo.value, red: hayRed.value }
+      }).catch(() => {})
+      const respuesta = await confirmacion.esperar({
+        timeoutMs: zeroTouch.timeoutMs.value,
+        prompt: frase
+      })
+      try {
+        await voice.stopListening()
+      } catch {
+        /* noop */
+      }
+      await escucha
+      voice.reset()
+      return respuesta
+    }
+
+    let correcciones = 0
+    let resultado = 'timeout'
+    while (true) {
+      const respuesta = await escuchar()
+      resultado = respuesta.resultado
+      if (resultado !== 'corregir') break
+
+      if (correcciones >= 2) {
+        resultado = 'abandonado'
+        break
+      }
+      const nueva = Math.trunc(Number(respuesta.cantidad) || 0)
+      const disponible = Number(fila?.[ubi]) || 0
+      if (nueva < 1 || nueva > disponible) {
+        resultado = 'sin_stock'
+        break
+      }
+      cantidad = nueva
+      importe = Math.round(precio * cantidad * 100) / 100
+      frase = fraseFiado({ cantidad, nombre: fila.nombre, cliente: cliente.nombre, importe })
+      ultimaRespuestaVoz.value = frase
+      readBackTexto.value = frase
+      correcciones++
+    }
+
+    if (resultado !== 'afirmado') {
+      estado.value = 'idle'
+      const mensaje = resultado === 'negado'
+        ? 'Cancelado.'
+        : (resultado === 'sin_stock'
+            ? 'No hay stock suficiente. No se fió nada.'
+            : 'Sin respuesta. No se fió nada.')
+      toast.add({ title: 'Voz', description: mensaje, color: 'warning' })
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
+      return
+    }
+
+    const r = await fiado.registrarDeudaDirecta({
+      clienteId: cliente.id,
+      ubicacion: ubi,
+      lineas: [{
+        productoId: fila.productoId,
+        cantidad,
+        precioVentaUsado: precio
+      }]
+    })
+    if (!r?.ok) {
+      estado.value = 'idle'
+      throw new Error(r?.error?.message || 'No se pudo registrar la deuda.')
+    }
+
+    const confirmacionTexto = `Fiado a ${cliente.nombre}: ${cantidad} de ${fila.nombre}.`
+    ultimaRespuestaVoz.value = confirmacionTexto
+    toast.add({
+      title: 'Fiado registrado',
+      description: `${cantidad} de ${fila.nombre} a ${cliente.nombre} · ${importe} pesos`,
+      color: 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(`Fiado a ${cliente.nombre}.`)
+    } catch {
+      /* noop */
+    }
+    estado.value = 'idle'
+    // El stock y el saldo del cliente cambiaron: la foto de la app cerrada se
+    // reescribe para no responder con datos viejos.
+    void snapshotVoz.actualizar().catch(() => {})
+  }
+
   /** Repite la última respuesta hablada (consultas de stock, precio o deuda). */
   async function repetirUltimaRespuesta() {
     const texto = ultimaRespuestaVoz.value || FRASE_NADA_QUE_REPETIR
@@ -672,7 +918,7 @@ function _create(ubicacion) {
       } else if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia') {
         // No dependen de catálogo: no se evalúan contra el inventario.
         rec.elegido = true
-      } else if (clas.comando === 'venta_directa' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
+      } else if (clas.comando === 'venta_directa' || clas.comando === 'venta_fiada' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
         try {
           const destinoUbi = (clas.slots?.ubicacion) || ubicacion
           const cat = clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio'
@@ -740,6 +986,7 @@ function _create(ubicacion) {
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
     if (comando === 'consulta_dia') return resolverConsultaDia(slots, sttConfidence)
+    if (comando === 'venta_fiada') return resolverFiadoAccion(slots, sttConfidence, vigente)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa
@@ -788,6 +1035,7 @@ function _create(ubicacion) {
         pendiente.value = {
           comando: accion.comando || 'venta_directa',
           slots: accion.slots,
+          cliente: accion.cliente ?? null,
           sttConfidence: accion.sttConfidence
         }
         candidatos.value = accion.candidatos
@@ -818,6 +1066,8 @@ function _create(ubicacion) {
       case 'venta':
         // Siempre el formulario; la confirmación hablada la maneja el layout.
         return prepararVenta(accion.fila, accion.slots, accion.destino.ubicacion)
+      case 'fiar':
+        return prepararFiado(accion)
       default:
         return
     }
@@ -941,6 +1191,10 @@ function _create(ubicacion) {
       await responderPrecio(candidato.row, datos.slots)
       return
     }
+    if (datos.comando === 'venta_fiada') {
+      await fiarCandidato(candidato, datos)
+      return
+    }
     prepararVenta(candidato.row, datos.slots, datos.slots?.ubicacion || undefined)
   }
 
@@ -948,6 +1202,7 @@ function _create(ubicacion) {
     const comando = pendiente.value?.comando
     if (comando === 'consulta_stock') return 'Confirma qué producto consultar'
     if (comando === 'consulta_precio') return 'Confirma de qué producto quieres el precio'
+    if (comando === 'venta_fiada') return 'Confirma qué producto fiar'
     return 'Confirma el producto'
   })
 

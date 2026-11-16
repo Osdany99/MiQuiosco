@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { TABLES } from '../../shared/tables'
 import { generarId } from '../../shared/inventario/operaciones'
 import { useAuth } from './useAuth'
+import { useCuentasFiado } from './useCuentasFiado'
 import { useInventario } from './useInventario'
 import { useLocalRepo } from './useLocalRepo'
 import { useModoConexion } from './useModoConexion'
@@ -44,10 +45,16 @@ export function useAccionesPendientes() {
   const inv = useInventario()
   const conexion = useModoConexion()
   const repo = useLocalRepo(CONFIG)
+  const fiado = useCuentasFiado()
   const ventasRepo = computed(() => (
     conexion.modo.value === 'online'
       ? useRemoteRepo(TABLES.ventas_directas)
       : useLocalRepo(TABLES.ventas_directas)
+  ))
+  const cuentasRepo = computed(() => (
+    conexion.modo.value === 'online'
+      ? useRemoteRepo(TABLES.cuentas_fiado)
+      : useLocalRepo(TABLES.cuentas_fiado)
   ))
 
   const puestoId = computed(() => auth.usuarioActual.value?.puestoId ?? null)
@@ -199,6 +206,26 @@ export function useAccionesPendientes() {
   }
 
   /**
+   * Deuda que pudo dejar un intento anterior de aplicar el fiado. Misma regla
+   * que `ventaPrevia`: el id se asigna al dictar, así reintentar no duplica.
+   */
+  async function deudaPrevia(cuentaId, dictadoEn) {
+    if (conexion.modo.value !== 'online') {
+      const cuenta = await cuentasRepo.value.read(cuentaId).catch(() => null)
+      return cuenta?.id ? cuenta : null
+    }
+    const base = Number(dictadoEn) || Date.now()
+    const desde = new Date(base)
+    desde.setHours(0, 0, 0, 0)
+    const hasta = new Date(base)
+    hasta.setHours(23, 59, 59, 999)
+    const filas = await cuentasRepo.value
+      .readAll({ query: { desde: desde.toISOString(), hasta: hasta.toISOString() } })
+      .catch(() => [])
+    return (filas ?? []).find(c => c?.id === cuentaId) ?? null
+  }
+
+  /**
    * Registra la venta directa de una acción pendiente y la marca aplicada.
    *
    * `dictadoEn` es la fecha de la venta, no la de confirmación. Antes de
@@ -207,6 +234,8 @@ export function useAccionesPendientes() {
    */
   async function aplicar(accion) {
     if (!puedeAplicar(accion)) throw new Error('Esta acción ya no se puede aplicar.')
+
+    if (accion.tipo === 'deuda') return aplicarDeuda(accion)
 
     const ventaDirectaId = accion.ventaDirectaId || generarId()
     const previa = await ventaPrevia(ventaDirectaId, accion.dictadoEn)
@@ -228,6 +257,46 @@ export function useAccionesPendientes() {
         }]
       })
       // Online el servidor decide el id: se guarda el real para poder auditarlo.
+      if (creada?.id) idFinal = creada.id
+    }
+
+    const fila = await repo.update(accion.id, {
+      estado: 'aplicada',
+      aplicadaEn: Date.now(),
+      ventaDirectaId: idFinal,
+      motivo: null
+    })
+    const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: idFinal }
+    reemplazar(final)
+    return final
+  }
+
+  /**
+   * Aplica un fiado dictado: crea la deuda directa (descuenta stock y congela
+   * costo, igual que desde `/deudas`) y enlaza la fila con la cuenta creada.
+   */
+  async function aplicarDeuda(accion) {
+    if (!accion?.clienteId) throw new Error('El fiado no tiene cliente.')
+    if (!accion?.productoId) throw new Error('El fiado no tiene producto.')
+
+    const cuentaId = accion.ventaDirectaId || generarId()
+    const previa = await deudaPrevia(cuentaId, accion.dictadoEn)
+
+    let idFinal = cuentaId
+    if (!previa) {
+      const creada = await fiado.registrarDeudaDirecta({
+        // En local el id se asigna al dictar: reintentar no duplica la deuda.
+        id: cuentaId,
+        clienteId: accion.clienteId,
+        ubicacion: accion.ubicacion === 'almacen' ? 'almacen' : 'quiosco',
+        lineas: [{
+          productoId: accion.productoId,
+          cantidad: Math.max(1, Math.trunc(Number(accion.cantidad) || 1)),
+          precioVentaUsado: Number(accion.precioUnitario) || 0
+        }]
+      })
+      if (!creada?.ok) throw creada?.error ?? new Error('No se pudo registrar la deuda.')
+      // Online el servidor decide el id.
       if (creada?.id) idFinal = creada.id
     }
 

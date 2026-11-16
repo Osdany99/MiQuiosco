@@ -77,12 +77,22 @@ export function construirSnapshot({
   const dia = resumirDia({ ventas, acciones, ahora })
   const deudas = resumirDeudas({ cuentas, clientes })
 
+  // Lista para emparejar al cliente de un fiado dictado con la app cerrada.
+  // Va aparte de `deudas` porque también hacen falta los clientes sin saldo.
+  const clientesVoz = (clientes ?? [])
+    .filter(c => c && c.id && !c.esCentinela)
+    .map(c => ({ id: String(c.id), nombre: String(c.nombre ?? '').trim() }))
+    .filter(c => c.id && c.nombre)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+    .slice(0, 1000)
+
   return {
     version: SNAPSHOT_VERSION,
     generadoEn: ahora,
     puestoId,
     productos,
     deudas,
+    clientes: clientesVoz,
     resumen: {
       ventasHoy: dia.ventasHoy,
       importeHoy: redondear2(dia.importeHoy),

@@ -443,6 +443,70 @@ const RELLENO_DEUDA_INICIAL = new Set([
 ])
 const RELLENO_DEUDA_FINAL = new Set(['por', 'favor', 'gracias', 'hoy', 'ahora', 'ahorita', 'total', 'y', 'mas'])
 
+// Verbos con los que se fía («fía dos panes a Juan»). «fiado» suelto también
+// vale: «anota fiado dos panes a Juan».
+const VERBOS_FIADO = new Set(['fia', 'fiale', 'fiar', 'fias', 'fian', 'fiame', 'fiamelo', 'fiarle'])
+const VERBOS_VENTA_FIADO = ['vende', 'vendeme', 'anota', 'anotame', 'apunta', 'apuntame', 'registra', 'saca', 'despacha']
+
+/**
+ * ¿La frase manda fiar? Exige verbo de fiado al inicio o «fiado» con un verbo
+ * de venta: «cuánto tengo fiado» es una consulta, no una deuda nueva.
+ */
+export function esVentaFiada(texto) {
+  const t = normalizar(texto)
+  if (!t) return false
+  const tokens = t.split(' ')
+  if (VERBOS_FIADO.has(tokens[0])) return true
+  return VERBOS_VENTA_FIADO.includes(tokens[0]) && tokens.includes('fiado')
+}
+
+/**
+ * Slots de `venta_fiada`: producto, cantidad, ubicación y a quién.
+ *
+ * El cliente va tras la última «a»/«para» de la frase («fía 2 panes a Juan»).
+ * El resto se lee con el extractor de venta (cantidad, artículos, ubicación),
+ * para no tener dos gramáticas de producto.
+ */
+export function extraerFiadoSlots(transcript, lexico = LEXICO_BASE) {
+  const tokens = normalizar(transcript).split(' ').filter(Boolean)
+  if (!tokens.length) return { productoHint: '', cantidad: 1, ubicacion: null, clienteHint: '' }
+
+  let inicio = 0
+  if (VERBOS_FIADO.has(tokens[0])) {
+    inicio = 1
+  } else {
+    while (inicio < tokens.length && tokens[inicio] !== 'fiado') inicio++
+    inicio++
+  }
+
+  // Corte por el cliente: la última preposición con algo detrás.
+  let corte = -1
+  for (let i = tokens.length - 1; i > inicio; i--) {
+    if (tokens[i - 1] === 'a' || tokens[i - 1] === 'para') {
+      corte = i - 1
+      break
+    }
+  }
+
+  const clienteHint = corte >= 0 ? tokens.slice(corte + 1).join(' ').trim() : ''
+  const producto = tokens.slice(inicio, corte >= 0 ? corte : tokens.length)
+  const base = producto.length
+    ? extraerBase(`vende ${producto.join(' ')}`, false, lexico).slots
+    : { productoHint: '', cantidad: 1, ubicacion: null }
+
+  return {
+    productoHint: base.productoHint || '',
+    cantidad: Number(base.cantidad) || 1,
+    ubicacion: base.ubicacion ?? null,
+    clienteHint
+  }
+}
+
+/** Nombre del cliente dicho en la frase ('' = no se dijo). */
+export function extraerClienteFiado(transcript) {
+  return extraerFiadoSlots(transcript).clienteHint
+}
+
 /** Nombre del cliente dicho en la frase ('' = no se dijo: se pide el total). */
 export function extraerClienteHint(transcript) {
   const tokens = normalizar(transcript).split(' ').filter(Boolean)
@@ -481,6 +545,12 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   }
   if (/^(ayuda|que puedes hacer|que sabes hacer|comandos|que comandos|como te uso)\b/.test(texto)) {
     return { comando: 'ayuda', confianza: 0.9, reasons: ['ayuda'] }
+  }
+
+  // Fiar: «fía dos panes a Juan». Va antes de la venta porque «anota fiado …»
+  // trae verbo de venta y no debe registrarse como venta directa.
+  if (esVentaFiada(texto)) {
+    return { comando: 'venta_fiada', confianza: 0.9, reasons: ['verbo_fiado'] }
   }
 
   if (c.PREFIJO_VENTA.test(texto)) {
@@ -747,6 +817,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   }
   if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
   if (comando === 'consulta_dia') return {}
+  if (comando === 'venta_fiada') return extraerFiadoSlots(transcript, lexico)
   if (comando === 'repetir' || comando === 'ayuda') return {}
   if (comando === 'navegacion') {
     const dest = resolverNavegacionDestino(transcript, c, lexico)

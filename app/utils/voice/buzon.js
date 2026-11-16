@@ -79,12 +79,19 @@ export function pendienteResuelto(datos) {
     ? monto(precioUnitario * cantidad)
     : monto(datos.importe)
 
+  // Fiado dictado con la app cerrada: además del producto hace falta el
+  // cliente. Sin cliente no se puede crear la deuda y se descarta la entrada.
+  const esDeuda = datos.tipo === 'deuda'
+  const clienteId = esDeuda ? String(datos.clienteId ?? '').trim() : ''
+  if (esDeuda && !clienteId) return null
+
   return {
     origenId: String(datos.id ?? datos.origenId ?? '').trim() || null,
     texto,
     sttConfidence: Number(datos.confidence) || 0,
     dictadoEn: Number(datos.dictadoEn) || Date.now(),
     origen: 'servicio',
+    tipo: esDeuda ? 'deuda' : 'venta',
     productoId,
     productoNombre: datos.productoNombre ? String(datos.productoNombre) : null,
     ubicacion: datos.ubicacion === 'almacen' ? 'almacen' : 'quiosco',
@@ -92,7 +99,7 @@ export function pendienteResuelto(datos) {
     cantidad,
     precioUnitario,
     importe,
-    clienteId: null,
+    clienteId: clienteId || null,
     // Ya se decidió el stock y se confirmó por voz: no viene "dudosa".
     motivo: null
   }
@@ -121,6 +128,25 @@ export function pendienteDesdeAccion(accion, entrada) {
   }
 
   const comun = base(entrada)
+
+  if (accion.tipo === 'fiar') {
+    const fila = accion.fila ?? {}
+    const cantidad = entero(accion.cantidad ?? accion.slots?.cantidad)
+    const precioUnitario = monto(fila.precioVentaActual)
+    return {
+      ...comun,
+      tipo: 'deuda',
+      productoId: fila.productoId ?? null,
+      productoNombre: fila.nombre ?? null,
+      ubicacion: accion.destino?.ubicacion ?? entrada.ubicacion ?? 'almacen',
+      tipoVenta: 'directa',
+      cantidad,
+      precioUnitario,
+      importe: accion.importe != null ? monto(accion.importe) : monto(precioUnitario * cantidad),
+      clienteId: accion.cliente?.id ?? accion.slots?.clienteId ?? null,
+      motivo: null
+    }
+  }
 
   if (accion.tipo === 'venta' || accion.tipo === 'stock') {
     const fila = accion.fila ?? {}

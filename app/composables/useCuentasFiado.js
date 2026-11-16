@@ -334,7 +334,7 @@ export function useCuentasFiado() {
    * cuadre abierto). No pasa por el tope ni toca ningún cuadre, pero sí
    * descuenta inventario y congela su costo FIFO en la propia cuenta.
    */
-  async function registrarDeudaDirecta({ clienteId, lineas, ubicacion = 'almacen', montoPagadoInicial = 0, formaPagoInicial = 'efectivo' }) {
+  async function registrarDeudaDirecta({ id = null, clienteId, lineas, ubicacion = 'almacen', montoPagadoInicial = 0, formaPagoInicial = 'efectivo' }) {
     cargando.value = true
     try {
       if (esOnline.value) {
@@ -382,7 +382,7 @@ export function useCuentasFiado() {
         throw new Error('El pago inicial no puede superar el monto total.')
       }
 
-      const cuentaId = crypto.randomUUID()
+      const cuentaId = String(id || '').trim() || crypto.randomUUID()
       await db.transaction(async () => {
         await r(cuentasRepo).create({
           id: cuentaId,

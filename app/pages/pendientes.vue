@@ -23,6 +23,10 @@ const inv = useInventario()
 const acciones = useAccionesPendientes()
 const snapshot = useVozSnapshot()
 const servicio = useVozServicio()
+const fiado = useCuentasFiado()
+
+/** Nombres de los clientes: la acción guarda el id, no el nombre. */
+const clientes = ref([])
 
 const mostrarArchivadas = ref(false)
 const listo = ref(false)
@@ -65,12 +69,22 @@ const MODOS = {
 }
 
 const etiquetaTipo = (accion) => {
+  if (accion?.tipo === 'deuda') return 'Fiado'
   switch (accion?.tipoVenta) {
     case 'casa': return 'Venta casa'
     case 'familiar': return 'Venta familiar'
     case 'regalo': return 'Regalo'
     default: return 'Venta directa'
   }
+}
+
+const esDeuda = accion => accion?.tipo === 'deuda'
+
+/** Nombre del cliente de un fiado dictado. */
+const clientesPorId = computed(() => new Map(clientes.value.map(c => [c.id, c.nombre])))
+function nombreCliente(accion) {
+  if (!accion?.clienteId) return 'Cliente sin identificar'
+  return clientesPorId.value.get(accion.clienteId) || 'Cliente'
 }
 
 function fechaCompleta(ms) {
@@ -277,6 +291,12 @@ watch(pid, (valor) => {
 
 onMounted(() => {
   void servicio.refrescar()
+  const puesto = auth.usuarioActual.value?.puestoId
+  if (puesto) {
+    void fiado.cargarClientes(puesto, { incluirSinCliente: false, incluirInactivos: true })
+      .then((lista) => { clientes.value = lista ?? [] })
+      .catch(() => {})
+  }
 })
 </script>
 
@@ -467,6 +487,7 @@ onMounted(() => {
               </div>
 
               <p class="text-sm mt-1">
+                <span v-if="esDeuda(accion)" class="text-xs text-muted">Fiar a {{ nombreCliente(accion) }} · </span>
                 {{ Number(accion.cantidad) }} × {{ fmtPrecio(accion.precioUnitario) }}
                 = <span class="font-mono font-medium">{{ fmtPrecio(accion.importe) }}</span>
               </p>
@@ -506,6 +527,7 @@ onMounted(() => {
                 @click="registrar(accion)"
               />
               <UButton
+                v-if="!esDeuda(accion)"
                 size="xs"
                 variant="soft"
                 color="neutral"

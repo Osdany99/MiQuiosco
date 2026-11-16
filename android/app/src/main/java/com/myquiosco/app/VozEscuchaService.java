@@ -129,6 +129,7 @@ public class VozEscuchaService extends Service {
     private JSONObject textos = new JSONObject();
     private JSONObject tiempos = new JSONObject();
     private IntencionVenta intencion = IntencionVenta.porDefecto();
+    private IntencionFiado intencionFiado = new IntencionFiado(intencion);
     private int maxCandidatos = 3;
     private double umbralParecido = 0.55;
 
@@ -136,6 +137,8 @@ public class VozEscuchaService extends Service {
     private JSONObject productoPendiente = null;
     private int cantidadPendiente = 1;
     private String ubicacionPendiente = "almacen";
+    /** Cliente del fiado en curso (null = venta normal). */
+    private JSONObject clientePendiente = null;
     /** Correcciones de cantidad aceptadas en la confirmación actual (máx. 2). */
     private int correccionesConfirmacion = 0;
     /** Evita reiniciar el contador cuando la confirmación viene de una corrección. */
@@ -209,6 +212,7 @@ public class VozEscuchaService extends Service {
         maxCandidatos = Math.max(1, dialogo.optInt("maxCandidatos", 3));
         umbralParecido = dialogo.optDouble("umbralParecido", 0.55);
         intencion = new IntencionVenta(dialogo);
+        intencionFiado = new IntencionFiado(intencion);
     }
 
     /** Lee la última configuración de flota guardada por la app. */
@@ -763,6 +767,9 @@ public class VozEscuchaService extends Service {
         estado = Estado.REPOSO;
         estadoEnEspera = null;
         ttsHablando = false;
+        // Un fiado a medias no debe sobrevivir a la cancelación.
+        productoPendiente = null;
+        clientePendiente = null;
         cleanupRecognizer();
         pararVosk();
         liberarWakelock();
@@ -998,7 +1005,15 @@ public class VozEscuchaService extends Service {
             return;
         }
 
-        // 2) ¿Es una venta? Sin verbo de venta no se toca nada.
+        // 2) Fiado: «fía dos panes a Juan». Va antes de la venta porque comparte
+        // verbo pero necesita cliente.
+        IntencionFiado.Intencion fiado = intencionFiado.leer(texto);
+        if (fiado.tipo != IntencionFiado.Tipo.NO_FIADO) {
+            procesarFiado(fiado, texto, confianza);
+            return;
+        }
+
+        // 3) ¿Es una venta? Sin verbo de venta no se toca nada.
         IntencionVenta.Intencion leida = intencion.leer(texto);
         if (leida.tipo == IntencionVenta.Tipo.NO_VENTA) {
             continuarEscucha();
@@ -1043,9 +1058,90 @@ public class VozEscuchaService extends Service {
         decidirVenta(candidatos.get(0).producto, cantidadDictada, ubicacionDictada);
     }
 
+    /**
+     * Fiado con la app cerrada: cliente del snapshot, producto del catálogo y
+     * confirmación hablada. Al «sí» se deja la deuda en el buzón; la app la
+     * crea al abrirse y el jefe la revisa como cualquier dictado.
+     */
+    private void procesarFiado(IntencionFiado.Intencion leida, String texto, float confianza) {
+        textoDictado = texto;
+        textoDictadoConfianza = confianza;
+        snapshotActual = leerSnapshot();
+        JSONArray productos = snapshotActual == null ? null : snapshotActual.optJSONArray("productos");
+        JSONArray clientes = snapshotActual == null ? null : snapshotActual.optJSONArray("clientes");
+        if (productos == null) productos = new JSONArray();
+
+        if (clientes == null || clientes.length() == 0) {
+            hablar("Abre la app para fiar: no hay clientes en la foto", this::continuarEscucha);
+            return;
+        }
+
+        List<JSONObject> parecidos = clientesParecidos(clientes, leida.cliente, maxCandidatos);
+        if (parecidos.isEmpty()) {
+            hablar(frase("clienteNoEncontrado", "cliente", leida.cliente), this::continuarEscucha);
+            return;
+        }
+        // Varios nombres parecidos: se leen y se espera que repita el nombre.
+        // Por un nombre de pila nunca se elige (regla de las deudas).
+        if (parecidos.size() > 1
+            && ConsultaDeuda.similitud(leida.cliente, parecidos.get(0).optString("nombre", ""))
+                - ConsultaDeuda.similitud(leida.cliente, parecidos.get(1).optString("nombre", "")) < 0.05) {
+            StringBuilder nombres = new StringBuilder();
+            for (int i = 0; i < parecidos.size(); i++) {
+                if (i > 0) nombres.append(i == parecidos.size() - 1 ? " o " : ", ");
+                nombres.append(parecidos.get(i).optString("nombre", ""));
+            }
+            hablar(frase("clienteAmbiguo", "clientes", nombres.toString()), this::continuarEscucha);
+            return;
+        }
+
+        if (leida.tipo == IntencionFiado.Tipo.SIN_PRODUCTO) {
+            hablar(frase("faltaProducto", "producto", texto), this::continuarEscucha);
+            return;
+        }
+
+        cantidadDictada = Math.max(1, leida.cantidad);
+        ubicacionDictada = "quiosco".equals(leida.ubicacion) ? "quiosco" : "almacen";
+        clientePendiente = parecidos.get(0);
+
+        List<Candidato> candidatos = buscarCandidatos(productos, leida.producto, maxCandidatos);
+        if (candidatos.isEmpty()) {
+            clientePendiente = null;
+            hablar(frase("faltaProducto", "producto", leida.producto), this::continuarEscucha);
+            return;
+        }
+
+        boolean ambiguo = candidatos.size() > 1
+            && !candidatos.get(0).exacto
+            && candidatos.get(1).puntaje >= Math.max(1, candidatos.get(0).puntaje - 1);
+        if (ambiguo) {
+            // La elección conserva `clientePendiente`: sigue siendo un fiado.
+            ofrecerCandidatos(candidatos, "");
+            return;
+        }
+
+        decidirVenta(candidatos.get(0).producto, cantidadDictada, ubicacionDictada);
+    }
+
+    /** Clientes del snapshot que se parecen al nombre dicho, de mayor a menor. */
+    private List<JSONObject> clientesParecidos(JSONArray clientes, String nombre, int maximo) {
+        List<JSONObject> lista = new ArrayList<>();
+        if (clientes == null) return lista;
+        for (int i = 0; i < clientes.length(); i++) {
+            JSONObject c = clientes.optJSONObject(i);
+            if (c == null) continue;
+            if (ConsultaDeuda.similitud(nombre, c.optString("nombre", "")) >= ConsultaDeuda.UMBRAL) {
+                lista.add(c);
+            }
+        }
+        lista.sort((a, b) -> Double.compare(
+            ConsultaDeuda.similitud(nombre, b.optString("nombre", "")),
+            ConsultaDeuda.similitud(nombre, a.optString("nombre", ""))));
+        return lista.size() > maximo ? new ArrayList<>(lista.subList(0, maximo)) : lista;
+    }
+
     /** Lee hasta N candidatos ordenados; `exacto` si el nombre aparece literal. */
-    private List<Candidato> buscarCandidatos(JSONArray productos, String frase, int maximo) {
-        List<Candidato> encontrados = new ArrayList<>();
+    private List<Candidato> buscarCandidatos(JSONArray productos, String frase, int maximo) {        List<Candidato> encontrados = new ArrayList<>();
         String buscado = IntencionVenta.normalizarFrase(frase);
         if (buscado.isEmpty() || productos == null) return encontrados;
         Set<String> palabras = new HashSet<>(Arrays.asList(buscado.split(" ")));
@@ -1240,7 +1336,7 @@ public class VozEscuchaService extends Service {
             "almacen", String.valueOf(producto.optInt("almacen", 0))), this::continuarEscucha);
     }
 
-    /** Lee la venta con el importe y pide confirmación (como la app abierta). */
+    /** Lee la venta (o el fiado) con el importe y pide confirmación. */
     private void proponerConfirmacion(JSONObject producto, int cantidad, String ubicacion) {
         if (!corrigiendoCantidad) correccionesConfirmacion = 0;
         productoPendiente = producto;
@@ -1253,6 +1349,14 @@ public class VozEscuchaService extends Service {
 
         estado = Estado.ESPERANDO_CONFIRMACION;
         programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000));
+        if (clientePendiente != null) {
+            hablar(frase("confirmarFiado",
+                "cantidad", String.valueOf(cantidad),
+                "producto", nombre,
+                "cliente", clientePendiente.optString("nombre", "ese cliente"),
+                "importe", formatearNumero(importe)), this::continuarEscucha);
+            return;
+        }
         hablar(frase("confirmar",
             "cantidad", String.valueOf(cantidad),
             "producto", nombre,
@@ -1271,6 +1375,7 @@ public class VozEscuchaService extends Service {
         if (corregida > 0 && productoPendiente != null) {
             if (correccionesConfirmacion >= 2) {
                 productoPendiente = null;
+                clientePendiente = null;
                 hablar(frase("noAnotada"), this::continuarEscucha);
                 return;
             }
@@ -1290,26 +1395,30 @@ public class VozEscuchaService extends Service {
         }
         if (contieneAlguno(tokens, dialogo.optJSONArray("negaciones"), NEGACIONES)) {
             productoPendiente = null;
+            clientePendiente = null;
             hablar(frase("cancelado"), this::continuarEscucha);
             return;
         }
         productoPendiente = null;
+        clientePendiente = null;
         hablar(frase("noAnotada"), this::continuarEscucha);
     }
 
     private void confirmarVenta() {
         JSONObject producto = productoPendiente;
+        JSONObject cliente = clientePendiente;
         productoPendiente = null;
+        clientePendiente = null;
         if (producto == null) {
             continuarEscucha();
             return;
         }
         double precio = producto.optDouble("precio", 0);
         double importe = Math.round(precio * cantidadPendiente * 100) / 100.0;
-        boolean ok = anotarResuelto(producto, cantidadPendiente, ubicacionPendiente, precio, importe);
+        boolean ok = anotarResuelto(producto, cantidadPendiente, ubicacionPendiente, precio, importe, cliente);
         if (ok) {
             reservar(producto.optString("id", ""), ubicacionPendiente, cantidadPendiente);
-            hablar(frase("anotado"), this::continuarEscucha);
+            hablar(frase(cliente != null ? "anotadoFiado" : "anotado"), this::continuarEscucha);
         } else {
             hablar(frase("noAnotada"), this::continuarEscucha);
         }
@@ -1580,7 +1689,7 @@ public class VozEscuchaService extends Service {
      * la app la convertirá en acción pendiente al abrirse (y el jefe la
      * confirmará otra vez para que llegue al inventario).
      */
-    private boolean anotarResuelto(JSONObject producto, int cantidad, String ubicacion, double precio, double importe) {
+    private boolean anotarResuelto(JSONObject producto, int cantidad, String ubicacion, double precio, double importe, JSONObject cliente) {
         try {
             File dir = new File(getFilesDir(), "voz/inbox");
             if (!dir.exists() && !dir.mkdirs()) return false;
@@ -1599,6 +1708,12 @@ public class VozEscuchaService extends Service {
             o.put("importe", importe);
             o.put("ubicacion", "almacen".equals(ubicacion) ? "almacen" : "quiosco");
             o.put("tipoVenta", "directa");
+            if (cliente != null) {
+                // Fiado: la app creará una deuda directa, no una venta.
+                o.put("tipo", "deuda");
+                o.put("clienteId", cliente.optString("id", ""));
+                o.put("clienteNombre", cliente.optString("nombre", ""));
+            }
             o.put("dictadoEn", ahora);
             o.put("origen", "servicio");
 

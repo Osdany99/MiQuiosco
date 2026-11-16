@@ -4,8 +4,8 @@
 1. `resolverComando(transcript, lexico)` → `{ comando, confianza, reasons }`.
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
-Soportados: `venta_directa`, `consulta_stock`, `consulta_precio`, `consulta_deuda`,
-`consulta_dia`, `repetir`, `ayuda`, `navegacion`, `desconocido`.
+Soportados: `venta_directa`, `venta_fiada`, `consulta_stock`, `consulta_precio`,
+`consulta_deuda`, `consulta_dia`, `repetir`, `ayuda`, `navegacion`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -133,10 +133,10 @@ Con la app abierta el intérprete reconoce además:
 - **Ayuda**: «qué puedes hacer», «ayuda», «qué sabes hacer» → lee qué sabe hacer
   y da un ejemplo.
 
-Los cuatro son **solo con la app abierta**, salvo las deudas y el resumen del
-día, que también se contestan con la app cerrada desde el snapshot. El servicio
-en segundo plano está limitado a venta y consultas (stock, precio, deudas y
-resumen del día).
+Los cuatro son **solo con la app abierta**, salvo las deudas, el resumen del
+día y el fiado, que también funcionan con la app cerrada desde el snapshot. El
+servicio en segundo plano está limitado a venta, fiado y consultas (stock,
+precio, deudas y resumen del día).
 
 ## Resumen del día por voz
 
@@ -154,8 +154,32 @@ respuestas coinciden.
 - «cuánto vendí» **sin decir el día** no se contesta (puede ser otro día), y
   «ganancia», «costo» y «caja» quedan fuera: necesitan datos que la voz no tiene.
 
-## Deudas por voz
+## Fiar por voz (app abierta y cerrada)
 
+Crea una **deuda directa** (fuera de cuadre), igual que el formulario de
+`/deudas`: descuenta inventario y congela el costo FIFO en la propia cuenta.
+
+- Frases: «fía dos panes a Juan», «anota fiado 2 refrescos a Yunior», «vende
+  fiado un pan a Ana».
+- **El precio es siempre el del catálogo**: no se dicta precio en un fiado (en
+  una deuda un precio mal oído es demasiado caro de corregir).
+- **Cliente**: si el nombre coincide con uno solo, se usa. Si hay varios
+  parecidos —o solo se dijo el nombre de pila— se leen hasta 3 y se pide el
+  nombre completo; por un nombre de pila nunca se elige.
+- **Producto**: si hay varios parecidos se ofrece el menú de hasta 3 opciones
+  («la uno»/«la dos») y el fiado continúa con el elegido.
+- La confirmación es hablada: «Voy a fiar 2 unidades de Pan a Yunior por 40
+  pesos. Diga sí para confirmar.» Solo con un «sí» se registra. «No, eran tres»
+  corrige la cantidad (máx. 2) y relee.
+- Con la **lectura de voz apagada** no se fía nada: un aviso lo dice y la deuda
+  se hace desde `/deudas`.
+- Con la **app cerrada** (`VozEscuchaService` + `IntencionFiado`) el diálogo es
+  el mismo y, al «sí», deja la deuda en `files/voz/inbox`. Al abrir la app entra
+  en **Por revisar** como **Fiado**, con **Registrar** y **Descartar** (sin
+  Editar: el formulario de deuda vive en `/deudas`).
+- Lo dictado **no cobra**: un fiado por voz crea la deuda, no recibe pagos.
+
+## Deudas por voz
 Solo la **consulta**: no se fía ni se cobra por voz. La lógica es pura y vive en
 `shared/voz/deudas.js`; el servicio nativo la replica en `ConsultaDeuda.java`
 sobre el resumen que la app deja en el snapshot.
@@ -236,7 +260,10 @@ abierta**, pero el resultado va a la cola de revisión, nunca a la base:
 3. **Venta** («vende dos panes») → busca el producto, comprueba stock y **lee la
    venta con la ubicación y el importe**: «2 de Pan de leche del almacén, 20
    pesos. ¿Confirmo?». Solo con un «sí» se anota.
-4. Todo lo demás (charla del mostrador, frases sin verbo de venta) se ignora en
+4. **Fiado** («fía dos panes a Juan») → busca cliente y producto, lee «Voy a
+   fiar 2 unidades de Pan a Juan por 40 pesos. ¿Confirmo?» y, al «sí», lo deja
+   como **Fiado** en la revisión. No crea la deuda por su cuenta.
+5. Todo lo demás (charla del mostrador, frases sin verbo de venta) se ignora en
    silencio.
 
 **Ubicación:** una venta dictada sale del **almacén** salvo que se diga «del
@@ -676,6 +703,15 @@ umbral de repetición y sin nombres.
     dictados por revisar, igual con la app abierta que cerrada. Un trabajador oye
     que es información del jefe.
 31. «cuánto vendí» sin decir el día, y «ganancia»/«caja», no se contestan.
+32. «fía dos panes a Yunior» lee la deuda con el precio del catálogo y solo con
+    «sí» la registra; el stock baja y la deuda aparece en `/deudas`.
+33. «fía dos panes a Juan» con «Juanita» en la lista lee los parecidos y no fía
+    nada hasta oír el nombre completo.
+34. «fía dos panes a Yunior» con el producto ambiguo ofrece hasta 3 opciones y,
+    al elegir «la dos», sigue siendo un fiado (pide el «sí»).
+35. Con la lectura de voz apagada, un fiado no registra nada y lo avisa.
+36. Con la app cerrada, un fiado confirmado aparece en **Por revisar** como
+    **Fiado** con su cliente; **Registrar** crea la deuda y **Editar** no está.
 
 ## Limitaciones conocidas
 
@@ -684,8 +720,10 @@ umbral de repetición y sin nombres.
 - El resumen del día se responde en los dos modos; el de la app cerrada usa el
   último snapshot y no incluye las ventas hechas en OTRO teléfono desde que se
   escribió.
-- Las deudas se **consultan** por voz, pero no se fían ni se cobran: eso sigue en
-  `/deudas` con el formulario.
+- Las deudas se consultan y se pueden **fiar** por voz; **cobrar** un fiado sigue
+  siendo solo en `/deudas` con el formulario.
+- Un fiado por voz usa el precio del catálogo y crea la deuda directa; no admite
+  precio dictado ni pago inicial.
 - La auditoría central es best-effort en línea: si el envío falla o no hay
   red, el proof queda solo local y no se encola para reintentar.
 - La retención de eventos se ejecuta con la tarea `voz:retencion` (cada noche) y
