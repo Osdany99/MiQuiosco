@@ -8,6 +8,7 @@ import { useLocalRepo } from './useLocalRepo'
 import { useModoConexion } from './useModoConexion'
 import { useRemoteRepo } from './useRemoteRepo'
 import { construirSnapshot, inicioDelDia } from '../utils/voice/snapshot'
+import { resumirDia } from '#shared/voz/dia'
 
 /**
  * useVozSnapshot — deja una foto del catálogo para que el servicio en primer
@@ -116,5 +117,25 @@ export function useVozSnapshot() {
     }
   }
 
-  return { actualizar, leer, construir }
+  /**
+   * Resumen del día para la consulta por voz con la app abierta.
+   * Lee las mismas fuentes que el snapshot (ventas del día y cola de revisión)
+   * pero SIN cargar el catálogo: preguntar «cómo va el día» no debe recorrer el
+   * inventario entero.
+   */
+  async function resumenDelDia(ahora = Date.now()) {
+    const [ventas] = await Promise.all([
+      ventasRepo.value
+        .readAll({ query: { desde: new Date(inicioDelDia(ahora)).toISOString() } })
+        .catch(() => [])
+    ])
+    await acciones.cargar().catch(() => {})
+    return resumirDia({
+      ventas: ventas ?? [],
+      acciones: acciones.pendientes.value,
+      ahora
+    })
+  }
+
+  return { actualizar, leer, construir, resumenDelDia }
 }

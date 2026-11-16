@@ -71,7 +71,7 @@ describe('voz: clasificación (fase A)', () => {
     ['a como esta el refresco', 'consulta_precio'],
     ['cuanto vale una cerveza', 'consulta_precio'],
     ['cuanto debe juan', 'consulta_deuda'],
-    ['cuanto vendi hoy', 'desconocido'],
+    ['cuanto vendi hoy', 'consulta_dia'],
     ['repite', 'repetir'],
     ['que puedes hacer', 'ayuda'],
     ['abre cuadre', 'navegacion'],

@@ -14,6 +14,7 @@
  * abrir un formulario prellenado es la capa de UI.
  */
 import { LEXICO_BASE } from './lexico.js'
+import { esConsultaDia } from './dia.js'
 
 const UNIDADES = {
   cero: 0,
@@ -498,6 +499,12 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     return { comando: 'consulta_deuda', confianza: 0.9, reasons: ['consulta_deuda'] }
   }
 
+  // Resumen del día: "cómo va el día", "cuánto vendí hoy". Antes se descartaba
+  // a propósito; ahora se contesta con las ventas del día del puesto.
+  if (esConsultaDia(texto)) {
+    return { comando: 'consulta_dia', confianza: 0.9, reasons: ['consulta_dia'] }
+  }
+
   // Precio: "cuánto cuesta", "a cómo está", "cuánto vale". Antes caía en
   // `consulta_no_soportada` y el jefe se quedaba sin respuesta.
   if (/\b(?:cuesta|cuestan|precio|precios|vale|valen|sale|salen)\b|\ba como\b/.test(texto)) {
@@ -510,9 +517,9 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
 
   // Consulta: marcas presentes.
   if (/\bcuanto\b|\bcuanta\b|\bcuantos\b|\bcuantas\b|\bstock\b|\bexistencia(s)?\b|\binventario\b|\btenemos\b|\btengo\b|\bdisponible(s)?\b|\bhay\b|\bqueda(n)?\b/.test(texto)) {
-    // Ventas del día y caja todavía no se responden por voz: mejor silencio
-    // que una cifra inventada. (Se resolverá en una fase posterior.)
-    if (/\bvendi\b|\bvendimos\b|\bvendido(s)?\b|\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
+    // Caja y ganancia todavía no se responden por voz: mejor silencio que una
+    // cifra inventada. (Se resolverá en una fase posterior.)
+    if (/\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
       return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
     }
     const slots = extraerConsultaPura(texto)
@@ -739,6 +746,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
     return { productoHint: s.productoHint, ubicacion: s.ubicacion }
   }
   if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
+  if (comando === 'consulta_dia') return {}
   if (comando === 'repetir' || comando === 'ayuda') return {}
   if (comando === 'navegacion') {
     const dest = resolverNavegacionDestino(transcript, c, lexico)

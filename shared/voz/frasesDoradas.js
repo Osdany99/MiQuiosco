@@ -11,5 +11,8 @@ export const FRASES_DORADAS = [
   { frase: 'cuanto cuesta el pan', comando: 'desconocido' },
   { frase: 'cuanto debe juan', comando: 'consulta_deuda' },
   { frase: 'quien me debe mas', comando: 'consulta_deuda' },
-  { frase: 'cuanto me deben', comando: 'consulta_deuda' }
+  { frase: 'cuanto me deben', comando: 'consulta_deuda' },
+  { frase: 'como va el dia', comando: 'consulta_dia' },
+  { frase: 'cuanto vendi hoy', comando: 'consulta_dia' },
+  { frase: 'ventas de hoy', comando: 'consulta_dia' }
 ]

@@ -5,7 +5,7 @@
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
 Soportados: `venta_directa`, `consulta_stock`, `consulta_precio`, `consulta_deuda`,
-`repetir`, `ayuda`, `navegacion`, `desconocido`.
+`consulta_dia`, `repetir`, `ayuda`, `navegacion`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -125,14 +125,34 @@ Con la app abierta el intérprete reconoce además:
   En almacén quedan 3.» No deja nada para revisar.
 - **Deudas**: «cuánto debe Juan», «las deudas de María», «cuánto me deben»,
   «quién me debe más» → lee el saldo pendiente del puesto (ver más abajo).
+- **Resumen del día**: «cómo va el día», «cuánto vendí hoy», «ventas de hoy»,
+  «cierre del día» → «Hoy: 12 ventas por 845 pesos. 2 dictados por revisar.»
+  Solo el jefe; un trabajador oye que no tiene permiso.
 - **Repite**: «repite», «repítelo», «otra vez», «qué dijiste» → vuelve a decir
   la última respuesta de stock, precio o deuda. Nunca repite una venta.
 - **Ayuda**: «qué puedes hacer», «ayuda», «qué sabes hacer» → lee qué sabe hacer
   y da un ejemplo.
 
-Los cuatro son **solo con la app abierta**, salvo las deudas, que también se
-contestan con la app cerrada desde el snapshot. El servicio en segundo plano está
-limitado a venta y consultas (stock, precio, deudas y resumen del día).
+Los cuatro son **solo con la app abierta**, salvo las deudas y el resumen del
+día, que también se contestan con la app cerrada desde el snapshot. El servicio
+en segundo plano está limitado a venta y consultas (stock, precio, deudas y
+resumen del día).
+
+## Resumen del día por voz
+
+El cálculo es único y vive en `shared/voz/dia.js`: lo usan la app abierta
+(`useVentaPorVoz`) y el snapshot que lee el servicio nativo, así que las dos
+respuestas coinciden.
+
+- Cuenta las ventas directas **no anuladas** de hoy (día local) y su importe.
+- Los **dictados por revisar** se informan aparte: todavía no se han aplicado,
+  así que no suman al importe vendido. Con la app cerrada se suman los del buzón
+  nativo (`files/voz/inbox`) que aún no recogió la app.
+- Sin ventas dice «Todavía no hay ventas hoy»; nunca «0 ventas por 0 pesos».
+- **Solo el jefe**: el resumen es información del cuadre. Un trabajador con
+  permiso de voz recibe un aviso, no cifras.
+- «cuánto vendí» **sin decir el día** no se contesta (puede ser otro día), y
+  «ganancia», «costo» y «caja» quedan fuera: necesitan datos que la voz no tiene.
 
 ## Deudas por voz
 
@@ -652,13 +672,18 @@ umbral de repetición y sin nombres.
 29. Con la app cerrada, las mismas frases de deuda se contestan desde
     `snapshot.json`; sin snapshot pide abrir la app. Un usuario sin permiso de
     `/deudas` no oye cifras.
+30. «cómo va el día» y «cuánto vendí hoy» responden con las ventas de hoy y los
+    dictados por revisar, igual con la app abierta que cerrada. Un trabajador oye
+    que es información del jefe.
+31. «cuánto vendí» sin decir el día, y «ganancia»/«caja», no se contestan.
 
 ## Limitaciones conocidas
 
 - «Repite» y «ayuda» funcionan solo con la app abierta: el servicio en segundo
   plano no interpreta esos comandos.
-- El resumen del día por voz («cómo va el día») se responde con la app cerrada
-  desde el snapshot; con la app abierta todavía no.
+- El resumen del día se responde en los dos modos; el de la app cerrada usa el
+  último snapshot y no incluye las ventas hechas en OTRO teléfono desde que se
+  escribió.
 - Las deudas se **consultan** por voz, pero no se fían ni se cobran: eso sigue en
   `/deudas` con el formulario.
 - La auditoría central es best-effort en línea: si el envío falla o no hay

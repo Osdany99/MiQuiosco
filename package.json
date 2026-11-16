@@ -14,7 +14,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:generate:sqlite": "drizzle-kit generate --config drizzle.sqlite.config.ts",
-    "test": "node --test tests/unit.test.js tests/inventario.test.js tests/recargas.test.js tests/clientes.test.js tests/syncFallos.test.js tests/admin.test.js tests/permisos.test.js tests/voz.test.js tests/consumoLotes.test.js tests/voiceMotor.test.js tests/voiceIdioma.test.js tests/voiceFases.test.js tests/vozResolver.test.js tests/pendientesVoz.test.js tests/buzonVoz.test.js tests/vozConfig.test.js tests/vozDeudas.test.js",
+    "test": "node --test tests/unit.test.js tests/inventario.test.js tests/recargas.test.js tests/clientes.test.js tests/syncFallos.test.js tests/admin.test.js tests/permisos.test.js tests/voz.test.js tests/consumoLotes.test.js tests/voiceMotor.test.js tests/voiceIdioma.test.js tests/voiceFases.test.js tests/vozResolver.test.js tests/pendientesVoz.test.js tests/buzonVoz.test.js tests/vozConfig.test.js tests/vozDeudas.test.js tests/vozDia.test.js",
     "test:api": "node tests/api/run.mjs",
   "android:test": "node scripts/gradle.mjs testDebugUnitTest",
     "test:todo": "pnpm test && pnpm test:api",

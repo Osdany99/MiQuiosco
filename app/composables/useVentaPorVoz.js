@@ -32,6 +32,7 @@ import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
 import { buscarClienteDeuda, formatearDeuda, resumirDeudas } from '#shared/voz/deudas'
+import { formatearDia } from '#shared/voz/dia'
 import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { proyectarStock } from '../utils/voice/pendientes'
@@ -69,6 +70,7 @@ function _create(ubicacion) {
   const vozLexico = useVozLexico()
   const confirmacion = useConfirmacionVoz()
   const disparo = useVozDisparo()
+  const snapshotVoz = useVozSnapshot()
   const toast = useToast()
   const route = useRoute()
 
@@ -429,6 +431,39 @@ function _create(ubicacion) {
     estado.value = 'idle'
   }
 
+  /** Resumen del día («cómo va el día», «cuánto vendí hoy»). */
+  function resolverConsultaDia(slots, sttConfidence = 0) {
+    // El resumen del día es información del cuadre: un trabajador no lo oye
+    // aunque tenga permiso de voz.
+    if (!auth.esJefe.value) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'Solo el jefe puede ver el resumen del día.',
+        auditar: { comando: 'consulta_dia', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    return { tipo: 'consultar_dia', slots }
+  }
+
+  /** Resumen del día («cómo va el día», «cuánto vendí hoy»). */
+  async function responderDia() {
+    const resumen = await snapshotVoz.resumenDelDia()
+    const result = formatearDia(resumen)
+    ultimaRespuestaVoz.value = result.habla
+    toast.add({
+      title: result.titulo,
+      description: result.descripcion,
+      color: result.tipo === 'dia_vacio' ? 'neutral' : 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(result.habla)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
   /** Deudas del puesto («cuánto debe Juan», «quién me debe más»). */
   async function responderDeuda(accion) {
     const result = formatearDeuda(accion.resumen, accion.encontrado, accion.ambito)
@@ -634,8 +669,8 @@ function _create(ubicacion) {
       const rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
       if (clas.comando === 'navegacion') {
         rec.elegido = true
-      } else if (clas.comando === 'consulta_deuda') {
-        // No depende de catálogo: la ambigüedad se resuelve con los clientes.
+      } else if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia') {
+        // No dependen de catálogo: no se evalúan contra el inventario.
         rec.elegido = true
       } else if (clas.comando === 'venta_directa' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
         try {
@@ -704,6 +739,7 @@ function _create(ubicacion) {
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
+    if (comando === 'consulta_dia') return resolverConsultaDia(slots, sttConfidence)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa
@@ -773,6 +809,8 @@ function _create(ubicacion) {
         return responderPrecio(accion.fila, accion.slots)
       case 'consultar_deuda':
         return responderDeuda(accion)
+      case 'consultar_dia':
+        return responderDia()
       case 'repetir':
         return repetirUltimaRespuesta()
       case 'ayuda':

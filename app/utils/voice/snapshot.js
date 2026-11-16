@@ -8,10 +8,15 @@
  *
  * Sin dependencias: se prueba con `node --test` (tests/pendientesVoz.test.js).
  */
-import { proyectarStock, resumenPendientes } from './pendientes.js'
+import { proyectarStock } from './pendientes.js'
 import { resumirDeudas } from '../../../shared/voz/deudas.js'
+import { inicioDelDia, resumirDia } from '../../../shared/voz/dia.js'
 
 export const SNAPSHOT_VERSION = 3
+
+// El resumen del día se calcula en `shared/voz/dia.js`: la app abierta y el
+// servicio nativo tienen que decir exactamente lo mismo.
+export { inicioDelDia }
 
 function redondear2(valor) {
   return Math.round((Number(valor) || 0) * 100) / 100
@@ -21,23 +26,6 @@ function redondear2(valor) {
 function numero(valor) {
   const n = Number(valor)
   return Number.isFinite(n) ? n : 0
-}
-
-/** Epoch ms tolerante: SQLite guarda números, el servidor puede mandar ISO. */
-function ms(valor) {
-  if (valor == null) return 0
-  if (typeof valor === 'number') return valor
-  const n = Number(valor)
-  if (Number.isFinite(n)) return n
-  const parsed = Date.parse(String(valor))
-  return Number.isNaN(parsed) ? 0 : parsed
-}
-
-/** Inicio del día local en epoch ms. */
-export function inicioDelDia(ahora = Date.now()) {
-  const d = new Date(ahora)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
 }
 
 /**
@@ -86,12 +74,7 @@ export function construirSnapshot({
     })
     .filter(p => p.id && p.nombre)
 
-  const desde = inicioDelDia(ahora)
-  const delDia = (ventas ?? []).filter(v => !v?.anulado && ms(v?.creadoEn) >= desde)
-  let importeHoy = 0
-  for (const venta of delDia) importeHoy += Number(venta?.montoTotal) || 0
-
-  const pendientes = resumenPendientes(acciones, { ahora })
+  const dia = resumirDia({ ventas, acciones, ahora })
   const deudas = resumirDeudas({ cuentas, clientes })
 
   return {
@@ -101,10 +84,10 @@ export function construirSnapshot({
     productos,
     deudas,
     resumen: {
-      ventasHoy: delDia.length,
-      importeHoy: redondear2(importeHoy),
-      pendientes: pendientes.cantidad,
-      importePendiente: pendientes.importe
+      ventasHoy: dia.ventasHoy,
+      importeHoy: redondear2(dia.importeHoy),
+      pendientes: dia.pendientes,
+      importePendiente: redondear2(dia.importePendiente)
     }
   }
 }

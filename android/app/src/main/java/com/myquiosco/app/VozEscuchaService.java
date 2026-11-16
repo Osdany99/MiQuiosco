@@ -1470,9 +1470,13 @@ public class VozEscuchaService extends Service {
 
         boolean pideResumen = frase.contains("como va")
             || frase.contains("ventas de hoy")
+            || frase.contains("ventas del dia")
             || frase.contains("vendido hoy")
+            || frase.contains("vendi hoy")
             || frase.contains("cuanto he vendido")
+            || frase.contains("cuanto vendi")
             || frase.contains("resumen del dia")
+            || frase.contains("resumen de hoy")
             || frase.contains("cierre del dia");
         boolean pidePrecio = frase.contains("cuanto cuesta")
             || frase.contains("cuanto vale")
@@ -1498,6 +1502,12 @@ public class VozEscuchaService extends Service {
             // Lo dictado con la app cerrada todavía no está en la tabla de
             // pendientes: se suma el buzón para no mentir en el recuento.
             int pendientes = r.optInt("pendientes", 0) + contarBuzon();
+            // Mismo texto que `formatearDia` (shared/voz/dia.js).
+            if (ventas == 0) {
+                if (pendientes == 0) return "Todavía no hay ventas hoy";
+                return "Todavía no hay ventas hoy. Hay " + pendientes
+                    + (pendientes == 1 ? " dictado" : " dictados") + " por revisar";
+            }
             StringBuilder resp = new StringBuilder();
             resp.append("Hoy: ").append(ventas).append(ventas == 1 ? " venta" : " ventas")
                 .append(" por ").append(formatearNumero(r.optDouble("importeHoy", 0)))
