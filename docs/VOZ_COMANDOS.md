@@ -4,8 +4,8 @@
 1. `resolverComando(transcript, lexico)` → `{ comando, confianza, reasons }`.
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
-Soportados: `venta_directa`, `consulta_stock`, `consulta_precio`, `repetir`,
-`ayuda`, `navegacion`, `desconocido`.
+Soportados: `venta_directa`, `consulta_stock`, `consulta_precio`, `consulta_deuda`,
+`repetir`, `ayuda`, `navegacion`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -116,20 +116,46 @@ frases claras y completas.
 - Se rechazan frases ambiguas como `sí pero no`, `si tengo`, `sí mañana` o
   `sí luego`: ante la duda se cae al modo manual.
 
-### Consultas de precio, «repite» y ayuda (app abierta)
+### Consultas de precio, deudas, «repite» y ayuda (app abierta)
 
 Con la app abierta el intérprete reconoce además:
 
 - **Precio**: «cuánto cuesta el pan», «a cómo está el refresco», «cuánto vale
   una cerveza» → `formatearPrecio`: «Pan cuesta 20 pesos. En quiosco quedan 12.
   En almacén quedan 3.» No deja nada para revisar.
+- **Deudas**: «cuánto debe Juan», «las deudas de María», «cuánto me deben»,
+  «quién me debe más» → lee el saldo pendiente del puesto (ver más abajo).
 - **Repite**: «repite», «repítelo», «otra vez», «qué dijiste» → vuelve a decir
-  la última respuesta de stock o precio. Nunca repite una venta.
+  la última respuesta de stock, precio o deuda. Nunca repite una venta.
 - **Ayuda**: «qué puedes hacer», «ayuda», «qué sabes hacer» → lee qué sabe hacer
   y da un ejemplo.
 
-Estos tres son **solo con la app abierta**. El servicio en segundo plano sigue
-limitado a venta y consultas desde el snapshot (stock, precio y resumen).
+Los cuatro son **solo con la app abierta**, salvo las deudas, que también se
+contestan con la app cerrada desde el snapshot. El servicio en segundo plano está
+limitado a venta y consultas (stock, precio, deudas y resumen del día).
+
+## Deudas por voz
+
+Solo la **consulta**: no se fía ni se cobra por voz. La lógica es pura y vive en
+`shared/voz/deudas.js`; el servicio nativo la replica en `ConsultaDeuda.java`
+sobre el resumen que la app deja en el snapshot.
+
+| Frase | Qué responde |
+|---|---|
+| «cuánto me deben» | Total pendiente, cuántos clientes y quién es el que más debe. |
+| «quién me debe más» | Empieza por el mayor deudor y luego el total. |
+| «cuánto debe Juan» | El saldo de Juan y en cuántas deudas. |
+| «cuánto debe Ramón» (sin deuda) | «No tengo deudas pendientes de Ramón.» |
+
+- Suma `montoTotal - montoPagado` por cliente e ignora las deudas saldadas.
+- «Juan» con «Juanita» y «Juan Pérez» en la lista es **ambiguo**: lee los
+  parecidos y pide el nombre completo. Por un solo nombre de pila nunca elige.
+- «cuánto debo» **no** se contesta: puede ser una compra del negocio a un
+  proveedor y una cifra inventada sería peor que el silencio.
+- Requiere permiso de `/deudas`; sin él avisa y no lee cifras.
+- Con la app cerrada, el resumen viene de `snapshot.json` (`deudas`), que se
+  reescribe al abrir la app y tras cada revisión. Si nunca se ha escrito, responde
+  «Abre la app para ver las deudas».
 
 ### Corregir la cantidad al confirmar
 
@@ -147,9 +173,8 @@ Funciona igual con la app abierta y con la app cerrada (`VozEscuchaService`
 revalida contra el snapshot). Solo cambia la **cantidad**: para otro producto o
 ubicación se cancela y se dicta de nuevo.
 
-Todavía no se responde por voz: deudas («cuánto debe Juan»), ventas del día y
-caja **con la app abierta**. Ante esas frases hay silencio, no una cifra
-inventada.
+Todavía no se responde por voz: ventas del día y caja **con la app abierta**.
+Ante esas frases hay silencio, no una cifra inventada.
 
 ## Revisión de lo dictado (nada se registra solo)
 
@@ -185,8 +210,9 @@ jefe). El servicio en primer plano **conversa igual que la voz con la app
 abierta**, pero el resultado va a la cola de revisión, nunca a la base:
 
 1. «Oye nova» → **«¿Qué puedo hacer por ti?»**.
-2. **Consulta** («cuántos panes quedan», «cuánto cuesta el refresco», «cómo va
-   el día») → responde al momento y no deja nada para revisar.
+2. **Consulta** («cuántos panes quedan», «cuánto cuesta el refresco», «cuánto
+   debe Juan», «cómo va el día») → responde al momento y no deja nada para
+   revisar.
 3. **Venta** («vende dos panes») → busca el producto, comprueba stock y **lee la
    venta con la ubicación y el importe**: «2 de Pan de leche del almacén, 20
    pesos. ¿Confirmo?». Solo con un «sí» se anota.
@@ -619,6 +645,13 @@ umbral de repetición y sin nombres.
     idioma y el servicio vivo se reconfigura sin reiniciar la app.
 26. «Depurar ahora» borra según `retencionDias` y conserva los eventos con 3+
     intentos; la tarea `voz:retencion` hace lo mismo cada noche.
+27. «cuánto me deben» lee el total y quién más debe; «cuánto debe Juan» el saldo
+    de Juan. Con «Juan» y «Juanita» en la lista pide el nombre completo.
+28. «cuánto debo» no responde (silencio): no puede confundirse con una compra del
+    negocio. «abre deudas» sigue navegando a `/deudas`.
+29. Con la app cerrada, las mismas frases de deuda se contestan desde
+    `snapshot.json`; sin snapshot pide abrir la app. Un usuario sin permiso de
+    `/deudas` no oye cifras.
 
 ## Limitaciones conocidas
 
@@ -626,6 +659,8 @@ umbral de repetición y sin nombres.
   plano no interpreta esos comandos.
 - El resumen del día por voz («cómo va el día») se responde con la app cerrada
   desde el snapshot; con la app abierta todavía no.
+- Las deudas se **consultan** por voz, pero no se fían ni se cobran: eso sigue en
+  `/deudas` con el formulario.
 - La auditoría central es best-effort en línea: si el envío falla o no hay
   red, el proof queda solo local y no se encola para reintentar.
 - La retención de eventos se ejecuta con la tarea `voz:retencion` (cada noche) y

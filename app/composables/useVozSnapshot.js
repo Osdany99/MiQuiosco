@@ -30,6 +30,16 @@ export function useVozSnapshot() {
       ? useRemoteRepo(TABLES.ventas_directas)
       : useLocalRepo(TABLES.ventas_directas)
   ))
+  const cuentasRepo = computed(() => (
+    conexion.modo.value === 'online'
+      ? useRemoteRepo(TABLES.cuentas_fiado)
+      : useLocalRepo(TABLES.cuentas_fiado)
+  ))
+  const clientesRepo = computed(() => (
+    conexion.modo.value === 'online'
+      ? useRemoteRepo(TABLES.clientes)
+      : useLocalRepo(TABLES.clientes)
+  ))
 
   // Solo puede haber una escritura en vuelo: dos pantallas montando a la vez
   // no deben pisarse el fichero.
@@ -39,11 +49,13 @@ export function useVozSnapshot() {
     const puestoId = auth.usuarioActual.value?.puestoId ?? null
     if (!puestoId) return null
 
-    const [filas, ventas] = await Promise.all([
+    const [filas, ventas, cuentas, clientes] = await Promise.all([
       inv.cargarSaldos().catch(() => []),
       ventasRepo.value
         .readAll({ query: { desde: new Date(inicioDelDia(ahora)).toISOString() } })
-        .catch(() => [])
+        .catch(() => []),
+      cuentasRepo.value.readAll().catch(() => []),
+      clientesRepo.value.readAll().catch(() => [])
     ])
     await acciones.cargar().catch(() => {})
 
@@ -52,6 +64,8 @@ export function useVozSnapshot() {
       filas: filas ?? [],
       acciones: acciones.pendientes.value,
       ventas: ventas ?? [],
+      cuentas: cuentas ?? [],
+      clientes: clientes ?? [],
       ahora
     })
   }

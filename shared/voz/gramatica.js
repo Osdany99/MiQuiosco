@@ -419,6 +419,53 @@ function extraerConsultaPura(texto) {
 }
 
 /**
+ * ¿La frase pregunta por deudas? «cuánto debe Juan», «las deudas», «quién me
+ * debe más».
+ *
+ * `debo` queda fuera a propósito: «cuánto debo» puede ser una compra del
+ * negocio a un proveedor y una cifra inventada sería peor que el silencio.
+ */
+export function esConsultaDeuda(texto) {
+  const t = normalizar(texto)
+  if (!t || /\bdebo\b/.test(t)) return false
+  return /\b(debe|deben|deuda|deudas)\b/.test(t)
+}
+
+// Palabras que rodean al nombre del cliente. Solo se recortan por delante y,
+// al final, las de cortesía: "señora de juan" conserva su "de".
+const RELLENO_DEUDA_INICIAL = new Set([
+  'cuanto', 'cuanta', 'cuantos', 'cuantas', 'debe', 'deben', 'deuda', 'deudas',
+  'fiado', 'fiados', 'me', 'le', 'les', 'se', 'tiene', 'tienen',
+  'queda', 'quedan', 'saldo', 'pendiente', 'pendientes', 'cual', 'cuales',
+  'que', 'quien', 'quienes', 'es', 'son', 'el', 'la', 'los', 'las',
+  'de', 'del', 'al', 'a', 'total', 'hay', 'y', 'mas'
+])
+const RELLENO_DEUDA_FINAL = new Set(['por', 'favor', 'gracias', 'hoy', 'ahora', 'ahorita', 'total', 'y', 'mas'])
+
+/** Nombre del cliente dicho en la frase ('' = no se dijo: se pide el total). */
+export function extraerClienteHint(transcript) {
+  const tokens = normalizar(transcript).split(' ').filter(Boolean)
+  let desde = 0
+  while (desde < tokens.length && RELLENO_DEUDA_INICIAL.has(tokens[desde])) desde++
+  let hasta = tokens.length
+  while (hasta > desde && RELLENO_DEUDA_FINAL.has(tokens[hasta - 1])) hasta--
+  return tokens.slice(desde, hasta).join(' ').trim()
+}
+
+/**
+ * Slots de `consulta_deuda`: a quién se pregunta y qué se quiere saber.
+ * `ambito` decide la respuesta: cliente concreto, total o el que más debe.
+ */
+export function extraerDeudaSlots(transcript) {
+  const texto = normalizar(transcript)
+  const clienteHint = extraerClienteHint(texto)
+  let ambito = 'total'
+  if (/\bquien(es)?\b/.test(texto) || /\bmas\b/.test(texto)) ambito = 'mayor'
+  if (clienteHint) ambito = 'cliente'
+  return { clienteHint, ambito }
+}
+
+/**
  * Fase A — clasificación.
  */
 export function resolverComando(transcript, lexico = LEXICO_BASE) {
@@ -444,6 +491,13 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     return { comando: 'navegacion', confianza: 0.9, reasons: ['navegacion_destino'] }
   }
 
+  // Deudas: "cuánto debe Juan", "las deudas de María", "quién me debe más".
+  // Va antes de precio/stock porque la frase también trae "cuánto" y, sin esta
+  // rama, caía en la guarda de "consulta no soportada".
+  if (esConsultaDeuda(texto)) {
+    return { comando: 'consulta_deuda', confianza: 0.9, reasons: ['consulta_deuda'] }
+  }
+
   // Precio: "cuánto cuesta", "a cómo está", "cuánto vale". Antes caía en
   // `consulta_no_soportada` y el jefe se quedaba sin respuesta.
   if (/\b(?:cuesta|cuestan|precio|precios|vale|valen|sale|salen)\b|\ba como\b/.test(texto)) {
@@ -456,9 +510,9 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
 
   // Consulta: marcas presentes.
   if (/\bcuanto\b|\bcuanta\b|\bcuantos\b|\bcuantas\b|\bstock\b|\bexistencia(s)?\b|\binventario\b|\btenemos\b|\btengo\b|\bdisponible(s)?\b|\bhay\b|\bqueda(n)?\b/.test(texto)) {
-    // Deudas, ventas del día y caja todavía no se responden por voz: mejor
-    // silencio que una cifra inventada. (Se resolverá en una fase posterior.)
-    if (/\bdebe\b|\bdeben\b|\bdebo\b|\bdeuda\b|\bdeudas\b|\bvendi\b|\bvendimos\b|\bvendido(s)?\b|\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
+    // Ventas del día y caja todavía no se responden por voz: mejor silencio
+    // que una cifra inventada. (Se resolverá en una fase posterior.)
+    if (/\bvendi\b|\bvendimos\b|\bvendido(s)?\b|\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
       return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
     }
     const slots = extraerConsultaPura(texto)
@@ -684,6 +738,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
     const s = extraerConsultaPura(normalizar(transcript))
     return { productoHint: s.productoHint, ubicacion: s.ubicacion }
   }
+  if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
   if (comando === 'repetir' || comando === 'ayuda') return {}
   if (comando === 'navegacion') {
     const dest = resolverNavegacionDestino(transcript, c, lexico)

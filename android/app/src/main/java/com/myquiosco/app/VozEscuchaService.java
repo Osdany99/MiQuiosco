@@ -1459,6 +1459,15 @@ public class VozEscuchaService extends Service {
         String frase = normalizarFrase(texto);
         if (frase.isEmpty()) return null;
 
+        // Deudas: se contestan antes que stock/precio porque la frase también
+        // trae "cuánto". El resumen lo calcula la app y vive en el snapshot.
+        if (ConsultaDeuda.esConsulta(frase)) {
+            JSONObject snapDeudas = leerSnapshot();
+            if (snapDeudas == null) return "Abre la app para ver las deudas";
+            String deuda = ConsultaDeuda.responder(frase, snapDeudas.optJSONObject("deudas"));
+            if (deuda != null) return deuda;
+        }
+
         boolean pideResumen = frase.contains("como va")
             || frase.contains("ventas de hoy")
             || frase.contains("vendido hoy")

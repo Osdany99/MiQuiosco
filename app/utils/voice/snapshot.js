@@ -3,13 +3,15 @@
  *
  * Con la app cerrada no hay Vue ni SQLite en JS: el servicio en primer plano
  * solo puede leer un JSON. Aquí se arma esa foto con el catálogo, el stock
- * proyectado (descontando lo pendiente de revisar) y el resumen del día.
+ * proyectado (descontando lo pendiente de revisar), el resumen del día y las
+ * deudas por cliente.
  *
  * Sin dependencias: se prueba con `node --test` (tests/pendientesVoz.test.js).
  */
 import { proyectarStock, resumenPendientes } from './pendientes.js'
+import { resumirDeudas } from '../../../shared/voz/deudas.js'
 
-export const SNAPSHOT_VERSION = 2
+export const SNAPSHOT_VERSION = 3
 
 function redondear2(valor) {
   return Math.round((Number(valor) || 0) * 100) / 100
@@ -44,9 +46,19 @@ export function inicioDelDia(ahora = Date.now()) {
  * @param {Array} opciones.filas Catálogo de `cargarSaldos()`.
  * @param {Array} opciones.acciones Acciones pendientes de revisión.
  * @param {Array} opciones.ventas Ventas directas (para el resumen del día).
+ * @param {Array} opciones.cuentas Cuentas fiado (para las consultas de deuda).
+ * @param {Array} opciones.clientes Clientes del puesto (nombres de las deudas).
  * @param {number} opciones.ahora
  */
-export function construirSnapshot({ puestoId = null, filas = [], acciones = [], ventas = [], ahora = Date.now() } = {}) {
+export function construirSnapshot({
+  puestoId = null,
+  filas = [],
+  acciones = [],
+  ventas = [],
+  cuentas = [],
+  clientes = [],
+  ahora = Date.now()
+} = {}) {
   const proyectadas = proyectarStock(filas, acciones)
   const productos = proyectadas
     .map((fila) => {
@@ -80,12 +92,14 @@ export function construirSnapshot({ puestoId = null, filas = [], acciones = [], 
   for (const venta of delDia) importeHoy += Number(venta?.montoTotal) || 0
 
   const pendientes = resumenPendientes(acciones, { ahora })
+  const deudas = resumirDeudas({ cuentas, clientes })
 
   return {
     version: SNAPSHOT_VERSION,
     generadoEn: ahora,
     puestoId,
     productos,
+    deudas,
     resumen: {
       ventasHoy: delDia.length,
       importeHoy: redondear2(importeHoy),

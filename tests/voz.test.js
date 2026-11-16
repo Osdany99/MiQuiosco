@@ -70,7 +70,7 @@ describe('voz: clasificación (fase A)', () => {
     ['cuanto cuesta el pan', 'consulta_precio'],
     ['a como esta el refresco', 'consulta_precio'],
     ['cuanto vale una cerveza', 'consulta_precio'],
-    ['cuanto debe juan', 'desconocido'],
+    ['cuanto debe juan', 'consulta_deuda'],
     ['cuanto vendi hoy', 'desconocido'],
     ['repite', 'repetir'],
     ['que puedes hacer', 'ayuda'],

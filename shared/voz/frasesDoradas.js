@@ -8,5 +8,8 @@ export const FRASES_DORADAS = [
   { frase: 'vende un refresco familiar', comando: 'venta_directa' },
   { frase: 'hola', comando: 'desconocido' },
   { frase: 'cinco panes', comando: 'venta_directa' },
-  { frase: 'cuanto cuesta el pan', comando: 'desconocido' }
+  { frase: 'cuanto cuesta el pan', comando: 'desconocido' },
+  { frase: 'cuanto debe juan', comando: 'consulta_deuda' },
+  { frase: 'quien me debe mas', comando: 'consulta_deuda' },
+  { frase: 'cuanto me deben', comando: 'consulta_deuda' }
 ]

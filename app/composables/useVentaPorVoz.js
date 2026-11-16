@@ -31,6 +31,7 @@ import { registrarEventoVoz } from '../utils/vozEventos'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
+import { buscarClienteDeuda, formatearDeuda, resumirDeudas } from '#shared/voz/deudas'
 import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { proyectarStock } from '../utils/voice/pendientes'
@@ -428,7 +429,25 @@ function _create(ubicacion) {
     estado.value = 'idle'
   }
 
-  /** Repite la última respuesta hablada (consultas de stock o precio). */
+  /** Deudas del puesto («cuánto debe Juan», «quién me debe más»). */
+  async function responderDeuda(accion) {
+    const result = formatearDeuda(accion.resumen, accion.encontrado, accion.ambito)
+    ultimaRespuestaVoz.value = result.habla
+    toast.add({
+      title: result.titulo,
+      description: result.descripcion,
+      color: result.tipo === 'sin_deudas' || result.tipo === 'sin_deuda' ? 'neutral' : 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(result.habla)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /** Repite la última respuesta hablada (consultas de stock, precio o deuda). */
   async function repetirUltimaRespuesta() {
     const texto = ultimaRespuestaVoz.value || FRASE_NADA_QUE_REPETIR
     try {
@@ -497,6 +516,53 @@ function _create(ubicacion) {
 
   function resolverConsultaPrecio(slots, sttConfidence = 0, vigente = () => true) {
     return resolverConsultaProducto('consulta_precio', slots, sttConfidence, vigente)
+  }
+
+  /**
+   * Consulta de deudas SIN efectos: suma los saldos fiados del puesto y busca
+   * al cliente nombrado. Solo con permiso de `/deudas`.
+   */
+  async function resolverConsultaDeuda(slots, sttConfidence = 0, vigente = () => true) {
+    if (!perms.puedeVista('deudas')) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No tienes permiso para consultar las deudas.',
+        auditar: { comando: 'consulta_deuda', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const puestoId = auth.usuarioActual.value?.puestoId
+    if (!puestoId) {
+      return {
+        tipo: 'error',
+        comando: 'consulta_deuda',
+        motivo: 'sin_puesto',
+        mensaje: 'No hay un puesto activo para consultar deudas.',
+        texto: slots?.clienteHint || '',
+        auditar: { comando: 'consulta_deuda', motivo: 'sin_puesto', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const [cuentas, clientes] = await Promise.all([
+      fiado.cargarDeudas().catch(() => []),
+      fiado.cargarClientes(puestoId, { incluirSinCliente: false, incluirInactivos: true }).catch(() => [])
+    ])
+    if (!vigente()) return { tipo: 'cancelado' }
+
+    const resumen = resumirDeudas({ cuentas: cuentas ?? [], clientes: clientes ?? [] })
+    const encontrado = buscarClienteDeuda(slots?.clienteHint ?? '', resumen)
+    return {
+      tipo: 'consultar_deuda',
+      resumen,
+      encontrado,
+      ambito: slots?.ambito ?? 'total',
+      slots,
+      // Una deuda no encontrada es una respuesta, no un fallo: se audita para
+      // saber qué nombres no emparejan, sin guardar el nombre.
+      auditar: encontrado.tipo === 'inexistente' || encontrado.tipo === 'ambiguo'
+        ? { comando: 'consulta_deuda', motivo: `deuda_${encontrado.tipo}`, confianza: Number(sttConfidence) || 0 }
+        : null
+    }
   }
 
   async function plantillaPara(texto) {
@@ -568,6 +634,9 @@ function _create(ubicacion) {
       const rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
       if (clas.comando === 'navegacion') {
         rec.elegido = true
+      } else if (clas.comando === 'consulta_deuda') {
+        // No depende de catálogo: la ambigüedad se resuelve con los clientes.
+        rec.elegido = true
       } else if (clas.comando === 'venta_directa' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
         try {
           const destinoUbi = (clas.slots?.ubicacion) || ubicacion
@@ -634,6 +703,7 @@ function _create(ubicacion) {
     if (comando === 'navegacion') return { tipo: 'navegacion', slots }
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
+    if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa
@@ -701,6 +771,8 @@ function _create(ubicacion) {
         return responderStock(accion.fila, accion.slots)
       case 'consultar_precio':
         return responderPrecio(accion.fila, accion.slots)
+      case 'consultar_deuda':
+        return responderDeuda(accion)
       case 'repetir':
         return repetirUltimaRespuesta()
       case 'ayuda':
