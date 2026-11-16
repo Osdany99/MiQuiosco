@@ -98,7 +98,10 @@ const props = defineProps({
   // 'venta' | 'deuda' | 'casa' | 'familiar' | 'regalo'
   modo: { type: String, default: 'venta' },
   // Prefill por voz (opcional): { cantidad, tipoVenta, precioVentaUsado, clienteHint, clienteId }
-  prefill: { type: Object, default: null }
+  prefill: { type: Object, default: null },
+  // Fecha de la venta (epoch ms). La usa la revisión de acciones dictadas por
+  // voz: la venta pertenece al día en que se dictó, no al día en que se confirma.
+  fecha: { type: Number, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -254,11 +257,19 @@ function precioInicial() {
   return Number(props.producto?.precioVentaActual ?? 0)
 }
 
+// Mientras el diálogo se abre asigna lote y precio por su cuenta, incluido el
+// precio dictado por voz. El watcher de lote solo debe reaccionar a un cambio
+// manual del jefe: si corriera al abrir, pisaría el precio dictado con el del
+// catálogo y la venta cobraría otro importe que el que se anunció.
+let abriendo = false
+
 watch(isOpen, async (open) => {
   if (!open) {
+    abriendo = false
     cantidadExcedeStock.value = false
     return
   }
+  abriendo = true
   cantidadExcedeStock.value = false
   // La línea nace del producto tocado: cantidad 1 y el precio que corresponda
   // al modo. El jefe no puede cambiar qué producto se vende.
@@ -312,11 +323,15 @@ watch(isOpen, async (open) => {
   } catch {
     clientes.value = []
     lotes.value = []
+  } finally {
+    // Después del flush: el watcher de lote (flush 'post') ya pasó.
+    await nextTick()
+    abriendo = false
   }
 })
 
 watch(() => form.value.loteId, () => {
-  if (!isOpen.value) return
+  if (!isOpen.value || abriendo) return
   if (esCasa.value || props.modo === 'familiar') {
     form.value.precioVentaUsado = costoLoteSeleccionado.value
     return
@@ -343,6 +358,7 @@ async function confirmar() {
   }))
   guardando.value = true
   try {
+    let creada = null
     if (esDeuda.value) {
       // registrarDeudaDirecta no lanza: avisa con { ok: false } y ya puso el
       // toast, así que sin éxito el diálogo se queda abierto.
@@ -352,20 +368,24 @@ async function confirmar() {
         lineas
       })
       if (!r?.ok) return
+      creada = r
       toast.add({ title: cfg.value.ok, color: 'success' })
       void tts.speak(cfg.value.ok)
     } else {
-      await inv.registrarVentaDirecta({
+      creada = await inv.registrarVentaDirecta({
         ubicacion: props.ubicacion,
         tipoVenta: cfg.value.tipoVenta ?? 'directa',
         clienteId: form.value.clienteId || null,
+        ...(props.fecha ? { creadoEn: Number(props.fecha) } : {}),
         lineas
       })
       toast.add({ title: cfg.value.ok, color: 'success' })
       void tts.speak(cfg.value.ok)
     }
     isOpen.value = false
-    emit('guardado')
+    // `creada` permite a la pantalla de revisión enlazar la acción con la venta
+    // que acaba de nacer (id, importe real) en lugar de adivinarlo.
+    emit('guardado', creada)
   } catch {
     // useInventario ya muestra el toast de error.
   } finally {

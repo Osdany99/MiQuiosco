@@ -974,6 +974,84 @@ export const syncFallos = sqliteTable(
 )
 
 /**
+ * Cola de acciones dictadas por voz que esperan revisión humana.
+ *
+ * La voz NUNCA escribe una venta sola: lo dictado por el jefe se guarda aquí
+ * (incluso con la app cerrada, vía el servicio en primer plano) y se aplica
+ * solo cuando alguien confirma en pantalla. Por eso la tabla es local al
+ * teléfono y NO entra en SYNC_TABLES: `ventas_directas` es la que se
+ * sincroniza cuando la acción se aplica.
+ *
+ * `dictadoEn` es la fecha de la venta (no la de confirmación): el jefe puede
+ * revisar al final del día y la venta debe quedar en el día en que se dijo.
+ * `origenId` es el nombre del fichero del buzón nativo y su índice único hace
+ * que reimportar el buzón no duplique acciones.
+ */
+export const ESTADOS_ACCION_VOZ = ['pendiente', 'aplicada', 'archivada'] as const
+export type EstadoAccionVoz = (typeof ESTADOS_ACCION_VOZ)[number]
+export const ORIGENES_ACCION_VOZ = ['app', 'servicio'] as const
+
+export const accionesPendientesVoz = sqliteTable(
+  'acciones_pendientes_voz',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    /** Quién dictó la acción ("dictada por X" en la pantalla de revisión). */
+    usuarioId: text('usuario_id').notNull(),
+    /** Copia del nombre: el usuario puede renombrarse o desactivarse. */
+    usuarioNombre: text('usuario_nombre'),
+    ubicacion: text('ubicacion', { enum: ['almacen', 'quiosco'] })
+      .notNull()
+      .default('quiosco'),
+    tipo: text('tipo').notNull().default('venta'),
+    tipoVenta: text('tipo_venta', { enum: TIPOS_VENTA_DIRECTA })
+      .notNull()
+      .default('directa'),
+    /** Transcripción cruda: se conserva para auditar una mala interpretación. */
+    texto: text('texto').notNull(),
+    sttConfidence: real('stt_confidence'),
+    origen: text('origen', { enum: ORIGENES_ACCION_VOZ }).notNull().default('app'),
+    origenId: text('origen_id'),
+    productoId: text('producto_id'),
+    productoNombre: text('producto_nombre'),
+    cantidad: integer('cantidad').notNull().default(1),
+    /** Precio del momento del dictado: un cambio posterior no la altera. */
+    precioUnitario: real('precio_unitario').notNull().default(0),
+    importe: real('importe').notNull().default(0),
+    clienteId: text('cliente_id'),
+    estado: text('estado', { enum: ESTADOS_ACCION_VOZ }).notNull().default('pendiente'),
+    /** Motivo de archivo o del último error al aplicar. */
+    motivo: text('motivo'),
+    /** Id preasignado de la venta: aplicar dos veces no duplica. */
+    ventaDirectaId: text('venta_directa_id'),
+    dictadoEn: integer('dictado_en', { mode: 'timestamp_ms' }).notNull(),
+    aplicadaEn: integer('aplicada_en', { mode: 'timestamp_ms' }),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    origenUk: uniqueIndex('acciones_pendientes_voz_origen_uk').on(table.origenId),
+    puestoEstadoIdx: index('acciones_pendientes_voz_puesto_estado_idx').on(
+      table.puestoId,
+      table.estado,
+      table.dictadoEn
+    ),
+    dictadoIdx: index('acciones_pendientes_voz_dictado_idx').on(table.dictadoEn),
+    estadoCheck: check(
+      'acciones_pendientes_voz_estado_check',
+      sql`${table.estado} IN ('pendiente', 'aplicada', 'archivada')`
+    )
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect

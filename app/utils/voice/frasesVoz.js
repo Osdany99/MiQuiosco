@@ -52,11 +52,20 @@ export function describirCantidad(cantidad, nombre) {
   return unidadesDe(n, base)
 }
 
-/** Frase del read-back antes de vender. */
-export function fraseVenta({ cantidad, nombre, lugar }) {
+/** Importe para leer en voz alta: "20" o "12,50" (coma decimal, como se habla). */
+export function formatearImporte(importe) {
+  const monto = Math.round(Number(importe) * 100) / 100
+  if (!Number.isFinite(monto) || monto <= 0) return null
+  return Number.isInteger(monto) ? String(monto) : monto.toFixed(2).replace('.', ',')
+}
+
+/** Frase del read-back antes de vender. `importe` es opcional. */
+export function fraseVenta({ cantidad, nombre, lugar, importe = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
   if (n < 1) return `Confirma la venta del ${lugar}.`
-  return `Voy a vender ${describirCantidad(n, nombre)} del ${lugar}.`
+  const base = `Voy a vender ${describirCantidad(n, nombre)} del ${lugar}`
+  const monto = formatearImporte(importe)
+  return monto ? `${base} por ${monto} pesos.` : `${base}.`
 }
 
 /** Aviso cuando piden más de lo que hay. */

@@ -83,7 +83,7 @@ export function esNegacion(texto) {
  * - `negado` / `afirmado`: respuestas claras.
  * - `otro`: se escuchó algo, pero no confirma ni cancela.
  *
- * Se usa en la espera de confirmación (Modo PRO y venta directa) para no
+ * Se usa en la espera de confirmación hablada para no
  * repetir la lógica de sí/no en cada flujo.
  */
 export function clasificarRespuesta(texto) {

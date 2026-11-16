@@ -1,4 +1,4 @@
-// shared/schemas/vozConfirmacion.js — payload de auditoría central del Modo PRO.
+// shared/schemas/vozConfirmacion.js — payload de auditoría central de ventas confirmadas por voz.
 import { z } from 'zod'
 
 export const vozConfirmacionSchema = z.object({

@@ -38,6 +38,16 @@ const cuadreItemsConfig = TABLES.cuadre_items
 const cuentasFiadoConfig = TABLES.cuentas_fiado
 const cuentasFiadoItemsConfig = TABLES.cuentas_fiado_items
 
+/**
+ * Marca de versión de los saldos, compartida entre instancias.
+ *
+ * La voz cachea el catálogo dos minutos para no releer todo en cada comando.
+ * Ese cache quedaría ciego a una venta hecha desde otra pantalla (o desde la
+ * revisión de acciones pendientes), y la voz ofrecería stock que ya no existe.
+ * Cada `cargarSaldos()` sube la marca y el cache se descarta.
+ */
+const versionSaldos = ref(0)
+
 export function useInventario() {
   const toast = useToast()
   const conexion = useModoConexion()
@@ -100,6 +110,7 @@ export function useInventario() {
   async function cargarSaldos() {
     if (esOnline.value) {
       saldos.value = await $api('/api/inventario/saldos', { headers: apiHeaders() })
+      versionSaldos.value++
       return saldos.value
     }
     const pid = puestoIdActual()
@@ -110,6 +121,7 @@ export function useInventario() {
     ])
     const f = arr => arr.filter(x => !pid || x.puestoId === pid)
     saldos.value = vistaSaldos({ productos: f(productos), lotes: f(lotesRows), movimientos: f(movs) })
+    versionSaldos.value++
     return saldos.value
   }
 
@@ -283,7 +295,11 @@ export function useInventario() {
    */
   async function registrarVentaDirecta(datos) {
     exigirJefe()
-    const parsed = ventaDirectaSchema.safeParse(datos)
+    // Parámetros internos (no del formulario ni del schema): `id` lo fija la
+    // cola de voz para que reintentar no duplique la venta, y `creadoEn` es la
+    // fecha del dictado, que puede ser de horas antes (revisión al final del día).
+    const { id: idFijado, creadoEn: creadoEnFijado, ...resto } = datos ?? {}
+    const parsed = ventaDirectaSchema.safeParse(resto)
     if (!parsed.success) {
       throw new Error(parsed.error.issues.map(i => i.message).join('; '))
     }
@@ -291,15 +307,16 @@ export function useInventario() {
     if (!pid) throw new Error('Sin puesto asignado.')
     cargando.value = true
     try {
+      const fechaVenta = Number(creadoEnFijado) || Date.now()
       if (esOnline.value) {
         return await $api('/api/ventas-directas', {
           method: 'POST',
-          body: parsed.data,
+          body: { ...parsed.data, creadoEn: fechaVenta },
           headers: apiHeaders()
         })
       }
       const usuarioId = auth.usuarioActual.value?.id ?? null
-      const ahora = Date.now()
+      const ahora = fechaVenta
       const [filasLotes, movs, prods] = await Promise.all([
         filasPuesto(lotesRepo, pid),
         filasPuesto(movimientosRepo, pid),
@@ -313,7 +330,7 @@ export function useInventario() {
       const lotesPorProducto = new Map(
         ids.map(id => [id, lotesConSaldo(filasLotes, movs, id, parsed.data.ubicacion)])
       )
-      const ventaId = generarId()
+      const ventaId = idFijado || generarId()
       const venta = construirVentaDirecta({
         lineas: parsed.data.lineas,
         lotesPorProducto,
@@ -338,7 +355,9 @@ export function useInventario() {
           ganancia: venta.ganancia,
           notas: parsed.data.notas ?? null,
           usuarioId,
-          anulado: false
+          anulado: false,
+          // Fecha del dictado (o ahora): la venta pertenece al día en que se dijo.
+          creadoEn: fechaVenta
         })
         for (const it of venta.items) {
           await r(ventasDirectasItemsRepo).create({ ...it, ventaDirectaId: ventaId })
@@ -361,7 +380,7 @@ export function useInventario() {
   }
 
   /**
-   * Anula una venta directa (deshacer / "cancela").
+   * Anula una venta directa (corrección manual desde el historial).
    *
    * Marca `anulado = true` en la venta y en sus movimientos de inventario,
    * con `sincronizado = 0` para que el push suba el cambio. Como
@@ -675,6 +694,7 @@ export function useInventario() {
   return {
     cargando,
     saldos,
+    versionSaldos,
     proveedores,
     lotes,
     proveedoresRepo,

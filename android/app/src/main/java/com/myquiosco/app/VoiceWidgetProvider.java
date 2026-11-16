@@ -13,16 +13,21 @@ public class VoiceWidgetProvider extends AppWidgetProvider {
         for (int appWidgetId : appWidgetIds) {
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_voice);
 
+            // `t` (epoch ms) hace única cada actualización del widget: con la URL
+            // fija, Android reutilizaba el PendingIntent y el segundo toque podía
+            // entregar el mismo intent (la app lo deduplicaba por ruta).
+            long sello = System.currentTimeMillis();
+
             Intent quiIntent = new Intent(context, MainActivity.class);
             quiIntent.setAction(Intent.ACTION_VIEW);
-            quiIntent.setData(android.net.Uri.parse("miqiosco://voice/quiosco?voice=1"));
+            quiIntent.setData(android.net.Uri.parse("miqiosco://voice/quiosco?voice=1&t=" + sello));
             quiIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             PendingIntent quiPending = PendingIntent.getActivity(context, 1, quiIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widgetVoiceQuiosco, quiPending);
 
             Intent almIntent = new Intent(context, MainActivity.class);
             almIntent.setAction(Intent.ACTION_VIEW);
-            almIntent.setData(android.net.Uri.parse("miqiosco://voice/almacen?voice=1"));
+            almIntent.setData(android.net.Uri.parse("miqiosco://voice/almacen?voice=1&t=" + sello));
             almIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             PendingIntent almPending = PendingIntent.getActivity(context, 2, almIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widgetVoiceAlmacen, almPending);

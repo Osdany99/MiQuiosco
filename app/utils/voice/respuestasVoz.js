@@ -8,6 +8,20 @@ function formatearNumero(valor) {
   return String(Number(n.toFixed(2)))
 }
 
+/**
+ * Cantidad + lo que está apartado por voz. `fila.quiosco` ya viene proyectado
+ * (stock real menos pendientes), así que solo hay que explicar la diferencia.
+ */
+function cantidadConPendiente(valor, pendiente) {
+  const base = formatearNumero(valor)
+  const apartadas = Math.trunc(Number(pendiente) || 0)
+  if (!apartadas) return { texto: base, habla: base }
+  return {
+    texto: `${base} (${apartadas} por revisar)`,
+    habla: `${base}, con ${apartadas} pendientes de revisar`
+  }
+}
+
 export function describirDestino(vistaKey) {
   const v = VISTAS.find(x => x.key === vistaKey)
   if (!v || !v.ruta) return null
@@ -17,27 +31,25 @@ export function describirDestino(vistaKey) {
 export function formatearStock(fila, opciones = {}) {
   const { ubicacionPedida = null, verQuiosco = true, verAlmacen = true } = opciones || {}
   const nombre = fila?.nombre ?? ''
-  const quiosco = fila?.quiosco
-  const almacen = fila?.almacen
+  const quiosco = cantidadConPendiente(fila?.quiosco, fila?.pendienteQuiosco)
+  const almacen = cantidadConPendiente(fila?.almacen, fila?.pendienteAlmacen)
 
   if (ubicacionPedida === 'quiosco') {
     if (!verQuiosco) return { sinPermiso: true }
-    const cantidad = formatearNumero(quiosco)
     return {
       sinPermiso: false,
-      titulo: `${nombre} en quiosco: ${cantidad}`,
-      descripcion: `${nombre} en quiosco: ${cantidad}`,
-      habla: `${nombre} en quiosco: ${cantidad}.`
+      titulo: `${nombre} en quiosco: ${quiosco.texto}`,
+      descripcion: `${nombre} en quiosco: ${quiosco.texto}`,
+      habla: `${nombre} en quiosco: ${quiosco.habla}.`
     }
   }
   if (ubicacionPedida === 'almacen') {
     if (!verAlmacen) return { sinPermiso: true }
-    const cantidad = formatearNumero(almacen)
     return {
       sinPermiso: false,
-      titulo: `${nombre} en almacén: ${cantidad}`,
-      descripcion: `${nombre} en almacén: ${cantidad}`,
-      habla: `${nombre} en almacén: ${cantidad}.`
+      titulo: `${nombre} en almacén: ${almacen.texto}`,
+      descripcion: `${nombre} en almacén: ${almacen.texto}`,
+      habla: `${nombre} en almacén: ${almacen.habla}.`
     }
   }
 
@@ -46,20 +58,18 @@ export function formatearStock(fila, opciones = {}) {
   const partesDesc = []
   const partesHabla = []
   if (verQuiosco) {
-    const c = formatearNumero(quiosco)
-    partesDesc.push(`Quiosco: ${c}`)
-    partesHabla.push(`Quiosco, ${c}.`)
+    partesDesc.push(`Quiosco: ${quiosco.texto}`)
+    partesHabla.push(`Quiosco, ${quiosco.habla}.`)
   }
   if (verAlmacen) {
-    const c = formatearNumero(almacen)
-    partesDesc.push(`Almacén: ${c}`)
-    partesHabla.push(`Almacén, ${c}.`)
+    partesDesc.push(`Almacén: ${almacen.texto}`)
+    partesHabla.push(`Almacén, ${almacen.habla}.`)
   }
   const desc = partesDesc.join(' · ')
   return {
     sinPermiso: false,
     titulo: nombre,
-    descripcion: `${nombre} — ${desc}`,
+    descripcion: `${nombre} - ${desc}`,
     habla: `${nombre}. ${partesHabla.join(' ')}`
   }
 }

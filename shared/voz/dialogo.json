@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "prompt": "¿Qué puedo hacer por ti?",
+  "verbosVenta": [
+    "vende", "vendeme", "vender", "vendes", "venta", "registra", "registrame",
+    "anota", "anotame", "saca", "sacame", "despacha", "factura"
+  ],
+  "articulos": ["de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas", "lo", "le", "me"],
+  "numeros": {
+    "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11,
+    "doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciseis": 16,
+    "diecisiete": 17, "dieciocho": 18, "diecinueve": 19, "veinte": 20,
+    "docena": 12
+  },
+  "ubicaciones": {
+    "almacen": "almacen",
+    "deposito": "almacen",
+    "quiosco": "quiosco",
+    "kiosco": "quiosco"
+  },
+  "afirmaciones": [
+    "si", "claro", "dale", "confirmo", "confirmado", "correcto", "exacto",
+    "ok", "vale", "anotala", "anotelo"
+  ],
+  "negaciones": [
+    "no", "cancela", "cancelar", "cancelo", "nada", "espera", "dejalo", "dejala"
+  ],
+  "tiempos": { "comando": 8000, "eleccion": 8000, "confirmacion": 6000 },
+  "maxCandidatos": 3,
+  "umbralParecido": 0.55,
+  "frases": {
+    "faltaProducto": "No encontré {producto}.",
+    "parecidos": "Los más parecidos: {opciones}",
+    "elegir": "¿{opciones}?",
+    "confirmar": "{cantidad} de {producto} del {lugar}, {importe} pesos. ¿Confirmo?",
+    "anotado": "Anotado para revisar",
+    "cancelado": "Cancelado",
+    "noAnotada": "No la anoté.",
+    "sinStock": "No hay stock de {producto}: {quiosco} en quiosco y {almacen} en almacén. No la anoté.",
+    "sinStockAqui": "En {ubicacion} no hay; en {otra} quedan {cantidad}. No la anoté.",
+    "reservado": "Sólo quedan {libres} libres de {producto}: {apartadas} están apartadas por ventas por revisar. No la anoté.",
+    "noSeVende": "Ese producto no se vende suelto.",
+    "unoPorVez": "De uno en uno, por favor.",
+    "noTeEntendi": "No te entendí. Di, por ejemplo: vende dos panes."
+  }
+}

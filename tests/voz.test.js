@@ -30,6 +30,7 @@ import { clasificarRespuesta, esAfirmacion, esNegacion } from '../app/utils/voic
 import { cabecerasDePrueba } from '../app/utils/voice/auditoria.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
 import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
+import { MS_MARGEN_ANTIECO, esEcoDePrompt, ecoPalabraSuelta } from '../app/utils/voice/eco.js'
 
 describe('voz: normalización y números', () => {
   it('normaliza acentos, mayúsculas y puntuación', () => {
@@ -734,7 +735,7 @@ describe('voz: N-best (elegirAlternativa)', () => {
   })
 })
 
-describe('voz: confirmación hablada (Modo PRO)', () => {
+describe('voz: confirmación hablada', () => {
   it('acepta afirmaciones claras', () => {
     for (const texto of ['sí', 'Sí, por favor', 'claro', 'vale', 'ok', 'dale', 'adelante', 'confirmo', 'si señor', 'sí sí', 'si claro']) {
       assert.equal(esAfirmacion(texto), true, texto)
@@ -807,9 +808,56 @@ describe('voz: frases habladas (concordancia)', () => {
     assert.equal(fraseVenta({ cantidad: 0, nombre: 'Pan', lugar: 'quiosco' }), 'Confirma la venta del quiosco.')
   })
 
+  it('el read-back incluye el importe cuando se conoce', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'quiosco', importe: 20 }),
+      'Voy a vender 2 unidades de Pan del quiosco por 20 pesos.'
+    )
+    assert.equal(
+      fraseVenta({ cantidad: 3, nombre: 'Pan', lugar: 'almacén', importe: 37.5 }),
+      'Voy a vender 3 unidades de Pan del almacén por 37,50 pesos.'
+    )
+    // Sin importe se mantiene la frase de siempre.
+    assert.equal(fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'quiosco' }), 'Voy a vender 2 unidades de Pan del quiosco.')
+  })
+
   it('avisa del stock sin decir "1 de pan"', () => {
     assert.equal(fraseStockInsuficiente({ disponible: 1, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay una unidad de Pan en el quiosco.')
     assert.equal(fraseStockInsuficiente({ disponible: 3, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay 3 unidades de Pan en el quiosco.')
     assert.equal(fraseStockInsuficiente({ disponible: 0, nombre: 'Pan', lugar: 'almacén' }), 'No hay Pan en el almacén.')
+  })
+})
+
+describe('voz: antieco del TTS', () => {
+  const PROMPT = 'Voy a vender 2 unidades de Pan del quiosco por 20 pesos. Diga sí para confirmar.'
+
+  it('descarta el eco del propio read-back', () => {
+    assert.equal(esEcoDePrompt('voy a vender dos unidades de pan del quiosco', PROMPT), true)
+    assert.equal(esEcoDePrompt('diga sí para confirmar', PROMPT), true)
+  })
+
+  it('no descarta una respuesta real', () => {
+    assert.equal(esEcoDePrompt('sí', PROMPT), false)
+    assert.equal(esEcoDePrompt('no', PROMPT), false)
+    assert.equal(esEcoDePrompt('vende dos refrescos', PROMPT), false)
+  })
+
+  it('sin texto no hay eco', () => {
+    assert.equal(esEcoDePrompt('', PROMPT), false)
+    assert.equal(esEcoDePrompt(null, PROMPT), false)
+  })
+
+  it('el margen antieco es de 400 ms', () => {
+    assert.equal(MS_MARGEN_ANTIECO, 400)
+  })
+
+  it('detecta la palabra suelta que ya estaba en el anuncio', () => {
+    // Caso real: el micrófono oye solo el «sí» de «diga sí para confirmar» y
+    // se tomaba como confirmación del jefe.
+    assert.equal(ecoPalabraSuelta('sí', PROMPT), true)
+    assert.equal(ecoPalabraSuelta('confirmar', PROMPT), true)
+    assert.equal(ecoPalabraSuelta('sí, confirma', PROMPT), false)
+    assert.equal(ecoPalabraSuelta('dale', PROMPT), false)
+    assert.equal(ecoPalabraSuelta('', PROMPT), false)
   })
 })

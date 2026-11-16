@@ -198,7 +198,7 @@ describe('voz: fase visible derivada', () => {
     assert.equal(procesando.puedeCancelar, false)
   })
 
-  it('la confirmación del Modo PRO pide sí o no', () => {
+  it('la confirmación hablada pide sí o no', () => {
     const fase = derivarFaseVoz({
       ...base,
       estado: 'listo',
@@ -207,12 +207,6 @@ describe('voz: fase visible derivada', () => {
     })
     assert.equal(fase.clave, 'turno')
     assert.match(fase.subtitulo, /sí/)
-  })
-
-  it('la ventana de cancela se anuncia como deshacer', () => {
-    const fase = derivarFaseVoz({ ...base, estado: 'listo', faseStt: 'capturando', deshaciendo: true })
-    assert.equal(fase.clave, 'deshacer')
-    assert.match(fase.subtitulo, /cancela/)
   })
 
   it('ambiguo y listo no se confunden con la escucha', () => {

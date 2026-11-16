@@ -30,8 +30,22 @@ export default defineEventHandler(async (event) => {
   const datos = parsed.data
   const puestoId = auth.usuario.puestoId
   const usuarioId = auth.usuario.id
-  const ahora = new Date()
-  const ahoraMs = ahora.getTime()
+
+  // Fecha de la venta: por defecto ahora. La cola de voz manda la hora del
+  // dictado (puede ser de ayer) para que la venta quede en su día. Se acota
+  // para que un reloj mal puesto no meta ventas de hace un mes.
+  const ahoraMsServidor = Date.now()
+  const MS_MARGEN_FUTURO = 60 * 1000
+  const MS_MAXIMO_ANTIGUO = 8 * 24 * 60 * 60 * 1000
+  const fechaVentaMs = datos.creadoEn ?? ahoraMsServidor
+  if (fechaVentaMs > ahoraMsServidor + MS_MARGEN_FUTURO) {
+    throw createError({ statusCode: 400, statusMessage: 'La fecha de la venta no puede ser futura.' })
+  }
+  if (ahoraMsServidor - fechaVentaMs > MS_MAXIMO_ANTIGUO) {
+    throw createError({ statusCode: 400, statusMessage: 'La fecha de la venta es demasiado antigua.' })
+  }
+  const fechaVenta = new Date(fechaVentaMs)
+  const ahoraMs = fechaVentaMs
 
   const ids = [...new Set(datos.lineas.map(l => l.productoId))]
   const prods = await db.select().from(productos).where(inArray(productos.id, ids))
@@ -106,7 +120,8 @@ export default defineEventHandler(async (event) => {
         ganancia: venta.ganancia,
         notas: datos.notas ?? null,
         usuarioId,
-        anulado: false
+        anulado: false,
+        creadoEn: fechaVenta
       })
       .returning()
     const vd = ventaRow!

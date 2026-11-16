@@ -69,6 +69,9 @@ public class VoiceRecognitionNativePlugin extends Plugin {
     private ArrayList<String> lastPartialMatches = new ArrayList<>();
     private int partialContados = 0;
     private String servicioActual = "";
+    // Android sigue ocupado 200-500 ms después de cerrar una sesión. Un solo
+    // reintento silencioso evita perder el comando por `recognizer_busy`.
+    private boolean reintentoBusy = false;
     private static final int MAX_DIAG = 200;
     private final ArrayDeque<JSObject> bufferDiag = new ArrayDeque<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -174,6 +177,7 @@ public class VoiceRecognitionNativePlugin extends Plugin {
             return;
         }
         currentCall = call;
+        reintentoBusy = false;
         if (tienePermiso(Manifest.permission.RECORD_AUDIO)) {
             comenzar(call.getString("language"), call.getBoolean("offline", false));
         } else {
@@ -365,6 +369,17 @@ public class VoiceRecognitionNativePlugin extends Plugin {
                                 currentCall = null;
                             }
                             cleanupRecognizer();
+                            return;
+                        }
+
+                        // Reconocedor ocupado justo después de otra sesión: un solo
+                        // reintento silencioso a los 400 ms. No se rechaza la
+                        // llamada para que el JS no vea un error espurio.
+                        if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY && !reintentoBusy) {
+                            reintentoBusy = true;
+                            Log.d(TAG, "recognizer_busy: reintento en 400 ms");
+                            cleanupRecognizer();
+                            handler.postDelayed(() -> comenzar(idioma, esOffline), 400);
                             return;
                         }
 

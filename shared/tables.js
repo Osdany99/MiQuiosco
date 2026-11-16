@@ -209,6 +209,10 @@ export const cobros_recarga = {
 // sms_etecsa NO entra en SYNC_TABLES: es un log local de diagnóstico del
 // teléfono. Sincronizar 1 por 1 cada SMS crudo no aporta nada al negocio.
 
+// acciones_pendientes_voz tampoco: es la cola local de lo dictado por voz que
+// espera revisión. Lo que se sincroniza es la venta directa que se crea al
+// aplicarla; subir la cola duplicaría datos entre teléfonos del mismo puesto.
+
 export const TABLES = {
   productos, clientes, usuarios, cuadres, proveedores,
   lotes, traspasos, cuadre_items,

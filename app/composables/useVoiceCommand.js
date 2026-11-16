@@ -809,7 +809,14 @@ function _useVoiceCommand() {
     let timerMicroListo = null
     try {
       auth.registrarActividad()
-      const permiso = await plugin.requestPermission()
+      // `requestPermission()` es un viaje al plugin nativo. Si ya está concedido
+      // no hay nada que pedir: se consulta al arrancar (`check()`) y tras un
+      // fallo de permisos. Antes se pedía en cada escucha.
+      let permiso = null
+      if (!permisoMicrofono.value) {
+        permiso = await plugin.requestPermission()
+        if (permiso && permiso.ok !== false) permisoMicrofono.value = true
+      }
       if (permiso && permiso.ok === false) throw new Error('insufficient_permissions')
       // Vosk (y cualquier motor futuro con modelo) carga antes de start.
       // No se comprueba `typeof plugin.preparar`: el Proxy de Capacitor
@@ -899,6 +906,11 @@ function _useVoiceCommand() {
     } catch (e) {
       const detalle = e?.message || 'Error desconocido'
       codigoError.value = e?.code != null ? String(e.code) : null
+      // El permiso pudo revocarse en Ajustes ("solo esta vez" caduca solo):
+      // se invalida la caché para que la próxima escucha lo vuelva a pedir.
+      if (detalle.includes('insufficient_permissions') || detalle.includes('permission_denied')) {
+        permisoMicrofono.value = false
+      }
       const parcial = transcriptParcial.value?.trim()
       registrar('stt.error_js', {
         backend: 'native',

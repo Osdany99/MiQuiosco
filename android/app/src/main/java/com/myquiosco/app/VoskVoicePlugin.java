@@ -20,15 +20,9 @@ import org.vosk.Model;
 import org.vosk.Recognizer;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /**
  * VOSK — reconocimiento de voz offline empaquetado en la app.
@@ -64,9 +58,6 @@ public class VoskVoicePlugin extends Plugin {
     private static final String ALIAS_RECORD = "record";
     private static final String TAG = "MiQuioscoVosk";
     private static final int SAMPLE_RATE = 16000;
-    private static final String ASSET_ZIP = "vosk/vosk-es.zip";
-    private static final String CARPETA = "vosk-es";
-    private static final String MARCADOR = ".ok";
 
     private Model modelo = null;
     private Recognizer recognizer = null;
@@ -152,77 +143,17 @@ public class VoskVoicePlugin extends Plugin {
         }, "vosk-preparar").start();
     }
 
+    /**
+     * La descompresión vive en `VoskModelo`, compartida con el servicio en
+     * primer plano: los dos leen la MISMA carpeta y no se pelean por el ZIP.
+     * Aquí solo se traduce el progreso a eventos para la traza de diagnóstico.
+     */
     private File asegurarModelo() throws Exception {
-        File base = new File(getContext().getFilesDir(), CARPETA);
-        File marcador = new File(base, MARCADOR);
-        File existente = primeraCarpeta(base);
-        if (marcador.exists() && existente != null) return existente;
-
-        if (!base.exists() && !base.mkdirs()) {
-            throw new IllegalStateException("no se pudo crear " + base.getAbsolutePath());
-        }
-
-        File zip = new File(getContext().getCacheDir(), "vosk-es.zip");
-        if (!zip.exists() || zip.length() < 1024) {
-            emitir("preparar", datos("copiando"));
-            try (InputStream in = getContext().getAssets().open(ASSET_ZIP);
-                 OutputStream out = new FileOutputStream(zip)) {
-                copiar(in, out);
-            }
-        }
-
-        emitir("preparar", datos("descomprimiendo"));
-        try (ZipFile zf = new ZipFile(zip)) {
-            Enumeration<? extends ZipEntry> entradas = zf.entries();
-            int total = zf.size();
-            int hechos = 0;
-            String baseCanonica = base.getCanonicalPath() + File.separator;
-            while (entradas.hasMoreElements()) {
-                ZipEntry entrada = entradas.nextElement();
-                File destino = new File(base, entrada.getName());
-                if (!destino.getCanonicalPath().startsWith(baseCanonica)) continue;
-                if (entrada.isDirectory()) {
-                    destino.mkdirs();
-                } else {
-                    File padre = destino.getParentFile();
-                    if (padre != null) padre.mkdirs();
-                    try (InputStream in = zf.getInputStream(entrada);
-                         OutputStream out = new FileOutputStream(destino)) {
-                        copiar(in, out);
-                    }
-                }
-                hechos++;
-                if (total > 0 && hechos % Math.max(1, total / 10) == 0) {
-                    JSObject p = datos("descomprimiendo");
-                    p.put("progreso", Math.min(99, hechos * 100 / total));
-                    emitir("preparar", p);
-                }
-            }
-        }
-        zip.delete();
-
-        File carpeta = primeraCarpeta(base);
-        if (carpeta == null) throw new IllegalStateException("ZIP sin carpeta de modelo");
-        if (!marcador.createNewFile() && !marcador.exists()) {
-            throw new IllegalStateException("no se pudo crear el marcador");
-        }
-        emitir("preparar", datos("listo"));
-        return carpeta;
-    }
-
-    private static File primeraCarpeta(File base) {
-        File[] hijos = base.listFiles();
-        if (hijos == null) return null;
-        for (File hijo : hijos) {
-            if (hijo.isDirectory()) return hijo;
-        }
-        return null;
-    }
-
-    private static void copiar(InputStream in, OutputStream out) throws Exception {
-        byte[] buffer = new byte[64 * 1024];
-        int n;
-        while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        return VoskModelo.asegurar(getContext(), (fase, porcentaje) -> {
+            JSObject p = datos(fase);
+            if (porcentaje > 0) p.put("progreso", porcentaje);
+            emitir("preparar", p);
+        });
     }
 
     // ── Grabación ──────────────────────────────────────────────────────────

@@ -10,7 +10,6 @@ const props = defineProps({
   // Estado del STT y fase real de la escucha, para no adivinar por booleanos.
   vozEstado: { type: String, default: 'idle' },
   faseStt: { type: String, default: 'idle' },
-  deshaciendo: { type: Boolean, default: false },
   motivo: { type: String, default: null },
   error: { type: String, default: null },
   pushToTalk: { type: Boolean, default: false }
@@ -48,7 +47,6 @@ const fase = computed(() => derivarFaseVoz({
   vozEstado: props.vozEstado,
   faseStt: props.faseStt,
   hablando: hablando.value,
-  deshaciendo: props.deshaciendo,
   error: props.error || '',
   vozDetectada: detectandoVoz.value
 }))

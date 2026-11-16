@@ -11,7 +11,7 @@ import { Capacitor } from '@capacitor/core'
 import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs, deriveTimestampCols } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
-import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
+import { tablaExiste, crearTablasFaltantes, crearTablaDesdeDefs, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
 import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../../shared/constants'
@@ -322,9 +322,70 @@ function initializeSchemaMemory(mem) {
     'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado',
     'transferencias', 'transferencia_items', 'ajustes',
     'proveedores', 'lotes', 'traspasos', 'movimientos_inventario',
-    'ventas_directas', 'ventas_directas_items'
+    'ventas_directas', 'ventas_directas_items',
+    'acciones_pendientes_voz'
   ]
   for (const t of tables) mem.ensureTable(t, '')
+}
+
+// =====================================================================
+// Red de seguridad contra "no such table"
+// =====================================================================
+
+// Tablas ya verificadas en esta sesión: comprobar sqlite_master en cada
+// consulta costaría un viaje al puente nativo por operación.
+const tablasAseguradas = new Set()
+
+/**
+ * Recrea una tabla que el código usa pero la base no tiene.
+ *
+ * POR QUÉ EXISTE
+ * `initializeSchema` crea las tablas que faltan leyendo el journal de Drizzle.
+ * Ese journal se carga con `import.meta.glob`, que Vite resuelve al arrancar el
+ * dev server: si el `.sql` de una tabla nueva se añade con `pnpm dev` ya
+ * corriendo, el glob NO lo ve hasta reiniciar, y la app queda con una tabla
+ * fantasma que sólo falla al usarla ("no such table", sin pistas).
+ *
+ * Por eso, si una consulta falla así, se reintenta una vez tras recrear la
+ * tabla: primero con el journal y, si tampoco está ahí, con el schema Drizzle.
+ */
+async function asegurarTabla(conn, tabla) {
+  if (conn instanceof InMemoryDb) return false
+  if (tablasAseguradas.has(tabla)) return false
+  if (await tablaExiste(conn, tabla)) {
+    tablasAseguradas.add(tabla)
+    return false
+  }
+
+  const fallos = await crearTablasFaltantes(conn, BASELINE_SQL)
+  await crearIndicesFaltantes(conn, BASELINE_SQL)
+  if (await tablaExiste(conn, tabla)) {
+    tablasAseguradas.add(tabla)
+    return true
+  }
+
+  if (await crearTablaDesdeDefs(conn, tabla, COLUMN_DEFS)) {
+    tablasAseguradas.add(tabla)
+    console.warn(`[db] Tabla ${tabla} creada desde el schema (el journal no la traía).`)
+    return true
+  }
+
+  const detalle = fallos.map(f => f.error).slice(0, 2).join(' · ')
+  throw new Error(
+    `La tabla ${tabla} no existe y no se pudo crear${detalle ? `: ${detalle}` : '.'}`
+  )
+}
+
+/** Ejecuta una operación y, si falla por tabla ausente, la recrea y reintenta. */
+async function conReparacion(tabla, fn) {
+  try {
+    return await fn()
+  } catch (err) {
+    if (!/no such table/i.test(String(err?.message ?? err))) throw err
+    const conn = await getConnection()
+    await asegurarTabla(conn, tabla)
+    return fn()
+  }
 }
 
 // =====================================================================
@@ -570,6 +631,7 @@ export function useDb() {
     inMemoryDbPromise = null
     dbConnection = null
     dbConnectionPromise = null
+    tablasAseguradas.clear()
     try {
       const { Preferences } = await import('@capacitor/preferences')
       await Preferences.remove({ key: 'permisos_puesto' })
@@ -659,19 +721,22 @@ export function useDb() {
     }, ops)
   }
 
-  return {
+  // Las operaciones genéricas pasan por `conReparacion`: si la tabla no existe
+  // (journal cacheado por el dev server, migración perdida), se crea y se
+  // reintenta en vez de devolver "no such table" a la UI.
+  const api = {
     getUsuarioPorNombreLocal,
     getProductosActivos,
     getCuadrePorFecha,
     getItemsDeCuadre,
     findHistorialVigente,
     findHistorialAbiertos,
-    insert,
-    update,
-    remove,
-    queryAll,
-    getById,
-    contarPendientes,
+    insert: (tabla, datos) => conReparacion(tabla, () => insert(tabla, datos)),
+    update: (tabla, id, cambios) => conReparacion(tabla, () => update(tabla, id, cambios)),
+    remove: (tabla, id) => conReparacion(tabla, () => remove(tabla, id)),
+    queryAll: tabla => conReparacion(tabla, () => queryAll(tabla)),
+    getById: (tabla, id) => conReparacion(tabla, () => getById(tabla, id)),
+    contarPendientes: tabla => conReparacion(tabla, () => contarPendientes(tabla)),
     marcarSincronizados,
     marcarTodosNoSincronizados,
     recortarTabla,
@@ -680,6 +745,7 @@ export function useDb() {
     reabrirTrasCopia,
     transaction
   }
+  return api
 }
 
 // Para uso interno por seed y tests

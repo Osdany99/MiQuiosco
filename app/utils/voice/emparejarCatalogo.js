@@ -1,5 +1,5 @@
-import { combinarConfianza } from '#shared/voz/gramatica'
-import { fuzzyMatchProducts } from './fuzzyMatchProducts'
+import { combinarConfianza } from '../../../shared/voz/gramatica.js'
+import { fuzzyMatchProducts } from './fuzzyMatchProducts.js'
 
 /**
  * Construye un emparejador a partir de un catálogo de inventario y la confianza

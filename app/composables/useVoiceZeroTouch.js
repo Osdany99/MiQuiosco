@@ -2,7 +2,14 @@ import { computed, ref } from 'vue'
 import { Preferences } from '@capacitor/preferences'
 import { useAuth } from './useAuth'
 
-const KEY = 'voice.ceroToques.activo'
+/**
+ * Preferencia del tiempo de espera de la confirmación hablada.
+ *
+ * Antes este composable también guardaba el interruptor «Modo PRO». Se retiró:
+ * la confirmación por voz ya es el comportamiento normal de una venta por voz,
+ * así que aquí solo queda cuánto escucha el micrófono antes de dejar el
+ * formulario para confirmar a mano.
+ */
 const KEY_TIMEOUT = 'voice.ceroToques.timeoutMs'
 const TIMEOUT_DEFAULT = 5000
 const TIMEOUT_MIN = 3000
@@ -16,35 +23,15 @@ function acotarTimeout(valor) {
 
 function _create() {
   const auth = useAuth()
-  const activo = ref(false)
-  const cargado = ref(false)
   const timeoutMs = ref(TIMEOUT_DEFAULT)
 
   async function cargar() {
-    try {
-      const { value } = await Preferences.get({ key: KEY })
-      activo.value = value === 'true'
-    } catch {
-      activo.value = false
-    }
     try {
       const { value } = await Preferences.get({ key: KEY_TIMEOUT })
       if (value !== null && value !== undefined) timeoutMs.value = acotarTimeout(value)
     } catch {
       /* noop */
     }
-    cargado.value = true
-  }
-
-  async function setActivo(val) {
-    const v = Boolean(val) && esJefe.value
-    activo.value = v
-    try {
-      await Preferences.set({ key: KEY, value: String(v) })
-    } catch {
-      /* noop */
-    }
-    return v
   }
 
   async function setTimeoutMs(val) {
@@ -67,15 +54,15 @@ function _create() {
     }
   })
 
-  return { activo, cargado, timeoutMs, setActivo, setTimeoutMs, esJefe, cargar }
+  return { timeoutMs, setTimeoutMs, esJefe, cargar }
 }
 
 let singleton = null
 
 /**
- * Singleton: el Modo PRO (activo + timeout) lo consumen el layout, Ajustes y la
- * venta directa por voz. Sin esto cada `useVoiceZeroTouch()` tenía su propio
- * `timeoutMs` y podía diferir del que muestra la pantalla.
+ * Singleton: el tiempo de espera lo consumen el layout y Ajustes. Sin esto cada
+ * `useVoiceZeroTouch()` tenía su propio `timeoutMs` y podía diferir del que
+ * muestra la pantalla.
  */
 export function useVoiceZeroTouch() {
   if (!singleton) singleton = _create()

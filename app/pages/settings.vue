@@ -5,14 +5,14 @@ import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
 import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
 import { useVoiceZeroTouch } from '../composables/useVoiceZeroTouch'
-import { useVentaPorVoz } from '../composables/useVentaPorVoz'
+import { useVozServicio } from '../composables/useVozServicio'
 
 const toast = useToast()
 const conexion = useModoConexion()
 const tts = useTts()
 const dictadoModo = useDictadoModo()
 const voz = useVoiceCommand()
-const vozQuiosco = useVentaPorVoz('quiosco')
+const servicioVoz = useVozServicio()
 const pruebaMicrofono = ref('')
 const probandoMicrofono = ref(false)
 const update = useAppUpdate()
@@ -148,6 +148,7 @@ onMounted(() => {
   void voz.check()
   void voz.refrescarTraza()
   void voz.sincronizarDiagNativo()
+  void servicioVoz.refrescar()
 })
 
 onUnmounted(() => {
@@ -1047,17 +1048,7 @@ async function whOlvidarEste() {
           Leer saludo al dictar
         </USwitch>
 
-        <USwitch
-          v-if="zeroTouchConfig.esJefe.value"
-          v-model="zeroTouchConfig.activo.value"
-          color="warning"
-          description="Solo jefe. Dices “vende X” y respondes “sí” por voz; el sistema registra solo. Queda auditado."
-          @update:model-value="v => void zeroTouchConfig.setActivo(v)"
-        >
-          Vender sin tocar el dispositivo (Modo PRO)
-        </USwitch>
-
-        <div v-if="zeroTouchConfig.esJefe.value && zeroTouchConfig.activo.value" class="space-y-2">
+        <div v-if="zeroTouchConfig.esJefe.value" class="space-y-2">
           <UFormField label="Tiempo de espera del “sí”" />
           <USelect
             v-model="zeroTouchTimeout"
@@ -1065,7 +1056,8 @@ async function whOlvidarEste() {
             class="w-full"
           />
           <p class="text-xs text-muted">
-            Cuánto escucha el micrófono la confirmación antes de dejar el formulario abierto para confirmar a mano.
+            Toda venta por voz se lee y pide confirmación. Esto es cuánto escucha
+            el micrófono antes de dejar el formulario abierto para confirmar a mano.
           </p>
         </div>
 
@@ -1078,23 +1070,29 @@ async function whOlvidarEste() {
           Enviar al administrador las frases no entendidas
         </USwitch>
 
-        <!-- Voz directa: salta el formulario y registra tras confirmación hablada. -->
+        <!-- Onda al dictar con la app cerrada (solo Android). -->
         <USwitch
-          v-if="auth.esJefe"
-          v-model="vozQuiosco.ventaDirectaVoz"
-          color="warning"
-          :disabled="!tts.disponible.value || !voz.disponible.value"
-          description="Solo jefe. Salta el DialogoVenta: TTS lee el resumen, espera “sí” hablado y registra directo. Incluye ventana de cancela por voz."
+          v-if="servicioVoz.esNativo && auth.esJefe"
+          :model-value="servicioVoz.onda.value"
+          color="primary"
+          description="Al decir «oye nova» aparece la misma onda del dock, sobre la pantalla de bloqueo, con lo que se va entendiendo. Enciende la pantalla."
+          @update:model-value="servicioVoz.activarOnda"
         >
-          Venta directa por voz (sin formulario)
+          Mostrar la onda al dictar con la app cerrada
         </USwitch>
 
-        <div v-if="vozQuiosco.ventaDirectaVoz && auth.esJefe" class="space-y-2 border-t border-default pt-3">
-          <p class="text-xs text-muted">
-            Cuando está activa, comandos como “vende 2 refrescos” se confirman con “sí”
-            hablado y se registran sin abrir el formulario. Se puede deshacer diciendo
-            “cancela” durante los 5 segundos siguientes.
+        <div v-if="servicioVoz.faltaPantallaCompleta.value" class="space-y-1">
+          <p class="text-xs text-warning">
+            El sistema no permite abrir ventanas a pantalla completa, así que la
+            onda no podrá aparecer sobre el bloqueo.
           </p>
+          <UButton
+            size="xs"
+            variant="soft"
+            color="warning"
+            label="Permitir pantalla completa"
+            @click="servicioVoz.pedirPantallaCompleta"
+          />
         </div>
 
         <!-- Motor de reconocimiento (STT). -->

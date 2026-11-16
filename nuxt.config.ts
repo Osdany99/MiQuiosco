@@ -80,7 +80,13 @@ export default defineNuxtConfig({
         'lucide:upload',
         'lucide:check',
         'lucide:key',
-        'lucide:loader-2'
+        'lucide:loader-2',
+        // Iconos de la revisión de voz. Se listan explícitamente porque
+        // `scan` no siempre los recoge en dev (el menú se quedaba sin icono).
+        'lucide:mic-vocal',
+        'lucide:inbox',
+        'lucide:radio',
+        'lucide:search'
       ]
     },
     fallbackToApi: false

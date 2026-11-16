@@ -278,6 +278,16 @@ const OFFLINE_CONFIGS = [
   {
     config: { tabla: 'sms_etecsa', defaults: { estado: 'pendiente' } },
     overrides: { requireRole: 'jefe' }
+  },
+  // Acciones dictadas por voz pendientes de revisión. También locales: la
+  // venta se sincroniza recién cuando el jefe la confirma y se aplica.
+  {
+    config: {
+      tabla: 'acciones_pendientes_voz',
+      puestoScoped: true,
+      defaults: { estado: 'pendiente', tipo: 'venta', tipoVenta: 'directa', origen: 'app', cantidad: 1 }
+    },
+    overrides: { requireRole: 'jefe' }
   }
 ]
 

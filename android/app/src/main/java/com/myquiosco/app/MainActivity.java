@@ -19,6 +19,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DbBackupPlugin.class);
         registerPlugin(VoiceRecognitionNativePlugin.class);
         registerPlugin(TtsNativePlugin.class);
+        // Servicio en primer plano para dictar con la app cerrada.
+        registerPlugin(VozServicioPlugin.class);
         // Motor de voz offline empaquetado (Vosk). Se usa cuando no hay
         // acceso a Internet real.
         registerPlugin(VoskVoicePlugin.class);

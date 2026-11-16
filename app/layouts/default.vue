@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { registrarProof } from '../utils/voice/proofs'
 import { useConfirmacionVoz } from '../composables/useConfirmacionVoz'
 import { FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
+import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 
 const auth = useAuth()
 const perms = usePermisos()
@@ -13,13 +14,65 @@ const zeroTouch = useVoiceZeroTouch()
 const voiceRaw = useVoiceCommand()
 const ttsRaw = useTts()
 const confirmacion = useConfirmacionVoz()
-const ceroToquesActivo = computed(() => zeroTouch.activo.value)
+// La confirmación hablada ya no es un modo aparte: es el comportamiento normal
+// de una venta por voz (solo jefe). Se retiró el interruptor de Modo PRO.
+const ceroToquesActivo = computed(() => auth.esJefe.value)
 const { hayRed, cargarEstado, faseSync, progresoSync } = useSync()
 const conexion = useModoConexion()
 const route = useRoute()
 const vozQuiosco = useVentaPorVoz('quiosco')
 const vozAlmacen = useVentaPorVoz('almacen')
 const dictadoModo = useDictadoModo()
+const accionesVoz = useAccionesPendientes()
+const vozSnapshot = useVozSnapshot()
+const buzon = useBuzonVoz()
+const vozServicio = useVozServicio()
+const toast = useToast()
+const pendientesVoz = computed(() => accionesVoz.pendientes.value.length)
+
+/**
+ * Recoge lo dictado con la app cerrada. El servicio en primer plano no
+ * registra nada: deja la transcripción en un fichero y aquí se convierte en
+ * acción pendiente de revisión.
+ */
+async function drenarBuzon() {
+  if (!auth.esJefe.value) return
+  try {
+    const r = await buzon.drenar()
+    if (!r?.creados) return
+    toast.add({
+      title: `${r.creados} dictado${r.creados === 1 ? '' : 's'} por revisar`,
+      description: 'La voz no registró nada todavía: confirma en "Por revisar (voz)".',
+      color: 'warning'
+    })
+    await vozSnapshot.actualizar().catch(() => {})
+  } catch {
+    /* el buzón no debe romper el arranque */
+  }
+}
+
+let soltarResumeBuzon = null
+
+// La sesión puede hidratarse después del montaje: se recarga la cola y el buzón
+// cuando ya hay puesto, para que el badge no se quede en cero.
+watch(
+  () => auth.usuarioActual.value?.puestoId ?? null,
+  (pid) => {
+    if (!pid || !auth.esJefe.value) return
+    accionesVoz.cargar()
+      .then(() => drenarBuzon())
+      .then(() => vozSnapshot.actualizar())
+      .catch(() => {})
+  }
+)
+
+// Al cerrar sesión el servicio no debe seguir escuchando.
+watch(
+  () => auth.esJefe.value,
+  (esJefe) => {
+    if (!esJefe) void vozServicio.detener()
+  }
+)
 // Dentro de inventario manda la ruta. Fuera de inventario el dock sigue
 // disponible (venta global), pero usa la ubicación cuyo permiso de voz tenga
 // el usuario, en vez de asumir quiosco siempre.
@@ -37,7 +90,7 @@ const vozActiva = computed(() =>
 const vozDialogAbierto = ref(false)
 void zeroTouch.cargar()
 
-// En Modo PRO el anuncio ya incluye "Diga sí para confirmar" (una sola locución).
+// El anuncio incluye "Diga sí para confirmar" (una sola locución).
 watch(
   ceroToquesActivo,
   (activo) => {
@@ -47,7 +100,7 @@ watch(
   { immediate: true }
 )
 
-// Conversación de confirmación del Modo PRO (anuncio + "di sí"). Mientras dura,
+// Conversación de confirmación (anuncio + "di sí"). Mientras dura,
 // el panel de voz sigue visible aunque el diálogo de venta esté abierto.
 const confirmandoVoz = ref(false)
 
@@ -75,12 +128,12 @@ function cancelarPanelVoz() {
 
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
-  // Default (no PRO): abre modal y espera un toque.
+  // Sin permiso de venta por voz solo queda el toque manual en el formulario.
   if (!ceroToquesActivo.value || vozActiva.value.modo.value !== 'venta') {
     vozDialogAbierto.value = true
     return
   }
-  // Modo PRO: abre modal para precargar form, avisa, escucha el "sí" y confirma.
+  // Abre modal para precargar form, avisa, escucha el "sí" y confirma.
   vozDialogAbierto.value = true
   await nextTick()
   // Esperar a la lectura del producto (read-back) para que la confirmación no
@@ -104,15 +157,33 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
         /* noop */
       }
     }
-    // Margen mínimo para que el eco final de la voz no entre al micrófono.
-    await new Promise(r => setTimeout(r, 60))
+    // Margen para que el eco final de la voz no entre al micrófono.
+    await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+    // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
+    // diálogo y la confirmación podría leerlo como respuesta.
+    voiceRaw.reset()
     // startListening resuelve al terminar la escucha; no se espera aquí.
-    voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'modo_pro' })
+    voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'confirmacion' })
     const escucha = voiceRaw.startListening({
       contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
     }).catch(() => {})
-    resultado = await confirmacion.esp({ timeoutMs: zeroTouch.timeoutMs.value })
+    resultado = await confirmacion.esperar({
+      timeoutMs: zeroTouch.timeoutMs.value,
+      // El prompt es TODO lo que se habló: con solo la pregunta corta no se
+      // detectaba el eco de la lectura y un «sí» oído del propio TTS confirmaba.
+      prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR
+    })
     confianza = Number(voiceRaw.confidence?.value) || 0
+    try {
+      voiceRaw.registrar('voz.confirmar', {
+        resultado,
+        texto: String(voiceRaw.transcript?.value || ''),
+        confianza,
+        producto: fila?.nombre ?? ''
+      })
+    } catch {
+      /* la traza no debe romper la venta */
+    }
     try {
       await voiceRaw.stopListening()
     } catch {
@@ -210,12 +281,41 @@ onMounted(() => {
   perms.cargarDesdePreferencias().catch(() => {})
   cargarEstado()
   conexion.cargar().catch(() => {})
+  // El badge de "Por revisar" y el snapshot que lee el servicio con la app
+  // cerrada se actualizan al abrir; la revisión interactiva los refresca sola.
+  if (auth.esJefe.value) {
+    accionesVoz.cargar()
+      .then(() => drenarBuzon())
+      .then(() => vozSnapshot.actualizar())
+      .catch(() => {})
+    // El servicio de escucha arranca apagado/pausado mientras la app está
+    // abierta: el micrófono del dock es el que manda.
+    void vozServicio.cargarPreferencia()
+      .then(() => vozServicio.sincronizarConApp(true))
+      .catch(() => {})
+    // Al volver de segundo plano puede haber dictados nuevos del servicio.
+    void import('@capacitor/app').then(({ App }) => {
+      const handle = App.addListener('appStateChange', ({ isActive }) => {
+        void vozServicio.sincronizarConApp(isActive)
+        if (isActive) {
+          void drenarBuzon()
+        } else {
+          // La foto que leerá el servicio se congela al minimizar: refleja lo
+          // vendido hasta este momento.
+          void vozSnapshot.actualizar().catch(() => {})
+        }
+      })
+      soltarResumeBuzon = () => handle.then(h => h.remove()).catch(() => {})
+    }).catch(() => {})
+  }
   document.addEventListener('click', onUserActivity)
   document.addEventListener('keydown', onUserActivity)
   document.addEventListener('touchstart', onUserActivity)
 })
 
 onUnmounted(() => {
+  soltarResumeBuzon?.()
+  soltarResumeBuzon = null
   document.removeEventListener('click', onUserActivity)
   document.removeEventListener('keydown', onUserActivity)
   document.removeEventListener('touchstart', onUserActivity)
@@ -241,6 +341,17 @@ const links = computed(() => {
       { label: 'Historial del quiosco', icon: 'i-lucide-store', to: '/historial-quiosco', vista: 'historial-quiosco' },
       { label: 'Deudas', icon: 'i-lucide-hand-coins', to: '/deudas', vista: 'deudas' },
       { label: 'Venta directa', icon: 'i-lucide-receipt', to: '/venta-directa', vista: 'salidas' },
+      {
+        label: 'Por revisar (voz)',
+        icon: 'i-lucide-mic-vocal',
+        to: '/pendientes',
+        vista: 'pendientes-voz',
+        // Solo el número: el badge es un aviso, no una alarma. Lo dictado con
+        // la app cerrada aparece aquí al abrir.
+        badge: pendientesVoz.value
+          ? { label: String(pendientesVoz.value), color: 'warning', variant: 'solid', size: 'sm' }
+          : undefined
+      },
       { label: 'Productos', icon: 'i-lucide-package', to: '/productos', vista: 'productos' },
       ...(MOSTRAR_PROVEEDOR
         ? [{ label: 'Proveedores', icon: 'i-lucide-truck', to: '/proveedores', vista: 'proveedores' }]
@@ -406,7 +517,6 @@ const userMenuItems = computed(() => {
         :estado="vozActiva.estado.value"
         :voz-estado="voiceRaw.estado.value"
         :fase-stt="voiceRaw.faseStt.value"
-        :deshaciendo="Boolean(vozActiva.ventaParaCancela.value)"
         :motivo="vozActiva.motivoNoDisponible.value"
         :push-to-talk="dictadoModo.pushToTalk.value"
         :error="vozActiva.ultimoError.value"
@@ -468,7 +578,6 @@ const userMenuItems = computed(() => {
       :ocupado="vozActiva.ocupado.value"
       :estado="vozActiva.estado.value"
       :fase-stt="voiceRaw.faseStt.value"
-      :deshaciendo="Boolean(vozActiva.ventaParaCancela.value)"
       :error="vozActiva.ultimoError.value || ''"
       :transcript="vozActiva.transcriptParcial.value"
       @reintentar="vozActiva.reintentar()"

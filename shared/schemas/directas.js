@@ -31,7 +31,13 @@ export const ventaDirectaSchema = z.object({
   lineas: z
     .array(lineaDirecta)
     .min(1, 'Debe incluir al menos un producto.'),
-  notas: z.string().nullable().optional()
+  notas: z.string().nullable().optional(),
+  /**
+   * Fecha de la venta en epoch ms. Solo la usa la cola de voz: una venta
+   * dictada ayer y confirmada hoy debe quedar en el día en que se dictó. El
+   * servidor la acota a los últimos días y rechaza fechas futuras.
+   */
+  creadoEn: z.number().int().positive().optional()
 })
 
 /**

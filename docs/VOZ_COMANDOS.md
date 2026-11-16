@@ -58,17 +58,38 @@ El deeplink/widget `?voice=1` solo dispara el micrófono en rutas de inventario
 dock manual sigue disponible. Solo consume el disparo la instancia de la
 ubicación visible, para no abrir dos reconocedores a la vez.
 
-## Modo PRO (venta sin tocar el dispositivo)
+## Venta con confirmación hablada (comportamiento único)
 
-Disponible solo para `jefe` y `super_admin`. Se activa en Ajustes y cambia el
-flujo de una venta por voz:
+Disponible solo para `jefe` y `super_admin`. Ya **no hay interruptor**: toda
+venta por voz funciona igual.
 
 1. El comando abre el formulario de venta precargado.
-2. El dispositivo dice **“Diga sí para confirmar.”** y vuelve a escuchar.
-3. Si detecta una afirmación, registra la venta sin tocar la pantalla.
+2. El dispositivo lee la venta **con la ubicación y el importe** («Voy a vender
+   2 unidades de Pan de leche del almacén por 20 pesos») y pide **“Diga sí para
+   confirmar.”**.
+3. Si detecta una afirmación, registra la venta sin tocar la pantalla y cierra.
 4. Si detecta una negación, cierra el formulario y dice **“Cancelado.”**.
 5. Si no hay respuesta en el tiempo configurado, deja el formulario abierto y
    dice **“Sin respuesta, confirme manualmente.”**.
+
+La ventana de 5 s para decir “cancela” ya **no existe**: una frase abierta al
+ambiente del mostrador podía anular una venta real. Un error se corrige desde el
+historial, no por voz.
+
+### Anti-eco de la confirmación
+
+El micrófono se abre justo cuando el TTS termina, así que puede oír su propio
+anuncio. Tres defensas, en este orden:
+
+1. Se espera el **margen anti-eco** (400 ms) antes de abrir el micrófono.
+2. Se pasa como `prompt` **todo lo que se habló** (no solo la pregunta) y se
+   descartan las transcripciones que lo repiten.
+3. Durante los primeros **700 ms** de escucha, una palabra suelta que ya estaba
+   en el anuncio («sí», «confirmar») se trata como eco y se sigue esperando.
+
+Sin la tercera, oír solo el «sí» de «diga sí para confirmar» registraba la venta
+sin que el jefe hablara. El resultado (`afirmado/negado/timeout`) queda en la
+traza de voz de Ajustes.
 
 ### Tiempo de espera
 
@@ -89,6 +110,176 @@ frases claras y completas.
   `espera`, `detente`, `para`, `nada`.
 - Se rechazan frases ambiguas como `sí pero no`, `si tengo`, `sí mañana` o
   `sí luego`: ante la duda se cae al modo manual.
+
+## Revisión de lo dictado (nada se registra solo)
+
+Las ventas por voz **no escriben la base directamente**: quedan en una cola
+local (`acciones_pendientes_voz`) que el jefe confirma en **Por revisar (voz)**
+(`/pendientes`). La cola es local al teléfono y no se sincroniza; lo que se
+sincroniza es la venta directa que nace al aplicarla.
+
+- Se agrupa por puesto y cada fila dice **quién la dictó** («dictada por X»).
+- Se guarda el texto dictado y la confianza del STT para auditar una mala
+  interpretación.
+- La **fecha de la venta es la del dictado**, no la de confirmación: si el jefe
+  revisa al final del día, la venta sigue en el día en que se dijo.
+- No caduca por tiempo. Se muestra la antigüedad («hace 5 min», «ayer») y hay un
+  **tope de seguridad de 7 días**: pasado ese plazo la acción se archiva sola y
+  ya no se puede aplicar.
+- Cada fila se puede **Registrar**, **Editar** (abre el diálogo de venta con la
+  fecha y el precio dictados) o **Descartar** (queda archivada para auditar).
+- Si el STT no entendió el nombre, la fila queda como **«Falta el producto»** y
+  ofrece **Asignar producto**: se elige del catálogo de la ubicación destino y se
+  conservan la cantidad y el precio dictados. Un dictado no se pierde por un
+  nombre mal oído.
+- No hay “Confirmar todo”: confirmar una venta es leerla y decidir.
+- El stock de la voz descuenta lo pendiente, así que dos dictados seguidos no
+  venden las mismas unidades.
+- Las acciones cerradas (aplicadas o descartadas) se borran solas pasados
+  **30 días**; la tabla local no crece sin límite.
+
+## Escucha con la app cerrada (Android)
+
+En `/pendientes` hay un interruptor **«Escuchar con la app cerrada»** (solo
+jefe). El servicio en primer plano **conversa igual que la voz con la app
+abierta**, pero el resultado va a la cola de revisión, nunca a la base:
+
+1. «Oye nova» → **«¿Qué puedo hacer por ti?»**.
+2. **Consulta** («cuántos panes quedan», «cuánto cuesta el refresco», «cómo va
+   el día») → responde al momento y no deja nada para revisar.
+3. **Venta** («vende dos panes») → busca el producto, comprueba stock y **lee la
+   venta con la ubicación y el importe**: «2 de Pan de leche del almacén, 20
+   pesos. ¿Confirmo?». Solo con un «sí» se anota.
+4. Todo lo demás (charla del mostrador, frases sin verbo de venta) se ignora en
+   silencio.
+
+**Ubicación:** una venta dictada sale del **almacén** salvo que se diga «del
+quiosco» o «del kiosco». Con la app abierta manda la ruta (`/quiosco` → quiosco,
+`/almacen` → almacén).
+
+### Diálogo (mismas reglas que la app abierta)
+
+| Situación | Qué dice | ¿Anota? |
+|---|---|---|
+| Hay stock libre | «2 de Pan de leche del almacén, 20 pesos. ¿Confirmo?» | Sí, tras «sí» |
+| «no» / caduca a los 6 s | «Cancelado» / «No la anoté» | No |
+| Hay, pero apartado por ventas por revisar | «Sólo quedan 1 libres de pan: 2 están apartadas por ventas por revisar. No la anoté.» | No |
+| No hay de verdad | «No hay stock de pan: 0 en quiosco y 4 en almacén. No la anoté.» | No |
+| Falta aquí pero hay en la otra ubicación | «En quiosco no hay; en almacén quedan 4. No la anoté.» | No |
+| Varios parecidos o sin nombre | «¿Pan de leche, pan de agua o pan dulce?» | Espera elección |
+| Producto no vendible | «Ese producto no se vende suelto.» | No |
+| Dos productos en una frase | «De uno en uno, por favor.» | No |
+
+Tiempos: 8 s para el comando y para la elección, 6 s para la confirmación. Si
+se acaba el tiempo, no se anota. Volver a decir «oye nova» reinicia el
+diálogo.
+
+La elección se puede decir por **número** («la dos») o por **nombre** («el de
+agua»). Los números en palabras («dos», «docena») salen de
+`shared/voz/dialogo.json`.
+
+Al abrir la app, `useBuzonVoz` drena el buzón y crea las acciones pendientes.
+Los ficheros nuevos vienen **ya resueltos** (`resuelto: true` con producto,
+cantidad, precio y ubicación), así que no se reinterpretan: la app solo valida y
+guarda. El camino antiguo (transcripción cruda + `resolver()`) queda para
+ficheros viejos. El nombre del fichero es el `origenId`, así que reimportar no
+duplica.
+
+### Aviso en pantalla mientras dictás
+
+Con la app cerrada hay dos formas de ver que el teléfono te está oyendo:
+
+1. **Notificación viva** (siempre): mientras escucha, la notificación del
+   servicio dice «Te escucho: vende dos pan…» con un **vúmetro** que sigue el
+   nivel del micrófono. Sirve en el bloqueo y no enciende la pantalla.
+2. **Onda sobre el bloqueo** (opcional): **Ajustes → Mostrar la onda al dictar
+   con la app cerrada**. Al decir «oye nova» aparece la misma onda del
+   dock (tres senos que se mueven con tu voz) con el texto parcial y la
+   pregunta del diálogo. Se cierra sola al terminar o al tocarla.
+
+La onda se abre con un **full-screen intent**: Android no permite lanzar
+ventanas desde segundo plano por otra vía. Consecuencias reales:
+
+- **Enciende la pantalla** en cada dictado (gasta batería y se ve lo que dictás).
+- En **Android 14+** el sistema puede negarlo hasta que se conceda
+  «notificaciones a pantalla completa»; el aviso de Ajustes lleva al sitio.
+- Si el fabricante la bloquea, no se rompe nada: queda la notificación viva.
+
+El servicio publica nivel y parcial en `VozOnda` (proceso propio, sin WebView),
+tanto con Vosk (`getPartialResult()` + RMS del PCM) como con el motor del
+sistema (`onRmsChanged` + `onPartialResults`).
+
+### Reservas de la sesión
+
+El snapshot se congela al minimizar, así que dos dictados seguidos verían el
+mismo stock. Cada anotación deja una reserva en `files/voz/reservas.json`; las
+reservas anteriores al `generadoEn` del snapshot se ignoran (la app ya las
+cuenta como pendientes) y `useBuzonVoz` borra el fichero al terminar el drenaje.
+
+### Fuente única de reglas
+
+Verbos, números en palabras, afirmaciones/negaciones, tiempos y textos viven en
+`shared/voz/dialogo.json`. `scripts/copiar-voz.mjs` lo copia a
+`android/app/src/main/assets/voz/dialogo.json` en cada build (lo llama
+`scripts/gradle.mjs`), y el JS lo importa. Si el asset falta, el servicio usa
+textos y listas por defecto.
+
+Detalles de diseño:
+
+- **El servicio no interpreta la base ni escribe en ella**: escucha, lee la foto
+  del catálogo, decide y habla. Lo único que escribe es el buzón y sus reservas.
+- **Se pausa mientras la app está abierta**: el micrófono del dock es el dueño
+  del reconocedor; dos sesiones a la vez se pisan (`recognizer_busy`). El
+  servicio se arranca en pausa con la app visible (Android 14 no permite iniciar
+  un FGS de micrófono desde segundo plano) y abre el micrófono al minimizar.
+- La foto (`snapshot.json`) se reescribe al abrir la app, al minimizarla y
+  después de cada revisión. Lleva stock **proyectado, real y apartado**.
+- La notificación es obligatoria en un servicio en primer plano: muestra el
+  estado, abre `/pendientes` y permite detener la escucha.
+- **El stock no se promete con el buzón lleno**: mientras haya dictados en
+  `voz/inbox` sin recoger, una consulta de stock responde «Hay N dictados sin
+  revisar, abre la app» en vez de un número que podría estar prometiendo dos
+  veces las mismas unidades. Las consultas de precio sí se contestan siempre.
+- **Límite del intérprete nativo**: sólo ventas directas simples. Fiado, cliente
+  y precio dictado se resuelven con la app abierta; aquí el precio es el del
+  catálogo.
+
+### Motor de reconocimiento (con y sin internet)
+
+El servicio usa el motor elegido en **Ajustes → Motor de voz**, con una
+diferencia respecto al dock: **«Automático» escucha con Vosk**, no con Google.
+El motivo es físico: el `SpeechRecognizer` del sistema pita cada vez que abre el
+micrófono y el servicio abre una sesión por frase, así que en el bolsillo sonaba
+un pitido cada pocos segundos. Vosk escucha de forma continua y en silencio.
+
+| Preferencia | Motor del servicio | Cuándo |
+|---|---|---|
+| `Automático` (por defecto) | Vosk empaquetado | Siempre. Sin pitidos y sin datos. |
+| `Vosk (offline)` | Vosk empaquetado | Siempre. |
+| `Google (sistema)` | `SpeechRecognizer` | Sólo si lo elegís: necesita internet y pita en cada frase. |
+
+Vosk reutiliza `files/vosk-es`, la MISMA carpeta que el dock (`VoskModelo`), y
+solo extrae el ZIP la primera vez (la notificación dice «Preparando la escucha
+offline»). Si el modelo no carga, el servicio cae al motor del sistema y no
+vuelve a intentar Vosk hasta el próximo arranque.
+
+Con el motor offline escucha de forma continua: el micrófono se silencia
+mientras el TTS habla (`ttsHablando`) para no transcribir su propia voz, y si el
+comando no llega tras «Dime» se vuelve a exigir la frase de activación a los
+7 segundos.
+
+### Permisos y batería
+
+- **Micrófono** (`RECORD_AUDIO`): obligatorio. Se pide al activar el interruptor.
+- **Notificaciones** (Android 13+): se piden junto al micrófono. Sin ellas el
+  servicio sigue funcionando, pero no se ve el aviso ni sus botones.
+- **Exención de batería**: `/pendientes` avisa con un enlace
+  «Permitir en segundo plano» cuando la app sigue optimizada. HyperOS/EMUI matan
+  el servicio en minutos si no se concede; el diálogo lo muestra el sistema.
+- **Reinicio del teléfono**: `VozBootReceiver` rearma la escucha en **pausa**
+  (Android 14 no permite abrir el micrófono desde el arranque). El micrófono se
+  activa al minimizar la app por primera vez; hasta entonces la notificación
+  recuerda que hay que abrirla.
 
 ## Proof local (auditoría)
 
@@ -118,6 +309,26 @@ llamar a la API en cada comando:
   catálogo completo.
 - La caché se limpia al cambiar de modo de conexión y después de guardar una
   venta.
+- Además guarda `versionSaldos` (marca global que sube con cada
+  `cargarSaldos()`): si otra pantalla vendió o entró mercancía, la voz no sigue
+  ofreciendo stock viejo aunque no hayan pasado los 2 minutos.
+- **Stock proyectado**: antes de responder se descuenta lo dictado y aún sin
+  revisar (`acciones_pendientes_voz`). La voz dice, por ejemplo, «3, con 2
+  pendientes de revisar», así que nunca vende dos veces las mismas unidades.
+
+## Decisión, no efecto: `resolver()` / `ejecutar()`
+
+`useVentaPorVoz` separa lo que decide de lo que escribe:
+
+- `resolver(texto, { sttConfidence, alternativas, vigente })` devuelve una acción
+  plana y **no** habla, navega ni escribe. La decisión de venta vive en
+  `app/utils/voice/resolverVenta.js` (puro).
+- `ejecutar(accion, { gen })` es el único sitio con efectos (abrir el formulario,
+  registrar, navegar) y centraliza la auditoría.
+- El precio dictado («vende 2 panes a 10») manda sobre el del catálogo.
+
+Esa separación es la que permite reutilizar el mismo intérprete con la app
+cerrada.
 
 ## N-best
 
@@ -293,8 +504,9 @@ umbral de repetición y sin nombres.
 3. En `/deudas`, “vende 5 panes del almacén” abre la venta de almacén.
 4. En `/quiosco`, “vende 5 panes del almacén” se rechaza por conflicto.
 5. `?voice=1` solo dispara en `/quiosco` y `/almacen`.
-6. Modo PRO: “sí” confirma una vez; “no” cancela; el silencio cae al modo
-   manual; el timeout elegido persiste tras recargar.
+6. Venta por voz: la lectura incluye ubicación e importe; "sí" confirma una vez;
+   "no" cancela; el silencio deja el formulario para confirmar a mano. El
+   timeout elegido persiste tras recargar.
 7. El proof queda en `voice.proofs` con producto, cantidad, ubicación y
    resultado.
 8. En **Ajustes → Reconocimiento (entender)** se ven motor, on-device y nº de
@@ -303,6 +515,26 @@ umbral de repetición y sin nombres.
    código nativo.
 10. Cambiar la **Voz de respuesta** no altera el resultado de *Probar micrófono*
     (TTS ≠ STT).
+11. Tras una venta por voz, el stock hablado baja y, si hay dictados sin revisar,
+    la voz dice «N por revisar».
+12. **Por revisar (voz)**: una acción se Registra (descuenta stock con la fecha
+    del dictado), se Edita (abre el diálogo con el precio dictado) o se Descarta
+    (queda archivada). El badge del menú y el contador bajan al instante.
+13. Con el interruptor activo y la app minimizada: decir «oye nova» responde
+    «¿Qué puedo hacer por ti?»; luego «vende dos panes» pide confirmación y, al
+    decir «sí», deja «1 dictado por revisar» en el badge al volver.
+14. Con la app cerrada, «oye nova, cuántos panes quedan» se responde con
+    voz y **no** crea una acción pendiente.
+15. En modo avión, con motor **Vosk**, la frase de activación, el diálogo y el
+    dictado funcionan igual (sin datos ni pitidos).
+16. Un dictado sin producto muestra **Asignar producto**; tras elegirlo,
+    **Registrar** queda habilitado y descuenta con la fecha del dictado.
+17. Con dictados sin recoger en el buzón, una consulta de stock avisa de que hay
+    pendientes en vez de jurar un número.
+18. «oye nova, vende la última unidad» cuando ya hay una pendiente de ese
+    producto: responde «Sólo quedan 0 libres: 1 está apartada por ventas por
+    revisar» y **no** anota.
+19. Dictar «hola, buenas» o «mañana compro refrescos» no anota nada ni habla.
 
 ## Limitaciones conocidas
 
@@ -316,3 +548,25 @@ umbral de repetición y sin nombres.
   de voces de reconocimiento para elegir en la app.
 - `ERROR_SERVER_DISCONNECTED` (11) puede ser transitorio: el plugin reintenta la
   cadena completa antes de reportar el primer error.
+- La escucha en segundo plano gasta batería: el motor del sistema reconecta en
+  cada frase y Vosk mantiene el modelo cargado. HyperOS puede matar el servicio
+  igual; por eso existe el aviso de exención de batería. `START_STICKY` ayuda
+  pero no garantiza nada.
+- Vosk small-es es un modelo pequeño: entiende vocabulario de mostrador, pero
+  confunde nombres de producto parecidos más que Google. El diccionario del
+  catálogo sigue siendo el que decide qué se vendió.
+- El primer uso de Vosk descomprime ~40 MB (unos segundos) y hasta terminar la
+  frase de activación no funciona. El dock hace lo mismo con su modelo.
+- La frase de activación se detecta sobre la transcripción del STT, no con un
+  motor de palabra clave dedicado. Con ruido de mostrador puede no reconocerse;
+  repetir «oye nova» más cerca del teléfono.
+- Las consultas con la app cerrada usan la última foto del catálogo: si se vendió
+  desde otro teléfono del mismo puesto, la respuesta puede quedar desfasada hasta
+  la próxima apertura de la app.
+- El servicio y el dock no comparten micrófono: mientras la app está abierta el
+  servicio queda en pausa y no captura dictados (los toma el dock).
+- **Tabla nueva + dev server encendido**: el journal de Drizzle se carga con
+  `import.meta.glob`, que Vite resuelve al arrancar `pnpm dev`. Si añades una
+  tabla y no reinicias el dev server, la app la crea desde el schema al primer
+  uso (red de seguridad en `client.js`), pero sin los índices del journal. Para
+  el estado completo, reinicia `pnpm dev` y reabre la app.

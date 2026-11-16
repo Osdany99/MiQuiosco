@@ -53,7 +53,6 @@ export function derivarFaseVoz({
   faseStt = 'idle',
   hablando = false,
   confirmando = false,
-  deshaciendo = false,
   cargandoModelo = false,
   error = '',
   transcript = '',
@@ -69,9 +68,6 @@ export function derivarFaseVoz({
   }
   if (hablando) {
     return fase('hablando', 'Hablando…', confirmando ? 'Enseguida te toca hablar' : '', 'hablando', false)
-  }
-  if (deshaciendo) {
-    return fase('deshacer', 'Puedes deshacer', 'Di «cancela» para anular la venta.', 'escuchando', true)
   }
 
   const capturando = faseStt === 'capturando'

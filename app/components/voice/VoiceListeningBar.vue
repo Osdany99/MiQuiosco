@@ -12,9 +12,7 @@ const props = defineProps({
   // flujo normal, así que el layout avisa para no perder el panel.
   confirmando: { type: Boolean, default: false },
   // Fase real del STT: idle | preparando | capturando | procesando.
-  faseStt: { type: String, default: 'idle' },
-  // Ventana de 5 s para deshacer la última venta diciendo «cancela».
-  deshaciendo: { type: Boolean, default: false }
+  faseStt: { type: String, default: 'idle' }
 })
 
 const emit = defineEmits(['reintentar', 'cancelar'])
@@ -38,7 +36,6 @@ const fase = computed(() => derivarFaseVoz({
   faseStt: props.faseStt,
   hablando: hablando.value,
   confirmando: props.confirmando,
-  deshaciendo: props.deshaciendo,
   cargandoModelo: Boolean(voice.cargandoModelo?.value),
   error: props.error || '',
   transcript: props.transcript || '',
