@@ -59,8 +59,8 @@ const porResultado = computed(() => {
 
 <template>
   <BaseHeaderPage
-    title="Confirmaciones del Modo PRO"
-    description="Ventas que el Modo PRO intentó autocofirmar sin tocar el dispositivo"
+    title="Confirmaciones de voz"
+    description="Ventas que la voz intentó confirmar sin tocar el dispositivo"
     leading-icon="i-lucide-shield-check"
     :show-button="false"
   >
@@ -99,7 +99,7 @@ const porResultado = computed(() => {
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
-      empty-state="No hay confirmaciones del Modo PRO"
+      empty-state="No hay confirmaciones de voz"
       @reload="cargar"
     >
       <template #creadoEn-cell="{ row }">

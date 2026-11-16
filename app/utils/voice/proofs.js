@@ -1,5 +1,5 @@
 /**
- * app/utils/voice/proofs.js — Auditoría local del Modo PRO.
+ * app/utils/voice/proofs.js — Auditoría local de la confirmación hablada.
  *
  * Guarda un registro por cada intento de auto-confirmación: qué se entendió,
  * qué producto/ubicación y si terminó en venta o se abandonó. No guarda audio

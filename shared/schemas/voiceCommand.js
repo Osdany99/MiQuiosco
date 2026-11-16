@@ -3,7 +3,7 @@ import { LEXICO_BASE } from '../voz/lexico.js'
 import { VISTAS_CON_RUTA } from '../permisos.js'
 
 /** Comandos que el intérprete puede devolver. `desconocido` = no se actúa. */
-export const voiceCommandId = z.enum(['venta_directa', 'consulta_stock', 'navegacion', 'desconocido'], {
+export const voiceCommandId = z.enum(['venta_directa', 'consulta_stock', 'consulta_precio', 'repetir', 'ayuda', 'navegacion', 'desconocido'], {
   message: 'Comando de voz no soportado'
 })
 
@@ -53,6 +53,24 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
     slots: consultaSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('consulta_precio'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: consultaSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('repetir'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: z.object({}).default({})
+  }),
+  z.object({
+    comando: z.literal('ayuda'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: z.object({}).default({})
   }),
   z.object({
     comando: z.literal('navegacion'),

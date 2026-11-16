@@ -1321,7 +1321,7 @@ export const vozEventos = pgTable(
 export type VozEvento = typeof vozEventos.$inferSelect
 export type NuevoVozEvento = typeof vozEventos.$inferInsert
 
-// Auditoría central del Modo PRO: pruebas de auto-confirmación que el dispositivo
+// Auditoría central de la confirmación hablada: pruebas de auto-confirmación que el dispositivo
 // intentó registrar. Solo datos estructurados, nunca texto crudo de voz.
 export const vozConfirmaciones = pgTable(
   'voz_confirmaciones',
@@ -1374,6 +1374,26 @@ export const vozLexico = pgTable(
 
 export type VozLexico = typeof vozLexico.$inferSelect
 export type NuevoVozLexico = typeof vozLexico.$inferInsert
+
+/**
+ * Configuración de flota de la voz. Una sola fila (`id = 1`) que el
+ * super_admin edita desde `/admin/voz-configuracion` y todos los equipos
+ * descargan al sincronizar. `version` sube en cada cambio para que los
+ * teléfonos sepan cuándo volver a aplicar los valores locales.
+ */
+export const vozConfig = pgTable('voz_config', {
+  id: integer('id').primaryKey().default(1),
+  wake: text('wake').notNull().default('oye nova'),
+  motor: text('motor').notNull().default('auto'),
+  idioma: text('idioma').notNull().default('sistema'),
+  retencionDias: integer('retencion_dias').notNull().default(30),
+  version: integer('version').notNull().default(1),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPor: uuid('actualizado_por').references(() => usuarios.id)
+})
+
+export type VozConfig = typeof vozConfig.$inferSelect
+export type NuevaVozConfig = typeof vozConfig.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'

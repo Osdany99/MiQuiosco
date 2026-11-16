@@ -77,3 +77,9 @@ export function fraseStockInsuficiente({ disponible, nombre, lugar }) {
 }
 
 export const FRASE_CONFIRMAR = 'Diga sí para confirmar.'
+
+/** Ayuda hablada: qué sabe hacer el asistente. */
+export const FRASE_AYUDA = 'Puedo vender, consultar stock y precios, y abrir pantallas. Prueba: vende dos panes; cuánto cuesta el refresco; abre deudas.'
+
+/** No hay respuesta previa que repetir. */
+export const FRASE_NADA_QUE_REPETIR = 'No tengo nada que repetir todavía.'

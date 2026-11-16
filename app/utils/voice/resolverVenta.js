@@ -39,7 +39,7 @@ function nombreUbicacion(ubicacion) {
  * @param {'quiosco'|'almacen'|null} opciones.ubicacionVista Ubicación de la vista.
  * @param {boolean} opciones.permitirConflicto Si la ruta es de inventario.
  * @param {number} opciones.sttConfidence Confianza del STT (0..1).
- * @param {boolean} opciones.ventaDirecta Ajuste "venta directa por voz".
+ * @param {boolean} opciones.ventaDirecta Resolución para el buzón (app cerrada).
  */
 export function resolverVenta({
   slots,

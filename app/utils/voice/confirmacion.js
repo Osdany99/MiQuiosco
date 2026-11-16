@@ -1,9 +1,9 @@
 /**
- * app/utils/voice/confirmacion.js — Respuesta hablada al Modo PRO (puro).
+ * app/utils/voice/confirmacion.js — Respuesta hablada a la confirmación (puro).
  *
  * Solo se aceptan frases completas y conocidas. "sí pero no" o "sí tengo" no
- * confirman: en Modo PRO la venta se registra sin tocar el dispositivo, así que
- * un falso positivo cuesta dinero. Ante la duda, se cae al fallback manual.
+ * confirman: la venta se registra sin tocar el dispositivo, así que un falso
+ * positivo cuesta dinero. Ante la duda, se cae al fallback manual.
  *
  * Sin Vue y sin datos: se prueba con `node --test` (tests/voz.test.js).
  */

@@ -30,7 +30,9 @@ import { clasificarRespuesta, esAfirmacion, esNegacion } from '../app/utils/voic
 import { cabecerasDePrueba } from '../app/utils/voice/auditoria.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
 import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
+import { formatearPrecio } from '../app/utils/voice/respuestasVoz.js'
 import { MS_MARGEN_ANTIECO, esEcoDePrompt, ecoPalabraSuelta } from '../app/utils/voice/eco.js'
+import { extraerCorreccion } from '../app/utils/voice/correccion.js'
 
 describe('voz: normalización y números', () => {
   it('normaliza acentos, mayúsculas y puntuación', () => {
@@ -65,6 +67,13 @@ describe('voz: clasificación (fase A)', () => {
     ['cinco panes', 'venta_directa'],
     ['cuanto hay de pan', 'consulta_stock'],
     ['cuanto queda de refresco', 'consulta_stock'],
+    ['cuanto cuesta el pan', 'consulta_precio'],
+    ['a como esta el refresco', 'consulta_precio'],
+    ['cuanto vale una cerveza', 'consulta_precio'],
+    ['cuanto debe juan', 'desconocido'],
+    ['cuanto vendi hoy', 'desconocido'],
+    ['repite', 'repetir'],
+    ['que puedes hacer', 'ayuda'],
     ['abre cuadre', 'navegacion'],
     ['ir a deudas', 'navegacion'],
     ['hola', 'desconocido'],
@@ -91,6 +100,51 @@ describe('voz: clasificación (fase A)', () => {
 
   it('el verbo manda sobre el resto', () => {
     assert.equal(resolverComando('vende el stock de pan').comando, 'venta_directa')
+  })
+})
+
+describe('voz: precio, repetir y ayuda', () => {
+  it('extrae producto y ubicación de una consulta de precio', () => {
+    const r = interpretar('cuanto cuesta el pan del almacen')
+    assert.equal(r.comando, 'consulta_precio')
+    assert.deepEqual(r.slots, { productoHint: 'pan', ubicacion: 'almacen' })
+  })
+
+  it('un precio sin producto no inventa nada', () => {
+    assert.equal(resolverComando('cuanto cuesta').comando, 'desconocido')
+  })
+
+  it('repetir y ayuda no llevan slots', () => {
+    assert.deepEqual(interpretar('repite').slots, {})
+    assert.deepEqual(interpretar('que puedes hacer').slots, {})
+  })
+
+  it('formatea precio vigente y stock, respetando la ubicación pedida', () => {
+    const fila = {
+      nombre: 'Pan',
+      precioVentaActual: 20,
+      quiosco: 12,
+      almacen: 3,
+      pendienteQuiosco: 0,
+      pendienteAlmacen: 0
+    }
+    assert.equal(
+      formatearPrecio(fila).habla,
+      'Pan cuesta 20 pesos. En quiosco quedan 12. En almacén quedan 3.'
+    )
+    assert.equal(
+      formatearPrecio(fila, { ubicacionPedida: 'almacen' }).habla,
+      'Pan cuesta 20 pesos. En almacén quedan 3.'
+    )
+    assert.equal(
+      formatearPrecio(fila, { ubicacionPedida: 'quiosco' }).descripcion,
+      'Pan: 20 pesos · Quiosco: 12'
+    )
+  })
+
+  it('sin permiso no revela precios ni stock', () => {
+    const fila = { nombre: 'Pan', precioVentaActual: 20, quiosco: 12, almacen: 3 }
+    assert.deepEqual(formatearPrecio(fila, { verQuiosco: false, verAlmacen: false }), { sinPermiso: true })
   })
 })
 
@@ -825,6 +879,32 @@ describe('voz: frases habladas (concordancia)', () => {
     assert.equal(fraseStockInsuficiente({ disponible: 1, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay una unidad de Pan en el quiosco.')
     assert.equal(fraseStockInsuficiente({ disponible: 3, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay 3 unidades de Pan en el quiosco.')
     assert.equal(fraseStockInsuficiente({ disponible: 0, nombre: 'Pan', lugar: 'almacén' }), 'No hay Pan en el almacén.')
+  })
+})
+
+describe('voz: corrección de cantidad en la confirmación', () => {
+  it('entiende las frases de corrección habituales', () => {
+    assert.deepEqual(extraerCorreccion('no, eran tres'), { cantidad: 3 })
+    assert.deepEqual(extraerCorreccion('eran cinco'), { cantidad: 5 })
+    assert.deepEqual(extraerCorreccion('cambia a cuatro'), { cantidad: 4 })
+    assert.deepEqual(extraerCorreccion('son seis'), { cantidad: 6 })
+    assert.deepEqual(extraerCorreccion('pon una docena'), { cantidad: 12 })
+    assert.deepEqual(extraerCorreccion('mejor dos'), { cantidad: 2 })
+    assert.deepEqual(extraerCorreccion('no, eran 15'), { cantidad: 15 })
+  })
+
+  it('no confunde un sí/no normal con una corrección', () => {
+    assert.equal(extraerCorreccion('sí'), null)
+    assert.equal(extraerCorreccion('no'), null)
+    assert.equal(extraerCorreccion('no gracias'), null)
+    assert.equal(extraerCorreccion('sí por favor'), null)
+    assert.equal(extraerCorreccion('vende dos panes'), null)
+    assert.equal(extraerCorreccion(''), null)
+  })
+
+  it('rechaza cantidades imposibles', () => {
+    assert.equal(extraerCorreccion('no, eran cero'), null)
+    assert.equal(extraerCorreccion('no, eran 10000'), null)
   })
 })
 

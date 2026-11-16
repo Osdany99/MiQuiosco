@@ -4,7 +4,7 @@ import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
 import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
-import { useVoiceZeroTouch } from '../composables/useVoiceZeroTouch'
+import { IDIOMAS_FLOTA, MOTORES_FLOTA } from '#shared/voz/config'
 import { useVozServicio } from '../composables/useVozServicio'
 
 const toast = useToast()
@@ -12,6 +12,7 @@ const conexion = useModoConexion()
 const tts = useTts()
 const dictadoModo = useDictadoModo()
 const voz = useVoiceCommand()
+const vozConfig = useVozConfig()
 const servicioVoz = useVozServicio()
 const pruebaMicrofono = ref('')
 const probandoMicrofono = ref(false)
@@ -149,6 +150,7 @@ onMounted(() => {
   void voz.refrescarTraza()
   void voz.sincronizarDiagNativo()
   void servicioVoz.refrescar()
+  void vozConfig.cargar().then(() => vozConfig.refrescar()).catch(() => {})
 })
 
 onUnmounted(() => {
@@ -350,18 +352,30 @@ const saludoActivo = computed({
   get: () => tts.greetingEnabled.value,
   set: (value) => { void tts.setGreetingEnabled(value) }
 })
-const zeroTouchConfig = useVoiceZeroTouch()
-void zeroTouchConfig.cargar()
-const zeroTouchTimeout = computed({
-  get: () => zeroTouchConfig.timeoutMs.value,
-  set: (value) => { void zeroTouchConfig.setTimeoutMs(value) }
-})
-const timeoutOpciones = [
-  { label: '3 segundos', value: 3000 },
-  { label: '5 segundos', value: 5000 },
-  { label: '8 segundos', value: 8000 },
-  { label: '10 segundos', value: 10000 }
-]
+// Motor, idioma, traza y frases de prueba son herramientas de soporte: el jefe
+// no necesita verlas y un cambio accidental puede romper el reconocimiento.
+const esSuperAdmin = computed(() => auth.usuarioActual.value?.rol === 'super_admin')
+const avanzadoAbierto = ref(false)
+const flotaMotor = computed(() =>
+  MOTORES_FLOTA.find(o => o.id === vozConfig.config.value.motor)?.label
+  ?? vozConfig.config.value.motor
+)
+const flotaIdioma = computed(() =>
+  IDIOMAS_FLOTA.find(o => o.id === vozConfig.config.value.idioma)?.label
+  ?? vozConfig.config.value.idioma
+)
+
+async function descargarConfigVoz() {
+  await vozConfig.refrescar()
+  await vozConfig.aplicarAhora().catch(() => {})
+  toast.add({
+    title: 'Configuración de voz',
+    description: vozConfig.error.value
+      ? vozConfig.error.value
+      : `Aplicada la versión ${vozConfig.version.value || 'local'}.`,
+    color: vozConfig.error.value ? 'warning' : 'success'
+  })
+}
 const telemetriaValor = ref(telemetriaActivaSync())
 const telemetriaActivaComputed = computed({
   get: () => telemetriaValor.value,
@@ -370,7 +384,6 @@ const telemetriaActivaComputed = computed({
     void fijarTelemetria(value)
   }
 })
-const telemetriaJefe = computed(() => auth.usuarioActual.value?.rol === 'jefe' || auth.usuarioActual.value?.rol === 'super_admin')
 const dictadoPushToTalk = computed({
   get: () => dictadoModo.pushToTalk.value,
   set: (value) => { dictadoModo.set(value) }
@@ -1023,10 +1036,10 @@ async function whOlvidarEste() {
       <div class="space-y-3">
         <div>
           <h2 class="text-sm font-medium">
-            Audio y voz
+            Voz
           </h2>
           <p class="text-sm text-muted">
-            Lee el resultado cuando registras una venta o deuda con el micrófono.
+            Cómo habla el dispositivo y cómo se confirma una venta dictada.
           </p>
         </div>
 
@@ -1034,123 +1047,39 @@ async function whOlvidarEste() {
           v-model="ttsActivo"
           color="primary"
           :disabled="!tts.disponible.value"
-          description="Cuando registras una venta, deuda o consulta por voz, el dispositivo lee el resultado."
+          description="Lee el resultado de una venta, deuda o consulta, y lee la venta antes de pedir el “sí”."
         >
-          Confirmar vendido por voz
+          Leer en voz alta
         </USwitch>
+
+        <p v-if="!tts.disponible.value" class="text-xs text-warning">
+          Este dispositivo no tiene voz de respuesta instalada.
+        </p>
 
         <USwitch
           v-model="saludoActivo"
           color="neutral"
-          :disabled="!tts.disponible.value"
+          :disabled="!tts.disponible.value || !ttsActivo"
           description="Dice “Hola, ¿qué puedo hacer por ti hoy?” antes de empezar a escucharte."
         >
           Leer saludo al dictar
         </USwitch>
 
-        <div v-if="zeroTouchConfig.esJefe.value" class="space-y-2">
-          <UFormField label="Tiempo de espera del “sí”" />
-          <USelect
-            v-model="zeroTouchTimeout"
-            :items="timeoutOpciones"
-            class="w-full"
-          />
-          <p class="text-xs text-muted">
-            Toda venta por voz se lee y pide confirmación. Esto es cuánto escucha
-            el micrófono antes de dejar el formulario abierto para confirmar a mano.
+        <div class="space-y-1 border-t border-default pt-3">
+          <p class="text-sm">
+            Toda venta por voz se lee y pide confirmación con un “sí” (6 segundos).
           </p>
-        </div>
-
-        <USwitch
-          v-if="telemetriaJefe"
-          v-model="telemetriaActivaComputed"
-          color="primary"
-          description="Envía plantillas enmascaradas al panel /admin/voz para mejorar el léxico."
-        >
-          Enviar al administrador las frases no entendidas
-        </USwitch>
-
-        <!-- Onda al dictar con la app cerrada (solo Android). -->
-        <USwitch
-          v-if="servicioVoz.esNativo && auth.esJefe"
-          :model-value="servicioVoz.onda.value"
-          color="primary"
-          description="Al decir «oye nova» aparece la misma onda del dock, sobre la pantalla de bloqueo, con lo que se va entendiendo. Enciende la pantalla."
-          @update:model-value="servicioVoz.activarOnda"
-        >
-          Mostrar la onda al dictar con la app cerrada
-        </USwitch>
-
-        <div v-if="servicioVoz.faltaPantallaCompleta.value" class="space-y-1">
-          <p class="text-xs text-warning">
-            El sistema no permite abrir ventanas a pantalla completa, así que la
-            onda no podrá aparecer sobre el bloqueo.
+          <p v-if="!ttsActivo" class="text-xs text-warning">
+            Con la lectura apagada no hay confirmación hablada: la venta abre el
+            formulario y se confirma con el botón.
           </p>
-          <UButton
-            size="xs"
-            variant="soft"
-            color="warning"
-            label="Permitir pantalla completa"
-            @click="servicioVoz.pedirPantallaCompleta"
-          />
-        </div>
-
-        <!-- Motor de reconocimiento (STT). -->
-        <div class="space-y-2 border-t border-default pt-3">
-          <div>
-            <h3 class="text-sm font-medium">
-              Motor de reconocimiento (entender)
-            </h3>
-            <p class="text-xs text-muted">
-              Cada modo hace un solo intento: online no cae a offline y
-              offline no cae a online. Vosk solo se usa si lo seleccionas.
-            </p>
-          </div>
-          <USelect
-            :items="itemsMotorVoz"
-            :model-value="voz.preferenciaMotor.value"
-            class="w-full"
-            @update:model-value="(value) => { void voz.guardarPreferenciaMotor(value) }"
-          />
-          <p class="text-xs text-muted">
-            Motor actual: {{ voz.nombreMotor.value ?? '—' }} · {{ modoActualTexto }}
-          </p>
-          <p v-if="avisoConexion" class="text-xs text-warning">
-            {{ avisoConexion }}
-          </p>
-
-          <div class="space-y-2 border-t border-default pt-3">
-            <div>
-              <label class="text-sm font-medium">
-                Idioma del reconocimiento
-              </label>
-              <p class="text-xs text-muted">
-                Usa el idioma que tengas instalado para el reconocimiento offline.
-                “Sistema” usa el mismo del teléfono (recomendado).
-              </p>
-            </div>
-            <USelect
-              :items="itemsIdiomaVoz"
-              :model-value="voz.preferenciaIdioma.value"
-              class="w-full"
-              @update:model-value="(value) => { void voz.guardarPreferenciaIdioma(value) }"
-            />
-            <p class="text-xs text-muted">
-              Sistema: {{ voz.idiomaSistema.value }} · Usando: {{ voz.idiomaEtiqueta.value }}
-            </p>
-          </div>
         </div>
 
         <!-- Voz de respuesta (TTS): SOLO afecta a cómo la app HABLA. -->
         <div class="space-y-2 border-t border-default pt-3">
-          <div>
-            <h3 class="text-sm font-medium">
-              Voz de respuesta (hablar)
-            </h3>
-            <p class="text-xs text-muted">
-              Cómo el dispositivo te lee el resultado. No afecta a lo que el micrófono entiende.
-            </p>
-          </div>
+          <h3 class="text-sm font-medium">
+            Voz de respuesta
+          </h3>
           <USelect
             :items="itemsVocesTts"
             :model-value="tts.vozUri.value"
@@ -1180,22 +1109,33 @@ async function whOlvidarEste() {
           </div>
         </div>
 
-        <!-- Reconocimiento (STT): lo que usa el micrófono para ENTENDER. -->
-        <div class="space-y-2 border-t border-default pt-3">
-          <div>
-            <h3 class="text-sm font-medium">
-              Reconocimiento (entender)
-            </h3>
-            <p class="text-xs text-muted">
-              Lo usa el micrófono para entender lo que dices. Depende del motor del dispositivo y de su paquete de idioma offline.
-            </p>
-          </div>
+        <!-- Escucha con la app cerrada (solo Android). -->
+        <div
+          v-if="servicioVoz.esNativo && auth.esJefe"
+          class="space-y-2 border-t border-default pt-3"
+        >
+          <h3 class="text-sm font-medium">
+            Con la app cerrada
+          </h3>
           <p class="text-xs text-muted">
-            Motor:
-            {{ voz.motorStt.value || (voz.esNativo.value ? 'No detectado' : 'Navegador') }}
-            <span v-if="voz.esNativo.value">· En el dispositivo: {{ voz.onDeviceStt.value ? 'Sí' : 'No' }}</span>
-            <span v-if="voz.esNativo.value">· Servicios: {{ voz.serviciosStt.value.length }}</span>
+            El interruptor de escucha está en
+            <NuxtLink to="/pendientes" class="underline">Por revisar (voz)</NuxtLink>.
           </p>
+          <USwitch
+            :model-value="servicioVoz.onda.value"
+            color="primary"
+            description="Al decir «oye nova» aparece la misma onda del dock, sobre la pantalla de bloqueo, con lo que se va entendiendo. Enciende la pantalla."
+            @update:model-value="servicioVoz.activarOnda"
+          >
+            Mostrar la onda al dictar con la app cerrada
+          </USwitch>
+        </div>
+
+        <!-- Problemas de voz: lo único técnico que el jefe necesita. -->
+        <div class="space-y-2 border-t border-default pt-3">
+          <h3 class="text-sm font-medium">
+            Si el micrófono no te entiende
+          </h3>
           <div class="flex items-center gap-2">
             <UButton
               color="primary"
@@ -1220,95 +1160,199 @@ async function whOlvidarEste() {
           </p>
         </div>
 
-        <!-- Diagnóstico local: se copia a mano, nunca se envía al servidor. -->
-        <div class="space-y-2 border-t border-default pt-3">
-          <div class="flex items-center justify-between gap-2">
-            <h3 class="text-sm font-medium">
-              Diagnóstico de voz
-            </h3>
-            <UBadge
-              color="success"
-              variant="soft"
-              size="sm"
-            >
-              Grabando siempre
-            </UBadge>
-          </div>
-          <p class="text-xs text-muted">
-            La traza se graba sola: no hay que activar nada. Pulsa <strong>Preparar ronda</strong> antes de cada tanda (limpia y marca online/local), prueba las frases y luego <strong>Copiar</strong>. Es local.
-          </p>
+        <!-- Herramientas de soporte: solo super_admin. -->
+        <UCollapsible v-if="esSuperAdmin" v-model:open="avanzadoAbierto" class="border-t border-default pt-3">
+          <UButton
+            variant="ghost"
+            size="sm"
+            :icon="avanzadoAbierto ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            label="Avanzado (soporte)"
+          />
+          <template #content>
+            <div class="space-y-3 pt-2">
+              <div class="space-y-2 rounded-lg border border-default p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <h3 class="text-sm font-medium">
+                    Configuración de flota
+                  </h3>
+                  <UBadge color="neutral" variant="soft" size="sm">
+                    {{ vozConfig.version.value ? `v${vozConfig.version.value}` : 'Sin sincronizar' }}
+                  </UBadge>
+                </div>
+                <p class="text-xs text-muted">
+                  Palabra clave: «{{ vozConfig.config.value.wake }}» ·
+                  {{ flotaMotor }} · {{ flotaIdioma }} ·
+                  retención {{ vozConfig.config.value.retencionDias }} días.
+                </p>
+                <p class="text-xs text-muted">
+                  Los cambios manuales de motor o idioma en este equipo se
+                  respetan hasta el próximo cambio de flota.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                  <UButton
+                    size="sm"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-refresh-cw"
+                    :loading="vozConfig.cargando.value"
+                    @click="descargarConfigVoz"
+                  >
+                    Descargar y aplicar
+                  </UButton>
+                  <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-settings-2"
+                    to="/admin/voz-configuracion"
+                  >
+                    Editar flota
+                  </UButton>
+                </div>
+              </div>
 
-          <div class="flex flex-wrap items-center gap-2">
-            <UButton
-              size="sm"
-              color="primary"
-              variant="soft"
-              icon="i-lucide-circle-dot"
-              @click="prepararRonda"
-            >
-              Preparar ronda
-            </UButton>
-            <UButton
-              size="sm"
-              color="neutral"
-              variant="outline"
-              icon="i-lucide-copy"
-              @click="copiarTraza"
-            >
-              Copiar
-            </UButton>
-            <UButton
-              size="sm"
-              color="neutral"
-              variant="ghost"
-              icon="i-lucide-trash-2"
-              :disabled="!voz.traza.value.length"
-              @click="voz.limpiarTraza()"
-            >
-              Limpiar
-            </UButton>
-            <span class="text-xs text-muted">
-              {{ voz.traza.value.length }} líneas
-            </span>
-          </div>
+              <div class="space-y-2">
+                <h3 class="text-sm font-medium">
+                  Motor de reconocimiento
+                </h3>
+                <p class="text-xs text-muted">
+                  Cada modo hace un solo intento: online no cae a offline y
+                  offline no cae a online.
+                </p>
+                <USelect
+                  :items="itemsMotorVoz"
+                  :model-value="voz.preferenciaMotor.value"
+                  class="w-full"
+                  @update:model-value="(value) => { void voz.guardarPreferenciaMotor(value) }"
+                />
+                <p class="text-xs text-muted">
+                  Motor actual: {{ voz.nombreMotor.value ?? '—' }} · {{ modoActualTexto }}
+                </p>
+                <p v-if="avisoConexion" class="text-xs text-warning">
+                  {{ avisoConexion }}
+                </p>
+              </div>
 
-          <p v-if="voz.ultimoEvento.value" class="text-xs text-muted">
-            Último: {{ voz.ultimoEvento.value.evento }}
-          </p>
+              <div class="space-y-2">
+                <h3 class="text-sm font-medium">
+                  Idioma del reconocimiento
+                </h3>
+                <USelect
+                  :items="itemsIdiomaVoz"
+                  :model-value="voz.preferenciaIdioma.value"
+                  class="w-full"
+                  @update:model-value="(value) => { void voz.guardarPreferenciaIdioma(value) }"
+                />
+                <p class="text-xs text-muted">
+                  Sistema: {{ voz.idiomaSistema.value }} · Usando: {{ voz.idiomaEtiqueta.value }}
+                </p>
+              </div>
 
-          <p v-if="voz.traza.value.length" class="text-xs text-muted">
-            {{ voz.textoResumenTraza.value }}
-          </p>
+              <div class="space-y-1">
+                <h3 class="text-sm font-medium">
+                  Estado del reconocimiento
+                </h3>
+                <p class="text-xs text-muted">
+                  Motor:
+                  {{ voz.motorStt.value || (voz.esNativo.value ? 'No detectado' : 'Navegador') }}
+                  <span v-if="voz.esNativo.value">· En el dispositivo: {{ voz.onDeviceStt.value ? 'Sí' : 'No' }}</span>
+                  <span v-if="voz.esNativo.value">· Servicios: {{ voz.serviciosStt.value.length }}</span>
+                </p>
+              </div>
 
-          <pre
-            v-if="voz.traza.value.length"
-            class="max-h-64 overflow-auto rounded-lg border border-default bg-elevated/50 p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap break-words"
-          >{{ voz.textoTraza.value }}</pre>
-          <p v-else class="text-xs text-muted">
-            Sin registros todavía.
-          </p>
+              <USwitch
+                v-model="telemetriaActivaComputed"
+                color="primary"
+                description="Envía plantillas enmascaradas al panel /admin/voz para mejorar el léxico."
+              >
+                Enviar al administrador las frases no entendidas
+              </USwitch>
 
-          <div class="rounded-lg border border-default p-2">
-            <p class="text-xs font-medium">
-              Frases de prueba
-            </p>
-            <ol class="list-decimal pl-5 text-xs text-muted">
-              <li>«vende dos refrescos»</li>
-              <li>«vende cinco panes del almacén»</li>
-              <li>«cuánto hay de maní»</li>
-              <li>«abre cuadre»</li>
-              <li>«vende un refresco familiar»</li>
-              <li>«hola» (control: no es un comando)</li>
-            </ol>
-          </div>
-        </div>
+              <!-- Diagnóstico local: se copia a mano, nunca se envía al servidor. -->
+              <div class="space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-medium">
+                    Diagnóstico de voz
+                  </h3>
+                  <UBadge color="success" variant="soft" size="sm">
+                    Grabando siempre
+                  </UBadge>
+                </div>
+                <p class="text-xs text-muted">
+                  La traza se graba sola. Pulsa <strong>Preparar ronda</strong> antes
+                  de cada tanda, prueba las frases y luego <strong>Copiar</strong>. Es local.
+                </p>
 
-        <p v-if="!tts.disponible.value" class="text-xs text-warning">
-          Síntesis de voz no disponible en este dispositivo.
-        </p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <UButton
+                    size="sm"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-circle-dot"
+                    @click="prepararRonda"
+                  >
+                    Preparar ronda
+                  </UButton>
+                  <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-copy"
+                    @click="copiarTraza"
+                  >
+                    Copiar
+                  </UButton>
+                  <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-lucide-trash-2"
+                    :disabled="!voz.traza.value.length"
+                    @click="voz.limpiarTraza()"
+                  >
+                    Limpiar
+                  </UButton>
+                  <span class="text-xs text-muted">
+                    {{ voz.traza.value.length }} líneas
+                  </span>
+                </div>
+
+                <p v-if="voz.ultimoEvento.value" class="text-xs text-muted">
+                  Último: {{ voz.ultimoEvento.value.evento }}
+                </p>
+
+                <p v-if="voz.traza.value.length" class="text-xs text-muted">
+                  {{ voz.textoResumenTraza.value }}
+                </p>
+
+                <pre
+                  v-if="voz.traza.value.length"
+                  class="max-h-64 overflow-auto rounded-lg border border-default bg-elevated/50 p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap break-words"
+                >{{ voz.textoTraza.value }}</pre>
+                <p v-else class="text-xs text-muted">
+                  Sin registros todavía.
+                </p>
+
+                <div class="rounded-lg border border-default p-2">
+                  <p class="text-xs font-medium">
+                    Frases de prueba
+                  </p>
+                  <ol class="list-decimal pl-5 text-xs text-muted">
+                    <li>«vende dos refrescos»</li>
+                    <li>«vende cinco panes del almacén»</li>
+                    <li>«cuánto hay de maní»</li>
+                    <li>«cuánto cuesta el refresco»</li>
+                    <li>«repite»</li>
+                    <li>«abre cuadre»</li>
+                    <li>«hola» (control: no es un comando)</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </template>
+        </UCollapsible>
       </div>
     </UCard>
-
     <UCard>
       <div class="space-y-3">
         <div>
@@ -1326,28 +1370,6 @@ async function whOlvidarEste() {
           Activado: mantén el micrófono pulsado mientras hablas y suelta para enviar.
           Desactivado: pulsa una vez para empezar y usa el botón cuadrado para parar o cancelar.
         </p>
-      </div>
-    </UCard>
-
-    <!-- ⚠️ PILOTO TEMPORAL — voz offline con Vosk. Se retira con esta tarjeta al terminar el piloto. -->
-    <UCard v-if="esNativo">
-      <div class="space-y-3 border border-amber-200 bg-amber-50 rounded-lg p-3">
-        <h2 class="text-sm font-medium text-amber-800">
-          Piloto de voz offline
-        </h2>
-        <p class="text-sm text-amber-700">
-          Prueba aislada de Vosk (modelo empaquetado, sin Google). Graba y transcribe
-          sin tocar los comandos de la app. Ideal para decidir si entra al flujo real.
-        </p>
-        <UButton
-          size="sm"
-          color="amber"
-          variant="soft"
-          icon="i-lucide-flask-conical"
-          to="/laboratorio-voz"
-        >
-          Ir al laboratorio
-        </UButton>
       </div>
     </UCard>
   </div>

@@ -4,7 +4,8 @@
 1. `resolverComando(transcript, lexico)` → `{ comando, confianza, reasons }`.
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
-Soportados: `venta_directa`, `consulta_stock`, `navegacion`, `desconocido`.
+Soportados: `venta_directa`, `consulta_stock`, `consulta_precio`, `repetir`,
+`ayuda`, `navegacion`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -93,10 +94,14 @@ traza de voz de Ajustes.
 
 ### Tiempo de espera
 
-Configurable en Ajustes: **3, 5, 8 o 10 segundos**, por defecto **5 s**. Se
-guarda en `Preferences` con la clave `voice.ceroToques.timeoutMs` (acotado entre
-3000 y 10000 ms). Controla cuánto tiempo el micrófono espera el “sí” antes de
-caer al modo manual.
+Fijo: **6 segundos**. No se configura en Ajustes (antes había un selector de
+3/5/8/10 s que solo añadía dudas, y el servicio nativo ya esperaba 6 s). El
+mismo valor vive en `useVoiceZeroTouch.js` (`TIMEOUT_CONFIRMACION_MS`) y en
+`shared/voz/dialogo.json` (`tiempos.confirmacion`). Controla cuánto tiempo el
+micrófono espera el “sí” antes de caer al modo manual.
+
+Si **Leer en voz alta** está apagado no hay confirmación hablada: la venta abre
+el formulario y se confirma con el botón, sin esperar en silencio.
 
 ### Frases aceptadas
 
@@ -110,6 +115,41 @@ frases claras y completas.
   `espera`, `detente`, `para`, `nada`.
 - Se rechazan frases ambiguas como `sí pero no`, `si tengo`, `sí mañana` o
   `sí luego`: ante la duda se cae al modo manual.
+
+### Consultas de precio, «repite» y ayuda (app abierta)
+
+Con la app abierta el intérprete reconoce además:
+
+- **Precio**: «cuánto cuesta el pan», «a cómo está el refresco», «cuánto vale
+  una cerveza» → `formatearPrecio`: «Pan cuesta 20 pesos. En quiosco quedan 12.
+  En almacén quedan 3.» No deja nada para revisar.
+- **Repite**: «repite», «repítelo», «otra vez», «qué dijiste» → vuelve a decir
+  la última respuesta de stock o precio. Nunca repite una venta.
+- **Ayuda**: «qué puedes hacer», «ayuda», «qué sabes hacer» → lee qué sabe hacer
+  y da un ejemplo.
+
+Estos tres son **solo con la app abierta**. El servicio en segundo plano sigue
+limitado a venta y consultas desde el snapshot (stock, precio y resumen).
+
+### Corregir la cantidad al confirmar
+
+Si la lectura salió con una cantidad equivocada, el jefe puede corregirla sin
+repetir el comando:
+
+- «no, eran tres» · «cambia a cinco» · «son seis» · «pon una docena».
+
+El sistema revalida el stock de la ubicación, actualiza la cantidad, recalcula el
+importe y **vuelve a leer la venta** con la nueva cifra. Se permiten **2
+correcciones** por venta; a la tercera hay que confirmar a mano. Si la cantidad
+nueva no hay stock, se explica el motivo y el formulario queda abierto.
+
+Funciona igual con la app abierta y con la app cerrada (`VozEscuchaService`
+revalida contra el snapshot). Solo cambia la **cantidad**: para otro producto o
+ubicación se cancela y se dicta de nuevo.
+
+Todavía no se responde por voz: deudas («cuánto debe Juan»), ventas del día y
+caja **con la app abierta**. Ante esas frases hay silencio, no una cifra
+inventada.
 
 ## Revisión de lo dictado (nada se registra solo)
 
@@ -246,17 +286,19 @@ Detalles de diseño:
 
 ### Motor de reconocimiento (con y sin internet)
 
-El servicio usa el motor elegido en **Ajustes → Motor de voz**, con una
-diferencia respecto al dock: **«Automático» escucha con Vosk**, no con Google.
-El motivo es físico: el `SpeechRecognizer` del sistema pita cada vez que abre el
-micrófono y el servicio abre una sesión por frase, así que en el bolsillo sonaba
-un pitido cada pocos segundos. Vosk escucha de forma continua y en silencio.
+El motor lo fija la **configuración de flota** (`/admin/voz-configuracion`), no
+un selector por equipo. Los valores y su significado son únicos:
 
-| Preferencia | Motor del servicio | Cuándo |
+| Motor de flota | App abierta | App cerrada |
 |---|---|---|
-| `Automático` (por defecto) | Vosk empaquetado | Siempre. Sin pitidos y sin datos. |
-| `Vosk (offline)` | Vosk empaquetado | Siempre. |
-| `Google (sistema)` | `SpeechRecognizer` | Sólo si lo elegís: necesita internet y pita en cada frase. |
+| `auto` (por defecto) | Google si hay red; Vosk si no | Vosk empaquetado |
+| `vosk` | Vosk | Vosk |
+| `google` | Google | `SpeechRecognizer` (puede pitar en cada frase) |
+
+El motivo de que `auto` use Vosk con la app cerrada es físico: el
+`SpeechRecognizer` del sistema pita cada vez que abre el micrófono y el servicio
+abre una sesión por frase, así que en el bolsillo sonaba un pitido cada pocos
+segundos. Vosk escucha de forma continua y en silencio.
 
 Vosk reutiliza `files/vosk-es`, la MISMA carpeta que el dock (`VoskModelo`), y
 solo extrae el ZIP la primera vez (la notificación dice «Preparando la escucha
@@ -338,6 +380,33 @@ cada alternativa con el mismo emparejador y se elige la mejor con
 `elegirAlternativa` (`shared/voz/gramatica.js`). Navegación se acepta
 directamente. Si no hay margen suficiente entre alternativas, se conserva la
 transcripción base.
+
+## Configuración de flota (Fase C)
+
+El `super_admin` fija una sola vez, desde **/admin/voz-configuracion**, lo que
+aplican todos los equipos:
+
+| Campo | Por defecto | Qué controla |
+|---|---|---|
+| `wake` | `oye nova` | Frase de activación. Exige **dos palabras o más**: «nova» a secas despertaba con la conversación del mostrador. |
+| `motor` | `auto` | Motor del dock y del servicio (tabla anterior). |
+| `idioma` | `sistema` | Idioma del reconocimiento. `sistema` usa el locale del teléfono; si no es español, `es-US`. App y servicio reciben el mismo valor resuelto. |
+| `retencionDias` | `30` | Días que se conservan los eventos de voz (entre 7 y 365). |
+
+- Tabla `voz_config` (una fila) y esquema Zod compartido
+  (`shared/schemas/vozConfig.js`). Cada guardado sube `version`.
+- `GET /api/voz/config` la descarga; `PUT /api/voz/config` solo la puede cambiar
+  el `super_admin`.
+- `useVozConfig` guarda una copia en Preferences (`voz.config`) y aplica motor e
+  idioma al dock cuando llega una versión nueva. Sin red se usa la última copia;
+  sin copia, los valores por defecto. El servicio nativo también persiste
+  wake/idioma/motor y los lee si el sistema lo reinicia.
+- Un cambio manual en **Ajustes → Avanzado** (solo `super_admin`) se respeta
+  hasta el próximo cambio de flota.
+- **Retención**: la tarea `voz:retencion` corre cada noche
+  (`nitro.scheduledTasks`, 03:00) y usa `retencionDias`. El botón **Depurar
+  ahora** del panel aplica la misma política. Se conservan los eventos con 3+
+  intentos y las plantillas repetidas.
 
 ## Léxico remoto (Fase B)
 
@@ -429,7 +498,7 @@ incluso 6/7), el plugin resuelve con lo parcial en vez de reintentar y
 descartarlo. Solo se exceptúan `RECOGNIZER_BUSY` y `INSUFFICIENT_PERMISSIONS`.
 Así, si la interfaz llegó a mostrar lo que dijiste, el comando no se pierde.
 
-### Traza local (Ajustes → Diagnóstico de voz)
+### Traza local (Ajustes → Avanzado, solo `super_admin`)
 
 La traza **se graba siempre**, sin pulsar nada: un ring buffer de 2000 eventos
 con escritura en `localStorage` (`voz.diagnostico.local`) y en `Preferences`
@@ -535,13 +604,35 @@ umbral de repetición y sin nombres.
     producto: responde «Sólo quedan 0 libres: 1 está apartada por ventas por
     revisar» y **no** anota.
 19. Dictar «hola, buenas» o «mañana compro refrescos» no anota nada ni habla.
+20. Con la app abierta, «cuánto cuesta el refresco» responde precio y stock de
+    ambas ubicaciones; «repite» lo vuelve a decir; «qué puedes hacer» da la ayuda.
+21. Con la lectura de voz apagada, «vende dos panes» abre el formulario y **no**
+    se queda esperando un «sí» en silencio.
+22. En Ajustes, un `jefe` no ve motor, idioma, traza ni frases de prueba; solo
+    `super_admin` los ve dentro de **Avanzado**.
+23. «vende dos panes» → «no, eran tres»: relee «3 unidades…», recalcula el
+    importe y solo anota con «sí». Una tercera corrección obliga a confirmar a
+    mano.
+24. En `/admin/voz-configuracion`, cambiar la palabra clave a «nova» debe
+    rechazarse; «oye quiosco» se guarda y sube la versión.
+25. Un equipo con la versión anterior, al sincronizar, aplica el nuevo motor e
+    idioma y el servicio vivo se reconfigura sin reiniciar la app.
+26. «Depurar ahora» borra según `retencionDias` y conserva los eventos con 3+
+    intentos; la tarea `voz:retencion` hace lo mismo cada noche.
 
 ## Limitaciones conocidas
 
+- «Repite» y «ayuda» funcionan solo con la app abierta: el servicio en segundo
+  plano no interpreta esos comandos.
+- El resumen del día por voz («cómo va el día») se responde con la app cerrada
+  desde el snapshot; con la app abierta todavía no.
 - La auditoría central es best-effort en línea: si el envío falla o no hay
   red, el proof queda solo local y no se encola para reintentar.
-- La política de retención está definida (30 días, menos de 3 intentos, plantilla
-  única) en `server/utils/vozEventos.ts`; falta programarla o exponerla en UI.
+- La retención de eventos se ejecuta con la tarea `voz:retencion` (cada noche) y
+  con el botón **Depurar ahora** del panel. En Vercel el cron lo genera Nitro; en
+  un servidor Node lo programa el propio Nitro. Si el despliegue no ejecuta
+  tareas programadas, hay que llamar a `/_nitro/tasks/voz:retencion` desde un
+  cron externo.
 - El comportamiento del STT nativo sin conexión depende del paquete de idioma
   offline del dispositivo y debe probarse en modo avión.
 - El selector de **Voz de respuesta** es solo TTS; Android no expone una lista

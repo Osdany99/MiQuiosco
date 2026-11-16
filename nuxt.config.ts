@@ -41,6 +41,14 @@ export default defineNuxtConfig({
     prerender: {
       routes: ['/']
     },
+    // Retención de eventos de voz: tarea programada cada noche. En Vercel,
+    // Nitro genera el cron job; en un servidor Node la ejecuta el propio Nitro.
+    experimental: {
+      tasks: true
+    },
+    scheduledTasks: {
+      '0 3 * * *': 'voz:retencion'
+    },
     // Margen para /api/sync/*: aunque el cliente manda lotes pequeños, un
     // push/pull puede tardar más que el límite por defecto de Vercel.
     vercel: {

@@ -8,7 +8,7 @@ const props = defineProps({
   estado: { type: String, default: 'idle' },
   error: { type: String, default: '' },
   transcript: { type: String, default: '' },
-  // Conversación de confirmación (Modo PRO): el micrófono se abre fuera del
+  // Conversación de confirmación: el micrófono se abre fuera del
   // flujo normal, así que el layout avisa para no perder el panel.
   confirmando: { type: Boolean, default: false },
   // Fase real del STT: idle | preparando | capturando | procesando.

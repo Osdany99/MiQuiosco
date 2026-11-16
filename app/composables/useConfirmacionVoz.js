@@ -1,13 +1,17 @@
 import { watch } from 'vue'
 import { useVoiceCommand } from './useVoiceCommand'
 import { clasificarRespuesta } from '../utils/voice/confirmacion'
+import { extraerCorreccion } from '../utils/voice/correccion'
 import { esEcoDePrompt, ecoPalabraSuelta } from '../utils/voice/eco'
 
 /**
  * useConfirmacionVoz — espera única para las confirmaciones habladas.
  *
- * Resuelve: 'afirmado' | 'negado' | 'timeout' | 'error'.
- * `cancelar()` aborta la espera en curso (resuelve 'timeout').
+ * Resuelve `{ resultado, cantidad }`:
+ * - `resultado`: `'afirmado' | 'negado' | 'corregir' | 'timeout' | 'error'`.
+ * - `cantidad`: solo viene con `'corregir'` («no, eran tres»).
+ *
+ * `cancelar()` aborta la espera en curso (resuelve `'timeout'`).
  *
  * `prompt`: TODO lo que dijo el TTS (la lectura completa, no solo la pregunta).
  * Es la única forma de detectar el eco: si el micrófono devuelve el final del
@@ -25,7 +29,7 @@ let abortarActual = null
 function _create() {
   const voice = useVoiceCommand()
 
-  function esperar({ timeoutMs = 5000, prompt = '', ventanaMs = 700 } = {}) {
+  function esperar({ timeoutMs = 6000, prompt = '', ventanaMs = 700 } = {}) {
     return new Promise((resolve) => {
       let resuelto = false
       let timer = null
@@ -34,7 +38,7 @@ function _create() {
       let escuchoAlgunaVez = false
       const inicio = Date.now()
 
-      const terminar = (valor) => {
+      const terminar = (resultado, cantidad = null) => {
         if (resuelto) return
         resuelto = true
         if (timer) clearTimeout(timer)
@@ -44,7 +48,7 @@ function _create() {
         } catch {
           /* noop */
         }
-        resolve(valor)
+        resolve({ resultado, cantidad })
       }
 
       const revisar = () => {
@@ -54,6 +58,11 @@ function _create() {
         const texto = String(voice.transcript?.value || voice.transcriptParcial?.value || '')
         // Antes de clasificar: el TTS puede haber entrado por el micrófono.
         if (texto && esEcoDePrompt(texto, prompt)) return
+
+        // Una corrección («no, eran tres») gana al «no»: cambia la cantidad en
+        // vez de cancelar la venta. Solo cuenta aquí, durante la confirmación.
+        const correccion = extraerCorreccion(texto)
+        if (correccion) return terminar('corregir', correccion.cantidad)
 
         const clase = clasificarRespuesta(texto)
         const reciente = Date.now() - inicio < ventanaMs
@@ -72,7 +81,7 @@ function _create() {
       cancelar = () => terminar('timeout')
       abortarActual = cancelar
       // El timer va ANTES de observar y de revisar: si `revisar()` resolvía de
-      // inmediato (transcript ya presente), quedaba un setTimeout colgado 5 s.
+      // inmediato (transcript ya presente), quedaba un setTimeout colgado 6 s.
       timer = setTimeout(() => terminar('timeout'), timeoutMs)
       detener = watch(
         [() => voice.transcript?.value, () => voice.transcriptParcial?.value, () => voice.estado.value],

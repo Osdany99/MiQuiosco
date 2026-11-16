@@ -400,7 +400,7 @@ function resolverNavegacionPuro(texto, c, lexico) {
 }
 
 function extraerConsultaPura(texto) {
-  const RELLENOS_CONSULTA = new Set(['unidades', 'unidad', 'dime', 'dame', 'decir', 'dices', 'cual', 'cuales', 'es', 'son', 'esta', 'estan', 'me', 'nos'])
+  const RELLENOS_CONSULTA = new Set(['unidades', 'unidad', 'dime', 'dame', 'decir', 'dices', 'cual', 'cuales', 'es', 'son', 'esta', 'estan', 'me', 'nos', 'cuesta', 'cuestan', 'precio', 'precios', 'vale', 'valen', 'sale', 'salen', 'como', 'a'])
   let work = texto
 
   // Ubicación: mismo helper que `extraerBase` (antes estaba duplicado).
@@ -426,6 +426,15 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   const texto = normalizar(transcript)
   if (!texto) return { comando: 'desconocido', confianza: 0, reasons: ['sin_texto'] }
 
+  // Repetir la última respuesta y ayuda: frases cortas y sin producto. Van
+  // antes que la venta para que "otra vez" no se lea como un producto.
+  if (/^(repite|repitelo|repetir|otra vez|que dijiste|como dijiste)\b/.test(texto)) {
+    return { comando: 'repetir', confianza: 0.9, reasons: ['repetir'] }
+  }
+  if (/^(ayuda|que puedes hacer|que sabes hacer|comandos|que comandos|como te uso)\b/.test(texto)) {
+    return { comando: 'ayuda', confianza: 0.9, reasons: ['ayuda'] }
+  }
+
   if (c.PREFIJO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.95, reasons: ['verbo_venta'] }
   }
@@ -435,9 +444,21 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     return { comando: 'navegacion', confianza: 0.9, reasons: ['navegacion_destino'] }
   }
 
+  // Precio: "cuánto cuesta", "a cómo está", "cuánto vale". Antes caía en
+  // `consulta_no_soportada` y el jefe se quedaba sin respuesta.
+  if (/\b(?:cuesta|cuestan|precio|precios|vale|valen|sale|salen)\b|\ba como\b/.test(texto)) {
+    const slots = extraerConsultaPura(texto)
+    if (slots.productoHint) {
+      return { comando: 'consulta_precio', confianza: 0.9, reasons: ['consulta_precio'] }
+    }
+    return { comando: 'desconocido', confianza: 0, reasons: ['consulta_sin_producto'] }
+  }
+
   // Consulta: marcas presentes.
   if (/\bcuanto\b|\bcuanta\b|\bcuantos\b|\bcuantas\b|\bstock\b|\bexistencia(s)?\b|\binventario\b|\btenemos\b|\btengo\b|\bdisponible(s)?\b|\bhay\b|\bqueda(n)?\b/.test(texto)) {
-    if (/\bcuesta\b|\bcuestan\b|\bprecio\b|\bprecios\b|\bvale\b|\bvalen\b|\bdebe\b|\bdeben\b|\bdeuda\b|\bdeudas\b|\bvendi\b|\bvendimos\b|\bvendido(s)?\b|\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
+    // Deudas, ventas del día y caja todavía no se responden por voz: mejor
+    // silencio que una cifra inventada. (Se resolverá en una fase posterior.)
+    if (/\bdebe\b|\bdeben\b|\bdebo\b|\bdeuda\b|\bdeudas\b|\bvendi\b|\bvendimos\b|\bvendido(s)?\b|\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
       return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
     }
     const slots = extraerConsultaPura(texto)
@@ -659,10 +680,11 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
  */
 export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   const c = compilar(lexico)
-  if (comando === 'consulta_stock') {
+  if (comando === 'consulta_stock' || comando === 'consulta_precio') {
     const s = extraerConsultaPura(normalizar(transcript))
     return { productoHint: s.productoHint, ubicacion: s.ubicacion }
   }
+  if (comando === 'repetir' || comando === 'ayuda') return {}
   if (comando === 'navegacion') {
     const dest = resolverNavegacionDestino(transcript, c, lexico)
     return { destino: dest }
@@ -710,7 +732,7 @@ export function elegirAlternativa(evaluadas, { margen = 0.1 } = {}) {
   const baseComando = base?.comando
 
   if (baseComando === 'navegacion') return baseIndice
-  if ((baseComando === 'venta_directa' || baseComando === 'consulta_stock') && base?.elegido) {
+  if ((baseComando === 'venta_directa' || baseComando === 'consulta_stock' || baseComando === 'consulta_precio') && base?.elegido) {
     return baseIndice
   }
 

@@ -1,4 +1,4 @@
-import { VISTAS } from '#shared/permisos'
+import { VISTAS } from '../../../shared/permisos.js'
 
 function formatearNumero(valor) {
   if (valor == null) return ''
@@ -71,5 +71,61 @@ export function formatearStock(fila, opciones = {}) {
     titulo: nombre,
     descripcion: `${nombre} - ${desc}`,
     habla: `${nombre}. ${partesHabla.join(' ')}`
+  }
+}
+
+/**
+ * Precio vigente + stock del producto («cuánto cuesta el pan»).
+ *
+ * El precio sale del catálogo (`precioVentaActual`); no es el precio dictado de
+ * una venta. Se dice también el stock para que el jefe no tenga que preguntar
+ * dos veces, y se respetan los permisos de cada ubicación.
+ */
+export function formatearPrecio(fila, opciones = {}) {
+  const { ubicacionPedida = null, verQuiosco = true, verAlmacen = true } = opciones || {}
+  const nombre = fila?.nombre ?? ''
+  const precioNum = Number(fila?.precioVentaActual)
+  const precio = Number.isFinite(precioNum) && precioNum > 0
+    ? `${formatearNumero(precioNum)} pesos`
+    : null
+  const quiosco = cantidadConPendiente(fila?.quiosco, fila?.pendienteQuiosco)
+  const almacen = cantidadConPendiente(fila?.almacen, fila?.pendienteAlmacen)
+  const inicio = precio ? `${nombre} cuesta ${precio}` : nombre
+
+  if (ubicacionPedida === 'quiosco') {
+    if (!verQuiosco) return { sinPermiso: true }
+    return {
+      sinPermiso: false,
+      titulo: `${nombre}: ${precio ?? 'sin precio'}`,
+      descripcion: `${nombre}: ${precio ?? 'sin precio'} · Quiosco: ${quiosco.texto}`,
+      habla: `${inicio}. En quiosco quedan ${quiosco.habla}.`
+    }
+  }
+  if (ubicacionPedida === 'almacen') {
+    if (!verAlmacen) return { sinPermiso: true }
+    return {
+      sinPermiso: false,
+      titulo: `${nombre}: ${precio ?? 'sin precio'}`,
+      descripcion: `${nombre}: ${precio ?? 'sin precio'} · Almacén: ${almacen.texto}`,
+      habla: `${inicio}. En almacén quedan ${almacen.habla}.`
+    }
+  }
+
+  if (!verQuiosco && !verAlmacen) return { sinPermiso: true }
+  const partesDesc = []
+  const partesHabla = []
+  if (verQuiosco) {
+    partesDesc.push(`Quiosco: ${quiosco.texto}`)
+    partesHabla.push(`En quiosco quedan ${quiosco.habla}.`)
+  }
+  if (verAlmacen) {
+    partesDesc.push(`Almacén: ${almacen.texto}`)
+    partesHabla.push(`En almacén quedan ${almacen.habla}.`)
+  }
+  return {
+    sinPermiso: false,
+    titulo: `${nombre}: ${precio ?? 'sin precio'}`,
+    descripcion: `${nombre}: ${precio ?? 'sin precio'} · ${partesDesc.join(' · ')}`,
+    habla: `${inicio}. ${partesHabla.join(' ')}`
   }
 }

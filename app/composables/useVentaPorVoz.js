@@ -30,10 +30,11 @@ import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
 import { registrarEventoVoz } from '../utils/vozEventos'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
-import { formatearStock, describirDestino } from '../utils/voice/respuestasVoz'
-import { fraseVenta, FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
+import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
+import { fraseVenta, fraseStockInsuficiente, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { proyectarStock } from '../utils/voice/pendientes'
+import { ajustarCantidadVoz } from '../utils/voice/prefill'
 import { useConfirmacionVoz } from './useConfirmacionVoz'
 import { useVozDisparo } from './useVozDisparo'
 import { evaluarDisparoVoz, esRutaInventario, ubicacionActiva } from '../utils/voice/disparoVoz'
@@ -87,6 +88,11 @@ function _create(ubicacion) {
   const prefill = ref(null)
   const producto = ref(null)
   const modo = ref('venta')
+  /**
+   * Última respuesta hablada de una consulta. «Repite» la vuelve a decir; no
+   * guarda ventas ni la confirmación, para no repetir una venta por error.
+   */
+  const ultimaRespuestaVoz = ref('')
   // Promesa del TTS de lectura (read-back).
   const readBackPromise = ref(null)
   /** Texto EXACTO que se habló. La confirmación lo usa como prompt anti-eco. */
@@ -197,19 +203,28 @@ function _create(ubicacion) {
     // Read-back exacto del formulario (lo prellenado), no lo interpretado.
     // Se guarda la promesa para que la UI pueda esperarla antes de hablar
     // otra locución (la confirmación hablada va justo después).
+    programarReadBack(fila)
+  }
+
+  /**
+   * Habla la venta prellenada con su importe y, si toca, la petición de
+   * confirmación. Se reutiliza al corregir la cantidad para leer la nueva.
+   */
+  function programarReadBack(fila) {
+    const filaActual = fila ?? producto.value
     readBackPromise.value = (async () => {
-      const nombre = fila?.nombre ?? producto.value?.nombre ?? 'producto'
+      const nombre = filaActual?.nombre ?? producto.value?.nombre ?? 'producto'
       const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
       const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
-      if (!fila) return
+      if (!filaActual) return
       // El importe se lee SIEMPRE: es la única cifra que delata una cantidad mal
       // transcrita ("12 panes" oído como "2 panes").
       const precio = prefill.value?.precioVentaUsado == null
-        ? Number(fila?.precioVentaActual ?? 0)
+        ? Number(filaActual?.precioVentaActual ?? 0)
         : Number(prefill.value.precioVentaUsado)
       let texto = fraseVenta({ cantidad: cant, nombre, lugar, importe: precio * cant })
       // Una sola locución: anuncio + petición de confirmación, sin hueco entre ambas.
-      readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value) && modoVenta === 'venta'
+      readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value) && modo.value === 'venta' && tts.habilitado.value
       if (readBackIncluyeConfirmacion.value) texto = `${texto} ${FRASE_CONFIRMAR}`
       // Se guarda lo que de verdad se dice: la espera de confirmación lo compara
       // con la transcripción para no confundir el eco del TTS con un «sí».
@@ -221,6 +236,40 @@ function _create(ubicacion) {
         /* noop */
       }
     })()
+  }
+
+  /**
+   * Corrige la cantidad durante la confirmación («no, eran tres»).
+   *
+   * Revalida el stock proyectado de la ubicación prellenada, actualiza la
+   * cantidad y vuelve a leer la venta con el importe nuevo. No registra nada:
+   * la confirmación sigue siendo del jefe.
+   */
+  async function cambiarCantidad(cantidad) {
+    const filaActual = producto.value
+    const actual = prefill.value
+    const n = Math.trunc(Number(cantidad) || 0)
+    if (!filaActual || !actual || n < 1) return { ok: false }
+    const ubi = actual.ubicacion === 'quiosco' ? 'quiosco' : 'almacen'
+    const disponible = Number(filaActual[ubi]) || 0
+    const ajuste = ajustarCantidadVoz(n, disponible)
+    const lugar = ubi === 'quiosco' ? 'quiosco' : 'almacén'
+    if (ajuste.excede) {
+      const mensaje = fraseStockInsuficiente({ disponible, nombre: filaActual.nombre, lugar })
+      ultimoError.value = mensaje
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
+      toast.add({ title: 'Voz', description: mensaje, color: 'warning', duration: 8000 })
+      return { ok: false, motivo: 'stock', disponible }
+    }
+    const anterior = Math.trunc(Number(actual.cantidad) || 1)
+    prefill.value = { ...actual, cantidad: n }
+    voice.registrar('voz.corregir', { antes: anterior, despues: n })
+    programarReadBack(filaActual)
+    return { ok: true, cantidad: n }
   }
 
   /** Saldos de una ubicación. En quiosco se excluyen los productos no vendibles.
@@ -347,6 +396,7 @@ function _create(ubicacion) {
       if (estado.value !== 'idle') estado.value = 'idle'
       return
     }
+    ultimaRespuestaVoz.value = result.habla
     toast.add({ title: result.titulo, description: result.descripcion, color: 'success', duration: 8000 })
     try {
       await tts.speak(result.habla)
@@ -356,11 +406,60 @@ function _create(ubicacion) {
     estado.value = 'idle'
   }
 
+  /** Precio vigente + stock («cuánto cuesta el pan»). */
+  async function responderPrecio(fila, slots) {
+    const result = formatearPrecio(fila, {
+      ubicacionPedida: slots.ubicacion,
+      verQuiosco: perms.puedeVista('quiosco'),
+      verAlmacen: perms.puedeVista('almacen')
+    })
+    if (result.sinPermiso) {
+      toast.add({ title: 'Voz', description: 'No tienes permiso para consultar ese inventario.', color: 'warning' })
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+    ultimaRespuestaVoz.value = result.habla
+    toast.add({ title: result.titulo, description: result.descripcion, color: 'success', duration: 8000 })
+    try {
+      await tts.speak(result.habla)
+    } catch {
+      /* noop */
+    }
+    estado.value = 'idle'
+  }
+
+  /** Repite la última respuesta hablada (consultas de stock o precio). */
+  async function repetirUltimaRespuesta() {
+    const texto = ultimaRespuestaVoz.value || FRASE_NADA_QUE_REPETIR
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /** Ayuda hablada: qué puede hacer el asistente. */
+  async function responderAyuda() {
+    toast.add({
+      title: 'Voz',
+      description: 'Vender, consultar stock y precios, y abrir pantallas.',
+      color: 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(FRASE_AYUDA)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
   /**
-   * Resuelve una consulta de stock SIN efectos. El catálogo completo (ambas
-   * ubicaciones, sin filtrar `seVende`) reutiliza la caché.
+   * Resuelve una consulta de stock o precio SIN efectos. El catálogo completo
+   * (ambas ubicaciones, sin filtrar `seVende`) reutiliza la caché.
    */
-  async function resolverConsultaStock(slots, sttConfidence = 0, vigente = () => true) {
+  async function resolverConsultaProducto(comando, slots, sttConfidence = 0, vigente = () => true) {
     const catalogo = await catalogoDe('global', { soloVendibles: false })
     if (!vigente()) return { tipo: 'cancelado' }
     const emparejar = crearEmparejador(catalogo, sttConfidence)
@@ -368,24 +467,36 @@ function _create(ubicacion) {
     if (!encontrados.length) {
       return {
         tipo: 'error',
-        comando: 'consulta_stock',
+        comando,
         motivo: 'producto_no_encontrado',
         mensaje: `No encontré "${slots.productoHint || 'ese producto'}" en el inventario.`,
         texto: slots?.productoHint || '',
-        auditar: { comando: 'consulta_stock', motivo: 'producto_no_encontrado', confianza: Number(sttConfidence) || 0 }
+        auditar: { comando, motivo: 'producto_no_encontrado', confianza: Number(sttConfidence) || 0 }
       }
     }
     const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
     if (!decision.elegido) {
       return {
         tipo: 'ambiguo',
-        comando: 'consulta_stock',
+        comando,
         candidatos: encontrados,
         slots,
         sttConfidence
       }
     }
-    return { tipo: 'consultar_stock', fila: decision.elegido.row, slots }
+    return {
+      tipo: comando === 'consulta_precio' ? 'consultar_precio' : 'consultar_stock',
+      fila: decision.elegido.row,
+      slots
+    }
+  }
+
+  function resolverConsultaStock(slots, sttConfidence = 0, vigente = () => true) {
+    return resolverConsultaProducto('consulta_stock', slots, sttConfidence, vigente)
+  }
+
+  function resolverConsultaPrecio(slots, sttConfidence = 0, vigente = () => true) {
+    return resolverConsultaProducto('consulta_precio', slots, sttConfidence, vigente)
   }
 
   async function plantillaPara(texto) {
@@ -457,10 +568,10 @@ function _create(ubicacion) {
       const rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
       if (clas.comando === 'navegacion') {
         rec.elegido = true
-      } else if (clas.comando === 'venta_directa' || clas.comando === 'consulta_stock') {
+      } else if (clas.comando === 'venta_directa' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
         try {
           const destinoUbi = (clas.slots?.ubicacion) || ubicacion
-          const cat = clas.comando === 'consulta_stock'
+          const cat = clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio'
             ? await catalogoDe('global', { soloVendibles: false })
             : await catalogoDe(destinoUbi)
           const encontrados = emparejarPara(cat)(clas.slots?.productoHint || '')
@@ -522,6 +633,9 @@ function _create(ubicacion) {
 
     if (comando === 'navegacion') return { tipo: 'navegacion', slots }
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
+    if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
+    if (comando === 'repetir') return { tipo: 'repetir' }
+    if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa
     return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta, permitirConflicto })
   }
@@ -585,6 +699,12 @@ function _create(ubicacion) {
         return manejarNavegacion(accion.slots, vigente)
       case 'consultar_stock':
         return responderStock(accion.fila, accion.slots)
+      case 'consultar_precio':
+        return responderPrecio(accion.fila, accion.slots)
+      case 'repetir':
+        return repetirUltimaRespuesta()
+      case 'ayuda':
+        return responderAyuda()
       case 'venta':
         // Siempre el formulario; la confirmación hablada la maneja el layout.
         return prepararVenta(accion.fila, accion.slots, accion.destino.ubicacion)
@@ -707,14 +827,19 @@ function _create(ubicacion) {
       await responderStock(candidato.row, datos.slots)
       return
     }
+    if (datos.comando === 'consulta_precio') {
+      await responderPrecio(candidato.row, datos.slots)
+      return
+    }
     prepararVenta(candidato.row, datos.slots, datos.slots?.ubicacion || undefined)
   }
 
-  const tituloCandidatos = computed(() =>
-    pendiente.value?.comando === 'consulta_stock'
-      ? 'Confirma qué producto consultar'
-      : 'Confirma el producto'
-  )
+  const tituloCandidatos = computed(() => {
+    const comando = pendiente.value?.comando
+    if (comando === 'consulta_stock') return 'Confirma qué producto consultar'
+    if (comando === 'consulta_precio') return 'Confirma de qué producto quieres el precio'
+    return 'Confirma el producto'
+  })
 
   function cancelar() {
     return cancelarEscucha()
@@ -823,6 +948,7 @@ function _create(ubicacion) {
     readBackTexto,
     confirmacionHablada,
     readBackIncluyeConfirmacion,
+    cambiarCantidad,
     venderPorVoz,
     resolver,
     ejecutar,

@@ -55,13 +55,23 @@ export async function registrarEventosVoz(
   return guardados
 }
 
-export async function limpiarEventosVoz() {
+/**
+ * Borra eventos antiguos según la retención de flota.
+ *
+ * Se conservan los eventos con 3+ intentos (siguen siendo útiles para el
+ * léxico) y las plantillas que comparten fila con otro evento. La tarea
+ * programada (`voz:retencion`) y el botón del panel pasan por aquí.
+ */
+export async function limpiarEventosVoz({ dias = 30 }: { dias?: number } = {}) {
+  const retencion = Math.min(365, Math.max(7, Math.trunc(Number(dias) || 30)))
   try {
-    await db.execute(sql`DELETE FROM voz_eventos
-      WHERE ultimo_en < NOW() - INTERVAL '30 days'
+    const res = await db.execute(sql`DELETE FROM voz_eventos
+      WHERE ultimo_en < NOW() - ${retencion} * INTERVAL '1 day'
         AND intentos < 3
         AND (select count(*) from voz_eventos v2 where v2.plantilla = voz_eventos.plantilla) <= 1`)
+    return Number((res as { rowCount?: number } | undefined)?.rowCount ?? 0)
   } catch (e) {
     console.warn('[vozEventos] cleanup failed', e)
+    return 0
   }
 }

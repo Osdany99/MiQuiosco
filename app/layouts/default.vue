@@ -26,9 +26,16 @@ const dictadoModo = useDictadoModo()
 const accionesVoz = useAccionesPendientes()
 const vozSnapshot = useVozSnapshot()
 const buzon = useBuzonVoz()
+const vozConfig = useVozConfig()
 const vozServicio = useVozServicio()
 const toast = useToast()
 const pendientesVoz = computed(() => accionesVoz.pendientes.value.length)
+
+// Un cambio de flota se empuja al servicio en cuanto llega por sync; con el
+// servicio detenido se aplicará en el próximo arranque.
+watch(() => vozConfig.version.value, () => {
+  void vozServicio.configurar()
+})
 
 /**
  * Recoge lo dictado con la app cerrada. El servicio en primer plano no
@@ -128,6 +135,18 @@ function cancelarPanelVoz() {
 
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
+  // Sin lectura de voz no hay confirmación hablada: el formulario queda abierto
+  // para confirmar con el botón. Antes se abría el micrófono y se esperaban 6 s
+  // en silencio, porque `tts.speak` no hace nada con la lectura apagada.
+  if (!ttsRaw.habilitado.value) {
+    vozDialogAbierto.value = true
+    toast.add({
+      title: 'Voz',
+      description: 'Lectura apagada: confirma la venta con el botón.',
+      color: 'neutral'
+    })
+    return
+  }
   // Sin permiso de venta por voz solo queda el toque manual en el formulario.
   if (!ceroToquesActivo.value || vozActiva.value.modo.value !== 'venta') {
     vozDialogAbierto.value = true
@@ -143,9 +162,10 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     // speak() ya tiene su propio tope de seguridad; este es solo un último recurso.
     await Promise.race([rb, new Promise(resolve => setTimeout(resolve, 12000))])
   }
-  const prefill = vozActiva.value.prefill.value
+  let prefill = vozActiva.value.prefill.value
   let resultado = 'timeout'
   let confianza = 0
+  let correcciones = 0
   confirmandoVoz.value = true
   try {
     if (voiceRaw.estado.value === 'listening') return
@@ -157,40 +177,77 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
         /* noop */
       }
     }
-    // Margen para que el eco final de la voz no entre al micrófono.
-    await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
-    // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
-    // diálogo y la confirmación podría leerlo como respuesta.
-    voiceRaw.reset()
-    // startListening resuelve al terminar la escucha; no se espera aquí.
-    voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'confirmacion' })
-    const escucha = voiceRaw.startListening({
-      contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
-    }).catch(() => {})
-    resultado = await confirmacion.esperar({
-      timeoutMs: zeroTouch.timeoutMs.value,
-      // El prompt es TODO lo que se habló: con solo la pregunta corta no se
-      // detectaba el eco de la lectura y un «sí» oído del propio TTS confirmaba.
-      prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR
-    })
-    confianza = Number(voiceRaw.confidence?.value) || 0
-    try {
-      voiceRaw.registrar('voz.confirmar', {
-        resultado,
-        texto: String(voiceRaw.transcript?.value || ''),
-        confianza,
-        producto: fila?.nombre ?? ''
+
+    /** Abre el micrófono, espera sí/no/corrección y lo cierra. */
+    const escucharRespuesta = async () => {
+      // Margen para que el eco final de la voz no entre al micrófono.
+      await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+      // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
+      // diálogo y la confirmación podría leerlo como respuesta.
+      voiceRaw.reset()
+      // startListening resuelve al terminar la escucha; no se espera aquí.
+      voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'confirmacion' })
+      const escucha = voiceRaw.startListening({
+        contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
+      }).catch(() => {})
+      const respuesta = await confirmacion.esperar({
+        timeoutMs: zeroTouch.timeoutMs.value,
+        // El prompt es TODO lo que se habló: con solo la pregunta corta no se
+        // detectaba el eco de la lectura y un «sí» oído del propio TTS confirmaba.
+        prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR
       })
-    } catch {
-      /* la traza no debe romper la venta */
+      confianza = Number(voiceRaw.confidence?.value) || 0
+      try {
+        voiceRaw.registrar('voz.confirmar', {
+          resultado: respuesta.resultado,
+          cantidad: respuesta.cantidad,
+          texto: String(voiceRaw.transcript?.value || ''),
+          confianza,
+          producto: fila?.nombre ?? ''
+        })
+      } catch {
+        /* la traza no debe romper la venta */
+      }
+      try {
+        await voiceRaw.stopListening()
+      } catch {
+        /* noop */
+      }
+      await escucha
+      voiceRaw.reset()
+      return respuesta
     }
-    try {
-      await voiceRaw.stopListening()
-    } catch {
-      /* noop */
+
+    // Hasta dos correcciones («no, eran tres») sin cerrar el formulario.
+    while (true) {
+      const respuesta = await escucharRespuesta()
+      resultado = respuesta.resultado
+      if (respuesta.resultado !== 'corregir') break
+
+      if (correcciones >= 2) {
+        resultado = 'abandonado'
+        try {
+          await ttsRaw.speak('Confirma con el botón.')
+        } catch {
+          /* noop */
+        }
+        break
+      }
+
+      correcciones++
+      const cambio = await vozActiva.value.cambiarCantidad(respuesta.cantidad)
+      if (!cambio?.ok) {
+        // `cambiarCantidad` ya explicó el stock; el formulario queda abierto.
+        resultado = 'abandonado'
+        break
+      }
+      prefill = vozActiva.value.prefill.value
+      // Esperar la nueva lectura (ya incluye la petición de confirmación).
+      const nuevoReadBack = vozActiva.value.readBackPromise?.value
+      if (nuevoReadBack && typeof nuevoReadBack.then === 'function') {
+        await Promise.race([nuevoReadBack, new Promise(resolve => setTimeout(resolve, 12000))])
+      }
     }
-    await escucha
-    voiceRaw.reset()
   } catch {
     /* degrade: queda el modal abierto para toque manual */
   } finally {
@@ -289,10 +346,13 @@ onMounted(() => {
       .then(() => vozSnapshot.actualizar())
       .catch(() => {})
     // El servicio de escucha arranca apagado/pausado mientras la app está
-    // abierta: el micrófono del dock es el que manda.
-    void vozServicio.cargarPreferencia()
+    // abierta: el micrófono del dock es el que manda. La configuración de flota
+    // se lee de la copia local primero para no retrasar el arranque.
+    void vozConfig.cargar()
+      .then(() => vozServicio.cargarPreferencia())
       .then(() => vozServicio.sincronizarConApp(true))
       .catch(() => {})
+    void vozConfig.refrescar().catch(() => {})
     // Al volver de segundo plano puede haber dictados nuevos del servicio.
     void import('@capacitor/app').then(({ App }) => {
       const handle = App.addListener('appStateChange', ({ isActive }) => {

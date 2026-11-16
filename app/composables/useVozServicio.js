@@ -1,7 +1,10 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { computed, ref } from 'vue'
+import { motorParaServicio } from '#shared/voz/config'
+import { resolverIdioma } from '../utils/voice/idioma'
 import { useAuth } from './useAuth'
+import { useVozConfig } from './useVozConfig'
 
 /**
  * useVozServicio — controla la escucha con la app cerrada (Android).
@@ -14,12 +17,8 @@ import { useAuth } from './useAuth'
  */
 
 const PREF = 'voz.servicio.activo'
-/** Misma clave que Ajustes: el motor de voz elegido allí manda también aquí. */
-const PREF_MOTOR = 'voz.motor'
 /** Onda del dock sobre el bloqueo al dictar con la app cerrada. */
 const PREF_ONDA = 'voz.servicio.onda'
-const WAKE = 'oye nova'
-const IDIOMA = 'es-US'
 
 const VozServicio = registerPlugin('VozServicio')
 
@@ -63,20 +62,9 @@ function esNativo() {
   }
 }
 
-/**
- * Traduce la preferencia de Ajustes al motor del servicio:
- * `vosk` → offline empaquetado, `google` → reconocedor del sistema y
- * `automatico` → también Vosk: el reconocedor del sistema pita cada vez que
- * abre el micrófono y el servicio abre una sesión por frase, así que en el
- * bolsillo sonaba un pitido constante. Vosk escucha en silencio y sin datos.
- */
-function motorDelServicio(valor) {
-  if (valor === 'google') return 'sistema'
-  return 'vosk'
-}
-
 export function useVozServicio() {
   const auth = useAuth()
+  const vozConfig = useVozConfig()
   const nativo = esNativo()
 
   async function cargarPreferencia() {
@@ -92,14 +80,17 @@ export function useVozServicio() {
     return preferencia.value
   }
 
-  /** Motor configurado en Ajustes (sin caché: el jefe puede cambiarlo). */
-  async function motorConfigurado() {
-    if (!nativo) return 'auto'
-    try {
-      const { value } = await Preferences.get({ key: PREF_MOTOR })
-      return motorDelServicio(value)
-    } catch {
-      return 'auto'
+  /**
+   * Valores que entiende el servicio nativo. El idioma se resuelve aquí para
+   * que la app y el servicio usen el mismo (`sistema` → locale del teléfono).
+   */
+  async function configuracionEfectiva() {
+    const cfg = await vozConfig.cargar()
+    const sistema = typeof navigator !== 'undefined' ? navigator.language : 'es-US'
+    return {
+      wake: cfg.wake,
+      motor: motorParaServicio(cfg.motor),
+      idioma: resolverIdioma(cfg.idioma, sistema)
     }
   }
 
@@ -118,8 +109,13 @@ export function useVozServicio() {
     cambiando.value = true
     error.value = null
     try {
-      const motor = await motorConfigurado()
-      aplicarEstado(await VozServicio.iniciar({ wake: WAKE, idioma: IDIOMA, motor, pausado: arrancarPausado }))
+      const cfg = await configuracionEfectiva()
+      aplicarEstado(await VozServicio.iniciar({
+        wake: cfg.wake,
+        idioma: cfg.idioma,
+        motor: cfg.motor,
+        pausado: arrancarPausado
+      }))
       // El servicio avisa su estado al arrancar, pero la respuesta del plugin
       // puede llegar antes de que el servicio esté creado.
       activo.value = true
@@ -132,6 +128,20 @@ export function useVozServicio() {
       await Preferences.set({ key: PREF, value: 'false' }).catch(() => {})
     } finally {
       cambiando.value = false
+    }
+  }
+
+  /**
+   * Empuja la configuración de flota al servicio vivo. Si está detenido no
+   * hace nada: la próxima vez que arranque leerá la copia guardada.
+   */
+  async function configurar() {
+    if (!nativo || !activo.value) return
+    try {
+      const cfg = await configuracionEfectiva()
+      aplicarEstado(await VozServicio.configurar(cfg))
+    } catch {
+      /* el servicio seguirá con la configuración anterior */
     }
   }
 
@@ -294,6 +304,7 @@ export function useVozServicio() {
     pedirExencionBateria,
     activarOnda,
     pedirPantallaCompleta,
+    configurar,
     sincronizarConApp
   }
 }

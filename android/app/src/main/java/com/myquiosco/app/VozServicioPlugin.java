@@ -168,6 +168,33 @@ public class VozServicioPlugin extends Plugin {
         }
     }
 
+    /**
+     * Aplica wake/idioma/motor con el servicio ya vivo (cambio de flota).
+     * No arranca nada si está detenido: al arrancar leerá la configuración
+     * guardada.
+     */
+    @PluginMethod
+    public void configurar(PluginCall call) {
+        if (!VozEscuchaService.activo) {
+            call.resolve(estadoActual());
+            return;
+        }
+        Intent intent = new Intent(getContext(), VozEscuchaService.class)
+            .setAction(VozEscuchaService.ACTION_CONFIGURAR);
+        String wake = call.getString("wake");
+        if (wake != null) intent.putExtra(VozEscuchaService.EXTRA_WAKE, wake);
+        String idioma = call.getString("idioma");
+        if (idioma != null) intent.putExtra(VozEscuchaService.EXTRA_IDIOMA, idioma);
+        String motor = call.getString("motor");
+        if (motor != null) intent.putExtra(VozEscuchaService.EXTRA_MOTOR, motor);
+        try {
+            getContext().startService(intent);
+            call.resolve(estadoActual());
+        } catch (Exception e) {
+            call.reject("No se pudo aplicar la configuración de voz: " + e.getMessage(), e);
+        }
+    }
+
     @PluginMethod
     public void pausar(PluginCall call) {
         enviarAccion(VozEscuchaService.ACTION_PAUSAR);

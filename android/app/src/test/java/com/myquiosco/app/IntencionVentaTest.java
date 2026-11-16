@@ -91,4 +91,23 @@ public class IntencionVentaTest {
         assertEquals(2, i.cantidad);
         assertEquals("almacen", i.ubicacion);
     }
+
+    @Test
+    public void corrigeLaCantidadEnLaConfirmacion() {
+        assertEquals(3, lector.cantidadCorregida("no, eran tres", 2));
+        assertEquals(5, lector.cantidadCorregida("cambia a cinco", 2));
+        assertEquals(6, lector.cantidadCorregida("son seis", 2));
+        assertEquals(12, lector.cantidadCorregida("pon una docena", 2));
+        assertEquals(24, lector.cantidadCorregida("eran dos docenas", 2));
+        assertEquals(15, lector.cantidadCorregida("no, eran 15", 2));
+    }
+
+    @Test
+    public void noConfundeUnSiONoNormalConUnaCorreccion() {
+        assertEquals(-1, lector.cantidadCorregida("sí", 2));
+        assertEquals(-1, lector.cantidadCorregida("no", 2));
+        assertEquals(-1, lector.cantidadCorregida("no gracias", 2));
+        assertEquals(-1, lector.cantidadCorregida("vende dos panes", 2));
+        assertEquals(-1, lector.cantidadCorregida("no, eran dos", 2));
+    }
 }

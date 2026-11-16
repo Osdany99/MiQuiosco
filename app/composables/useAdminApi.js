@@ -127,6 +127,14 @@ export function useAdminApi() {
     return pedir(`/api/admin/voz/lexico/${id}`, { method: 'PATCH', body: cambios })
   }
 
+  function obtenerConfigVoz() {
+    return pedir('/api/voz/config')
+  }
+
+  function guardarConfigVoz(datos) {
+    return pedir('/api/voz/config', { method: 'PUT', body: datos })
+  }
+
   return {
     resumen,
     listarPuestos,
@@ -145,6 +153,8 @@ export function useAdminApi() {
     listarConfirmacionesVoz,
     listarLexicoVoz,
     crearEntradaLexicoVoz,
-    actualizarEntradaLexicoVoz
+    actualizarEntradaLexicoVoz,
+    obtenerConfigVoz,
+    guardarConfigVoz
   }
 }

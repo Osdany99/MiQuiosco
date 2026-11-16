@@ -69,6 +69,8 @@ public class VozEscuchaService extends Service {
     public static final String ACTION_DETENER = "com.myquiosco.app.voz.DETENER";
     public static final String ACTION_PAUSAR = "com.myquiosco.app.voz.PAUSAR";
     public static final String ACTION_REANUDAR = "com.myquiosco.app.voz.REANUDAR";
+    /** Cambia wake/idioma/motor sin reiniciar el servicio. */
+    public static final String ACTION_CONFIGURAR = "com.myquiosco.app.voz.CONFIGURAR";
     public static final String EXTRA_WAKE = "wake";
     public static final String EXTRA_IDIOMA = "idioma";
     /** Arrancar ya en pausa (la app está abierta y el dock usa el micrófono). */
@@ -83,6 +85,11 @@ public class VozEscuchaService extends Service {
     private static final int MICROFONO_TIPO = 128; // FOREGROUND_SERVICE_TYPE_MICROPHONE
     private static final long MS_ANTIECO = 400L;
     private static final String FRASE_POR_DEFECTO = "oye nova";
+    /** Configuración de flota persistida: sobrevive a un reinicio del servicio. */
+    private static final String PREFS_VOZ = "voz.config";
+    private static final String KEY_WAKE = "wake";
+    private static final String KEY_IDIOMA = "idioma";
+    private static final String KEY_MOTOR = "motor";
 
     /** ¿Hay un servicio vivo? Lo consulta el plugin (y la UI para el estado). */
     public static volatile boolean activo = false;
@@ -129,6 +136,10 @@ public class VozEscuchaService extends Service {
     private JSONObject productoPendiente = null;
     private int cantidadPendiente = 1;
     private String ubicacionPendiente = "almacen";
+    /** Correcciones de cantidad aceptadas en la confirmación actual (máx. 2). */
+    private int correccionesConfirmacion = 0;
+    /** Evita reiniciar el contador cuando la confirmación viene de una corrección. */
+    private boolean corrigiendoCantidad = false;
     private final List<JSONObject> candidatosPendientes = new ArrayList<>();
     private int cantidadDictada = 1;
     private String ubicacionDictada = "almacen";
@@ -163,11 +174,11 @@ public class VozEscuchaService extends Service {
     public void onCreate() {
         super.onCreate();
         activo = true;
+        // Solo palabras clave de dos palabras: «nova» a secas disparaba con
+        // cualquier conversación del mostrador.
         wakeVariantes.add(FRASE_POR_DEFECTO);
-        // Pronunciaciones que devuelve el STT con más frecuencia.
         wakeVariantes.add("oye noba");
-        wakeVariantes.add("oye nova");
-        wakeVariantes.add("nova");
+        cargarConfiguracion();
         cargarDialogo();
         cargarReservas();
         crearCanal();
@@ -198,6 +209,73 @@ public class VozEscuchaService extends Service {
         maxCandidatos = Math.max(1, dialogo.optInt("maxCandidatos", 3));
         umbralParecido = dialogo.optDouble("umbralParecido", 0.55);
         intencion = new IntencionVenta(dialogo);
+    }
+
+    /** Lee la última configuración de flota guardada por la app. */
+    private void cargarConfiguracion() {
+        try {
+            android.content.SharedPreferences prefs =
+                getSharedPreferences(PREFS_VOZ, MODE_PRIVATE);
+            String wake = prefs.getString(KEY_WAKE, null);
+            if (wake != null) aplicarWake(wake);
+            idioma = prefs.getString(KEY_IDIOMA, idioma);
+            motorPreferido = prefs.getString(KEY_MOTOR, motorPreferido);
+        } catch (Exception e) {
+            Log.w(TAG, "Sin configuración de voz guardada: se usan los valores por defecto");
+        }
+    }
+
+    private void guardarConfiguracion(String wake, String lang, String motor) {
+        try {
+            getSharedPreferences(PREFS_VOZ, MODE_PRIVATE)
+                .edit()
+                .putString(KEY_WAKE, wake)
+                .putString(KEY_IDIOMA, lang)
+                .putString(KEY_MOTOR, motor)
+                .apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Configura la palabra clave. Solo se añade la variante corta si tiene dos
+     * palabras o más («oye nova» sí, «nova» no): una sola palabra despierta el
+     * servicio con la conversación del mostrador.
+     */
+    private void aplicarWake(String valor) {
+        String limpia = valor == null ? "" : valor.trim().toLowerCase(Locale.ROOT)
+            .replaceAll("\\s+", " ");
+        if (limpia.isEmpty()) return;
+        wakeVariantes.clear();
+        wakeVariantes.add(limpia);
+        String recortada = limpia.replaceFirst("^oye ", "");
+        if (!recortada.equals(limpia) && recortada.split(" ").length >= 2) {
+            wakeVariantes.add(recortada);
+        }
+        // Variante fonética típica del STT: nova ↔ noba.
+        if (limpia.contains("nova")) wakeVariantes.add(limpia.replace("nova", "noba"));
+        if (limpia.contains("noba")) wakeVariantes.add(limpia.replace("noba", "nova"));
+    }
+
+    /** Aplica wake/idioma/motor de un intent y los persiste para el próximo arranque. */
+    private void aplicarConfiguracionDesdeIntent(Intent intent) {
+        if (intent == null) return;
+        String wake = intent.getStringExtra(EXTRA_WAKE);
+        String lang = intent.getStringExtra(EXTRA_IDIOMA);
+        String motor = intent.getStringExtra(EXTRA_MOTOR);
+        if (wake != null && !wake.trim().isEmpty()) aplicarWake(wake);
+        if (lang != null && !lang.trim().isEmpty()) idioma = lang.trim();
+        if ("vosk".equals(motor) || "sistema".equals(motor) || "auto".equals(motor)) {
+            motorPreferido = motor;
+        }
+        if (wake != null || lang != null || motor != null) {
+            // Si solo cambiaron idioma o motor, se conserva la palabra clave
+            // vigente en vez de guardar un null que la borraría.
+            String wakeActual = (wake != null && !wake.trim().isEmpty())
+                ? wake.trim()
+                : (wakeVariantes.isEmpty() ? FRASE_POR_DEFECTO : wakeVariantes.iterator().next());
+            guardarConfiguracion(wakeActual, idioma, motorPreferido);
+        }
     }
 
     private long tiempo(String clave, long porDefecto) {
@@ -246,23 +324,21 @@ public class VozEscuchaService extends Service {
             comenzarEscucha();
             return START_STICKY;
         }
+        if (ACTION_CONFIGURAR.equals(accion)) {
+            // Cambio de flota con el servicio vivo: se aplica ya, sin esperar a
+            // que el jefe vuelva a abrir la app.
+            aplicarConfiguracionDesdeIntent(intent);
+            // No se corta una venta a medias: si hay diálogo, los valores nuevos
+            // se usan al terminar. En reposo se reinicia la escucha ya.
+            if (!pausado && !detenido && !destruido && estado == Estado.REPOSO) {
+                pararEscucha();
+                comenzarEscucha();
+            }
+            return START_STICKY;
+        }
 
         // INICIAR (o reinicio del sistema tras matar el proceso).
-        if (intent != null) {
-            String wake = intent.getStringExtra(EXTRA_WAKE);
-            if (wake != null && wake.trim().length() > 0) {
-                wakeVariantes.clear();
-                wakeVariantes.add(wake.trim().toLowerCase(Locale.ROOT));
-                String recortada = wake.trim().toLowerCase(Locale.ROOT).replace("oye ", "").replace("mi ", "");
-                if (!recortada.isEmpty()) wakeVariantes.add(recortada);
-            }
-            String lang = intent.getStringExtra(EXTRA_IDIOMA);
-            if (lang != null && lang.trim().length() > 0) idioma = lang.trim();
-            String motor = intent.getStringExtra(EXTRA_MOTOR);
-            if ("vosk".equals(motor) || "sistema".equals(motor) || "auto".equals(motor)) {
-                motorPreferido = motor;
-            }
-        }
+        aplicarConfiguracionDesdeIntent(intent);
         // Un arranque nuevo vuelve a probar Vosk: el fallo de ayer no debe
         // condenar la sesión de hoy (el modelo pudo quedar a medias y
         // descomprimirse bien ahora).
@@ -1166,6 +1242,7 @@ public class VozEscuchaService extends Service {
 
     /** Lee la venta con el importe y pide confirmación (como la app abierta). */
     private void proponerConfirmacion(JSONObject producto, int cantidad, String ubicacion) {
+        if (!corrigiendoCantidad) correccionesConfirmacion = 0;
         productoPendiente = producto;
         cantidadPendiente = cantidad;
         ubicacionPendiente = ubicacion;
@@ -1183,10 +1260,26 @@ public class VozEscuchaService extends Service {
             "importe", formatearNumero(importe)), this::continuarEscucha);
     }
 
-    /** "sí" anota; "no" cancela; cualquier otra cosa no anota. */
+    /** "sí" anota; "no" cancela; una corrección cambia la cantidad; otra cosa no anota. */
     private void resolverConfirmacion(String texto) {
         estado = Estado.REPOSO;
         handler.removeCallbacks(caducidad);
+
+        // "no, eran tres": se revalida el stock y se relee la venta. Tiene que ir
+        // antes que las negaciones porque la frase también contiene "no".
+        int corregida = intencion.cantidadCorregida(texto, cantidadPendiente);
+        if (corregida > 0 && productoPendiente != null) {
+            if (correccionesConfirmacion >= 2) {
+                productoPendiente = null;
+                hablar(frase("noAnotada"), this::continuarEscucha);
+                return;
+            }
+            correccionesConfirmacion++;
+            corrigiendoCantidad = true;
+            decidirVenta(productoPendiente, corregida, ubicacionPendiente);
+            corrigiendoCantidad = false;
+            return;
+        }
 
         String plano = IntencionVenta.normalizarFrase(texto);
         Set<String> tokens = new HashSet<>(Arrays.asList(plano.isEmpty() ? new String[0] : plano.split(" ")));

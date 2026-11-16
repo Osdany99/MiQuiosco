@@ -4,6 +4,7 @@ import org.json.JSONObject;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -179,6 +180,57 @@ public final class IntencionVenta {
             try { return Integer.parseInt(token); } catch (NumberFormatException e) { return null; }
         }
         return numeros.get(token);
+    }
+
+    /** Marcas que convierten una respuesta en corrección, no en un "no". */
+    private static final Set<String> MARCAS_CORRECCION = new HashSet<>(Arrays.asList(
+        "no", "eran", "era", "son", "cambia", "cambialo", "cambiar", "pon", "ponme", "mejor"));
+
+    /**
+     * Cantidad nueva si la frase corrige la anterior ("no, eran tres"), o -1.
+     *
+     * Se usa solo durante la confirmación: exige una marca de corrección y un
+     * número distinto del actual. Así un "no" o un "sí" normales no cambian nada.
+     */
+    public int cantidadCorregida(String texto, int actual) {
+        String plano = normalizarFrase(texto);
+        if (plano.isEmpty()) return -1;
+        String[] tokens = plano.split(" ");
+        boolean marca = false;
+        for (String t : tokens) {
+            if (MARCAS_CORRECCION.contains(t)) {
+                marca = true;
+                break;
+            }
+        }
+        if (!marca) return -1;
+
+        // "una docena" vale 12: el artículo no puede ganarle a la docena.
+        int idxDocena = Arrays.asList(tokens).indexOf("docena");
+        if (idxDocena < 0) idxDocena = Arrays.asList(tokens).indexOf("docenas");
+        if (idxDocena >= 0) {
+            int factor = 1;
+            for (int i = 0; i < idxDocena; i++) {
+                String t = tokens[i];
+                if ("un".equals(t) || "una".equals(t) || "uno".equals(t)) continue;
+                Integer n = enteroDe(t);
+                if (n != null && n > 0) {
+                    factor = n;
+                    break;
+                }
+            }
+            int total = 12 * Math.max(1, factor);
+            return total <= 9999 && total != actual ? total : -1;
+        }
+
+        for (String t : tokens) {
+            Integer n = enteroDe(t);
+            if (n != null && n > 0) {
+                if (n == actual || n > 9999) return -1;
+                return n;
+            }
+        }
+        return -1;
     }
 
     // ── Utilidades ─────────────────────────────────────────────────────────
