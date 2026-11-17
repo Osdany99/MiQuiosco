@@ -310,6 +310,8 @@ public class VozEscuchaService extends Service {
                 case "elegir": return "¿Cuál?";
                 case "parecidos": return "Los más parecidos: ";
                 case "sinStock": return "No hay stock suficiente.";
+                case "ayuda": return "Puedo anotar ventas, fiar, cobrar, consultar stock, precios, deudas y las ventas del día. Prueba: vende dos panes.";
+                case "nadaQueRepetir": return "No tengo nada que repetir todavía.";
                 default: return "";
             }
         }
@@ -1005,6 +1007,18 @@ public class VozEscuchaService extends Service {
         handler.removeCallbacks(caducidad);
         if (texto == null || texto.length() < 2) {
             continuarEscucha();
+            return;
+        }
+
+        // Repetición y ayuda: no tocan datos y se contestan antes que nada.
+        // «repite» repite la última frase hablada por el servicio.
+        if (RepeticionVoz.pideRepetir(texto)) {
+            String ultima = RepeticionVoz.paraRepetir(ultimaFrase);
+            hablar(ultima != null ? ultima : frase("nadaQueRepetir"), this::continuarEscucha);
+            return;
+        }
+        if (RepeticionVoz.pideAyuda(texto)) {
+            hablar(frase("ayuda"), this::continuarEscucha);
             return;
         }
 

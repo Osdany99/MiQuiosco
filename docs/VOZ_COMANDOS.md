@@ -134,10 +134,10 @@ Con la app abierta el intérprete reconoce además:
 - **Ayuda**: «qué puedes hacer», «ayuda», «qué sabes hacer» → lee qué sabe hacer
   y da un ejemplo.
 
-Los cuatro son **solo con la app abierta**, salvo las deudas, el resumen del
-día, el fiado y el cobro, que también funcionan con la app cerrada desde el
-snapshot. El servicio en segundo plano está limitado a venta, fiado, cobro y
-consultas (stock, precio, deudas y resumen del día).
+Los cinco funcionan también **con la app cerrada**, desde el snapshot: el
+servicio responde stock, precio, deudas y resumen del día, recuerda la última
+respuesta hablada para «repite» y lee la ayuda de `dialogo.json`. Lo que el
+servicio no hace es abrir pantallas ni cambiar de ubicación por voz.
 
 ## Resumen del día por voz
 
@@ -292,7 +292,10 @@ abierta**, pero el resultado va a la cola de revisión, nunca a la base:
 4. **Fiado** («fía dos panes a Juan») → busca cliente y producto, lee «Voy a
    fiar 2 unidades de Pan a Juan por 40 pesos. ¿Confirmo?» y, al «sí», lo deja
    como **Fiado** en la revisión. No crea la deuda por su cuenta.
-5. Todo lo demás (charla del mostrador, frases sin verbo de venta) se ignora en
+5. **«Repite»** («repítelo», «otra vez», «qué dijiste») → vuelve a decir la
+   última frase que habló el servicio; si aún no ha dicho nada, «No tengo nada
+   que repetir todavía». **«Ayuda»** lee qué sabe hacer con la app cerrada.
+6. Todo lo demás (charla del mostrador, frases sin verbo de venta) se ignora en
    silencio.
 
 **Ubicación:** una venta dictada sale del **almacén** salvo que se diga «del
@@ -794,11 +797,15 @@ umbral de repetición y sin nombres.
     con las palabras del dictado (sin verbo ni cantidad).
 47. «bombi» con dos productos distintos apuntando al mismo alias no elige solo:
     se pregunta.
+48. Con la app cerrada: «oye nova, cuánto cuesta el refresco» → «repite» lo
+    vuelve a decir; «ayuda» lee qué sabe hacer. Sin respuesta previa, «repite»
+    dice «No tengo nada que repetir todavía».
 
 ## Limitaciones conocidas
 
-- «Repite» y «ayuda» funcionan solo con la app abierta: el servicio en segundo
-  plano no interpreta esos comandos.
+- «Repite» y «ayuda» funcionan en los dos modos: con la app cerrada, «repite»
+  vuelve a decir la última frase del servicio (no guarda historial ni consulta
+  la base).
 - El resumen del día se responde en los dos modos; el de la app cerrada usa el
   último snapshot y no incluye las ventas hechas en OTRO teléfono desde que se
   escribió.

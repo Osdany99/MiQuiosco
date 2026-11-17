@@ -60,6 +60,8 @@
     "reservado": "Sólo quedan {libres} libres de {producto}: {apartadas} están apartadas por ventas por revisar. No la anoté.",
     "noSeVende": "Ese producto no se vende suelto.",
     "unoPorVez": "De uno en uno, por favor.",
-    "noTeEntendi": "No te entendí. Di, por ejemplo: vende dos panes."
+    "noTeEntendi": "No te entendí. Di, por ejemplo: vende dos panes.",
+    "ayuda": "Puedo anotar ventas, fiar, cobrar, consultar stock, precios, deudas y las ventas del día. Prueba: vende dos panes.",
+    "nadaQueRepetir": "No tengo nada que repetir todavía."
   }
 }
