@@ -188,4 +188,7 @@ async function confirmar() {
     guardando.value = false
   }
 }
+
+// La confirmación hablada pulsa este mismo botón.
+defineExpose({ confirmar })
 </script>

@@ -771,10 +771,17 @@ function _create(ubicacion) {
     if (estado.value !== 'idle') estado.value = 'idle'
   }
 
-  /** Aviso hablado de un comando asistido: no pide «sí», no confirma nada. */
+  /**
+   * Aviso hablado de un comando asistido. Con la confirmación por voz apagada
+   * no habla: el formulario queda para el botón. El «sí» se pide desde el
+   * layout, que es quien tiene el micrófono de la confirmación.
+   */
   function hablarAsistido(texto) {
     ultimaRespuestaVoz.value = texto
-    void (async () => {
+    readBackTexto.value = texto
+    readBackIncluyeConfirmacion.value = false
+    readBackPromise.value = (async () => {
+      if (!tts.habilitado.value) return
       try {
         await tts.speak(texto)
       } catch {

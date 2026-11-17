@@ -1066,9 +1066,9 @@ async function whOlvidarEste() {
           v-model="ttsActivo"
           color="primary"
           :disabled="!tts.disponible.value"
-          description="Lee el resultado de una venta, deuda o consulta, y lee la venta antes de pedir el “sí”."
+          description="Lee lo que va a hacer y pide un “sí” antes de aplicarlo. Apagado, todo se confirma con el botón (las acciones sin formulario siempre preguntan)."
         >
-          Leer en voz alta
+          Confirmación por voz
         </USwitch>
 
         <p v-if="!tts.disponible.value" class="text-xs text-warning">
@@ -1086,11 +1086,12 @@ async function whOlvidarEste() {
 
         <div class="space-y-1 border-t border-default pt-3">
           <p class="text-sm">
-            Toda venta por voz se lee y pide confirmación con un “sí” (6 segundos).
+            Con la confirmación por voz activa, la asistente dice lo que va a hacer y
+            espera un “sí” (6 segundos) antes de aplicarlo.
           </p>
           <p v-if="!ttsActivo" class="text-xs text-warning">
-            Con la lectura apagada no hay confirmación hablada: la venta abre el
-            formulario y se confirma con el botón.
+            Apagada: la venta y los comandos con formulario se confirman con el botón.
+            Las acciones sin formulario (mover un producto) siempre preguntan por voz.
           </p>
         </div>
 

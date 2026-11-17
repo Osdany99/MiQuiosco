@@ -10,6 +10,11 @@ const perms = usePermisos()
 const isCollapsed = ref(true)
 const mobileOpen = ref(false)
 const vozDialogRef = ref(null)
+// Diálogos asistidos (entrada, precio, traspaso): la confirmación por voz los
+// necesita para pulsar su botón cuando el jefe dice «sí».
+const entradaDialogRef = ref(null)
+const precioDialogRef = ref(null)
+const traspasoDialogRef = ref(null)
 const zeroTouch = useVoiceZeroTouch()
 const voiceRaw = useVoiceCommand()
 const ttsRaw = useTts()
@@ -133,6 +138,62 @@ function cancelarPanelVoz() {
   void vozActiva.value.cancelarEscucha()
 }
 
+/**
+ * Espera a que termine la locución del read-back antes de pedir el «sí». Con
+ * tope propio: si la voz se cuelga, la confirmación no espera para siempre.
+ */
+async function esperarReadBack() {
+  const rb = vozActiva.value.readBackPromise?.value
+  if (rb && typeof rb.then === 'function') {
+    await Promise.race([rb, new Promise(resolve => setTimeout(resolve, 12000))])
+  }
+}
+
+/**
+ * Abre el micrófono, espera sí/no/corrección y lo cierra. La comparten la venta
+ * y los comandos asistidos: el antieco y el reset son los mismos.
+ */
+async function escucharRespuesta(nombreProducto) {
+  // Margen para que el eco final de la voz no entre al micrófono.
+  await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+  // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
+  // diálogo y la confirmación podría leerlo como respuesta.
+  voiceRaw.reset()
+  // startListening resuelve al terminar la escucha; no se espera aquí.
+  voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'confirmacion' })
+  const escucha = voiceRaw.startListening({
+    contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
+  }).catch(() => {})
+  const respuesta = await confirmacion.esperar({
+    timeoutMs: zeroTouch.timeoutMs.value,
+    // El prompt es TODO lo que se habló: con solo la pregunta corta no se
+    // detectaba el eco de la lectura y un «sí» oído del propio TTS confirmaba.
+    prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR
+  })
+  try {
+    voiceRaw.registrar('voz.confirmar', {
+      resultado: respuesta.resultado,
+      cantidad: respuesta.cantidad,
+      texto: String(voiceRaw.transcript?.value || ''),
+      confianza: Number(voiceRaw.confidence?.value) || 0,
+      producto: nombreProducto ?? ''
+    })
+  } catch {
+    /* la traza no debe romper la venta */
+  }
+  try {
+    await voiceRaw.stopListening()
+  } catch {
+    /* noop */
+  }
+  await escucha
+  voiceRaw.reset()
+  return respuesta
+}
+
+/** Modos con formulario que también se confirman por voz. */
+const MODOS_ASISTIDOS = new Set(['entrada', 'precio', 'traspaso'])
+
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
   // Sin lectura de voz no hay confirmación hablada: el formulario queda abierto
@@ -142,9 +203,45 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     vozDialogAbierto.value = true
     toast.add({
       title: 'Voz',
-      description: 'Lectura apagada: confirma la venta con el botón.',
+      description: 'Confirmación por voz apagada: confirma con el botón.',
       color: 'neutral'
     })
+    return
+  }
+  // Asistidas con formulario: se abre, se lee lo que va a hacer (ya lo dijo el
+  // composable) y se pide el «sí». Sin permiso de cero toques, solo el botón.
+  if (MODOS_ASISTIDOS.has(vozActiva.value.modo.value)) {
+    vozDialogAbierto.value = true
+    if (!ceroToquesActivo.value) return
+    await nextTick()
+    await esperarReadBack()
+    confirmandoVoz.value = true
+    try {
+      if (!vozActiva.value.readBackIncluyeConfirmacion?.value) {
+        try {
+          await ttsRaw.speak(FRASE_CONFIRMAR)
+        } catch {
+          /* noop */
+        }
+        vozActiva.value.readBackTexto.value = `${vozActiva.value.readBackTexto?.value || ''} ${FRASE_CONFIRMAR}`.trim()
+      }
+      const respuesta = await escucharRespuesta(fila?.nombre)
+      if (respuesta.resultado === 'afirmado') {
+        dialogoAsistidoRef.value?.confirmar?.()
+      } else if (respuesta.resultado === 'negado') {
+        vozDialogAbierto.value = false
+        vozActiva.value.limpiar()
+        try {
+          await ttsRaw.speak('Cancelado.')
+        } catch {
+          /* noop */
+        }
+      }
+    } catch {
+      /* se queda el formulario abierto para el botón */
+    } finally {
+      confirmandoVoz.value = false
+    }
     return
   }
   // Sin permiso de venta por voz solo queda el toque manual en el formulario.
@@ -157,14 +254,9 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
   await nextTick()
   // Esperar a la lectura del producto (read-back) para que la confirmación no
   // interrumpa el anuncio de lo que se va a vender.
-  const rb = vozActiva.value.readBackPromise?.value
-  if (rb && typeof rb.then === 'function') {
-    // speak() ya tiene su propio tope de seguridad; este es solo un último recurso.
-    await Promise.race([rb, new Promise(resolve => setTimeout(resolve, 12000))])
-  }
+  await esperarReadBack()
   let prefill = vozActiva.value.prefill.value
   let resultado = 'timeout'
-  let confianza = 0
   let correcciones = 0
   let avisoManual = false
   confirmandoVoz.value = true
@@ -179,49 +271,9 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       }
     }
 
-    /** Abre el micrófono, espera sí/no/corrección y lo cierra. */
-    const escucharRespuesta = async () => {
-      // Margen para que el eco final de la voz no entre al micrófono.
-      await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
-      // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
-      // diálogo y la confirmación podría leerlo como respuesta.
-      voiceRaw.reset()
-      // startListening resuelve al terminar la escucha; no se espera aquí.
-      voiceRaw.registrar('stt.ui.dock', { modo: conexion.modo.value, red: voiceRaw.hayInternet.value, origen: 'confirmacion' })
-      const escucha = voiceRaw.startListening({
-        contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
-      }).catch(() => {})
-      const respuesta = await confirmacion.esperar({
-        timeoutMs: zeroTouch.timeoutMs.value,
-        // El prompt es TODO lo que se habló: con solo la pregunta corta no se
-        // detectaba el eco de la lectura y un «sí» oído del propio TTS confirmaba.
-        prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR
-      })
-      confianza = Number(voiceRaw.confidence?.value) || 0
-      try {
-        voiceRaw.registrar('voz.confirmar', {
-          resultado: respuesta.resultado,
-          cantidad: respuesta.cantidad,
-          texto: String(voiceRaw.transcript?.value || ''),
-          confianza,
-          producto: fila?.nombre ?? ''
-        })
-      } catch {
-        /* la traza no debe romper la venta */
-      }
-      try {
-        await voiceRaw.stopListening()
-      } catch {
-        /* noop */
-      }
-      await escucha
-      voiceRaw.reset()
-      return respuesta
-    }
-
     // Hasta dos correcciones («no, eran tres») sin cerrar el formulario.
     while (true) {
-      const respuesta = await escucharRespuesta()
+      const respuesta = await escucharRespuesta(fila?.nombre)
       resultado = respuesta.resultado
       if (respuesta.resultado !== 'corregir') break
 
@@ -246,10 +298,7 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       }
       prefill = vozActiva.value.prefill.value
       // Esperar la nueva lectura (ya incluye la petición de confirmación).
-      const nuevoReadBack = vozActiva.value.readBackPromise?.value
-      if (nuevoReadBack && typeof nuevoReadBack.then === 'function') {
-        await Promise.race([nuevoReadBack, new Promise(resolve => setTimeout(resolve, 12000))])
-      }
+      await esperarReadBack()
     }
   } catch {
     /* degrade: queda el modal abierto para toque manual */
@@ -265,7 +314,7 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       cantidad: prefill?.cantidad ?? null,
       ubicacion: prefill?.ubicacion ?? null,
       modo: prefill?.modo ?? null,
-      confianza,
+      confianza: Number(voiceRaw.confidence?.value) || 0,
       outcome: resultado === 'afirmado'
         ? 'auto-confirmado'
         : (resultado === 'negado' ? 'cancelado' : 'abandonado')
@@ -322,6 +371,15 @@ const dialogoPrecioAbierto = computed({
 const dialogoTraspasoAbierto = computed({
   get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'traspaso',
   set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
+
+/** El diálogo del comando asistido en curso (para el «sí» hablado). */
+const dialogoAsistidoRef = computed(() => {
+  const modo = vozActiva.value.modo.value
+  if (modo === 'entrada') return entradaDialogRef.value
+  if (modo === 'precio') return precioDialogRef.value
+  if (modo === 'traspaso') return traspasoDialogRef.value
+  return null
 })
 // Cambiar de quiosco a almacén no debe arrastrar el producto ni dejar el
 // micrófono de la ubicación anterior abierto.
@@ -674,18 +732,21 @@ const userMenuItems = computed(() => {
            v-model; solo se abre el que corresponde al modo activo. Ninguno se
            confirma por voz. -->
       <InventarioDialogoEntrada
+        ref="entradaDialogRef"
         v-model="dialogoEntradaAbierto"
         :producto-id="vozActiva.modo.value === 'entrada' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :prefill="vozActiva.modo.value === 'entrada' ? vozActiva.prefill.value : null"
         @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
       />
       <ProductoDialogoPrecio
+        ref="precioDialogRef"
         v-model="dialogoPrecioAbierto"
         :producto="vozActiva.modo.value === 'precio' ? vozActiva.producto.value : null"
         :prefill="vozActiva.modo.value === 'precio' ? vozActiva.prefill.value : null"
         @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
       />
       <InventarioDialogoTraspaso
+        ref="traspasoDialogRef"
         v-model="dialogoTraspasoAbierto"
         :producto-id="vozActiva.modo.value === 'traspaso' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :prefill="vozActiva.modo.value === 'traspaso' ? vozActiva.prefill.value : null"
