@@ -32,26 +32,27 @@ Las páginas de `/admin/*` usan otro layout y no muestran el dock.
 
 ## Resolución de la ubicación de venta
 
-`resolverUbicacion(slots, ubicacionVista, { permitirConflicto })` decide dónde se
-registra una venta:
+`resolverUbicacion(slots)` decide dónde se registra una venta:
 
-- **Sin ubicación dicha** → se usa la ubicación de la vista/instancia activa
-  (no se asume almacén).
-- **Misma ubicación** → sin conflicto.
-- **Ubicación distinta dentro de inventario** → `conflicto: true`; la UI rechaza
-  y pide abrir la venta desde la ubicación correcta.
-- **Fuera de inventario** → se respeta la ubicación dicha sin conflicto; el
-  formulario la muestra antes de confirmar.
+- **Sin ubicación dicha** → **almacén**, siempre. También dentro de `/quiosco`:
+  lo que se dicta compromete stock del almacén salvo que se pida el quiosco.
+- **Ubicación dicha** («del quiosco», «del kiosco», «del almacén») → manda la
+  dicha, sin importar en qué pantalla estés.
+- Ya **no hay conflicto de ubicación**: la pantalla no decide el destino. El
+  formulario muestra la ubicación antes de confirmar, así que el jefe ve de dónde
+  sale la mercancía.
 
 Ejemplos:
 
 | Ruta | Comando | Resultado |
 |---|---|---|
-| `/quiosco` | “vende 5 panes” | venta de quiosco |
+| `/quiosco` | “vende 5 panes” | venta de **almacén** |
 | `/almacen` | “vende 5 panes” | venta de almacén |
-| `/deudas` | “vende 5 panes” | venta de la ubicación activa |
-| `/deudas` | “vende 5 panes del almacén” | venta de almacén, sin conflicto |
-| `/quiosco` | “vende 5 panes del almacén” | conflicto (abrir desde almacén) |
+| `/deudas` | “vende 5 panes” | venta de almacén |
+| `/quiosco` | “vende 5 panes del quiosco” | venta de quiosco |
+| `/almacen` | “vende 5 panes del quiosco” | venta de quiosco |
+
+Fiar por voz usa la misma regla (sin ubicación → almacén).
 
 ## Auto-disparo `?voice=1`
 
@@ -159,7 +160,8 @@ app cerrada (el buzón los ignora: necesitan el formulario delante).
   **escribir el dinero real en caja y pulsar Cerrar cuadre**: la voz no cierra
   el cuadre ni con «cierra y confirma».
 - **Traspaso** (solo jefe con almacén y quiosco): «pasa 5 panes del almacén al
-  quiosco». Abre el traspaso con producto, cantidad y lotes sugeridos (FIFO).
+  quiosco», «mueve 3 refrescos al quiosco», «transfiere 10 panes al quiosco».
+  Abre el traspaso con producto, cantidad y lotes sugeridos (FIFO).
   Si no alcanza el stock del almacén no se abre: lo dice con la cantidad que
   hay. El sentido contrario («del quiosco al almacén») se rechaza con un aviso;
   no se invierte en silencio.
@@ -376,8 +378,8 @@ abierta**, pero el resultado va a la cola de revisión, nunca a la base:
    silencio.
 
 **Ubicación:** una venta dictada sale del **almacén** salvo que se diga «del
-quiosco» o «del kiosco». Con la app abierta manda la ruta (`/quiosco` → quiosco,
-`/almacen` → almacén).
+quiosco» o «del kiosco». La pantalla no cambia el destino (no hay conflicto de
+ubicación).
 
 ### Diálogo (mismas reglas que la app abierta)
 
@@ -565,7 +567,10 @@ llamar a la API en cada comando:
   `app/utils/voice/resolverVenta.js` (puro).
 - `ejecutar(accion, { gen })` es el único sitio con efectos (abrir el formulario,
   registrar, navegar) y centraliza la auditoría.
-- El precio dictado («vende 2 panes a 10») manda sobre el del catálogo.
+- El precio dictado («vende 2 panes a 10») manda sobre el del catálogo. Se
+  entiende **con o sin la palabra «pesos»** y en cualquier orden respecto al
+  cliente: «vende 2 refrescos a 200 pesos a Juan», «vende 2 refrescos a 200 a
+  Juan» y «vende 2 refrescos a Juan a 200» dan el mismo precio.
 
 Esa separación es la que permite reutilizar el mismo intérprete con la app
 cerrada.
@@ -811,9 +816,9 @@ escriben), la hoja de firma es `docs/VOZ_VALIDACION.md`. Esta lista es el detall
 funcional caso por caso:
 
 1. El dock aparece en `/deudas` y `/settings`.
-2. En `/quiosco`, “vende 5 panes” abre la venta de quiosco.
+2. En `/quiosco`, “vende 5 panes” abre la venta del **almacén**.
 3. En `/deudas`, “vende 5 panes del almacén” abre la venta de almacén.
-4. En `/quiosco`, “vende 5 panes del almacén” se rechaza por conflicto.
+4. En `/quiosco`, “vende 5 panes del quiosco” abre la venta del quiosco.
 5. `?voice=1` solo dispara en `/quiosco` y `/almacen`.
 6. Venta por voz: la lectura incluye ubicación e importe; "sí" confirma una vez;
    "no" cancela; el silencio deja el formulario para confirmar a mano. El
@@ -947,6 +952,14 @@ funcional caso por caso:
 67. Con la app cerrada, cualquiera de los cuatro no deja nada en «Por revisar».
 68. Un trabajador (sin jefe) recibe «Solo el jefe puede…» y no se abre ningún
     formulario.
+69. «vende 2 panes» **dentro de `/quiosco`** prellena una venta del **almacén**;
+    con «del quiosco» sí sale del quiosco.
+70. «vende 1 refresco del quiosco a 200 a adrian» toma **200** aunque el STT no
+    transcriba «pesos», y deja «refresco» como producto (sin el número pegado).
+71. «transfiere 5 panes del almacén al quiosco» abre el traspaso con 5 (mismo
+    resultado que «pasa»).
+72. «vende 3 panes» con «Pan de leche» en el catálogo resuelve **sin** menú de
+    candidatos (el plural reconoce el nombre compuesto).
 
 ## Limitaciones conocidas
 

@@ -18,7 +18,6 @@ describe('voz: resolución de venta (pura)', () => {
     const accion = resolverVenta({
       slots: slots(),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.95,
       ventaDirecta: true
     })
@@ -27,7 +26,8 @@ describe('voz: resolución de venta (pura)', () => {
     assert.equal(accion.cantidad, 2)
     assert.equal(accion.precioUnitario, 10)
     assert.equal(accion.importe, 20)
-    assert.equal(accion.destino.ubicacion, 'quiosco')
+    // Sin ubicación dicha la venta sale del almacén, aunque la vista sea quiosco.
+    assert.equal(accion.destino.ubicacion, 'almacen')
     assert.equal(accion.fila.productoId, 'p1')
   })
 
@@ -35,7 +35,6 @@ describe('voz: resolución de venta (pura)', () => {
     const accion = resolverVenta({
       slots: slots({ precioUnitario: 12.5 }),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.95,
       ventaDirecta: true
     })
@@ -47,7 +46,6 @@ describe('voz: resolución de venta (pura)', () => {
     const accion = resolverVenta({
       slots: slots(),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.95,
       ventaDirecta: false
     })
@@ -57,9 +55,9 @@ describe('voz: resolución de venta (pura)', () => {
 
   it('detecta stock insuficiente con el mensaje hablado', () => {
     const accion = resolverVenta({
-      slots: slots({ cantidad: 9 }),
+      // Ubicación dicha: el stock se mira en el quiosco (5 disponibles).
+      slots: slots({ cantidad: 9, ubicacion: 'quiosco' }),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.95,
       ventaDirecta: true
     })
@@ -72,7 +70,6 @@ describe('voz: resolución de venta (pura)', () => {
     const accion = resolverVenta({
       slots: slots({ productoHint: 'pan' }),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.95,
       ventaDirecta: true
     })
@@ -84,33 +81,16 @@ describe('voz: resolución de venta (pura)', () => {
     const accion = resolverVenta({
       slots: slots({ productoHint: 'pan' }),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.01,
       ventaDirecta: true
     })
     assert.equal(accion.tipo, 'ambiguo')
   })
 
-  it('avisa del conflicto de ubicación dentro de inventario', () => {
+  it('la ubicación dicha manda, sin conflicto con la pantalla', () => {
     const accion = resolverVenta({
       slots: slots({ ubicacion: 'almacen' }),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
-      permitirConflicto: true,
-      sttConfidence: 0.95,
-      ventaDirecta: true
-    })
-    assert.equal(accion.tipo, 'aviso')
-    assert.equal(accion.motivo, 'ubicacion_conflicto')
-    assert.match(accion.mensaje, /Almacén/)
-  })
-
-  it('fuera de inventario respeta la ubicación dictada', () => {
-    const accion = resolverVenta({
-      slots: slots({ ubicacion: 'almacen' }),
-      catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
-      permitirConflicto: false,
       sttConfidence: 0.95,
       ventaDirecta: true
     })
@@ -123,7 +103,6 @@ describe('voz: resolución de venta (pura)', () => {
     const accion = resolverVenta({
       slots: slots({ productoHint: 'zzzz' }),
       catalogo: CATALOGO,
-      ubicacionVista: 'quiosco',
       sttConfidence: 0.95,
       ventaDirecta: true
     })

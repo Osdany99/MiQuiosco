@@ -64,8 +64,19 @@ function variantes(texto) {
   return out
 }
 
+// Palabras que no distinguen un producto ("pan de leche" → pan + leche).
+const VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'con', 'para', 'al', 'lo'])
+
+/**
+ * Palabras comparables: sin vacías y en singular. El plural se normaliza aquí
+ * porque es lo que se dicta ("panes", "refrescos") y el catálogo suele estar en
+ * singular: sin esto, "panes" no encontraba "Pan de leche".
+ */
 function tokens(texto) {
-  return normal(texto).split(' ').filter(t => t.length > 2)
+  return normal(texto)
+    .split(' ')
+    .filter(t => t.length > 1 && !VACIAS.has(t))
+    .map(singular)
 }
 
 function levenshtein(a, b) {
@@ -111,9 +122,19 @@ function puntuar(hint, nombre) {
     }
   }
 
-  // "blanco" dentro de "pan blanco": coincidencia exacta de una palabra suelta.
+  // Contención por PALABRAS: "pan" y "panes" reconocen "Pan de leche" aunque el
+  // nombre tenga tres palabras (la contención por caracteres exige largos
+  // parecidos y aquí no aplica). Compara palabras completas, así que "pan" no
+  // cae en "panqueque".
   const tokensNombre = tokens(nombre)
-  for (const token of tokens(hint)) {
+  const tokensHint = tokens(hint)
+  const porPalabras = tokensHint.length > 0 && tokensHint.every(t => tokensNombre.includes(t))
+  if (porPalabras && mejor.score < PESO_CONTENCION) {
+    mejor = { score: PESO_CONTENCION, distance: 0 }
+  }
+
+  // "blanco" dentro de "pan blanco": coincidencia exacta de una palabra suelta.
+  for (const token of tokensHint) {
     if (tokensNombre.includes(token) && mejor.score < PESO_PALABRA) {
       mejor = { score: PESO_PALABRA, distance: 0 }
     }

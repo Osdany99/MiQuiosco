@@ -47,7 +47,7 @@ import { useVozAlias } from './useVozAlias'
 import { useConfirmacionVoz } from './useConfirmacionVoz'
 import { useVoiceZeroTouch } from './useVoiceZeroTouch'
 import { useVozDisparo } from './useVozDisparo'
-import { evaluarDisparoVoz, esRutaInventario, ubicacionActiva } from '../utils/voice/disparoVoz'
+import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
 
 const MODO_POR_TIPO = {
@@ -441,19 +441,14 @@ function _create(ubicacion) {
       }
     }
 
-    // El catálogo depende de la ubicación destino; el conflicto se detecta sin
-    // cargar nada (la acción 'aviso' no necesita catálogo). La revisión de lo
-    // dictado con la app cerrada no tiene pantalla: no hay conflicto que valga.
-    const permitirConflicto = opciones.permitirConflicto ?? esRutaInventario(route.path)
-    const destino = resolverUbicacion(slots, ubicacion, { permitirConflicto })
-    const catalogo = destino.conflicto ? [] : await catalogoDe(destino.ubicacion)
+    // El catálogo se carga para la ubicación destino (dicha o almacén).
+    const destino = resolverUbicacion(slots)
+    const catalogo = await catalogoDe(destino.ubicacion)
     if (!vigente()) return { tipo: 'cancelado' }
 
     const accion = resolverVentaPura({
       slots,
       catalogo,
-      ubicacionVista: ubicacion,
-      permitirConflicto,
       sttConfidence,
       // La app abierta nunca registra sin formulario; solo el buzón (app
       // cerrada) pide la resolución con `ventaDirecta: true` para calcular el
@@ -492,10 +487,7 @@ function _create(ubicacion) {
     // regalo siguen de uno en uno, donde el modo está claro.
     if ((multi.tipoVenta || 'directa') !== 'directa') return null
 
-    const permitirConflicto = opciones.permitirConflicto ?? esRutaInventario(route.path)
-    const destino = resolverUbicacion({ ubicacion: multi.ubicacion }, ubicacion, { permitirConflicto })
-    // Ubicación contradictoria: el flujo de una línea da el aviso correcto.
-    if (destino.conflicto) return null
+    const destino = resolverUbicacion({ ubicacion: multi.ubicacion })
     const catalogo = await catalogoDe(destino.ubicacion)
     if (!vigente()) return { tipo: 'cancelado' }
 
@@ -509,8 +501,6 @@ function _create(ubicacion) {
       const accion = resolverVentaPura({
         slots: { ...segmento, ubicacion: multi.ubicacion, tipoVenta: multi.tipoVenta },
         catalogo,
-        ubicacionVista: ubicacion,
-        permitirConflicto,
         sttConfidence,
         ventaDirecta: false
       })
@@ -1055,8 +1045,7 @@ function _create(ubicacion) {
     const accion = await resolverVentaAccion(
       { ...slots, clienteId: mejor.cliente.id, clienteHint: '', tipoVenta: 'directa' },
       sttConfidence,
-      vigente,
-      { permitirConflicto: false }
+      vigente
     )
     if (accion.tipo === 'venta') {
       return {
@@ -1698,7 +1687,7 @@ function _create(ubicacion) {
    * Esto es lo que permite reutilizar el mismo intérprete con la app cerrada
    * (dry-run) y con la app abierta (ejecución tras confirmación).
    */
-  async function resolver(texto, { sttConfidence = 0, alternativas = [], vigente = () => true, ventaDirecta = null, permitirConflicto = null } = {}) {
+  async function resolver(texto, { sttConfidence = 0, alternativas = [], vigente = () => true, ventaDirecta = null } = {}) {
     const textoElegido = await elegirTexto(texto, sttConfidence, alternativas)
     const interpretado = interpretar(textoElegido, vozLexico.lexico.value)
     voice.registrar('voz.interpretar', {
@@ -1748,9 +1737,9 @@ function _create(ubicacion) {
     if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa: primero se intenta la frase con varias líneas; si alguna
     // no resuelve sin dudas, cae al flujo de una sola línea.
-    const multi = await resolverVentaMultiAccion(textoElegido, sttConfidence, vigente, { ventaDirecta, permitirConflicto })
+    const multi = await resolverVentaMultiAccion(textoElegido, sttConfidence, vigente, { ventaDirecta })
     if (multi) return multi
-    return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta, permitirConflicto })
+    return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta })
   }
 
   /** Aplica una acción del resolver. Único sitio con efectos del flujo. */

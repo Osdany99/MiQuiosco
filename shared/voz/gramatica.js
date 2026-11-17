@@ -149,6 +149,7 @@ const PALABRAS_NO_CLIENTE = new Set([
   'regalar',
   'comer',
   'probar',
+  'granel',
   'aqui',
   'aca',
   'hoy',
@@ -819,6 +820,42 @@ function recortarVerbo(texto, ventaFuerte = VERBOS_VENTA, ventaDebil = VERBOS_VE
   return texto.trim()
 }
 
+/**
+ * Nombre de cliente al final: "a Juan", "para don Juan Pérez". Hasta cuatro
+ * palabras para no tragarse media frase.
+ */
+const RE_CLIENTE = /\b(?:a|para)\s+(?:(?:don|dona|senor|senora)\s+)?([a-z]+(?:\s+[a-z]+){0,3})\s*$/
+
+/**
+ * Quita el cliente del final del texto. Devuelve el texto restante y el nombre,
+ * o `nombre: null` si lo que hay detrás no parece una persona ("para llevar",
+ * "a diez cada uno": un número nunca es un cliente).
+ */
+function quitarCliente(texto) {
+  const cliente = texto.match(RE_CLIENTE)
+  if (!cliente) return { texto, nombre: null }
+  const palabras = cliente[1].split(/\s+/).filter(Boolean)
+  // "a diez", "a diez cada uno": es un precio, no un nombre.
+  if (palabras.length && parseNumberToken(palabras[0]) != null) {
+    return { texto, nombre: null }
+  }
+  const nombre = palabras
+    .filter(t => t && !PALABRAS_VACIAS.has(t) && !PALABRAS_NO_CLIENTE.has(t))
+  return {
+    texto: texto.replace(cliente[0], ' '),
+    nombre: nombre.length ? nombre.join(' ') : null
+  }
+}
+
+/** Quita el precio ("a 10 pesos", "a precio de diez") y devuelve su valor. */
+function quitarPrecio(texto) {
+  const tokens = texto.split(' ').filter(Boolean)
+  const precio = parsearPrecio(tokens)
+  if (!precio) return { texto, valor: null }
+  tokens.splice(precio.desde, precio.hasta - precio.desde)
+  return { texto: tokens.join(' '), valor: precio.valor }
+}
+
 function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
   const c = compilar(lexico)
   const slots = {
@@ -875,26 +912,22 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
     if (!conservarSuelto) work = work.replace(/\bnormal\b/g, ' ')
   }
 
-  // Precio: "a precio de treinta y cinco", "a 10 pesos", "a diez".
-  const tokensPrecio = work.split(' ').filter(Boolean)
-  const precio = parsearPrecio(tokensPrecio)
-  if (precio) {
-    slots.precioUnitario = precio.valor
-    tokensPrecio.splice(precio.desde, precio.hasta - precio.desde)
-  }
-  work = tokensPrecio.join(' ')
+  // Cliente y precio, en cualquier orden: "… a 200 pesos a Juan" y
+  // "… a Juan a 200". Se intenta el cliente primero (lo más habitual es que
+  // cierre la frase); si no hay, se quita el precio y se reintenta, porque
+  // "a Juan a 15" solo deja el nombre al descubierto después de quitar el 15.
+  let extraido = quitarCliente(work)
+  if (extraido.nombre) slots.clienteHint = extraido.nombre
+  work = extraido.texto
 
-  // Cliente: "a don Juan Pérez" / "para Juan Pérez". Se aceptan hasta cuatro
-  // palabras al final y se descartan honoríficos y palabras que no son nombre
-  // ("para llevar"). Si no queda ningún nombre válido, se elimina la frase
-  // igualmente para que no contamine el producto.
-  const cliente = work.match(/\b(?:a|para)\s+(?:(?:don|dona|senor|senora)\s+)?([a-z]+(?:\s+[a-z]+){0,3})\s*$/)
-  if (cliente) {
-    const nombre = cliente[1]
-      .split(/\s+/)
-      .filter(t => t && !PALABRAS_VACIAS.has(t) && !PALABRAS_NO_CLIENTE.has(t))
-    if (nombre.length) slots.clienteHint = nombre.join(' ')
-    work = work.replace(cliente[0], ' ')
+  extraido = quitarPrecio(work)
+  if (extraido.valor != null) slots.precioUnitario = extraido.valor
+  work = extraido.texto
+
+  if (!slots.clienteHint) {
+    extraido = quitarCliente(work)
+    if (extraido.nombre) slots.clienteHint = extraido.nombre
+    work = extraido.texto
   }
 
   // Cantidad: número al inicio ("cinco", "treinta y cinco", "dos mil"), con
@@ -947,7 +980,7 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
  */
 const VERBOS_ENTRADA = /^(?:entraron|entro|entra|entrada|ingresaron|ingreso|ingresa|llegaron|llego|llega|compre|compramos|compra|recibi|recibimos|meti|metimos|mete|echaron|echo)\b/
 const VERBOS_PRECIO = /^(?:cambia|cambiar|cambiale|cambiamelo|pon|ponle|ponme|pongale|sube|subele|baja|bajale|actualiza|actualizale|corrige|corrigele|deja|dejalo|fija|fijale)\b/
-const VERBOS_TRASPASO = /^(?:pasa|pasame|pasale|pasar|mueve|mueveme|muevelo|muevela|traspasa|traspasame|traslada|repone|repon|reponer)\b/
+const VERBOS_TRASPASO = /^(?:pasa|pasame|pasale|pasar|mueve|mueveme|muevelo|muevela|traspasa|traspasame|traslada|transfiere|transferir|transfiereme|transferi|transfiero|repone|repon|reponer)\b/
 
 /** ¿La frase trae algún número (dígitos o en palabras)? */
 function hayNumero(texto) {
@@ -1131,19 +1164,14 @@ export function interpretar(transcript, lexico = LEXICO_BASE) {
 }
 
 /**
- * Una venta no puede cambiar de ubicación en silencio: si el comando dice una
- * ubicación distinta a la de la vista actual, se marca `conflicto` y la UI
- * debe pedir confirmación (o rechazar) en vez de vender en el sitio equivocado.
+ * Ubicación de la venta dictada: la que se dijo o, si no se dijo, el **almacén**.
  *
- * Fuera de inventario no hay "vista" con la que conflictuar: con
- * `permitirConflicto: false` se respeta la ubicación dicha y el formulario la
- * muestra antes de confirmar.
+ * La pantalla ya no decide: con la venta por voz siempre se compromete almacén
+ * salvo que se pida el quiosco. El formulario muestra la ubicación antes de
+ * confirmar, así que no hay sitio para vender en silencio en el lugar equivocado.
  */
-export function resolverUbicacion(slots, ubicacionVista, opciones = {}) {
-  const dicha = slots?.ubicacion ?? null
-  if (!dicha) return { ubicacion: ubicacionVista, conflicto: false }
-  const permitirConflicto = opciones?.permitirConflicto !== false
-  return { ubicacion: dicha, conflicto: permitirConflicto && dicha !== ubicacionVista }
+export function resolverUbicacion(slots) {
+  return { ubicacion: slots?.ubicacion ?? 'almacen' }
 }
 
 /**

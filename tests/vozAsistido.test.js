@@ -58,6 +58,15 @@ describe('voz asistida: comandos (K, L, M, N)', () => {
     assert.equal(r.slots.destino, 'quiosco')
   })
 
+  it('«transfiere» también es traspaso', () => {
+    const r = interpretar('transfiere 5 panes del almacen al quiosco')
+    assert.equal(r.comando, 'traspaso')
+    assert.equal(r.slots.productoHint, 'panes')
+    assert.equal(r.slots.cantidad, 5)
+    assert.equal(r.slots.destino, 'quiosco')
+    assert.equal(interpretar('transfiere 2 panes del quiosco al almacen').slots.destino, 'almacen')
+  })
+
   it('no se come las ventas ni las consultas de siempre', () => {
     assert.equal(interpretar('vende 5 panes').comando, 'venta_directa')
     assert.equal(interpretar('cuanto cuesta el pan').comando, 'consulta_precio')
@@ -86,11 +95,13 @@ describe('voz asistida: entrada al almacén (K)', () => {
   })
 
   it('un producto dudoso o inexistente no prellena nada', () => {
-    assert.equal(resolverEntradaInventario(
+    // Dos "pan…" con el mismo puntaje: no se adivina.
+    const ambiguo = resolverEntradaInventario(
       { slots: { productoHint: 'pan', cantidad: 5 } },
-      CATALOGO,
-      { sttConfidence: 0.6 }
-    ).tipo, 'ambiguo')
+      [...CATALOGO, { productoId: 'p3', nombre: 'Pan Blanco', almacen: 9, quiosco: 1, precioVentaActual: 12 }],
+      { sttConfidence: 0.95 }
+    )
+    assert.equal(ambiguo.tipo, 'ambiguo')
     assert.equal(resolverEntradaInventario(
       { slots: { productoHint: 'caviar', cantidad: 5 } },
       CATALOGO,

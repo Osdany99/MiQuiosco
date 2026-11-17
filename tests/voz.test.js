@@ -222,23 +222,14 @@ describe('voz: slots (fase B)', () => {
 })
 
 describe('voz: ubicación', () => {
-  it('sin ubicación usa la de la vista', () => {
-    assert.deepEqual(resolverUbicacion({ ubicacion: null }, 'quiosco'), { ubicacion: 'quiosco', conflicto: false })
+  it('sin ubicación la venta sale del almacén, aunque estés en el quiosco', () => {
+    assert.deepEqual(resolverUbicacion({ ubicacion: null }), { ubicacion: 'almacen' })
+    assert.deepEqual(resolverUbicacion({}), { ubicacion: 'almacen' })
   })
 
-  it('la misma ubicación no es conflicto', () => {
-    assert.deepEqual(resolverUbicacion({ ubicacion: 'almacen' }, 'almacen'), { ubicacion: 'almacen', conflicto: false })
-  })
-
-  it('una ubicación distinta es conflicto (nunca vender en silencio)', () => {
-    assert.deepEqual(resolverUbicacion({ ubicacion: 'almacen' }, 'quiosco'), { ubicacion: 'almacen', conflicto: true })
-  })
-
-  it('fuera de inventario se respeta la ubicación dicha sin conflicto', () => {
-    assert.deepEqual(
-      resolverUbicacion({ ubicacion: 'almacen' }, 'quiosco', { permitirConflicto: false }),
-      { ubicacion: 'almacen', conflicto: false }
-    )
+  it('la ubicación dicha se respeta siempre', () => {
+    assert.deepEqual(resolverUbicacion({ ubicacion: 'almacen' }), { ubicacion: 'almacen' })
+    assert.deepEqual(resolverUbicacion({ ubicacion: 'quiosco' }), { ubicacion: 'quiosco' })
   })
 })
 
@@ -289,6 +280,13 @@ describe('voz: fuzzy de productos', () => {
     const [mejor] = fuzzyMatchProducts('panes', catalogo)
     assert.equal(mejor.product.id, '1')
     assert.equal(mejor.score, 1)
+  })
+
+  it('el plural reconoce un nombre de varias palabras («panes» → «Pan de leche»)', () => {
+    const soloCompuesto = [{ id: '9', name: 'Pan de leche' }, { id: '8', name: 'Refresco Cola' }]
+    const [mejor] = fuzzyMatchProducts('panes', soloCompuesto)
+    assert.equal(mejor.product.id, '9')
+    assert.ok(mejor.score >= 0.75, `puntaje ${mejor.score}`)
   })
 
   it('respeta acentos y mayúsculas', () => {
@@ -567,6 +565,21 @@ describe('voz: precio vs cliente', () => {
   it('"a 10 pesos" es precio y no ensucia el producto', () => {
     const slots = extraerSlots('venta_directa', 'vende cinco panes a 10 pesos')
     assert.equal(slots.precioUnitario, 10)
+    assert.equal(slots.productoHint, 'panes')
+  })
+
+  it('el precio se entiende aunque el STT se coma «pesos»', () => {
+    // «a 200 a Juan»: el cliente cierra la frase y el precio queda antes.
+    const slots = extraerSlots('venta_directa', 'vende 1 refresco del quiosco a 200 a adrian')
+    assert.equal(slots.precioUnitario, 200)
+    assert.equal(slots.clienteHint, 'adrian')
+    assert.equal(slots.productoHint, 'refresco')
+  })
+
+  it('el precio también se entiende cuando el cliente va antes', () => {
+    const slots = extraerSlots('venta_directa', 'vende 2 panes a juan a 15')
+    assert.equal(slots.precioUnitario, 15)
+    assert.equal(slots.clienteHint, 'juan')
     assert.equal(slots.productoHint, 'panes')
   })
 

@@ -82,13 +82,12 @@ export function useBuzonVoz() {
     if (!entrada.origenId) entrada.origenId = nombre
 
     const voz = entrada.ubicacion === 'almacen' ? vozAlmacen : vozQuiosco
-    // Sin pantalla no hay conflicto de ubicación ni ajuste de venta directa que
-    // respetar: lo dictado se anota siempre para revisión.
+    // Sin pantalla no hay ajuste de venta directa que respetar: lo dictado se
+    // anota siempre para revisión.
     const accion = await voz.resolver(entrada.texto, {
       sttConfidence: entrada.sttConfidence,
       alternativas: entrada.alternativas,
-      ventaDirecta: true,
-      permitirConflicto: false
+      ventaDirecta: true
     })
 
     const documento = pendienteDesdeAccion(accion, entrada)

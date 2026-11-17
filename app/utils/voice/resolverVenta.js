@@ -28,39 +28,21 @@ function etiquetaUbicacion(ubicacion) {
   return ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
 }
 
-function nombreUbicacion(ubicacion) {
-  return ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén'
-}
-
 /**
  * @param {object} opciones
  * @param {object} opciones.slots Slots validados de `voiceCommandSchema`.
  * @param {Array} opciones.catalogo Filas de inventario (ambas ubicaciones).
- * @param {'quiosco'|'almacen'|null} opciones.ubicacionVista Ubicación de la vista.
- * @param {boolean} opciones.permitirConflicto Si la ruta es de inventario.
  * @param {number} opciones.sttConfidence Confianza del STT (0..1).
  * @param {boolean} opciones.ventaDirecta Resolución para el buzón (app cerrada).
  */
 export function resolverVenta({
   slots,
   catalogo = [],
-  ubicacionVista = null,
-  permitirConflicto = false,
   sttConfidence = 0,
   ventaDirecta = false
 } = {}) {
-  // Sin ubicación explícita se usa la de la vista/instancia (no almacén a
-  // ciegas). Si se dijo otra y estamos dentro de inventario, es un conflicto:
-  // la venta se confirma desde su propia pantalla.
-  const destino = resolverUbicacion(slots, ubicacionVista, { permitirConflicto })
-  if (destino.conflicto) {
-    return {
-      tipo: 'aviso',
-      motivo: 'ubicacion_conflicto',
-      ubicacion: destino.ubicacion,
-      mensaje: `Eso es una venta de ${nombreUbicacion(destino.ubicacion)}. Ábrela desde ${nombreUbicacion(destino.ubicacion)} para confirmarla.`
-    }
-  }
+  // Sin ubicación explícita la venta sale del ALMACÉN (también en /quiosco).
+  const destino = resolverUbicacion(slots)
 
   const emparejar = crearEmparejador(catalogo, sttConfidence)
   let encontrados = emparejar(slots?.productoHint)
