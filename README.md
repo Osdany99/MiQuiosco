@@ -54,6 +54,7 @@ pnpm cap:open     # abrir en Android Studio
 - `docs/CREAR_NUEVA_ENTIDAD.md` — cómo añadir una tabla/entidad nueva.
 - `docs/ANDROID_BUILD_GUIDE.md` — build, emulador y debug Android.
 - `docs/MIGRACIONES.md` — estado del historial de Drizzle y baseline de la base.
+- `docs/VOZ_VALIDACION.md` — hoja de firma de la prueba de voz en teléfono real.
 
 ## Producción (resumen)
 

@@ -777,6 +777,10 @@ umbral de repetición y sin nombres.
 
 ## Verificación manual
 
+Para la prueba en teléfono real (la que levanta la puerta de las fases que
+escriben), la hoja de firma es `docs/VOZ_VALIDACION.md`. Esta lista es el detalle
+funcional caso por caso:
+
 1. El dock aparece en `/deudas` y `/settings`.
 2. En `/quiosco`, “vende 5 panes” abre la venta de quiosco.
 3. En `/deudas`, “vende 5 panes del almacén” abre la venta de almacén.

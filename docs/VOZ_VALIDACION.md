@@ -1,0 +1,142 @@
+# Validación en dispositivo (voz)
+
+Registro de la prueba en **teléfono real** antes de cada fase que escribe datos
+(K, L, M, N). Las fases ya implementadas (C, E1, E2, E3, F1, F2, G, H, I, J)
+también se aprueban aquí: sus casos están abajo.
+
+El checklist funcional completo (ítems 1–60) vive en `docs/VOZ_COMANDOS.md`;
+este documento es la hoja de firma: qué se probó, en qué equipo y qué falló.
+
+## Datos de la sesión
+
+| Campo | Valor |
+|---|---|
+| Fecha | |
+| Teléfono / Android | |
+| APK (`versionCode`) | |
+| Motor de reconocimiento | Vosk / sistema |
+| Permiso de red del puesto | sí / no |
+| Quién prueba | |
+
+## Reglas de la puerta (no negociables)
+
+1. **Teléfono real**, no emulador, con el APK de `pnpm android:dev` o release.
+2. **Ruido de mostrador**: clientes hablando y la radio puesta.
+3. **Modo avión** en las fases que dependen de reconocimiento (Vosk).
+4. Tras cada **«no»** y cada **timeout de 6 s** no puede quedar nada a medias:
+   ni venta, ni deuda, ni pago, ni acción en «Por revisar», ni stock reservado.
+
+Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
+
+## Casos por fase
+
+### C — Configuración de flota
+
+| # | Qué hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| C1 | Cambiar wake/idioma/motor como `super_admin` en `/admin/voz-configuracion` | La APK lo aplica tras sincronizar; sin red usa la copia local | | |
+| C2 | Cambiar la retención a 7 días y pulsar «Depurar ahora» | Borra solo lo viejo y conserva eventos con 3+ intentos | | |
+| C3 | Con el servicio nativo activo, reiniciar el teléfono | La escucha queda en pausa; el aviso recuerda abrir la app | | |
+
+### E1 — Consultar deudas
+
+| # | Qué decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| E1.1 | «cuánto debe Juan» | Lee el saldo pendiente, sin inventar si no hay cliente | | |
+| E1.2 | «cuánto me deben» / «quién me debe más» | Total y el mayor deudor | | |
+| E1.3 | «cuánto debe» (sin nombre) | Pregunta de quién; no responde cifras | | |
+
+### E2 — Resumen del día
+
+| # | Qué decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| E2.1 | «cómo va el día» | Ventas y total de hoy; no incluye anuladas | | |
+| E2.2 | Con la app cerrada, «cómo va el día» | Responde desde el snapshot (puede faltar lo de otro teléfono) | | |
+
+### E3 — Fiar por voz
+
+| # | Qué hacer/decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| E3.1 | «fía 2 panes a Juan» → «sí» | Un solo registro con el **precio de catálogo**; sube la deuda | | |
+| E3.2 | Igual, pero decir «no» | No se crea deuda ni se descuenta stock | | |
+| E3.3 | Igual y dejar pasar 6 s | Formulario abierto; nada registrado | | |
+| E3.4 | Fiar sin permiso de `/deudas` o con la lectura de voz apagada | No se cobra ni se fía; avisa | | |
+
+### F1 / F2 — Cobrar deudas
+
+| # | Qué hacer/decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| F1.1 | «cobra 200 a Juan» → «sí» (app abierta) | Baja el saldo FIFO; el cuadre **no** se toca | | |
+| F1.2 | «cobra 5000 a Juan» (debe 2210) | Rechaza el exceso y dice cuánto debe | | |
+| F1.3 | «no, eran 150» tras la lectura | Corrige el importe y vuelve a leer (máx. 2 veces) | | |
+| F1.4 | «cobra 2 panes» | Sigue siendo **venta**, no cobro | | |
+| F2.1 | App cerrada: «oye nova, cobra 100 a Juan» → «sí» | Deja **un archivo por deuda** en el inbox; en «Por revisar» una fila **Cobro** por deuda | | |
+| F2.2 | «no» en el diálogo cerrado | No deja archivo en `files/voz/inbox` | | |
+
+### G — Alias aprendidos
+
+| # | Qué hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| G1 | Elegir el producto a mano tras una duda | Aparece «Alias aprendido» con **Deshacer** (10 s) | | |
+| G2 | Repetir el dictado con ese alias | Resuelve directo al producto | | |
+| G3 | Aprender el mismo texto para otro producto | El alias se **desactiva** (conflicto); no adivina | | |
+| G4 | Pulsar Deshacer y revisar Ajustes → Alias | El alias desaparece de la lista | | |
+
+### H — Repite y ayuda
+
+| # | Qué decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| H1 | «repite» tras cualquier respuesta | Repite la última frase, sin consultar la base | | |
+| H2 | «repite» sin nada dicho | «No tengo nada que repetir todavía» | | |
+| H3 | «qué puedes hacer» | Ayuda corta con los comandos reales | | |
+| H4 | App cerrada: «oye nova, repite» | Repite la última frase del servicio | | |
+
+### I — Ganancia y caja
+
+| # | Qué decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| I1 | «cuánto gané hoy» con ventas | Ganancia de hoy + importe vendido; sin anuladas | | |
+| I2 | «cuánto gané hoy» sin ventas | «Todavía no hay ventas hoy…» (no «cero pesos») | | |
+| I3 | «cómo va la caja» con cuadre abierto | Esperado y efectivo esperado; descuenta fiado y transferencias | | |
+| I4 | «cómo va la caja» sin cuadre abierto | «No hay un cuadre abierto» y **no** crea uno | | |
+| I5 | App cerrada: «cómo va la caja» / «cuánto gané hoy» | Caja pide abrir la app; ganancia desde el snapshot | | |
+
+### J — Varias líneas en una frase
+
+| # | Qué decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| J1 | «vende 2 pan de leche y 2 refresco cola» → «sí» | Un formulario con dos filas; una sola venta con dos líneas | | |
+| J2 | «vende 3 panes y 2 refrescos» con un producto ambiguo o sin stock | No abre la venta múltiple; pregunta | | |
+| J3 | «vende treinta y cinco panes» | Una línea de 35 (no 30 + 5) | | |
+| J4 | «vende 2 pan de leche y 3 pan de leche» | Un renglón de 5 | | |
+| J5 | App cerrada: «oye nova, vende 3 panes y 2 refrescos» | «De uno en uno, por favor»; no deja nada | | |
+
+## Cierre: nada a medias
+
+Después de recorrer los casos, revisar que no quedó basura:
+
+| Comprobación | ✔/✘ | Nota |
+|---|---|---|
+| `/pendientes` no tiene dictados de las pruebas que dijeron «no» | | |
+| `/deudas` no muestra deudas ni pagos de prueba | | |
+| `/venta-directa` no muestra ventas que debían cancelarse | | |
+| El stock de los productos usados volvió a su sitio | | |
+| `voice.proofs` tiene un proof por confirmación (sin duplicados) | | |
+| `voz_confirmaciones` recibió los proofs con red y la cola quedó vacía | | |
+
+## Resultado
+
+| Fase | Resultado (aprobada / con fallos) | Nota |
+|---|---|---|
+| C | | |
+| E1 | | |
+| E2 | | |
+| E3 | | |
+| F1 / F2 | | |
+| G | | |
+| H | | |
+| I | | |
+| J | | |
+
+Con las fases de escritura aprobadas se levanta la puerta para **K, L, M y N**
+(ver `C:\Users\Osdany\.opencode\plan\voz-fases-restantes.md`).
