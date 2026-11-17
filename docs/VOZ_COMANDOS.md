@@ -163,6 +163,9 @@ app cerrada (el buzón los ignora: necesitan el formulario delante).
 - **Traspaso** (solo jefe con almacén y quiosco): «pasa 5 panes del almacén al
   quiosco», «mueve 3 refrescos al quiosco», «transfiere 10 panes al quiosco».
   Abre el traspaso con producto, cantidad y lotes sugeridos (FIFO).
+- **Alta de cliente** (solo jefe con `/clientes`): «agrega el cliente Adrián»,
+  «nuevo cliente María de los Ángeles». Abre el formulario con el nombre dictado
+  (editable) y avisa si ya existe uno parecido.
   Si no alcanza el stock del almacén no se abre: lo dice con la cantidad que
   hay. El sentido contrario («del quiosco al almacén») se rechaza con un aviso;
   no se invierte en silencio.
@@ -218,6 +221,11 @@ respuestas coinciden.
 - La lectura junta las dos cifras: «Hoy ganaste 320 pesos de 845 vendidos.» Si la
   ganancia sale negativa, dice «perdiste». Sin ventas, «Todavía no hay ventas
   hoy, así que no hay ganancia».
+- **Otro día**: «la ganancia del martes» usa el martes más reciente **ya
+  pasado** (si hoy es martes, el de la semana pasada); «la del 1 de enero» usa
+  esa fecha de este año o la anterior si aún no ha llegado. La lectura nombra el
+  día («El martes 10 de noviembre ganaste 60 pesos de 250 vendidos»). «Las
+  ventas del martes» responde igual con el importe.
 - Solo jefe. Con la app cerrada se lee `resumen.gananciaHoy` del snapshot; un
   snapshot viejo sin ese campo pide abrir la app en vez de decir cero.
 
@@ -960,6 +968,13 @@ funcional caso por caso:
     resultado que «pasa»).
 72. «vende 3 panes» con «Pan de leche» en el catálogo resuelve **sin** menú de
     candidatos (el plural reconoce el nombre compuesto).
+73. «dime la ganancia del martes» responde con el **martes de la semana pasada**
+    y lo nombra; «la del 1 de enero» usa esa fecha (o el año anterior si aún no
+    llegó).
+74. «agrega el cliente Adrián» abre el formulario con el nombre y crea el
+    cliente al confirmar; con la confirmación por voz activa, al decir «sí».
+75. «agrega el cliente Juan» cuando ya existe «Juan Pérez» avisa antes de
+    duplicarlo.
 
 ## Limitaciones conocidas
 

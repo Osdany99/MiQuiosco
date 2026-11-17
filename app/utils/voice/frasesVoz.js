@@ -115,6 +115,12 @@ export function fraseTraspaso({ cantidad, nombre }) {
   return `${cuerpo} Revisa y confirma.`
 }
 
+/** Alta de cliente por voz. */
+export function fraseClienteAlta({ nombre }) {
+  const quien = String(nombre ?? '').trim() || 'el cliente'
+  return `Voy a agregar el cliente ${quien}. Revisa y confirma.`
+}
+
 /**
  * Cuadre por voz: solo lleva al cuadre y lee lo que hay. El cierre nunca lo hace
  * la voz; el jefe escribe el dinero real y pulsa el botón. Sin cuadre abierto no

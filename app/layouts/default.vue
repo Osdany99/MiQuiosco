@@ -15,6 +15,7 @@ const vozDialogRef = ref(null)
 const entradaDialogRef = ref(null)
 const precioDialogRef = ref(null)
 const traspasoDialogRef = ref(null)
+const clienteDialogRef = ref(null)
 const zeroTouch = useVoiceZeroTouch()
 const voiceRaw = useVoiceCommand()
 const ttsRaw = useTts()
@@ -192,7 +193,7 @@ async function escucharRespuesta(nombreProducto) {
 }
 
 /** Modos con formulario que también se confirman por voz. */
-const MODOS_ASISTIDOS = new Set(['entrada', 'precio', 'traspaso'])
+const MODOS_ASISTIDOS = new Set(['entrada', 'precio', 'traspaso', 'cliente'])
 
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
@@ -372,6 +373,10 @@ const dialogoTraspasoAbierto = computed({
   get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'traspaso',
   set: (valor) => { if (!valor) vozDialogAbierto.value = false }
 })
+const dialogoClienteAbierto = computed({
+  get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'cliente',
+  set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
 
 /** El diálogo del comando asistido en curso (para el «sí» hablado). */
 const dialogoAsistidoRef = computed(() => {
@@ -379,6 +384,7 @@ const dialogoAsistidoRef = computed(() => {
   if (modo === 'entrada') return entradaDialogRef.value
   if (modo === 'precio') return precioDialogRef.value
   if (modo === 'traspaso') return traspasoDialogRef.value
+  if (modo === 'cliente') return clienteDialogRef.value
   return null
 })
 // Cambiar de quiosco a almacén no debe arrastrar el producto ni dejar el
@@ -751,6 +757,12 @@ const userMenuItems = computed(() => {
         :producto-id="vozActiva.modo.value === 'traspaso' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :prefill="vozActiva.modo.value === 'traspaso' ? vozActiva.prefill.value : null"
         @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+      />
+      <ClienteDialogo
+        ref="clienteDialogRef"
+        v-model="dialogoClienteAbierto"
+        :prefill="vozActiva.modo.value === 'cliente' ? vozActiva.prefill.value : null"
+        @guardado="void vozActiva.limpiar()"
       />
 
       <UButton

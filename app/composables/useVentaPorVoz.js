@@ -37,7 +37,7 @@ import { formatearDia, formatearGanancia, resumirDia } from '#shared/voz/dia'
 import { rangoDeIso } from '#shared/voz/fechas'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
@@ -609,8 +609,30 @@ function _create(ubicacion) {
     }
   }
 
-  /** Fase N — traspaso almacén → quiosco. Solo jefe con ambas ubicaciones. */
-  async function resolverTraspasoAccion(slots, sttConfidence = 0, vigente = () => true) {
+  /** Alta de cliente por voz: nombre dictado, sin duplicar parecidos. */
+  async function resolverClienteAlta(slots, sttConfidence = 0) {
+    if (!auth.esJefe.value || !perms.puedeVista('clientes')) {
+      return { tipo: 'aviso', mensaje: 'Solo el jefe puede agregar clientes.' }
+    }
+    const nombre = String(slots?.nombre ?? '').trim()
+    if (!nombre) {
+      return { tipo: 'aviso', mensaje: '¿Cómo se llama el cliente? Prueba: agrega el cliente Adrián.' }
+    }
+    const pid = auth.usuarioActual.value?.puestoId
+    const lista = pid
+      ? await fiado.cargarClientes(pid, { incluirSinCliente: false }).catch(() => [])
+      : []
+    const parecidos = clientesSimilares(nombre, lista, { umbral: 0.86 })
+    if (parecidos.length) {
+      return {
+        tipo: 'aviso',
+        mensaje: `Ya existe «${parecidos[0].cliente.nombre}». Revisa /clientes antes de crear otro.`
+      }
+    }
+    return { tipo: 'cliente_alta', slots: { nombre }, sttConfidence }
+  }
+
+  /** Fase N — traspaso almacén → quiosco. Solo jefe con ambas ubicaciones. */ async function resolverTraspasoAccion(slots, sttConfidence = 0, vigente = () => true) {
     if (!auth.esJefe.value || !perms.puedeVista('almacen') || !perms.puedeVista('quiosco')) {
       return { tipo: 'aviso', mensaje: 'Solo el jefe puede traspasar mercancía entre el almacén y el quiosco.' }
     }
@@ -704,8 +726,22 @@ function _create(ubicacion) {
     hablarAsistido(texto)
   }
 
-  /** Prepara el traspaso almacén → quiosco (Fase N). */
-  function prepararTraspaso(accion) {
+  /** Prepara el alta de cliente: el formulario abre con el nombre dictado. */
+  function prepararClienteAlta(accion) {
+    const nombre = String(accion?.slots?.nombre ?? '').trim()
+    prefill.value = { modo: 'cliente', nombre }
+    // El layout abre el diálogo al ver `producto`: se usa un marcador con el
+    // nombre para no meter un cliente en el flujo de venta.
+    producto.value = { nombre, esCliente: true }
+    modo.value = 'cliente'
+    estado.value = 'listo'
+    const texto = fraseClienteAlta({ nombre })
+    toast.add({ title: 'Nuevo cliente', description: texto, color: 'neutral', duration: 8000 })
+    voice.registrar('voz.cliente', { nombre })
+    hablarAsistido(texto)
+  }
+
+  /** Prepara el traspaso almacén → quiosco (Fase N). */ function prepararTraspaso(accion) {
     prefill.value = {
       modo: 'traspaso',
       cantidad: accion.cantidad
@@ -1758,6 +1794,7 @@ function _create(ubicacion) {
     if (comando === 'entrada_inventario') return resolverEntradaAccion(slots, sttConfidence, vigente)
     if (comando === 'cambio_precio') return resolverCambioPrecioAccion(slots, sttConfidence, vigente)
     if (comando === 'traspaso') return resolverTraspasoAccion(slots, sttConfidence, vigente)
+    if (comando === 'cliente_alta') return resolverClienteAlta(slots, sttConfidence)
     if (comando === 'cuadre_accion') return resolverCuadreAccion(slots, sttConfidence)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
@@ -1855,6 +1892,8 @@ function _create(ubicacion) {
         return prepararCambioPrecio(accion)
       case 'traspaso':
         return prepararTraspaso(accion)
+      case 'cliente_alta':
+        return prepararClienteAlta(accion)
       case 'cuadre':
         return ejecutarCuadre(accion, vigente)
       default:

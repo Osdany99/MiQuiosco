@@ -9,6 +9,7 @@ import {
 } from '../app/utils/voice/resolverAsistido.js'
 import {
   fraseCambioPrecio,
+  fraseClienteAlta,
   fraseCuadre,
   fraseEntrada,
   fraseTraspaso
@@ -153,6 +154,26 @@ describe('voz asistida: traspaso (N)', () => {
     }, CATALOGO, { sttConfidence: 0.95 })
     assert.equal(r.tipo, 'aviso')
     assert.equal(r.motivo, 'traspaso_inverso')
+  })
+})
+
+describe('voz asistida: alta de cliente', () => {
+  it('reconoce el alta y saca el nombre', () => {
+    const r = interpretar('agrega el cliente adrian')
+    assert.equal(r.comando, 'cliente_alta')
+    assert.equal(r.slots.nombre, 'adrian')
+    assert.equal(interpretar('nuevo cliente maria de los angeles').slots.nombre, 'maria de los angeles')
+  })
+
+  it('no se come una venta con «registra»', () => {
+    assert.equal(interpretar('registra 2 panes').comando, 'venta_directa')
+  })
+
+  it('la frase dice a quién va a agregar', () => {
+    assert.equal(
+      fraseClienteAlta({ nombre: 'Adrián' }),
+      'Voy a agregar el cliente Adrián. Revisa y confirma.'
+    )
   })
 })
 

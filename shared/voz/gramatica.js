@@ -604,6 +604,11 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   if (esEntradaInventario(texto)) {
     return { comando: 'entrada_inventario', confianza: 0.9, reasons: ['verbo_entrada'] }
   }
+  // Alta de cliente: «agrega el cliente Adrián». Va antes de la venta porque
+  // comparte verbos («registra», «crea») y antes de entrada por el nombre.
+  if (esAltaCliente(texto)) {
+    return { comando: 'cliente_alta', confianza: 0.9, reasons: ['verbo_cliente'] }
+  }
   if (esCambioPrecio(texto)) {
     return { comando: 'cambio_precio', confianza: 0.9, reasons: ['verbo_precio'] }
   }
@@ -1003,6 +1008,24 @@ function extraerTraspasoSlots(transcript, lexico) {
   }
 }
 
+/** «Agrega el cliente Adrián» (Fase P3): alta de cliente por voz. */
+const VERBOS_CLIENTE = /^(?:agrega|agregame|anade|anademe|crea|creame|registra|registrame|nuevo|nueva|alta)\b/
+
+export function esAltaCliente(texto) {
+  const t = normalizar(texto)
+  if (!VERBOS_CLIENTE.test(t)) return false
+  return /\bclientes?\b/.test(t)
+}
+
+function extraerClienteAltaSlots(transcript) {
+  const resto = normalizar(transcript)
+    .replace(VERBOS_CLIENTE, ' ')
+    .replace(/\b(?:clientes?|nuevo|nueva|llamado|llamada)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { nombre: resto.replace(ARTICULOS_INICIALES, '').trim() }
+}
+
 /** Acción del cuadre: abrir o cerrar. Una frase suelta nunca cierra. */
 function extraerCuadreSlots(transcript) {
   const texto = normalizar(transcript)
@@ -1013,6 +1036,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   if (comando === 'entrada_inventario') return extraerEntradaSlots(transcript, lexico)
   if (comando === 'cambio_precio') return extraerCambioPrecioSlots(transcript, lexico)
   if (comando === 'traspaso') return extraerTraspasoSlots(transcript, lexico)
+  if (comando === 'cliente_alta') return extraerClienteAltaSlots(transcript)
   if (comando === 'cuadre_accion') return extraerCuadreSlots(transcript)
   if (comando === 'consulta_stock' || comando === 'consulta_precio') {
     const s = extraerConsultaPura(normalizar(transcript))
