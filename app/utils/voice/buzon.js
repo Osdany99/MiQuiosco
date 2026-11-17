@@ -70,8 +70,38 @@ export function normalizarEntradaBuzon(datos) {
 export function pendienteResuelto(datos) {
   if (!datos || datos.resuelto !== true) return null
   const texto = String(datos.texto ?? '').trim()
+  if (!texto) return null
+
+  // Cobro dictado con la app cerrada: no lleva producto, lleva la deuda que se
+  // paga. Un pago por entrada (el servicio reparte FIFO antes de escribir).
+  if (datos.tipo === 'cobro') {
+    const cuentaFiadoId = String(datos.cuentaFiadoId ?? '').trim()
+    const clienteId = String(datos.clienteId ?? '').trim()
+    const montoCobro = monto(datos.monto ?? datos.importe)
+    if (!cuentaFiadoId || !clienteId || !(montoCobro > 0)) return null
+    return {
+      origenId: String(datos.id ?? datos.origenId ?? '').trim() || null,
+      texto,
+      sttConfidence: Number(datos.confidence) || 0,
+      dictadoEn: Number(datos.dictadoEn) || Date.now(),
+      origen: 'servicio',
+      tipo: 'cobro',
+      productoId: null,
+      productoNombre: null,
+      ubicacion: datos.ubicacion === 'quiosco' ? 'quiosco' : 'almacen',
+      tipoVenta: 'directa',
+      cantidad: 1,
+      precioUnitario: montoCobro,
+      importe: montoCobro,
+      clienteId,
+      cuentaFiadoId,
+      formaPago: datos.formaPago === 'transferencia' ? 'transferencia' : 'efectivo',
+      motivo: null
+    }
+  }
+
   const productoId = String(datos.productoId ?? '').trim()
-  if (!texto || !productoId) return null
+  if (!productoId) return null
 
   const cantidad = entero(datos.cantidad)
   const precioUnitario = monto(datos.precioUnitario)
@@ -128,6 +158,27 @@ export function pendienteDesdeAccion(accion, entrada) {
   }
 
   const comun = base(entrada)
+
+  if (accion.tipo === 'cobrar') {
+    // Camino antiguo (sin diálogo nativo): se guarda el primer pago del reparto.
+    const pago = accion.pagos?.[0]
+    if (!pago) return null
+    return {
+      ...comun,
+      tipo: 'cobro',
+      productoId: null,
+      productoNombre: null,
+      ubicacion: 'almacen',
+      tipoVenta: 'directa',
+      cantidad: 1,
+      precioUnitario: monto(pago.monto),
+      importe: monto(pago.monto),
+      clienteId: accion.cliente?.id ?? null,
+      cuentaFiadoId: pago.cuentaId,
+      formaPago: accion.formaPago === 'transferencia' ? 'transferencia' : 'efectivo',
+      motivo: null
+    }
+  }
 
   if (accion.tipo === 'fiar') {
     const fila = accion.fila ?? {}

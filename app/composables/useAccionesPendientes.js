@@ -56,6 +56,11 @@ export function useAccionesPendientes() {
       ? useRemoteRepo(TABLES.cuentas_fiado)
       : useLocalRepo(TABLES.cuentas_fiado)
   ))
+  const pagosRepo = computed(() => (
+    conexion.modo.value === 'online'
+      ? useRemoteRepo(TABLES.pagos_fiado)
+      : useLocalRepo(TABLES.pagos_fiado)
+  ))
 
   const puestoId = computed(() => auth.usuarioActual.value?.puestoId ?? null)
 
@@ -162,6 +167,8 @@ export function useAccionesPendientes() {
       precioUnitario,
       importe,
       clienteId: accion.clienteId ?? null,
+      cuentaFiadoId: accion.cuentaFiadoId ?? null,
+      formaPago: accion.formaPago === 'transferencia' ? 'transferencia' : 'efectivo',
       estado: 'pendiente',
       motivo: accion.motivo ?? null,
       // El id de la venta se decide ahora: reintentar la aplicación no duplica.
@@ -236,6 +243,7 @@ export function useAccionesPendientes() {
     if (!puedeAplicar(accion)) throw new Error('Esta acción ya no se puede aplicar.')
 
     if (accion.tipo === 'deuda') return aplicarDeuda(accion)
+    if (accion.tipo === 'cobro') return aplicarCobro(accion)
 
     const ventaDirectaId = accion.ventaDirectaId || generarId()
     const previa = await ventaPrevia(ventaDirectaId, accion.dictadoEn)
@@ -307,6 +315,51 @@ export function useAccionesPendientes() {
       motivo: null
     })
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: idFinal }
+    reemplazar(final)
+    return final
+  }
+
+  /**
+   * Pago que pudo dejar un intento anterior de cobrar. El id se asigna al
+   * dictar, así reintentar no cobra dos veces.
+   */
+  async function pagoPrevio(pagoId) {
+    if (conexion.modo.value !== 'online') {
+      const pago = await pagosRepo.value.read(pagoId).catch(() => null)
+      return pago?.id ? pago : null
+    }
+    const filas = await pagosRepo.value.readAll().catch(() => [])
+    return (filas ?? []).find(p => p?.id === pagoId) ?? null
+  }
+
+  /**
+   * Aplica un cobro dictado: registra el pago (baja el saldo de la deuda) y
+   * cierra la fila. Un pago por deuda, repartidos FIFO por el servicio.
+   */
+  async function aplicarCobro(accion) {
+    if (!accion?.cuentaFiadoId) throw new Error('El cobro no indica la deuda.')
+    const monto = Math.round((Number(accion.importe) || 0) * 100) / 100
+    if (!(monto > 0)) throw new Error('El cobro no tiene importe.')
+
+    const pagoId = accion.ventaDirectaId || generarId()
+    const previo = await pagoPrevio(pagoId)
+    if (!previo) {
+      const r = await fiado.cobrarDeuda({
+        id: pagoId,
+        cuentaFiadoId: accion.cuentaFiadoId,
+        monto,
+        formaPago: accion.formaPago === 'transferencia' ? 'transferencia' : 'efectivo'
+      })
+      if (!r?.ok) throw r?.error ?? new Error('No se pudo registrar el cobro.')
+    }
+
+    const fila = await repo.update(accion.id, {
+      estado: 'aplicada',
+      aplicadaEn: Date.now(),
+      ventaDirectaId: pagoId,
+      motivo: null
+    })
+    const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: pagoId }
     reemplazar(final)
     return final
   }

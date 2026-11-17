@@ -135,9 +135,9 @@ Con la app abierta el intérprete reconoce además:
   y da un ejemplo.
 
 Los cuatro son **solo con la app abierta**, salvo las deudas, el resumen del
-día y el fiado, que también funcionan con la app cerrada desde el snapshot. El
-servicio en segundo plano está limitado a venta, fiado y consultas (stock,
-precio, deudas y resumen del día).
+día, el fiado y el cobro, que también funcionan con la app cerrada desde el
+snapshot. El servicio en segundo plano está limitado a venta, fiado, cobro y
+consultas (stock, precio, deudas y resumen del día).
 
 ## Resumen del día por voz
 
@@ -155,7 +155,7 @@ respuestas coinciden.
 - «cuánto vendí» **sin decir el día** no se contesta (puede ser otro día), y
   «ganancia», «costo» y «caja» quedan fuera: necesitan datos que la voz no tiene.
 
-## Cobrar deudas por voz (app abierta)
+## Cobrar deudas por voz (app abierta y cerrada)
 
 Cierra el ciclo del fiado: **consulta**, **fiar** y ahora **cobrar**.
 
@@ -176,8 +176,12 @@ Cierra el ciclo del fiado: **consulta**, **fiar** y ahora **cobrar**.
   interpreta como venta directa.
 - «cuánto pagó Juan» no se contesta (es una consulta que aún no existe): mejor
   silencio que una cifra inventada.
-
-**Pendiente (F2):** cobrar con la app cerrada desde el buzón.
+- Con la **app cerrada** (`IntencionCobro`) el diálogo es el mismo y, al «sí»,
+  deja **un pago por deuda** en `files/voz/inbox`. En **Por revisar** cada pago
+  aparece como **Cobro** con su cliente, monto y forma de pago; **Registrar**
+  aplica el cobro y **Editar** no existe (se corrige en `/deudas`).
+- El reparto FIFO se hace antes de escribir: la app no recalcula saldos con una
+  foto vieja.
 
 ## Fiar por voz (app abierta y cerrada)
 
@@ -371,7 +375,9 @@ Detalles de diseño:
   servicio se arranca en pausa con la app visible (Android 14 no permite iniciar
   un FGS de micrófono desde segundo plano) y abre el micrófono al minimizar.
 - La foto (`snapshot.json`) se reescribe al abrir la app, al minimizarla y
-  después de cada revisión. Lleva stock **proyectado, real y apartado**.
+  después de cada revisión. Lleva stock **proyectado, real y apartado**; las
+  **deudas por cliente con sus cuentas** (id, fecha y saldo), para poder cobrar
+  con la app cerrada; y los **clientes** con su id, para fiar.
 - La notificación es obligatoria en un servicio en primer plano: muestra el
   estado, abre `/pendientes` y permite detener la escucha.
 - **El stock no se promete con el buzón lleno**: mientras haya dictados en
@@ -743,6 +749,13 @@ umbral de repetición y sin nombres.
     más antigua y lo dice.
 39. «cobra 5000 a Yunior» (debe 2210) se rechaza sin cobrar nada.
 40. «cobra 2 panes» sigue abriendo la venta, no un cobro.
+41. Con la app cerrada, «oye nova, cobra 200 a Yunior» → confirma; al abrir la
+    app aparece en **Por revisar** como **Cobro** con cliente y monto, y
+    **Registrar** lo aplica.
+42. Cobrar todo a un cliente con dos deudas deja **dos filas** de cobro (una por
+    deuda) y, al registrarlas, el saldo queda en cero.
+43. «cobra la deuda de Juan» con la app cerrada se responde como cobro, no como
+    consulta de deuda.
 
 ## Limitaciones conocidas
 
@@ -751,8 +764,10 @@ umbral de repetición y sin nombres.
 - El resumen del día se responde en los dos modos; el de la app cerrada usa el
   último snapshot y no incluye las ventas hechas en OTRO teléfono desde que se
   escribió.
-- Las deudas se consultan, se pueden **fiar** y **cobrar** por voz con la app
-  abierta; cobrar con la app cerrada (desde el buzón) queda pendiente.
+- Las deudas se consultan, se pueden **fiar** y **cobrar** por voz, con la app
+  abierta y cerrada.
+- Un cobro que toca **varias deudas** del mismo cliente deja **una fila por
+  deuda** en la revisión (el servicio reparte FIFO antes de escribir).
 - Un fiado por voz usa el precio del catálogo y crea la deuda directa; no admite
   precio dictado ni pago inicial.
 - La auditoría central es best-effort en línea: si el envío falla o no hay

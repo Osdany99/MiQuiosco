@@ -77,6 +77,22 @@ public final class IntencionVenta {
         numeros.put("dos", 2); numeros.put("tres", 3); numeros.put("cuatro", 4);
         numeros.put("cinco", 5); numeros.put("seis", 6); numeros.put("siete", 7);
         numeros.put("ocho", 8); numeros.put("nueve", 9); numeros.put("diez", 10);
+        numeros.put("once", 11); numeros.put("doce", 12); numeros.put("trece", 13);
+        numeros.put("catorce", 14); numeros.put("quince", 15); numeros.put("dieciseis", 16);
+        numeros.put("diecisiete", 17); numeros.put("dieciocho", 18); numeros.put("diecinueve", 19);
+        numeros.put("veinte", 20);
+        numeros.put("treinta", 30); numeros.put("cuarenta", 40); numeros.put("cincuenta", 50);
+        numeros.put("sesenta", 60); numeros.put("setenta", 70); numeros.put("ochenta", 80);
+        numeros.put("noventa", 90);
+        numeros.put("doscientos", 200); numeros.put("doscientas", 200);
+        numeros.put("trescientos", 300); numeros.put("trescientas", 300);
+        numeros.put("cuatrocientos", 400); numeros.put("cuatrocientas", 400);
+        numeros.put("quinientos", 500); numeros.put("quinientas", 500);
+        numeros.put("seiscientos", 600); numeros.put("seiscientas", 600);
+        numeros.put("setecientos", 700); numeros.put("setecientas", 700);
+        numeros.put("ochocientos", 800); numeros.put("ochocientas", 800);
+        numeros.put("novecientos", 900); numeros.put("novecientas", 900);
+        numeros.put("mil", 1000);
         numeros.put("docena", 12);
         if (nums != null) {
             for (java.util.Iterator<String> it = nums.keys(); it.hasNext(); ) {

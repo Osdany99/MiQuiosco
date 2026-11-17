@@ -49,9 +49,16 @@ export function resumirDeudas({ cuentas = [], clientes = [], limite = MAXIMO_CLI
     const saldo = redondear2((Number(cuenta.montoTotal) || 0) - (Number(cuenta.montoPagado) || 0))
     if (!(saldo > 0)) continue
     const id = String(cuenta.clienteId ?? '')
-    const acumulado = porCliente.get(id) ?? { id, saldo: 0, cuentas: 0 }
+    const acumulado = porCliente.get(id) ?? { id, saldo: 0, cuentas: 0, deudas: [] }
     acumulado.saldo = redondear2(acumulado.saldo + saldo)
     acumulado.cuentas += 1
+    // La deuda individual hace falta para cobrar con la app cerrada: el
+    // servicio reparte FIFO y deja un pago por cuenta.
+    acumulado.deudas.push({
+      id: String(cuenta.id ?? ''),
+      creadoEn: Number(cuenta.creadoEn) || 0,
+      saldo
+    })
     porCliente.set(id, acumulado)
   }
 
@@ -62,7 +69,10 @@ export function resumirDeudas({ cuentas = [], clientes = [], limite = MAXIMO_CLI
       id: fila.id,
       nombre: String(nombrePorId.get(fila.id)?.nombre ?? '').trim() || 'Cliente sin nombre',
       saldo: fila.saldo,
-      cuentas: fila.cuentas
+      cuentas: fila.cuentas,
+      deudas: fila.deudas
+        .filter(d => d.id && d.saldo > 0)
+        .sort((a, b) => a.creadoEn - b.creadoEn)
     }))
     .filter(fila => fila.saldo > 0)
     .sort((a, b) => b.saldo - a.saldo || a.nombre.localeCompare(b.nombre, 'es'))
@@ -157,7 +167,8 @@ export function distribuirCobro(cuentas = [], monto = 0) {
   const pagos = []
   for (const cuenta of orden) {
     if (restante <= 0) break
-    const saldo = redondear2(cuenta?.saldoPendiente
+    const saldo = redondear2(cuenta?.saldo
+      ?? cuenta?.saldoPendiente
       ?? ((Number(cuenta?.montoTotal) || 0) - (Number(cuenta?.montoPagado) || 0)))
     if (!(saldo > 0)) continue
     const aplicar = Math.min(saldo, restante)

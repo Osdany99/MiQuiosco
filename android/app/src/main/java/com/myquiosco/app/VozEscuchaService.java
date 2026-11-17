@@ -139,6 +139,15 @@ public class VozEscuchaService extends Service {
     private String ubicacionPendiente = "almacen";
     /** Cliente del fiado en curso (null = venta normal). */
     private JSONObject clientePendiente = null;
+    /** Cobro en curso: cliente, pagos FIFO y saldo restante. */
+    private CobroEnCurso cobroPendiente = null;
+
+    private static final class CobroEnCurso {
+        JSONObject cliente;
+        List<IntencionCobro.Pago> pagos;
+        String formaPago;
+        double restante;
+    }
     /** Correcciones de cantidad aceptadas en la confirmación actual (máx. 2). */
     private int correccionesConfirmacion = 0;
     /** Evita reiniciar el contador cuando la confirmación viene de una corrección. */
@@ -767,9 +776,10 @@ public class VozEscuchaService extends Service {
         estado = Estado.REPOSO;
         estadoEnEspera = null;
         ttsHablando = false;
-        // Un fiado a medias no debe sobrevivir a la cancelación.
+        // Un fiado o cobro a medias no debe sobrevivir a la cancelación.
         productoPendiente = null;
         clientePendiente = null;
+        cobroPendiente = null;
         cleanupRecognizer();
         pararVosk();
         liberarWakelock();
@@ -995,6 +1005,15 @@ public class VozEscuchaService extends Service {
         handler.removeCallbacks(caducidad);
         if (texto == null || texto.length() < 2) {
             continuarEscucha();
+            return;
+        }
+
+        // 0) Cobro de deuda: va antes de las consultas porque «cobra la deuda de
+        // Juan» también contiene «deuda» y, sin esto, se respondería como consulta.
+        IntencionCobro.Intencion cobroLeido = IntencionCobro.leer(texto, intencion);
+        if (cobroLeido.tipo == IntencionCobro.Tipo.COBRO
+            || cobroLeido.tipo == IntencionCobro.Tipo.SIN_CLIENTE) {
+            procesarCobro(cobroLeido, texto, confianza);
             return;
         }
 
@@ -1396,15 +1415,21 @@ public class VozEscuchaService extends Service {
         if (contieneAlguno(tokens, dialogo.optJSONArray("negaciones"), NEGACIONES)) {
             productoPendiente = null;
             clientePendiente = null;
+            cobroPendiente = null;
             hablar(frase("cancelado"), this::continuarEscucha);
             return;
         }
         productoPendiente = null;
         clientePendiente = null;
+        cobroPendiente = null;
         hablar(frase("noAnotada"), this::continuarEscucha);
     }
 
     private void confirmarVenta() {
+        if (cobroPendiente != null) {
+            confirmarCobro();
+            return;
+        }
         JSONObject producto = productoPendiente;
         JSONObject cliente = clientePendiente;
         productoPendiente = null;
@@ -1685,14 +1710,149 @@ public class VozEscuchaService extends Service {
     }
 
     /**
+     * Cobro con la app cerrada: cliente del snapshot, reparto FIFO y
+     * confirmación hablada. Al «sí» deja un pago por deuda en el buzón; la app
+     * los aplica y el jefe los revisa.
+     */
+    private void procesarCobro(IntencionCobro.Intencion leida, String texto, float confianza) {
+        if (leida.tipo == IntencionCobro.Tipo.SIN_CLIENTE) {
+            hablar("¿A quién le cobro? Di, por ejemplo: cobra 200 a Juan", this::continuarEscucha);
+            return;
+        }
+
+        snapshotActual = leerSnapshot();
+        JSONObject deudas = snapshotActual == null ? null : snapshotActual.optJSONObject("deudas");
+        JSONArray clientes = deudas == null ? null : deudas.optJSONArray("clientes");
+        if (clientes == null || clientes.length() == 0) {
+            hablar("Abre la app para cobrar: no hay deudas en la foto", this::continuarEscucha);
+            return;
+        }
+
+        // Mejor parecido y segundo, para no elegir por un nombre de pila.
+        JSONObject cliente = null;
+        JSONObject segundoCliente = null;
+        double mejor = 0;
+        double segundo = 0;
+        for (int i = 0; i < clientes.length(); i++) {
+            JSONObject c = clientes.optJSONObject(i);
+            if (c == null) continue;
+            double s = ConsultaDeuda.similitud(leida.cliente, c.optString("nombre", ""));
+            if (s > mejor) {
+                segundo = mejor;
+                segundoCliente = cliente;
+                mejor = s;
+                cliente = c;
+            } else if (s > segundo) {
+                segundo = s;
+                segundoCliente = c;
+            }
+        }
+
+        if (cliente == null || mejor < ConsultaDeuda.UMBRAL) {
+            hablar(frase("clienteNoEncontrado", "cliente", leida.cliente), this::continuarEscucha);
+            return;
+        }
+        boolean mismoNombreDePila = !leida.cliente.contains(" ") && mismoNombreDePila(leida.cliente, clientes);
+        if (mismoNombreDePila
+            || (segundoCliente != null && segundo >= ConsultaDeuda.UMBRAL && mejor - segundo < 0.05)) {
+            String nombres = segundoCliente == null
+                ? cliente.optString("nombre", "")
+                : cliente.optString("nombre", "") + " o " + segundoCliente.optString("nombre", "");
+            hablar(frase("clienteAmbiguo", "clientes", nombres), this::continuarEscucha);
+            return;
+        }
+
+        JSONArray susDeudas = cliente.optJSONArray("deudas");
+        double saldo = IntencionCobro.saldo(susDeudas);
+        if (saldo <= 0) {
+            hablar(frase("clienteSinDeuda", "cliente", cliente.optString("nombre", "")), this::continuarEscucha);
+            return;
+        }
+
+        double pedido = leida.todo ? saldo : leida.monto;
+        if (pedido <= 0) {
+            hablar("No entendí cuánto cobrar", this::continuarEscucha);
+            return;
+        }
+        if (pedido > saldo + 0.005) {
+            hablar(frase("cobroExcedido",
+                "cliente", cliente.optString("nombre", ""),
+                "saldo", formatearNumero(saldo)), this::continuarEscucha);
+            return;
+        }
+
+        List<IntencionCobro.Pago> pagos = IntencionCobro.repartir(susDeudas, pedido);
+        if (pagos.isEmpty()) {
+            hablar(frase("noAnotada"), this::continuarEscucha);
+            return;
+        }
+
+        textoDictado = texto;
+        textoDictadoConfianza = confianza;
+        CobroEnCurso cobro = new CobroEnCurso();
+        cobro.cliente = cliente;
+        cobro.pagos = pagos;
+        cobro.formaPago = leida.formaPago;
+        cobro.restante = Math.round((saldo - pedido) * 100) / 100.0;
+        cobroPendiente = cobro;
+
+        estado = Estado.ESPERANDO_CONFIRMACION;
+        programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000));
+        String resto = cobro.restante > 0
+            ? frase("cobroResto", "restante", formatearNumero(cobro.restante))
+            : frase("cobroSaldada");
+        hablar(frase("confirmarCobro",
+            "cliente", cliente.optString("nombre", ""),
+            "importe", formatearNumero(pedido),
+            "resto", resto), this::continuarEscucha);
+    }
+
+    /** ¿Hay 2+ clientes cuyo nombre de pila empieza por lo dicho? */
+    private static boolean mismoNombreDePila(String dicho, JSONArray clientes) {
+        int cuenta = 0;
+        for (int i = 0; i < clientes.length(); i++) {
+            JSONObject c = clientes.optJSONObject(i);
+            if (c == null) continue;
+            String nombre = IntencionVenta.normalizarFrase(c.optString("nombre", ""));
+            int fin = nombre.indexOf(' ');
+            String primero = fin < 0 ? nombre : nombre.substring(0, fin);
+            if (!primero.isEmpty() && primero.startsWith(dicho)) {
+                cuenta++;
+                if (cuenta >= 2) return true;
+            }
+        }
+        return false;
+    }
+
+    private void confirmarCobro() {
+        CobroEnCurso cobro = cobroPendiente;
+        cobroPendiente = null;
+        if (cobro == null) {
+            continuarEscucha();
+            return;
+        }
+        boolean ok = true;
+        for (IntencionCobro.Pago pago : cobro.pagos) {
+            if (!anotarCobro(cobro.cliente, pago, cobro.formaPago)) ok = false;
+        }
+        if (!ok) {
+            hablar(frase("noAnotada"), this::continuarEscucha);
+            return;
+        }
+        if (cobro.restante > 0) {
+            hablar(frase("cobrado", "restante", formatearNumero(cobro.restante)), this::continuarEscucha);
+        } else {
+            hablar(frase("cobradoTotal"), this::continuarEscucha);
+        }
+    }
+
+    /**
      * Escribe la venta YA CONFIRMADA en el buzón. El servicio no toca la base:
      * la app la convertirá en acción pendiente al abrirse (y el jefe la
      * confirmará otra vez para que llegue al inventario).
      */
     private boolean anotarResuelto(JSONObject producto, int cantidad, String ubicacion, double precio, double importe, JSONObject cliente) {
         try {
-            File dir = new File(getFilesDir(), "voz/inbox");
-            if (!dir.exists() && !dir.mkdirs()) return false;
             long ahora = System.currentTimeMillis();
             String base = ahora + "-" + UUID.randomUUID().toString().substring(0, 8);
 
@@ -1717,8 +1877,52 @@ public class VozEscuchaService extends Service {
             o.put("dictadoEn", ahora);
             o.put("origen", "servicio");
 
-            // Escritura atómica: .tmp + rename para que la app nunca lea un
-            // fichero a medias y luego lo descarte como inválido.
+            return escribirInbox(o, base);
+        } catch (Exception e) {
+            Log.w(TAG, "No se pudo anotar el dictado: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Deja un cobro confirmado en el buzón. Un fichero por deuda: el servicio
+     * reparte FIFO antes de escribir y la app cobra cada cuenta por separado.
+     */
+    private boolean anotarCobro(JSONObject cliente, IntencionCobro.Pago pago, String formaPago) {
+        try {
+            long ahora = System.currentTimeMillis();
+            String base = ahora + "-" + UUID.randomUUID().toString().substring(0, 8);
+
+            JSONObject o = new JSONObject();
+            o.put("id", base + ".json");
+            o.put("resuelto", true);
+            o.put("tipo", "cobro");
+            o.put("texto", textoDictado);
+            o.put("confidence", textoDictadoConfianza);
+            o.put("cuentaFiadoId", pago.cuentaId);
+            o.put("monto", pago.monto);
+            o.put("formaPago", "transferencia".equals(formaPago) ? "transferencia" : "efectivo");
+            o.put("clienteId", cliente.optString("id", ""));
+            o.put("clienteNombre", cliente.optString("nombre", ""));
+            o.put("dictadoEn", ahora);
+            o.put("origen", "servicio");
+
+            return escribirInbox(o, base);
+        } catch (Exception e) {
+            Log.w(TAG, "No se pudo anotar el cobro: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Escritura atómica del buzón: `.tmp` + rename para que la app nunca lea un
+     * fichero a medias y luego lo descarte como inválido.
+     */
+    private boolean escribirInbox(JSONObject o, String base) {
+        try {
+            File dir = new File(getFilesDir(), "voz/inbox");
+            if (!dir.exists() && !dir.mkdirs()) return false;
+
             File tmp = new File(dir, base + ".tmp");
             try (FileOutputStream fos = new FileOutputStream(tmp)) {
                 fos.write(o.toString().getBytes(StandardCharsets.UTF_8));
@@ -1737,7 +1941,7 @@ public class VozEscuchaService extends Service {
             actualizarNotificacion("Dictado anotado para revisar (" + anotados + ")");
             return true;
         } catch (Exception e) {
-            Log.w(TAG, "No se pudo anotar el dictado: " + e.getMessage());
+            Log.w(TAG, "No se pudo escribir en el buzón: " + e.getMessage());
             return false;
         }
     }

@@ -70,6 +70,7 @@ const MODOS = {
 
 const etiquetaTipo = (accion) => {
   if (accion?.tipo === 'deuda') return 'Fiado'
+  if (accion?.tipo === 'cobro') return 'Cobro'
   switch (accion?.tipoVenta) {
     case 'casa': return 'Venta casa'
     case 'familiar': return 'Venta familiar'
@@ -79,6 +80,7 @@ const etiquetaTipo = (accion) => {
 }
 
 const esDeuda = accion => accion?.tipo === 'deuda'
+const esCobro = accion => accion?.tipo === 'cobro'
 
 /** Nombre del cliente de un fiado dictado. */
 const clientesPorId = computed(() => new Map(clientes.value.map(c => [c.id, c.nombre])))
@@ -97,11 +99,12 @@ function fechaCompleta(ms) {
 }
 
 function nombreProducto(accion) {
+  if (accion?.tipo === 'cobro') return 'Cobro de deuda'
   return accion?.productoNombre || 'Producto sin identificar'
 }
 
 function sinProducto(accion) {
-  return !accion?.productoId
+  return !accion?.productoId && accion?.tipo !== 'cobro'
 }
 
 function estaVencida(accion) {
@@ -487,9 +490,16 @@ onMounted(() => {
               </div>
 
               <p class="text-sm mt-1">
-                <span v-if="esDeuda(accion)" class="text-xs text-muted">Fiar a {{ nombreCliente(accion) }} · </span>
-                {{ Number(accion.cantidad) }} × {{ fmtPrecio(accion.precioUnitario) }}
-                = <span class="font-mono font-medium">{{ fmtPrecio(accion.importe) }}</span>
+                <template v-if="esCobro(accion)">
+                  <span class="text-xs text-muted">Cobro a {{ nombreCliente(accion) }} · </span>
+                  <span class="font-mono font-medium">{{ fmtPrecio(accion.importe) }}</span>
+                  <span class="text-xs text-muted"> ({{ accion.formaPago === 'transferencia' ? 'transferencia' : 'efectivo' }})</span>
+                </template>
+                <template v-else>
+                  <span v-if="esDeuda(accion)" class="text-xs text-muted">Fiar a {{ nombreCliente(accion) }} · </span>
+                  {{ Number(accion.cantidad) }} × {{ fmtPrecio(accion.precioUnitario) }}
+                  = <span class="font-mono font-medium">{{ fmtPrecio(accion.importe) }}</span>
+                </template>
               </p>
 
               <p class="text-xs text-muted mt-1">
@@ -527,7 +537,7 @@ onMounted(() => {
                 @click="registrar(accion)"
               />
               <UButton
-                v-if="!esDeuda(accion)"
+                v-if="!esDeuda(accion) && !esCobro(accion)"
                 size="xs"
                 variant="soft"
                 color="neutral"

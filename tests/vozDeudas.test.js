@@ -25,13 +25,13 @@ const CLIENTES = [
 
 const CUENTAS = [
   // Juan: dos deudas, una de ellas pagada.
-  { clienteId: 'c1', montoTotal: 200, montoPagado: 50 },
-  { clienteId: 'c1', montoTotal: 100, montoPagado: 0 },
-  { clienteId: 'c1', montoTotal: 300, montoPagado: 300 },
+  { id: 'd1', clienteId: 'c1', montoTotal: 100, montoPagado: 0, creadoEn: 1000 },
+  { id: 'd2', clienteId: 'c1', montoTotal: 200, montoPagado: 50, creadoEn: 2000 },
+  { id: 'd3', clienteId: 'c1', montoTotal: 300, montoPagado: 300, creadoEn: 3000 },
   // Juanita y María con saldo; Pedro saldado.
-  { clienteId: 'c2', montoTotal: 80, montoPagado: 0 },
-  { clienteId: 'c3', montoTotal: 40, montoPagado: 10 },
-  { clienteId: 'c4', montoTotal: 60, montoPagado: 60 }
+  { id: 'd4', clienteId: 'c2', montoTotal: 80, montoPagado: 0, creadoEn: 1500 },
+  { id: 'd5', clienteId: 'c3', montoTotal: 40, montoPagado: 10, creadoEn: 1600 },
+  { id: 'd6', clienteId: 'c4', montoTotal: 60, montoPagado: 60, creadoEn: 1700 }
 ]
 
 describe('voz: deudas — clasificación', () => {
@@ -106,6 +106,16 @@ describe('voz: deudas — resumen', () => {
 
   it('sin cuentas devuelve un resumen vacío', () => {
     assert.deepEqual(resumirDeudas({}), { total: 0, cantidad: 0, clientes: [] })
+  })
+
+  it('cada cliente lleva sus deudas ordenadas para el cobro FIFO', () => {
+    const r = resumirDeudas({ cuentas: CUENTAS, clientes: CLIENTES })
+    const juan = r.clientes.find(c => c.nombre === 'Juan Pérez')
+    assert.equal(juan.cuentas, 2)
+    assert.deepEqual(juan.deudas.map(d => d.saldo), [100, 150])
+    assert.ok(juan.deudas.every(d => typeof d.id === 'string' && d.id))
+    // La más antigua primero: el id de cada fila no se inventa.
+    assert.ok(juan.deudas[0].creadoEn <= juan.deudas[1].creadoEn)
   })
 
   it('un cliente sin nombre conocido no rompe el resumen', () => {

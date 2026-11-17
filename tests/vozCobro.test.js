@@ -9,6 +9,7 @@ import {
 } from '../shared/voz/gramatica.js'
 import { distribuirCobro, saldoTotalDeudas } from '../shared/voz/deudas.js'
 import { fraseCobro } from '../app/utils/voice/frasesVoz.js'
+import { pendienteResuelto } from '../app/utils/voice/buzon.js'
 
 const CUENTAS = [
   { id: 'c-nueva', creadoEn: 3000, montoTotal: 100, montoPagado: 0, saldoPendiente: 100 },
@@ -156,5 +157,40 @@ describe('voz: cobro — frase de confirmación', () => {
       fraseCobro({ cliente: 'Ana', monto: 12.5, restante: 2.5 }),
       /Cobro 12,50 pesos a Ana\. Le quedan 2,50 pesos\./
     )
+  })
+})
+
+describe('voz: cobro — buzón de la app cerrada', () => {
+  const base = {
+    resuelto: true,
+    tipo: 'cobro',
+    texto: 'cobra 200 a yunior',
+    cuentaFiadoId: 'cuenta-1',
+    monto: 200,
+    formaPago: 'efectivo',
+    clienteId: 'c1',
+    clienteNombre: 'Yunior',
+    dictadoEn: 1000
+  }
+
+  it('importa el pago con su deuda, monto y forma de pago', () => {
+    const p = pendienteResuelto(base)
+    assert.equal(p.tipo, 'cobro')
+    assert.equal(p.cuentaFiadoId, 'cuenta-1')
+    assert.equal(p.clienteId, 'c1')
+    assert.equal(p.importe, 200)
+    assert.equal(p.cantidad, 1)
+    assert.equal(p.formaPago, 'efectivo')
+    assert.equal(p.productoId, null)
+  })
+
+  it('sin deuda o sin monto no se importa', () => {
+    assert.equal(pendienteResuelto({ ...base, cuentaFiadoId: '' }), null)
+    assert.equal(pendienteResuelto({ ...base, monto: 0 }), null)
+    assert.equal(pendienteResuelto({ ...base, clienteId: '' }), null)
+  })
+
+  it('la transferencia se conserva', () => {
+    assert.equal(pendienteResuelto({ ...base, formaPago: 'transferencia' }).formaPago, 'transferencia')
   })
 })

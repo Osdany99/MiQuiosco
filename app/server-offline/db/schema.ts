@@ -1019,6 +1019,10 @@ export const accionesPendientesVoz = sqliteTable(
     precioUnitario: real('precio_unitario').notNull().default(0),
     importe: real('importe').notNull().default(0),
     clienteId: text('cliente_id'),
+    /** Deuda que se cobra (solo acciones `tipo = 'cobro'`). */
+    cuentaFiadoId: text('cuenta_fiado_id'),
+    /** 'efectivo' | 'transferencia' en un cobro. */
+    formaPago: text('forma_pago'),
     estado: text('estado', { enum: ESTADOS_ACCION_VOZ }).notNull().default('pendiente'),
     /** Motivo de archivo o del último error al aplicar. */
     motivo: text('motivo'),

@@ -289,7 +289,7 @@ export function useCuentasFiado() {
    * de la cuenta; el fiado pendiente del origen baja únicamente si ese
    * cuadre sigue abierto (un cerrado no se reescribe).
    */
-  async function cobrarDeuda({ cuentaFiadoId, cuadreId = null, monto, formaPago }) {
+  async function cobrarDeuda({ id = null, cuentaFiadoId, cuadreId = null, monto, formaPago }) {
     cargando.value = true
     try {
       if (esOnline.value) {
@@ -306,7 +306,15 @@ export function useCuentasFiado() {
         const saldo = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
         if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
 
-        await r(pagosRepo).create({ cuentaFiadoId, cuadreId: null, monto, formaPago })
+        // El id se asigna al dictar (app cerrada): reintentar no duplica el pago.
+        const pagoId = String(id || '').trim() || undefined
+        await r(pagosRepo).create({
+          ...(pagoId ? { id: pagoId } : {}),
+          cuentaFiadoId,
+          cuadreId: null,
+          monto,
+          formaPago
+        })
         const nuevoPagado = Number(cuenta.montoPagado) + monto
         await r(cuentasRepo).update(cuentaFiadoId, {
           montoPagado: nuevoPagado,
