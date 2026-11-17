@@ -82,10 +82,10 @@ describe('voz: resumen del día — clasificación', () => {
     assert.equal(resolverComando('cuanto debe juan').comando, 'consulta_deuda')
   })
 
-  it('interpretar() no inventa slots', () => {
+  it('interpretar() pone la fecha en null cuando se habla de hoy', () => {
     const r = interpretar('como va el dia')
     assert.equal(r.comando, 'consulta_dia')
-    assert.deepEqual(r.slots, {})
+    assert.deepEqual(r.slots, { fecha: null })
   })
 })
 

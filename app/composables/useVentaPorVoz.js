@@ -33,7 +33,8 @@ import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
 import { buscarClienteDeuda, distribuirCobro, formatearDeuda, resumirDeudas, saldoTotalDeudas } from '#shared/voz/deudas'
-import { formatearDia, formatearGanancia } from '#shared/voz/dia'
+import { formatearDia, formatearGanancia, resumirDia } from '#shared/voz/dia'
+import { rangoDeIso } from '#shared/voz/fechas'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
 import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
@@ -889,10 +890,24 @@ function _create(ubicacion) {
     return { tipo: 'consultar_caja', slots }
   }
 
-  /** Resumen del día («cómo va el día», «cuánto vendí hoy»). */
-  async function responderDia() {
-    const resumen = await snapshotVoz.resumenDelDia()
-    const result = formatearDia(resumen)
+  /**
+   * Resumen de un día. Sin fecha usa el snapshot (hoy, rápido y offline); con
+   * fecha, lee las ventas de ese día concreto y lo calcula igual.
+   */
+  async function resumenDeDia(fecha) {
+    const rango = fecha ? rangoDeIso(fecha) : null
+    if (!rango) return { resumen: await snapshotVoz.resumenDelDia(), rango: null }
+    const ventas = await inv.cargarVentasDirectas({ desde: rango.inicio, hasta: rango.hasta }).catch(() => [])
+    return {
+      resumen: resumirDia({ ventas, desde: rango.inicio, hasta: rango.hasta }),
+      rango
+    }
+  }
+
+  /** Resumen del día («cómo va el día», «cuánto vendí el martes»). */
+  async function responderDia(accion) {
+    const { resumen, rango } = await resumenDeDia(accion?.slots?.fecha ?? null)
+    const result = formatearDia(resumen, { cuando: rango?.etiqueta ?? null })
     ultimaRespuestaVoz.value = result.habla
     toast.add({
       title: result.titulo,
@@ -908,10 +923,10 @@ function _create(ubicacion) {
     if (estado.value !== 'idle') estado.value = 'idle'
   }
 
-  /** Ganancia del día («cuánto gané hoy»): ventas del día menos su costo. */
-  async function responderGanancia() {
-    const resumen = await snapshotVoz.resumenDelDia()
-    const result = formatearGanancia(resumen)
+  /** Ganancia del día («cuánto gané hoy», «la ganancia del martes»). */
+  async function responderGanancia(accion) {
+    const { resumen, rango } = await resumenDeDia(accion?.slots?.fecha ?? null)
+    const result = formatearGanancia(resumen, { cuando: rango?.etiqueta ?? null })
     ultimaRespuestaVoz.value = result.habla
     toast.add({
       title: result.titulo,
@@ -1816,9 +1831,9 @@ function _create(ubicacion) {
       case 'consultar_deuda':
         return responderDeuda(accion)
       case 'consultar_dia':
-        return responderDia()
+        return responderDia(accion)
       case 'consultar_ganancia':
-        return responderGanancia()
+        return responderGanancia(accion)
       case 'consultar_caja':
         return responderCaja()
       case 'repetir':

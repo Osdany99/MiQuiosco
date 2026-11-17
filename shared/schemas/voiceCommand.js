@@ -93,6 +93,11 @@ export const traspasoSlotsSchema = z.object({
   destino: z.enum(['almacen', 'quiosco']).default('quiosco')
 })
 
+export const consultaFechaSlotsSchema = z.object({
+  /** Día pedido (`2026-11-10`) o null para hoy. */
+  fecha: z.string().nullable().default(null)
+})
+
 export const voiceCommandSchema = z.discriminatedUnion('comando', [
   z.object({
     comando: z.literal('venta_directa'),
@@ -134,13 +139,13 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     comando: z.literal('consulta_dia'),
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
-    slots: z.object({}).default({})
+    slots: consultaFechaSlotsSchema
   }),
   z.object({
     comando: z.literal('consulta_ganancia'),
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
-    slots: z.object({}).default({})
+    slots: consultaFechaSlotsSchema
   }),
   z.object({
     comando: z.literal('consulta_caja'),

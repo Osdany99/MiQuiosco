@@ -16,6 +16,7 @@
 import { LEXICO_BASE } from './lexico.js'
 import { esConsultaDia, esConsultaGanancia } from './dia.js'
 import { esConsultaCaja } from './caja.js'
+import { resolverFechaDictada } from './fechas.js'
 
 const UNIDADES = {
   cero: 0,
@@ -1019,8 +1020,11 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   }
   if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
   if (comando === 'cobro_deuda') return extraerCobroSlots(transcript)
-  if (comando === 'consulta_dia') return {}
-  if (comando === 'consulta_ganancia' || comando === 'consulta_caja') return {}
+  if (comando === 'consulta_dia' || comando === 'consulta_ganancia') {
+    const fecha = resolverFechaDictada(transcript)
+    return { fecha: fecha?.iso ?? null }
+  }
+  if (comando === 'consulta_caja') return {}
   if (comando === 'venta_fiada') return extraerFiadoSlots(transcript, lexico)
   if (comando === 'repetir' || comando === 'ayuda') return {}
   if (comando !== 'venta_directa') return {}
