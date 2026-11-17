@@ -1,6 +1,6 @@
 <script setup>
 import { Capacitor } from '@capacitor/core'
-import { registrarProof } from '../utils/voice/proofs'
+import { registrarProof, reintentarProofs } from '../utils/voice/proofs'
 import { useConfirmacionVoz } from '../composables/useConfirmacionVoz'
 import { FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
@@ -364,6 +364,8 @@ onMounted(() => {
         void vozServicio.sincronizarConApp(isActive)
         if (isActive) {
           void drenarBuzon()
+          // Los proofs que no subieron por falta de red se reintentan al volver.
+          void reintentarProofs({ token: auth.jwtSync.value }).catch(() => {})
         } else {
           // La foto que leerá el servicio se congela al minimizar: refleja lo
           // vendido hasta este momento.
@@ -376,11 +378,30 @@ onMounted(() => {
   document.addEventListener('click', onUserActivity)
   document.addEventListener('keydown', onUserActivity)
   document.addEventListener('touchstart', onUserActivity)
+  // Cola de proofs: lo que no subió por falta de red se reintenta al arrancar y
+  // cuando vuelve la conexión. Solo el jefe genera proofs (confirmación hablada).
+  window.addEventListener('online', reintentarProofsPendientes)
+  if (auth.esJefe.value) void reintentarProofsPendientes()
+})
+
+/**
+ * Reintento de la cola de proofs con el token actual. No lanza: si no hay red o
+ * el token aún no está listo, la cola queda para la próxima vez.
+ */
+function reintentarProofsPendientes() {
+  return reintentarProofs({ token: auth.jwtSync.value }).catch(() => {})
+}
+
+// En nativo `navigator.onLine` no es fiable: el cambio de red real lo da
+// Capacitor, que ya alimenta `hayRed`. Al volver la conexión se reintenta.
+watch(hayRed, (conectado) => {
+  if (conectado && auth.esJefe.value) void reintentarProofsPendientes()
 })
 
 onUnmounted(() => {
   soltarResumeBuzon?.()
   soltarResumeBuzon = null
+  window.removeEventListener('online', reintentarProofsPendientes)
   document.removeEventListener('click', onUserActivity)
   document.removeEventListener('keydown', onUserActivity)
   document.removeEventListener('touchstart', onUserActivity)

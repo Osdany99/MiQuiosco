@@ -492,8 +492,22 @@ Cada intento de auto-confirmación deja un registro en
 
 Por defecto es una auditoría local; cuando hay red, cada proof se sube de forma
 best-effort a `voz_confirmaciones` (tabla `voz_confirmaciones`, endpoint
-`POST /api/voz/confirmaciones`) para poder consultarlo centralmente. La cola
-offline (subirlo al volver la red si el primer intento falló) queda pendiente.
+`POST /api/voz/confirmaciones`) para poder consultarlo centralmente.
+
+**Si la subida falla** (sin red, sesión vencida, servidor caído) el proof **no se
+pierde**: entra en una cola local (`voice.proofs.cola`, lógica pura en
+`app/utils/voice/colaProofs.js`) y se reintenta:
+
+- al abrir la app y cuando **vuelve la red** (`online`) o la app vuelve a primer
+  plano;
+- de uno en uno, guardando la cola tras cada intento: si la app muere, no se
+  repite lo ya subido;
+- con un tope de **100** proofs en cola, **20** intentos por proof y **14 días**;
+  lo que se pasa se descarta (la copia local sigue en `voice.proofs`);
+- sin red no gasta peticiones: la cola espera intacta;
+- una **sesión vencida** (401/403) o una APK obsoleta (426) no gastan intentos:
+  la cola espera a que el jefe vuelva a entrar;
+- una sola pasada a la vez, aunque coincidan el arranque y el evento `online`.
 
 ## Caché de catálogo
 
@@ -866,6 +880,13 @@ umbral de repetición y sin nombres.
 55. «vende treinta y cinco panes» sigue siendo **una** línea de 35, no 30 + 5.
 56. «vende 2 panes y 3 panes» abre un solo renglón de 5; con la app cerrada,
     «vende 3 panes y 2 refrescos» dice «De uno en uno, por favor».
+57. Con el teléfono en **modo avión**, confirmar una venta por voz deja el proof
+    en el teléfono y lo encola; al quitar el modo avión, la app lo sube sola y la
+    fila aparece en el panel de confirmaciones.
+58. Con la red caída a mitad de la cola, los proofs ya subidos **no** se repiten
+    al reintentar; los que faltan siguen en la cola.
+59. Un proof con **20** intentos fallidos o más de **14 días** se descarta solo; la
+    copia local de `voice.proofs` se conserva.
 
 ## Limitaciones conocidas
 
