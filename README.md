@@ -24,6 +24,7 @@ pnpm test         # tests unitarios
 
 pnpm db:generate  # generar migración Postgres (Drizzle)
 pnpm db:migrate   # aplicar migraciones
+pnpm db:baseline  # registrar migraciones ya presentes (ver docs/MIGRACIONES.md)
 pnpm db:push      # sincronizar schema (solo BD sin datos valiosos)
 pnpm db:studio    # Drizzle Studio
 pnpm db:generate:sqlite  # migración para el SQLite local
@@ -52,6 +53,7 @@ pnpm cap:open     # abrir en Android Studio
   web+APK, lo habitual), Caso B (solo web), Caso C (cambio de esquema).
 - `docs/CREAR_NUEVA_ENTIDAD.md` — cómo añadir una tabla/entidad nueva.
 - `docs/ANDROID_BUILD_GUIDE.md` — build, emulador y debug Android.
+- `docs/MIGRACIONES.md` — estado del historial de Drizzle y baseline de la base.
 
 ## Producción (resumen)
 

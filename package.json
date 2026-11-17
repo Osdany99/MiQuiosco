@@ -11,6 +11,7 @@
     "typecheck": "nuxt typecheck",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:baseline": "node scripts/baseline-migraciones.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:generate:sqlite": "drizzle-kit generate --config drizzle.sqlite.config.ts",
