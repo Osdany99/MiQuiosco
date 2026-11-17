@@ -256,13 +256,13 @@ function _useTts() {
   //  speak()
   // ────────────────────────────────────────────
 
-  async function speak(texto) {
+  async function speak(texto, { forzar = false } = {}) {
     if (!texto) return
     await cargar()
     await cargarVoces()
     const diag = useVoiceCommand()
     const t0 = Date.now()
-    if (!disponible.value || !habilitado.value) {
+    if (!disponible.value || (!habilitado.value && !forzar)) {
       diag.registrar('tts.skip', {
         texto,
         disponible: disponible.value,

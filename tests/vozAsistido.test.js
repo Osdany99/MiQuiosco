@@ -12,6 +12,7 @@ import {
   fraseClienteAlta,
   fraseCuadre,
   fraseEntrada,
+  fraseMover,
   fraseTraspaso
 } from '../app/utils/voice/frasesVoz.js'
 
@@ -154,6 +155,41 @@ describe('voz asistida: traspaso (N)', () => {
     }, CATALOGO, { sttConfidence: 0.95 })
     assert.equal(r.tipo, 'aviso')
     assert.equal(r.motivo, 'traspaso_inverso')
+  })
+})
+
+describe('voz asistida: mover producto', () => {
+  it('interpreta debajo/encima con su referencia', () => {
+    const debajo = interpretar('pon el refresco debajo del pan')
+    assert.equal(debajo.comando, 'mover_producto')
+    assert.equal(debajo.slots.productoHint, 'refresco')
+    assert.equal(debajo.slots.referenciaHint, 'pan')
+    assert.equal(debajo.slots.posicion, 'debajo')
+
+    const encima = interpretar('pon el pan encima del refresco')
+    assert.equal(encima.slots.posicion, 'encima')
+    assert.equal(encima.slots.referenciaHint, 'refresco')
+  })
+
+  it('interpreta al final y al principio', () => {
+    assert.equal(interpretar('mueve la leche al final').slots.posicion, 'final')
+    assert.equal(interpretar('pon el agua al principio').slots.posicion, 'principio')
+  })
+
+  it('no roba ventas ni cambios de precio', () => {
+    assert.equal(interpretar('pon el refresco a 60').comando, 'venta_directa')
+    assert.equal(interpretar('sube el precio del pan a 25').comando, 'cambio_precio')
+  })
+
+  it('la frase siempre pide confirmación', () => {
+    assert.equal(
+      fraseMover({ nombre: 'Refresco', referencia: 'Pan', posicion: 'debajo' }),
+      'Voy a poner Refresco justo debajo de Pan. Responde sí para confirmar.'
+    )
+    assert.equal(
+      fraseMover({ nombre: 'Leche', posicion: 'final' }),
+      'Voy a mandar Leche al final del catálogo. Responde sí para confirmar.'
+    )
   })
 })
 

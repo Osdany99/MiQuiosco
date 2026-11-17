@@ -37,7 +37,7 @@ import { formatearDia, formatearGanancia, resumirDia } from '#shared/voz/dia'
 import { rangoDeIso } from '#shared/voz/fechas'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
@@ -121,6 +121,11 @@ function _create(ubicacion) {
   const showCandidatos = ref(false)
   const pendiente = ref(null)
   const ultimoError = ref(null)
+  /**
+ * Acción que no tiene formulario (mover producto). El layout la lee, la habla y
+ * pide el «sí» SIEMPRE, sin mirar el switch de confirmación.
+ */
+  const accionSinFormulario = ref(null)
   // Cada comando tiene una generación: cancelar o reiniciar invalida la
   // anterior para que una promesa tardía no reabra el diálogo.
   let generacion = 0
@@ -607,6 +612,53 @@ function _create(ubicacion) {
       slots,
       sttConfidence
     }
+  }
+
+  /**
+   * Mover un producto en el catálogo. Sin formulario: se lee y se confirma por
+   * voz siempre (ignora el switch de confirmación, porque no hay dónde pulsar).
+   */
+  async function resolverMoverAccion(slots, sttConfidence = 0) {
+    if (!auth.esJefe.value || !perms.puedeVista('productos')) {
+      return { tipo: 'aviso', mensaje: 'Solo el jefe puede ordenar el catálogo.' }
+    }
+    const productos = await inv.cargarProductos()
+    if (!productos.length) {
+      return { tipo: 'error', mensaje: 'No hay productos en el catálogo.' }
+    }
+    const emparejar = crearEmparejador(productos, sttConfidence, alias.paraEmparejar.value)
+    const elegir = (hint) => {
+      const encontrados = emparejar(hint || '')
+      if (!encontrados.length) return null
+      const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
+      return decision.elegido?.row ?? null
+    }
+
+    const fila = elegir(slots?.productoHint)
+    if (!fila) {
+      return { tipo: 'error', mensaje: `No encontré "${slots?.productoHint || 'ese producto'}" en el catálogo.` }
+    }
+
+    const sinMovido = productos.filter(p => p.id !== fila.id)
+    let indice = sinMovido.length
+    let referencia = null
+
+    if (slots?.posicion === 'principio') {
+      indice = 0
+    } else if (slots?.referenciaHint) {
+      referencia = elegir(slots.referenciaHint)
+      if (!referencia) {
+        return { tipo: 'error', mensaje: `No encontré "${slots.referenciaHint}" en el catálogo.` }
+      }
+      if (referencia.id === fila.id) {
+        return { tipo: 'aviso', mensaje: 'No puedo mover un producto respecto a sí mismo.' }
+      }
+      const idx = sinMovido.findIndex(p => p.id === referencia.id)
+      indice = slots.posicion === 'debajo' ? idx + 1 : idx
+    }
+
+    const texto = fraseMover({ nombre: fila.nombre, referencia: referencia?.nombre, posicion: slots?.posicion })
+    return { tipo: 'mover', fila, referencia, indice, texto, sttConfidence }
   }
 
   /** Alta de cliente por voz: nombre dictado, sin duplicar parecidos. */
@@ -1795,6 +1847,7 @@ function _create(ubicacion) {
     if (comando === 'cambio_precio') return resolverCambioPrecioAccion(slots, sttConfidence, vigente)
     if (comando === 'traspaso') return resolverTraspasoAccion(slots, sttConfidence, vigente)
     if (comando === 'cliente_alta') return resolverClienteAlta(slots, sttConfidence)
+    if (comando === 'mover_producto') return resolverMoverAccion(slots, sttConfidence)
     if (comando === 'cuadre_accion') return resolverCuadreAccion(slots, sttConfidence)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
@@ -1894,6 +1947,25 @@ function _create(ubicacion) {
         return prepararTraspaso(accion)
       case 'cliente_alta':
         return prepararClienteAlta(accion)
+      case 'mover':
+        accionSinFormulario.value = {
+          texto: accion.texto,
+          aplicar: async () => {
+            try {
+              const r = await inv.moverProducto(accion.fila.id, accion.indice)
+              toast.add({
+                title: 'Catálogo',
+                description: `${accion.fila.nombre} quedó en la posición ${r.posicion} de ${r.total}.`,
+                color: 'success'
+              })
+              invalidarCatalogoVoz()
+            } catch (e) {
+              toast.add({ title: 'Catálogo', description: e?.message || 'No se pudo mover.', color: 'error' })
+            }
+          }
+        }
+        estado.value = 'idle'
+        return
       case 'cuadre':
         return ejecutarCuadre(accion, vigente)
       default:
@@ -2199,6 +2271,7 @@ function _create(ubicacion) {
     micVisible,
     motivoNoDisponible,
     ultimoError,
+    accionSinFormulario,
     transcriptParcial,
     candidatos,
     showCandidatos,

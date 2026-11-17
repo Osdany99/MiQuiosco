@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /** Comandos que el intérprete puede devolver. `desconocido` = no se actúa. */
-export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'consulta_ganancia', 'consulta_caja', 'entrada_inventario', 'cambio_precio', 'cuadre_accion', 'traspaso', 'cliente_alta', 'repetir', 'ayuda', 'desconocido'], {
+export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'consulta_ganancia', 'consulta_caja', 'entrada_inventario', 'cambio_precio', 'cuadre_accion', 'traspaso', 'cliente_alta', 'mover_producto', 'repetir', 'ayuda', 'desconocido'], {
   message: 'Comando de voz no soportado'
 })
 
@@ -98,6 +98,13 @@ export const clienteAltaSlotsSchema = z.object({
   nombre: z.string().default('')
 })
 
+/** Mover un producto: debajo/encima de otro, o al principio/final. */
+export const moverProductoSlotsSchema = z.object({
+  productoHint: z.string().default(''),
+  referenciaHint: z.string().default(''),
+  posicion: z.enum(['debajo', 'encima', 'principio', 'final']).default('final')
+})
+
 export const consultaFechaSlotsSchema = z.object({
   /** Día pedido (`2026-11-10`) o null para hoy. */
   fecha: z.string().nullable().default(null)
@@ -187,6 +194,12 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
     slots: clienteAltaSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('mover_producto'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: moverProductoSlotsSchema
   }),
   z.object({
     comando: z.literal('repetir'),

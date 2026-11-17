@@ -122,6 +122,19 @@ export function fraseClienteAlta({ nombre }) {
 }
 
 /**
+ * Mover un producto: la única acción sin formulario, así que siempre se lee y
+ * siempre pide confirmación.
+ */
+export function fraseMover({ nombre, referencia = null, posicion = 'final' }) {
+  const base = String(nombre ?? '').trim() || 'ese producto'
+  const ref = String(referencia ?? '').trim()
+  if (posicion === 'debajo' && ref) return `Voy a poner ${base} justo debajo de ${ref}. Responde sí para confirmar.`
+  if (posicion === 'encima' && ref) return `Voy a poner ${base} justo encima de ${ref}. Responde sí para confirmar.`
+  if (posicion === 'principio') return `Voy a poner ${base} al principio del catálogo. Responde sí para confirmar.`
+  return `Voy a mandar ${base} al final del catálogo. Responde sí para confirmar.`
+}
+
+/**
  * Cuadre por voz: solo lleva al cuadre y lee lo que hay. El cierre nunca lo hace
  * la voz; el jefe escribe el dinero real y pulsa el botón. Sin cuadre abierto no
  * se da ninguna instrucción de cierre.

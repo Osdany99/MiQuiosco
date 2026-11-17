@@ -618,6 +618,9 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   if (esTraspaso(texto)) {
     return { comando: 'traspaso', confianza: 0.9, reasons: ['verbo_traspaso'] }
   }
+  if (esMoverProducto(texto)) {
+    return { comando: 'mover_producto', confianza: 0.9, reasons: ['verbo_mover'] }
+  }
 
   // Fiar: «fía dos panes a Juan». Va antes de la venta porque «anota fiado …»
   // trae verbo de venta y no debe registrarse como venta directa.
@@ -1026,6 +1029,39 @@ function extraerClienteAltaSlots(transcript) {
   return { nombre: resto.replace(ARTICULOS_INICIALES, '').trim() }
 }
 
+/** «Pon el refresco debajo del pan» (mover sin formulario). */
+const VERBOS_MOVER = /^(?:pon|ponme|coloca|colocame|mueve|mueveme|ordena|ordename)\b/
+const RE_POSICION = /\b(debajo|encima|arriba|abajo|antes|despues|detras|delante)\s+(?:de|del)\b/
+
+export function esMoverProducto(texto) {
+  const t = normalizar(texto)
+  if (!VERBOS_MOVER.test(t)) return false
+  if (/\bal final\b|\bal principio\b/.test(t)) return true
+  return RE_POSICION.test(t)
+}
+
+function extraerMoverSlots(transcript) {
+  const texto = normalizar(transcript).replace(VERBOS_MOVER, ' ').replace(/\s+/g, ' ').trim()
+  const limpiar = t => t.replace(ARTICULOS_INICIALES, '').replace(/\s+/g, ' ').trim()
+
+  if (/\bal final\b/.test(texto)) {
+    return { productoHint: limpiar(texto.replace(/\bal final\b/g, ' ')), referenciaHint: '', posicion: 'final' }
+  }
+  if (/\bal principio\b/.test(texto)) {
+    return { productoHint: limpiar(texto.replace(/\bal principio\b/g, ' ')), referenciaHint: '', posicion: 'principio' }
+  }
+  const m = texto.match(/\b(debajo|encima|arriba|abajo|antes|despues|detras|delante)\s+(?:de|del)\s+(.+)$/)
+  if (m) {
+    const posicion = (m[1] === 'encima' || m[1] === 'arriba' || m[1] === 'antes' || m[1] === 'detras') ? 'encima' : 'debajo'
+    return {
+      productoHint: limpiar(texto.slice(0, m.index)),
+      referenciaHint: limpiar(m[2]),
+      posicion
+    }
+  }
+  return { productoHint: '', referenciaHint: '', posicion: 'final' }
+}
+
 /** Acción del cuadre: abrir o cerrar. Una frase suelta nunca cierra. */
 function extraerCuadreSlots(transcript) {
   const texto = normalizar(transcript)
@@ -1037,6 +1073,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   if (comando === 'cambio_precio') return extraerCambioPrecioSlots(transcript, lexico)
   if (comando === 'traspaso') return extraerTraspasoSlots(transcript, lexico)
   if (comando === 'cliente_alta') return extraerClienteAltaSlots(transcript)
+  if (comando === 'mover_producto') return extraerMoverSlots(transcript)
   if (comando === 'cuadre_accion') return extraerCuadreSlots(transcript)
   if (comando === 'consulta_stock' || comando === 'consulta_precio') {
     const s = extraerConsultaPura(normalizar(transcript))

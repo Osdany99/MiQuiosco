@@ -649,6 +649,32 @@ export function useInventario() {
     return sugerenciaReposicion({ productos, saldos: mapa })
   }
 
+  /**
+   * Mueve un producto a la posición `indice` (base 0) del catálogo visible y
+   * renumera 1..N. Solo guarda las filas cuyo `orden` cambia. Lo usan el
+   * arrastre de `/productos` y la voz.
+   */
+  async function moverProducto(id, indice) {
+    exigirJefe()
+    const productos = await cargarProductos()
+    const actual = productos.findIndex(p => p.id === id)
+    if (actual < 0) throw new Error('Producto no encontrado.')
+    const lista = [...productos]
+    const [movido] = lista.splice(actual, 1)
+    const destino = Math.max(0, Math.min(lista.length, Math.trunc(Number(indice) || 0)))
+    lista.splice(destino, 0, movido)
+
+    let cambios = 0
+    for (let i = 0; i < lista.length; i++) {
+      const orden = i + 1
+      if (Number(lista[i].orden ?? 0) === orden) continue
+      await r(productosRepo).update(lista[i].id, { orden })
+      cambios++
+    }
+    await cargarSaldos().catch(() => {})
+    return { cambios, posicion: destino + 1, total: lista.length }
+  }
+
   async function cargarProductos() {
     const todos = await r(productosRepo).readAll()
     const pid = puestoIdActual()
@@ -708,6 +734,7 @@ export function useInventario() {
     cargarSaldos,
     cargarProductos,
     cargarProductosConEstado,
+    moverProducto,
     registrarEntrada,
     registrarTraspaso,
     registrarAjuste,

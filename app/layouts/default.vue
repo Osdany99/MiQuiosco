@@ -352,6 +352,37 @@ watch(vozDialogAbierto, (abierto) => {
 })
 
 /**
+ * Acciones sin formulario (mover producto): se leen y se piden por voz SIEMPRE,
+ * aunque la confirmación por voz esté apagada, porque no hay botón donde
+ * confirmar. Un «no» cancela; el silencio deja el catálogo como estaba.
+ */
+watch(() => vozActiva.value.accionSinFormulario?.value, async (accion) => {
+  if (!accion) return
+  vozActiva.value.accionSinFormulario.value = null
+  vozActiva.value.readBackTexto.value = accion.texto
+  vozActiva.value.ultimaRespuestaVoz.value = accion.texto
+  confirmandoVoz.value = true
+  try {
+    // `forzar` ignora el switch: es la única confirmación posible.
+    await ttsRaw.speak(accion.texto, { forzar: true })
+    const respuesta = await escucharRespuesta(accion.texto)
+    if (respuesta.resultado === 'afirmado') {
+      await accion.aplicar()
+    } else if (respuesta.resultado === 'negado') {
+      try {
+        await ttsRaw.speak('Cancelado.', { forzar: true })
+      } catch {
+        /* noop */
+      }
+    }
+  } catch {
+    /* nada aplicado */
+  } finally {
+    confirmandoVoz.value = false
+  }
+})
+
+/**
  * Un diálogo por comando asistido. Comparten `vozDialogAbierto` (la voz abrió un
  * formulario) pero solo el del modo activo queda abierto: si los tres
  * escucharan el mismo booleano, se abrirían los tres a la vez.
