@@ -53,7 +53,11 @@ export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = D
   const desde = inicioDelDia(ahora)
   const delDia = (ventas ?? []).filter(v => !v?.anulado && ms(v?.creadoEn) >= desde)
   let importeHoy = 0
-  for (const venta of delDia) importeHoy += Number(venta?.montoTotal) || 0
+  let gananciaHoy = 0
+  for (const venta of delDia) {
+    importeHoy += Number(venta?.montoTotal) || 0
+    gananciaHoy += Number(venta?.ganancia) || 0
+  }
 
   // Misma regla que `resumenPendientes`: caducadas no se cuentan.
   const vigentes = (acciones ?? []).filter(a => a && a.estado !== 'aplicada'
@@ -68,10 +72,51 @@ export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = D
   return {
     ventasHoy: delDia.length,
     importeHoy: redondear2(importeHoy),
+    gananciaHoy: redondear2(gananciaHoy),
     pendientes,
     importePendiente: redondear2(importePendiente),
     inicioDelDia: desde
   }
+}
+
+/**
+ * Respuesta hablada de la ganancia del día. Se dice junto al importe vendido;
+ * si no hubo ventas, se admite que no hay ganancia que calcular.
+ */
+export function formatearGanancia(resumen) {
+  const ventas = Math.trunc(Number(resumen?.ventasHoy) || 0)
+  const importe = formatearMonto(resumen?.importeHoy)
+  const ganancia = Number(resumen?.gananciaHoy) || 0
+  const monto = formatearMonto(Math.abs(ganancia))
+  const verbo = ganancia < 0 ? 'perdiste' : 'ganaste'
+
+  if (ventas === 0) {
+    return {
+      titulo: 'Hoy: sin ganancia',
+      descripcion: 'Sin ventas registradas',
+      habla: 'Todavía no hay ventas hoy, así que no hay ganancia.',
+      tipo: 'ganancia_vacia'
+    }
+  }
+
+  return {
+    titulo: `Hoy: ${verbo} ${monto} pesos`,
+    descripcion: `${monto} pesos · ${importe} vendidos`,
+    habla: `Hoy ${verbo} ${monto} pesos de ${importe} vendidos.`,
+    tipo: 'ganancia'
+  }
+}
+
+/**
+ * ¿La frase pide la ganancia del día? Exige una marca de día como el resumen:
+ * «cuánto gané» a secas puede ser de otro día o de una venta concreta.
+ */
+export function esConsultaGanancia(texto) {
+  const frase = normalizarFraseVoz(texto)
+  if (!frase) return false
+  const hablaDeGanancia = /\b(gane|ganamos|ganancia|ganancias|utilidad|utilidades)\b/.test(frase)
+  if (!hablaDeGanancia) return false
+  return /\b(hoy|dia)\b/.test(frase) || frase.startsWith('ganancia')
 }
 
 /**
@@ -111,6 +156,16 @@ export function formatearDia(resumen) {
   }
 }
 
+/** Forma canónica de una frase dictada: sin tildes, minúsculas y sin signos. */
+function normalizarFraseVoz(texto) {
+  return String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
 /**
  * ¿La frase pide el resumen del día? Exige una marca de día («hoy», «del día»)
  * o una de las preguntas fijas: «cuánto vendí» a secas puede ser de otro día.
@@ -119,12 +174,7 @@ export function formatearDia(resumen) {
  * inventada sería peor que el silencio.
  */
 export function esConsultaDia(texto) {
-  const frase = String(texto ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
+  const frase = normalizarFraseVoz(texto)
   if (!frase) return false
   if (/\b(ganancia|ganancias|gane|costo|costos|inversion|invertido)\b/.test(frase)) return false
 

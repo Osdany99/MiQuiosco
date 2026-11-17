@@ -223,7 +223,7 @@ describe('voz: deudas en el snapshot (app cerrada)', () => {
       clientes: CLIENTES
     })
     assert.equal(snap.version, SNAPSHOT_VERSION)
-    assert.equal(SNAPSHOT_VERSION, 3)
+    assert.equal(SNAPSHOT_VERSION, 4)
     assert.equal(snap.deudas.total, 360)
     assert.equal(snap.deudas.cantidad, 3)
     assert.equal(snap.deudas.clientes[0].nombre, 'Juan Pérez')

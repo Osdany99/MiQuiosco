@@ -152,8 +152,33 @@ respuestas coinciden.
 - Sin ventas dice «Todavía no hay ventas hoy»; nunca «0 ventas por 0 pesos».
 - **Solo el jefe**: el resumen es información del cuadre. Un trabajador con
   permiso de voz recibe un aviso, no cifras.
-- «cuánto vendí» **sin decir el día** no se contesta (puede ser otro día), y
-  «ganancia», «costo» y «caja» quedan fuera: necesitan datos que la voz no tiene.
+- «cuánto vendí» **sin decir el día** no se contesta (puede ser otro día).
+  «Ganancia» y «caja» tienen su propio cálculo (siguiente sección): nunca se
+  responde con el importe vendido como si fuera ganancia.
+
+## Ganancia del día y caja por voz
+
+**Ganancia** («cuánto gané hoy», «ganancia del día», «cuánto ganamos hoy»):
+
+- Suma `ventas_directas.ganancia` de las ventas **no anuladas** de hoy: el costo
+  FIFO ya congelado en cada venta, no el precio de compra actual.
+- La lectura junta las dos cifras: «Hoy ganaste 320 pesos de 845 vendidos.» Si la
+  ganancia sale negativa, dice «perdiste». Sin ventas, «Todavía no hay ventas
+  hoy, así que no hay ganancia».
+- Solo jefe. Con la app cerrada se lee `resumen.gananciaHoy` del snapshot; un
+  snapshot viejo sin ese campo pide abrir la app en vez de decir cero.
+
+**Caja** («cómo va la caja», «cuánto hay en caja»):
+
+- Solo con la app abierta: necesita el cuadre, que no viaja en el snapshot.
+- Usa el **cuadre abierto** del puesto (si quedó abierto el de ayer, se usa ese)
+  y sus líneas, con la misma cuenta que la pantalla: esperado = ventas − regalo
+  − descuento; efectivo esperado = esperado − fiado − transferencias.
+- **Nunca crea un cuadre ni guarda nada**: solo lee. Si no hay cuadre abierto
+  dice «No hay un cuadre abierto».
+- Si el fiado o las transferencias superan lo apuntado, el cuadre está
+  incompleto: lo dice en vez de leer un efectivo negativo.
+- Solo jefe.
 
 ## Cobrar deudas por voz (app abierta y cerrada)
 
@@ -246,8 +271,9 @@ Funciona igual con la app abierta y con la app cerrada (`VozEscuchaService`
 revalida contra el snapshot). Solo cambia la **cantidad**: para otro producto o
 ubicación se cancela y se dicta de nuevo.
 
-Todavía no se responde por voz: ventas del día y caja **con la app abierta**.
-Ante esas frases hay silencio, no una cifra inventada.
+La **caja** («cómo va la caja») es solo con la app abierta: necesita el cuadre y
+sus líneas. Con la app cerrada se consultan ventas, ganancia, stock, precios y
+deudas; ante una frase de caja el servicio no inventa una cifra.
 
 ## Revisión de lo dictado (nada se registra solo)
 
@@ -766,7 +792,9 @@ umbral de repetición y sin nombres.
 30. «cómo va el día» y «cuánto vendí hoy» responden con las ventas de hoy y los
     dictados por revisar, igual con la app abierta que cerrada. Un trabajador oye
     que es información del jefe.
-31. «cuánto vendí» sin decir el día, y «ganancia»/«caja», no se contestan.
+31. «cuánto vendí» sin decir el día no se contesta; «cuánto gané hoy» lee
+    ganancia e importe vendido; «cómo va la caja» con cuadre abierto lee el
+    efectivo esperado y, sin cuadre, «No hay un cuadre abierto».
 32. «fía dos panes a Yunior» lee la deuda con el precio del catálogo y solo con
     «sí» la registra; el stock baja y la deuda aparece en `/deudas`.
 33. «fía dos panes a Juan» con «Juanita» en la lista lee los parecidos y no fía
@@ -800,6 +828,14 @@ umbral de repetición y sin nombres.
 48. Con la app cerrada: «oye nova, cuánto cuesta el refresco» → «repite» lo
     vuelve a decir; «ayuda» lee qué sabe hacer. Sin respuesta previa, «repite»
     dice «No tengo nada que repetir todavía».
+49. «cuánto gané hoy» con ventas anuladas no las suma; con una venta de 20 y
+    ganancia 8 lee «Hoy ganaste 8 pesos de 20 vendidos».
+50. Sin ventas, «cuánto gané hoy» dice «Todavía no hay ventas hoy, así que no hay
+    ganancia» (no dice cero pesos).
+51. «cómo va la caja» con el cuadre cerrado dice «No hay un cuadre abierto» y no
+    crea uno. Con fiado y transferencias, las descuenta del efectivo esperado.
+52. Con la app cerrada, «cómo va la caja» pide abrir la app; «cuánto gané hoy»
+    responde desde el snapshot.
 
 ## Limitaciones conocidas
 
@@ -811,6 +847,10 @@ umbral de repetición y sin nombres.
   escribió.
 - Las deudas se consultan, se pueden **fiar** y **cobrar** por voz, con la app
   abierta y cerrada.
+- La **caja** solo se responde con la app abierta: el snapshot no lleva el
+  cuadre. La **ganancia** sí viaja en el snapshot (versión 4).
+- Un snapshot anterior a la versión 4 no trae `gananciaHoy`: el servicio pide
+  abrir la app en vez de leer cero.
 - Un cobro que toca **varias deudas** del mismo cliente deja **una fila por
   deuda** en la revisión (el servicio reparte FIFO antes de escribir).
 - Un fiado por voz usa el precio del catálogo y crea la deuda directa; no admite

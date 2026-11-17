@@ -14,7 +14,8 @@
  * abrir un formulario prellenado es la capa de UI.
  */
 import { LEXICO_BASE } from './lexico.js'
-import { esConsultaDia } from './dia.js'
+import { esConsultaDia, esConsultaGanancia } from './dia.js'
+import { esConsultaCaja } from './caja.js'
 
 const UNIDADES = {
   cero: 0,
@@ -672,6 +673,16 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     return { comando: 'consulta_deuda', confianza: 0.9, reasons: ['consulta_deuda'] }
   }
 
+  // Ganancia y caja: datos del cuadre, no del catálogo. Van antes del resumen
+  // del día porque «cuánto gané hoy» también trae marca de día y no debe
+  // responderse con el importe vendido a secas.
+  if (esConsultaGanancia(texto)) {
+    return { comando: 'consulta_ganancia', confianza: 0.9, reasons: ['consulta_ganancia'] }
+  }
+  if (esConsultaCaja(texto)) {
+    return { comando: 'consulta_caja', confianza: 0.9, reasons: ['consulta_caja'] }
+  }
+
   // Resumen del día: "cómo va el día", "cuánto vendí hoy". Antes se descartaba
   // a propósito; ahora se contesta con las ventas del día del puesto.
   if (esConsultaDia(texto)) {
@@ -921,6 +932,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
   if (comando === 'cobro_deuda') return extraerCobroSlots(transcript)
   if (comando === 'consulta_dia') return {}
+  if (comando === 'consulta_ganancia' || comando === 'consulta_caja') return {}
   if (comando === 'venta_fiada') return extraerFiadoSlots(transcript, lexico)
   if (comando === 'repetir' || comando === 'ayuda') return {}
   if (comando === 'navegacion') {

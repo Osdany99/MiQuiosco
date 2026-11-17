@@ -12,7 +12,7 @@ import { proyectarStock } from './pendientes.js'
 import { resumirDeudas } from '../../../shared/voz/deudas.js'
 import { inicioDelDia, resumirDia } from '../../../shared/voz/dia.js'
 
-export const SNAPSHOT_VERSION = 3
+export const SNAPSHOT_VERSION = 4
 
 // El resumen del día se calcula en `shared/voz/dia.js`: la app abierta y el
 // servicio nativo tienen que decir exactamente lo mismo.
@@ -96,6 +96,7 @@ export function construirSnapshot({
     resumen: {
       ventasHoy: dia.ventasHoy,
       importeHoy: redondear2(dia.importeHoy),
+      gananciaHoy: redondear2(dia.gananciaHoy),
       pendientes: dia.pendientes,
       importePendiente: redondear2(dia.importePendiente)
     }

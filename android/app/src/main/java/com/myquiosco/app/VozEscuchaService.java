@@ -1616,6 +1616,16 @@ public class VozEscuchaService extends Service {
             if (deuda != null) return deuda;
         }
 
+        // Caja: con la app cerrada no hay cuadre en el snapshot. Se dice en vez
+        // de responder el resumen del día («cómo va la caja» también trae
+        // «como va»).
+        boolean pideCaja = frase.contains("efectivo esperado")
+            || (frase.contains("caja")
+                && (frase.contains("como va") || frase.contains("como esta")
+                    || frase.contains("cuanto hay en") || frase.contains("efectivo")
+                    || frase.contains("cuadre")));
+        if (pideCaja) return "Abre la app para ver la caja";
+
         boolean pideResumen = frase.contains("como va")
             || frase.contains("ventas de hoy")
             || frase.contains("ventas del dia")
@@ -1626,6 +1636,11 @@ public class VozEscuchaService extends Service {
             || frase.contains("resumen del dia")
             || frase.contains("resumen de hoy")
             || frase.contains("cierre del dia");
+        boolean pideGanancia = (frase.contains("gane")
+            || frase.contains("ganamos")
+            || frase.contains("ganancia")
+            || frase.contains("utilidad"))
+            && (frase.contains("hoy") || frase.contains("dia") || frase.startsWith("ganancia"));
         boolean pidePrecio = frase.contains("cuanto cuesta")
             || frase.contains("cuanto vale")
             || frase.contains("precio");
@@ -1638,10 +1653,27 @@ public class VozEscuchaService extends Service {
             || frase.contains("quedan")
             || frase.contains("hay");
 
-        if (!pideResumen && !pidePrecio && !pideStock) return null;
+        if (!pideResumen && !pidePrecio && !pideStock && !pideGanancia) return null;
 
         JSONObject snap = leerSnapshot();
         if (snap == null) return null;
+
+        // Ganancia del día: el cálculo vive en el snapshot (`resumen.gananciaHoy`).
+        // Un snapshot viejo sin el campo no se completa con un cero inventado.
+        if (pideGanancia) {
+            JSONObject r = snap.optJSONObject("resumen");
+            if (r == null || !r.has("gananciaHoy")) {
+                return "Abre la app para ver la ganancia";
+            }
+            int ventas = r.optInt("ventasHoy", 0);
+            if (ventas == 0) return "Todavía no hay ventas hoy, así que no hay ganancia.";
+            double ganancia = r.optDouble("gananciaHoy", 0);
+            String monto = formatearNumero(Math.abs(ganancia));
+            String verbo = ganancia < 0 ? "perdiste" : "ganaste";
+            // Mismo texto que `formatearGanancia` (shared/voz/dia.js).
+            return "Hoy " + verbo + " " + monto + " pesos de "
+                + formatearNumero(r.optDouble("importeHoy", 0)) + " vendidos.";
+        }
 
         if (pideResumen) {
             JSONObject r = snap.optJSONObject("resumen");

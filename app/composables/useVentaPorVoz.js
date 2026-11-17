@@ -32,7 +32,9 @@ import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
 import { buscarClienteDeuda, distribuirCobro, formatearDeuda, resumirDeudas, saldoTotalDeudas } from '#shared/voz/deudas'
-import { formatearDia } from '#shared/voz/dia'
+import { formatearDia, formatearGanancia } from '#shared/voz/dia'
+import { formatearCaja, resumirCaja } from '#shared/voz/caja'
+import { TABLES } from '#shared/tables'
 import { fraseVenta, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
@@ -76,6 +78,10 @@ function _create(ubicacion) {
   const zeroTouch = useVoiceZeroTouch()
   const disparo = useVozDisparo()
   const snapshotVoz = useVozSnapshot()
+  // Caja: solo lectura del cuadre abierto y sus líneas (nunca se crea ni se
+  // guarda un cuadre desde la voz).
+  const cuadresRepo = useRepo(TABLES.cuadres, { toast: false })
+  const cuadreItemsRepo = useRepo(TABLES.cuadre_items, { toast: false })
   const toast = useToast()
   const route = useRoute()
 
@@ -459,6 +465,30 @@ function _create(ubicacion) {
     return { tipo: 'consultar_dia', slots }
   }
 
+  /** Ganancia del día («cuánto gané hoy»). Solo jefe. */
+  function resolverConsultaGanancia(slots, sttConfidence = 0) {
+    if (!auth.esJefe.value) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'Solo el jefe puede ver la ganancia del día.',
+        auditar: { comando: 'consulta_ganancia', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    return { tipo: 'consultar_ganancia', slots }
+  }
+
+  /** Caja del cuadre abierto («cómo va la caja»). Solo jefe. */
+  function resolverConsultaCaja(slots, sttConfidence = 0) {
+    if (!auth.esJefe.value) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'Solo el jefe puede ver la caja.',
+        auditar: { comando: 'consulta_caja', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    return { tipo: 'consultar_caja', slots }
+  }
+
   /** Resumen del día («cómo va el día», «cuánto vendí hoy»). */
   async function responderDia() {
     const resumen = await snapshotVoz.resumenDelDia()
@@ -468,6 +498,62 @@ function _create(ubicacion) {
       title: result.titulo,
       description: result.descripcion,
       color: result.tipo === 'dia_vacio' ? 'neutral' : 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(result.habla)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /** Ganancia del día («cuánto gané hoy»): ventas del día menos su costo. */
+  async function responderGanancia() {
+    const resumen = await snapshotVoz.resumenDelDia()
+    const result = formatearGanancia(resumen)
+    ultimaRespuestaVoz.value = result.habla
+    toast.add({
+      title: result.titulo,
+      description: result.descripcion,
+      color: result.tipo === 'ganancia_vacia' ? 'neutral' : 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(result.habla)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /**
+   * Caja del cuadre abierto («cómo va la caja»): efectivo esperado, fiado y
+   * transferencias. Solo lee: si no hay cuadre abierto lo dice y no crea nada.
+   */
+  async function responderCaja() {
+    const puestoId = auth.usuarioActual.value?.puestoId ?? null
+    let resumen = null
+    try {
+      const { data: filas } = await cuadresRepo.readAll()
+      const abierto = (filas ?? [])
+        .filter(c => c?.estado === 'abierto' && c?.puestoId === puestoId)
+        .sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')))[0]
+      if (abierto) {
+        const { data: items } = await cuadreItemsRepo.readAll({ query: { cuadreId: abierto.id } })
+        const lineas = (items ?? []).filter(l => l?.cuadreId === abierto.id)
+        resumen = resumirCaja({ cuadre: abierto, lineas })
+      }
+    } catch {
+      resumen = null
+    }
+
+    const result = formatearCaja(resumen)
+    ultimaRespuestaVoz.value = result.habla
+    toast.add({
+      title: result.titulo,
+      description: result.descripcion,
+      color: result.tipo === 'caja_sin_cuadre' ? 'neutral' : 'success',
       duration: 8000
     })
     try {
@@ -1236,6 +1322,8 @@ function _create(ubicacion) {
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
     if (comando === 'consulta_dia') return resolverConsultaDia(slots, sttConfidence)
+    if (comando === 'consulta_ganancia') return resolverConsultaGanancia(slots, sttConfidence)
+    if (comando === 'consulta_caja') return resolverConsultaCaja(slots, sttConfidence)
     if (comando === 'venta_fiada') return resolverFiadoAccion(slots, sttConfidence, vigente)
     if (comando === 'cobro_deuda') return resolverCobroAccion(slots, sttConfidence, vigente)
     if (comando === 'repetir') return { tipo: 'repetir' }
@@ -1310,6 +1398,10 @@ function _create(ubicacion) {
         return responderDeuda(accion)
       case 'consultar_dia':
         return responderDia()
+      case 'consultar_ganancia':
+        return responderGanancia()
+      case 'consultar_caja':
+        return responderCaja()
       case 'repetir':
         return repetirUltimaRespuesta()
       case 'ayuda':

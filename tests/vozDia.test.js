@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import { interpretar, resolverComando } from '../shared/voz/gramatica.js'
 import {
   esConsultaDia,
+  esConsultaGanancia,
   formatearDia,
+  formatearGanancia,
   formatearMonto,
   inicioDelDia,
   resumirDia
@@ -60,11 +62,18 @@ describe('voz: resumen del día — clasificación', () => {
     assert.notEqual(resolverComando('cuanto vendi').comando, 'consulta_dia')
   })
 
-  it('la ganancia y la caja quedan fuera: faltan datos', () => {
+  it('la ganancia y la caja se clasifican aparte del resumen', () => {
     assert.equal(esConsultaDia('cuanto gane hoy'), false)
     assert.equal(esConsultaDia('ganancia de hoy'), false)
     assert.equal(esConsultaDia('como va la caja'), false)
-    assert.notEqual(resolverComando('cuanto gane hoy').comando, 'consulta_dia')
+    assert.equal(resolverComando('cuanto gane hoy').comando, 'consulta_ganancia')
+    assert.equal(resolverComando('ganancia del dia').comando, 'consulta_ganancia')
+    assert.equal(resolverComando('como va la caja').comando, 'consulta_caja')
+    assert.equal(resolverComando('cuanto hay en caja').comando, 'consulta_caja')
+  })
+
+  it('«cuánto gané» sin día no se contesta', () => {
+    assert.notEqual(resolverComando('cuanto gane').comando, 'consulta_ganancia')
   })
 
   it('no se confunde con stock, precio ni deudas', () => {
@@ -158,6 +167,50 @@ describe('voz: resumen del día — respuesta', () => {
   })
 })
 
+describe('voz: ganancia del día', () => {
+  it('suma la ganancia de las ventas de hoy, sin anuladas', () => {
+    const r = resumirDia({
+      ahora: AHORA,
+      ventas: [
+        venta({ montoTotal: 20, ganancia: 8 }),
+        venta({ montoTotal: 15, ganancia: 5.5 }),
+        venta({ montoTotal: 100, ganancia: 40, anulado: true }),
+        venta({ montoTotal: 50, ganancia: 20, creadoEn: AHORA - 3 * 24 * HORA })
+      ]
+    })
+    assert.equal(r.gananciaHoy, 13.5)
+  })
+
+  it('una venta sin ganancia no rompe la suma', () => {
+    const r = resumirDia({ ahora: AHORA, ventas: [venta({ montoTotal: 20 })] })
+    assert.equal(r.gananciaHoy, 0)
+  })
+
+  it('la lectura junta ganancia e importe vendido', () => {
+    const r = formatearGanancia({ ventasHoy: 2, importeHoy: 845, gananciaHoy: 320 })
+    assert.equal(r.habla, 'Hoy ganaste 320 pesos de 845 vendidos.')
+  })
+
+  it('una pérdida se dice como pérdida', () => {
+    const r = formatearGanancia({ ventasHoy: 1, importeHoy: 20, gananciaHoy: -5.5 })
+    assert.equal(r.habla, 'Hoy perdiste 5,50 pesos de 20 vendidos.')
+  })
+
+  it('sin ventas no inventa una ganancia', () => {
+    assert.equal(
+      formatearGanancia({ ventasHoy: 0, importeHoy: 0, gananciaHoy: 0 }).habla,
+      'Todavía no hay ventas hoy, así que no hay ganancia.'
+    )
+  })
+
+  it('exige marca de día', () => {
+    assert.equal(esConsultaGanancia('cuanto gane hoy'), true)
+    assert.equal(esConsultaGanancia('ganancia del dia'), true)
+    assert.equal(esConsultaGanancia('cuanto gane'), false)
+    assert.equal(esConsultaGanancia('cuanto cuesta el pan'), false)
+  })
+})
+
 describe('voz: resumen del día comparte cálculo con el snapshot', () => {
   it('el snapshot y la consulta dicen lo mismo', () => {
     const ventas = [venta({ montoTotal: 20 }), venta({ montoTotal: 15 })]
@@ -171,6 +224,7 @@ describe('voz: resumen del día comparte cálculo con el snapshot', () => {
     assert.equal(snap.resumen.importeHoy, directo.importeHoy)
     assert.equal(snap.resumen.pendientes, directo.pendientes)
     assert.equal(snap.resumen.importePendiente, directo.importePendiente)
+    assert.equal(snap.resumen.gananciaHoy, directo.gananciaHoy)
     assert.equal(formatearDia(directo).habla, 'Hoy: 2 ventas por 35 pesos. 1 dictado por revisar.')
   })
 })
