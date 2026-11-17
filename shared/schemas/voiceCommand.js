@@ -3,7 +3,7 @@ import { LEXICO_BASE } from '../voz/lexico.js'
 import { VISTAS_CON_RUTA } from '../permisos.js'
 
 /** Comandos que el intérprete puede devolver. `desconocido` = no se actúa. */
-export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'consulta_ganancia', 'consulta_caja', 'repetir', 'ayuda', 'navegacion', 'desconocido'], {
+export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'consulta_ganancia', 'consulta_caja', 'entrada_inventario', 'cambio_precio', 'cuadre_accion', 'traspaso', 'repetir', 'ayuda', 'navegacion', 'desconocido'], {
   message: 'Comando de voz no soportado'
 })
 
@@ -71,6 +71,37 @@ export const navegacionSlotsSchema = z.object({
   destino: z.enum(DESTINOS_VALIDOS)
 })
 
+/**
+ * Slots de los comandos ASISTIDOS (fases K, L, M, N). Ninguno escribe: la UI
+ * prellena un formulario y el jefe confirma con el botón.
+ *
+ * - `entrada_inventario`: producto, cantidad y costo de compra (null = usar el
+ *   último pagado, que el diálogo muestra).
+ * - `cambio_precio`: producto y precio nuevo (null = no se oyó la cifra).
+ * - `cuadre_accion`: abrir o cerrar; cerrar nunca ejecuta, solo avisa.
+ * - `traspaso`: producto, cantidad y destino (el origen es el almacén).
+ */
+export const entradaSlotsSchema = z.object({
+  productoHint: z.string().default(''),
+  cantidad: z.number().int().min(1).default(1),
+  precioUnitario: z.number().positive().nullable().default(null)
+})
+
+export const cambioPrecioSlotsSchema = z.object({
+  productoHint: z.string().default(''),
+  precio: z.number().positive().nullable().default(null)
+})
+
+export const cuadreAccionSlotsSchema = z.object({
+  accion: z.enum(['abrir', 'cerrar']).default('abrir')
+})
+
+export const traspasoSlotsSchema = z.object({
+  productoHint: z.string().default(''),
+  cantidad: z.number().int().min(1).default(1),
+  destino: z.enum(['almacen', 'quiosco']).default('quiosco')
+})
+
 export const voiceCommandSchema = z.discriminatedUnion('comando', [
   z.object({
     comando: z.literal('venta_directa'),
@@ -125,6 +156,30 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
     slots: z.object({}).default({})
+  }),
+  z.object({
+    comando: z.literal('cuadre_accion'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: cuadreAccionSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('entrada_inventario'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: entradaSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('cambio_precio'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: cambioPrecioSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('traspaso'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: traspasoSlotsSchema
   }),
   z.object({
     comando: z.literal('repetir'),

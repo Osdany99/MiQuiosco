@@ -645,6 +645,24 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     return { comando: 'ayuda', confianza: 0.9, reasons: ['ayuda'] }
   }
 
+  // Fases K, L, M y N: comandos ASISTIDOS. No escriben nada; como mucho
+  // prellenan un formulario o navegan. Van antes de venta/precio/caja porque
+  // comparten verbos («entraron», «cambia el precio», «cierra el cuadre»,
+  // «pasa … al quiosco») y antes de la venta débil, que se tragaría «pasa 5
+  // panes al quiosco» como una venta.
+  if (esEntradaInventario(texto)) {
+    return { comando: 'entrada_inventario', confianza: 0.9, reasons: ['verbo_entrada'] }
+  }
+  if (esCambioPrecio(texto)) {
+    return { comando: 'cambio_precio', confianza: 0.9, reasons: ['verbo_precio'] }
+  }
+  if (esCuadreAccion(texto)) {
+    return { comando: 'cuadre_accion', confianza: 0.9, reasons: ['verbo_cuadre'] }
+  }
+  if (esTraspaso(texto)) {
+    return { comando: 'traspaso', confianza: 0.9, reasons: ['verbo_traspaso'] }
+  }
+
   // Fiar: «fía dos panes a Juan». Va antes de la venta porque «anota fiado …»
   // trae verbo de venta y no debe registrarse como venta directa.
   if (esVentaFiada(texto)) {
@@ -923,8 +941,102 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
  * NO interpretarla como tipo. La capa de catálogo decide cuál usar con
  * `preferirHintConTipo`.
  */
+/**
+ * Verbos de los comandos ASISTIDOS (fases K, L, N). Se reconocen aquí, no en
+ * `lexico.js`: no son parte del vocabulario de venta y no deben contaminarlo.
+ */
+const VERBOS_ENTRADA = /^(?:entraron|entro|entra|entrada|ingresaron|ingreso|ingresa|llegaron|llego|llega|compre|compramos|compra|recibi|recibimos|meti|metimos|mete|echaron|echo)\b/
+const VERBOS_PRECIO = /^(?:cambia|cambiar|cambiale|cambiamelo|pon|ponle|ponme|pongale|sube|subele|baja|bajale|actualiza|actualizale|corrige|corrigele|deja|dejalo|fija|fijale)\b/
+const VERBOS_TRASPASO = /^(?:pasa|pasame|pasale|pasar|mueve|mueveme|muevelo|muevela|traspasa|traspasame|traslada|repone|repon|reponer)\b/
+
+/** ¿La frase trae algún número (dígitos o en palabras)? */
+function hayNumero(texto) {
+  return /\d/.test(texto) || texto.split(' ').some(t => parseNumberToken(t) != null)
+}
+
+/** «Entraron 20 panes a 10 pesos»: entrada de lote al almacén (Fase K). */
+export function esEntradaInventario(texto) {
+  const t = normalizar(texto)
+  return VERBOS_ENTRADA.test(t) && hayNumero(t)
+}
+
+/**
+ * «Cambia el precio del pan a 25» (Fase L). Exige la palabra «precio»: sin ella
+ * «pon el refresco a 60» es un precio de venta dictado, no un cambio de tarifa.
+ */
+export function esCambioPrecio(texto) {
+  const t = normalizar(texto)
+  return VERBOS_PRECIO.test(t) && /\bprecios?\b/.test(t) && hayNumero(t)
+}
+
+/** «Cierra el cuadre» / «abre el cuadre» (Fase M). Nunca escribe por sí solo. */
+export function esCuadreAccion(texto) {
+  const t = normalizar(texto)
+  return /^(?:abre|abrir|abreme|cierra|cerrar|cierralo)\b/.test(t) && /\bcuadre\b/.test(t)
+}
+
+/**
+ * «Pasa 5 panes del almacén al quiosco» (Fase N). Exige que se nombre una
+ * ubicación: sin eso, «pasa 5 panes» sigue siendo una venta.
+ */
+export function esTraspaso(texto) {
+  const t = normalizar(texto)
+  return VERBOS_TRASPASO.test(t) && /\b(?:quiosco|almacen)\b/.test(t)
+}
+
+/** Slots de entrada al almacén: producto, cantidad y precio de compra. */
+function extraerEntradaSlots(transcript, lexico) {
+  const texto = normalizar(transcript)
+    .replace(VERBOS_ENTRADA, ' ')
+    .replace(/^\s*(?:de|del)\s+/, ' ')
+  const { slots } = extraerBase(texto, false, lexico)
+  return {
+    productoHint: slots.productoHint,
+    cantidad: slots.cantidad,
+    precioUnitario: slots.precioUnitario
+  }
+}
+
+/** Slots del cambio de precio: producto y precio nuevo. */
+function extraerCambioPrecioSlots(transcript, lexico) {
+  const texto = normalizar(transcript).replace(VERBOS_PRECIO, ' ')
+  const { slots } = extraerBase(texto, false, lexico)
+  const productoHint = slots.productoHint
+    .replace(/\bprecios?\b/g, ' ')
+    .replace(/\b(?:de|del|la|el|los|las)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { productoHint, precio: slots.precioUnitario }
+}
+
+/** Slots del traspaso: producto, cantidad y destino (origen siempre almacén). */
+function extraerTraspasoSlots(transcript, lexico) {
+  const texto = normalizar(transcript)
+  const destino = /\bal\s+almacen\b/.test(texto) ? 'almacen' : 'quiosco'
+  const resto = texto
+    .replace(VERBOS_TRASPASO, ' ')
+    .replace(/\b(?:del|de la|de)\s+(?:almacen|quiosco)\b/g, ' ')
+    .replace(/\b(?:al|para el|pal)\s+(?:almacen|quiosco)\b/g, ' ')
+  const { slots } = extraerBase(resto, false, lexico)
+  return {
+    productoHint: slots.productoHint,
+    cantidad: slots.cantidad,
+    destino
+  }
+}
+
+/** Acción del cuadre: abrir o cerrar. Una frase suelta nunca cierra. */
+function extraerCuadreSlots(transcript) {
+  const texto = normalizar(transcript)
+  return { accion: /\b(?:cierra|cerrar|cierralo|cierre)\b/.test(texto) ? 'cerrar' : 'abrir' }
+}
+
 export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   const c = compilar(lexico)
+  if (comando === 'entrada_inventario') return extraerEntradaSlots(transcript, lexico)
+  if (comando === 'cambio_precio') return extraerCambioPrecioSlots(transcript, lexico)
+  if (comando === 'traspaso') return extraerTraspasoSlots(transcript, lexico)
+  if (comando === 'cuadre_accion') return extraerCuadreSlots(transcript)
   if (comando === 'consulta_stock' || comando === 'consulta_precio') {
     const s = extraerConsultaPura(normalizar(transcript))
     return { productoHint: s.productoHint, ubicacion: s.ubicacion }

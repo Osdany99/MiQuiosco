@@ -138,6 +138,35 @@ producto:
 - Con la **app cerrada** el servicio sigue diciendo «De uno en uno, por favor»:
   el buzón no reparte una frase entre varias acciones.
 
+### Comandos asistidos: entrada, precio, cuadre y traspaso
+
+Estos cuatro comandos **nunca escriben**: como mucho prellenan un formulario o
+llevan a una pantalla. El jefe confirma con el botón. Ninguno funciona con la
+app cerrada (el buzón los ignora: necesitan el formulario delante).
+
+- **Entrada de lote** (solo jefe con `/almacen`): «entraron 20 panes a 10 pesos»,
+  «llegaron 5 cajas de leche». Abre **Entrada al almacén** con producto, cantidad
+  y costo. Si no se dijo el costo, se usa el **último pagado** y el diálogo lo
+  muestra; no se inventa ninguna cifra. Un producto dudoso abre el menú de
+  candidatos.
+- **Cambio de precio** (solo jefe con `/productos`): «cambia el precio del pan a
+  25». Abre el diálogo con el precio actual y el nuevo. El
+  `historial_precios` se escribe **al guardar**, no al dictar. Exige la palabra
+  «precio»: «pon el refresco a 60» sigue siendo una venta a ese precio.
+- **Cuadre** (con permiso de `/cuadre`): «abre el cuadre» / «cierra el cuadre» /
+  «cierra y confirma el cuadre». Lleva a `/cuadre` y lee lo que hay en la caja
+  (la misma lectura que «cómo va la caja», sin crear nada). Para cerrar hay que
+  **escribir el dinero real en caja y pulsar Cerrar cuadre**: la voz no cierra
+  el cuadre ni con «cierra y confirma».
+- **Traspaso** (solo jefe con almacén y quiosco): «pasa 5 panes del almacén al
+  quiosco». Abre el traspaso con producto, cantidad y lotes sugeridos (FIFO).
+  Si no alcanza el stock del almacén no se abre: lo dice con la cantidad que
+  hay. El sentido contrario («del quiosco al almacén») se rechaza con un aviso;
+  no se invierte en silencio.
+
+En los cuatro, un producto ambiguo o inexistente se pregunta con el menú de
+candidatos y, al elegirlo a mano, se aprende el alias como en una venta.
+
 ### Consultas de precio, deudas, «repite» y ayuda (app abierta)
 
 Con la app abierta el intérprete reconoce además:
@@ -903,6 +932,21 @@ funcional caso por caso:
     copia local de `voice.proofs` se conserva.
 60. `POST /api/tasks/voz/retencion` sin secreto responde **401**; sin
     `CRON_SECRET` configurado en el servidor responde **503** y no borra nada.
+61. «entraron 20 panes a 10 pesos» abre **Entrada al almacén** con 20, el costo
+    dictado y el producto; **no** crea el lote hasta pulsar Guardar entrada.
+62. «llegaron 5 panes» (sin costo) prellena la cantidad y deja el **último precio
+    pagado**, avisando de que no se dijo el costo.
+63. «cambia el precio del pan a 25» abre el diálogo con el precio actual y 25;
+    el historial de precios solo aparece tras guardar.
+64. «cierra el cuadre» lleva a `/cuadre`, lee la caja y recuerda que hay que
+    escribir el dinero real: la voz **no** cierra el cuadre.
+65. «pasa 5 panes al quiosco» abre el traspaso con 5 y lotes FIFO; con 9 cuando
+    solo hay 3 avisa y no abre nada.
+66. «pasa 5 panes del quiosco al almacén» se rechaza con un aviso (no se
+    invierte el sentido).
+67. Con la app cerrada, cualquiera de los cuatro no deja nada en «Por revisar».
+68. Un trabajador (sin jefe) recibe «Solo el jefe puede…» y no se abre ningún
+    formulario.
 
 ## Limitaciones conocidas
 

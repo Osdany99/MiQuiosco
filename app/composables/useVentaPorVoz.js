@@ -36,9 +36,10 @@ import { buscarClienteDeuda, distribuirCobro, formatearDeuda, resumirDeudas, sal
 import { formatearDia, formatearGanancia } from '#shared/voz/dia'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseVentaMultiple, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
+import { resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
 import { agruparPorProducto, segmentarVentaMultiple } from '#shared/voz/multi'
 import { proyectarStock } from '../utils/voice/pendientes'
 import { ajustarCantidadVoz } from '../utils/voice/prefill'
@@ -552,6 +553,246 @@ function _create(ubicacion) {
     return (alias.paraEmparejar.value ?? []).some(a => normalizar(a?.texto) === buscado)
   }
 
+  /**
+   * Fase K — entrada de lote al almacén. Solo jefe con `/almacen`. El resolver
+   * elige el producto; el costo y la cantidad van al formulario, nunca a la BD.
+   */
+  async function resolverEntradaAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!auth.esJefe.value || !perms.puedeVista('almacen')) {
+      return { tipo: 'aviso', mensaje: 'Solo el jefe puede registrar entradas desde el almacén.' }
+    }
+    const catalogo = await catalogoDe('almacen', { soloVendibles: false })
+    if (!vigente()) return { tipo: 'cancelado' }
+    const resuelto = resolverEntradaInventario({ slots }, catalogo, { sttConfidence })
+    if (resuelto.tipo === 'ambiguo') {
+      return {
+        tipo: 'ambiguo',
+        comando: 'entrada_inventario',
+        candidatos: resuelto.candidatos,
+        slots,
+        sttConfidence,
+        encontrados: resuelto.candidatos.length,
+        efectivo: resuelto.efectivo
+      }
+    }
+    if (resuelto.tipo !== 'ok') return { ...resuelto, comando: 'entrada_inventario', sttConfidence }
+    return {
+      tipo: 'entrada',
+      comando: 'entrada_inventario',
+      fila: resuelto.fila,
+      cantidad: resuelto.cantidad,
+      precioUnitario: resuelto.precioUnitario,
+      slots,
+      sttConfidence
+    }
+  }
+
+  /** Fase L — cambio del precio de venta. Solo jefe con `/productos`. */
+  async function resolverCambioPrecioAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!auth.esJefe.value || !perms.puedeVista('productos')) {
+      return { tipo: 'aviso', mensaje: 'Solo el jefe puede cambiar el precio de un producto.' }
+    }
+    const catalogo = await catalogoDe('almacen', { soloVendibles: false })
+    if (!vigente()) return { tipo: 'cancelado' }
+    const resuelto = resolverCambioPrecio({ slots }, catalogo, { sttConfidence })
+    if (resuelto.tipo === 'ambiguo') {
+      return {
+        tipo: 'ambiguo',
+        comando: 'cambio_precio',
+        candidatos: resuelto.candidatos,
+        slots,
+        sttConfidence,
+        encontrados: resuelto.candidatos.length,
+        efectivo: resuelto.efectivo
+      }
+    }
+    if (resuelto.tipo !== 'ok') return { ...resuelto, comando: 'cambio_precio', sttConfidence }
+    return {
+      tipo: 'cambio_precio',
+      comando: 'cambio_precio',
+      fila: resuelto.fila,
+      precioActual: resuelto.precioActual,
+      precio: resuelto.precio,
+      slots,
+      sttConfidence
+    }
+  }
+
+  /** Fase N — traspaso almacén → quiosco. Solo jefe con ambas ubicaciones. */
+  async function resolverTraspasoAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!auth.esJefe.value || !perms.puedeVista('almacen') || !perms.puedeVista('quiosco')) {
+      return { tipo: 'aviso', mensaje: 'Solo el jefe puede traspasar mercancía entre el almacén y el quiosco.' }
+    }
+    if (slots?.destino === 'almacen') {
+      return { tipo: 'aviso', mensaje: 'El traspaso por voz solo va del almacén al quiosco. Para lo contrario usa el formulario.' }
+    }
+    const catalogo = await catalogoDe('almacen', { soloVendibles: false })
+    if (!vigente()) return { tipo: 'cancelado' }
+    const resuelto = resolverTraspaso({ slots }, catalogo, { sttConfidence })
+    if (resuelto.tipo === 'ambiguo') {
+      return {
+        tipo: 'ambiguo',
+        comando: 'traspaso',
+        candidatos: resuelto.candidatos,
+        slots,
+        sttConfidence,
+        encontrados: resuelto.candidatos.length,
+        efectivo: resuelto.efectivo
+      }
+    }
+    if (resuelto.tipo !== 'ok') return { ...resuelto, comando: 'traspaso', sttConfidence }
+    return {
+      tipo: 'traspaso',
+      comando: 'traspaso',
+      fila: resuelto.fila,
+      cantidad: resuelto.cantidad,
+      disponible: resuelto.disponible,
+      slots,
+      sttConfidence
+    }
+  }
+
+  /** Fase M — cuadre: solo lleva a la pantalla y lee totales. */
+  function resolverCuadreAccion(slots, sttConfidence = 0) {
+    if (!perms.puedeVista('cuadre')) {
+      return { tipo: 'aviso', mensaje: 'No tienes permiso para abrir el cuadre.' }
+    }
+    return { tipo: 'cuadre', slots, sttConfidence }
+  }
+
+  /**
+   * Prepara una entrada de lote (Fase K). El formulario se abre con producto,
+   * cantidad y costo; la voz no escribe nada.
+   */
+  function prepararEntrada(accion) {
+    prefill.value = {
+      modo: 'entrada',
+      ubicacion: 'almacen',
+      cantidad: accion.cantidad,
+      precioUnitario: accion.precioUnitario
+    }
+    producto.value = accion.fila
+    modo.value = 'entrada'
+    estado.value = 'listo'
+    const texto = fraseEntrada({
+      cantidad: accion.cantidad,
+      nombre: accion.fila?.nombre,
+      precio: accion.precioUnitario
+    })
+    toast.add({ title: 'Entrada al almacén', description: texto, color: 'neutral', duration: 8000 })
+    voice.registrar('voz.entrada', {
+      producto: accion.fila?.nombre ?? '',
+      cantidad: accion.cantidad,
+      precio: accion.precioUnitario ?? 0
+    })
+    hablarAsistido(texto)
+  }
+
+  /** Prepara el cambio de precio (Fase L): actual y nuevo, a la vista. */
+  function prepararCambioPrecio(accion) {
+    prefill.value = {
+      modo: 'precio',
+      productoId: accion.fila?.productoId ?? null,
+      precioActual: accion.precioActual,
+      precio: accion.precio
+    }
+    producto.value = accion.fila
+    modo.value = 'precio'
+    estado.value = 'listo'
+    const texto = fraseCambioPrecio({
+      nombre: accion.fila?.nombre,
+      actual: accion.precioActual,
+      nuevo: accion.precio
+    })
+    toast.add({ title: 'Cambio de precio', description: texto, color: 'neutral', duration: 8000 })
+    voice.registrar('voz.precio', {
+      producto: accion.fila?.nombre ?? '',
+      actual: accion.precioActual,
+      nuevo: accion.precio
+    })
+    hablarAsistido(texto)
+  }
+
+  /** Prepara el traspaso almacén → quiosco (Fase N). */
+  function prepararTraspaso(accion) {
+    prefill.value = {
+      modo: 'traspaso',
+      cantidad: accion.cantidad
+    }
+    producto.value = accion.fila
+    modo.value = 'traspaso'
+    estado.value = 'listo'
+    const texto = fraseTraspaso({ cantidad: accion.cantidad, nombre: accion.fila?.nombre })
+    toast.add({ title: 'Traspaso al quiosco', description: texto, color: 'neutral', duration: 8000 })
+    voice.registrar('voz.traspaso', {
+      producto: accion.fila?.nombre ?? '',
+      cantidad: accion.cantidad
+    })
+    hablarAsistido(texto)
+  }
+
+  /**
+   * Cuadre por voz (Fase M): lleva a `/cuadre` y lee los totales. Cerrar nunca
+   * se ejecuta aquí: el jefe escribe el dinero real y pulsa el botón. Si no hay
+   * cuadre abierto no se navega al cerrar (abrir la pantalla lo crearía).
+   */
+  async function ejecutarCuadre(accion, vigente = () => true) {
+    const esCerrar = accion?.slots?.accion === 'cerrar'
+
+    if (esCerrar && !(await leerResumenCaja())) {
+      const texto = 'No hay un cuadre abierto.'
+      ultimaRespuestaVoz.value = texto
+      toast.add({ title: 'Cuadre', description: texto, color: 'neutral', duration: 8000 })
+      try {
+        await tts.speak(texto)
+      } catch {
+        /* noop */
+      }
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+
+    if (vistaDeRuta(route.path) !== 'cuadre') {
+      await manejarNavegacion({ destino: 'cuadre' }, vigente)
+    }
+    if (!vigente()) return
+
+    // Se lee después de navegar: abrir la pantalla crea el cuadre del día si no
+    // existía, y lo que se habla tiene que ser lo que el jefe va a ver.
+    const resumen = await leerResumenCaja()
+    const texto = fraseCuadre({
+      accion: esCerrar ? 'cerrar' : 'abrir',
+      hablaCaja: formatearCaja(resumen).habla,
+      sinCuadre: !resumen
+    })
+    ultimaRespuestaVoz.value = texto
+    // El aviso en pantalla sobrevive a la navegación: es lo que el jefe lee.
+    toast.add({
+      title: esCerrar ? 'Cerrar el cuadre' : 'Cuadre del día',
+      description: texto,
+      color: 'neutral',
+      duration: 10000
+    })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /** Aviso hablado de un comando asistido: no pide «sí», no confirma nada. */
+  function hablarAsistido(texto) {
+    ultimaRespuestaVoz.value = texto
+    void (async () => {
+      try {
+        await tts.speak(texto)
+      } catch {
+        /* noop */
+      }
+    })()
+  }
+
   async function manejarNavegacion(slots, vigente = () => true) {
     if (!vigente()) return
     const destino = describirDestino(slots.destino)
@@ -690,25 +931,31 @@ function _create(ubicacion) {
   }
 
   /**
-   * Caja del cuadre abierto («cómo va la caja»): efectivo esperado, fiado y
-   * transferencias. Solo lee: si no hay cuadre abierto lo dice y no crea nada.
+   * Lee el cuadre abierto y sus líneas SIN crear ni escribir nada. Devuelve el
+   * resumen que hablan «cómo va la caja» y el cierre asistido (Fase M).
    */
-  async function responderCaja() {
+  async function leerResumenCaja() {
     const puestoId = auth.usuarioActual.value?.puestoId ?? null
-    let resumen = null
     try {
       const { data: filas } = await cuadresRepo.readAll()
       const abierto = (filas ?? [])
         .filter(c => c?.estado === 'abierto' && c?.puestoId === puestoId)
         .sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')))[0]
-      if (abierto) {
-        const { data: items } = await cuadreItemsRepo.readAll({ query: { cuadreId: abierto.id } })
-        const lineas = (items ?? []).filter(l => l?.cuadreId === abierto.id)
-        resumen = resumirCaja({ cuadre: abierto, lineas })
-      }
+      if (!abierto) return null
+      const { data: items } = await cuadreItemsRepo.readAll({ query: { cuadreId: abierto.id } })
+      const lineas = (items ?? []).filter(l => l?.cuadreId === abierto.id)
+      return resumirCaja({ cuadre: abierto, lineas })
     } catch {
-      resumen = null
+      return null
     }
+  }
+
+  /**
+   * Caja del cuadre abierto («cómo va la caja»): efectivo esperado, fiado y
+   * transferencias. Solo lee: si no hay cuadre abierto lo dice y no crea nada.
+   */
+  async function responderCaja() {
+    const resumen = await leerResumenCaja()
 
     const result = formatearCaja(resumen)
     ultimaRespuestaVoz.value = result.habla
@@ -1488,6 +1735,15 @@ function _create(ubicacion) {
     if (comando === 'consulta_caja') return resolverConsultaCaja(slots, sttConfidence)
     if (comando === 'venta_fiada') return resolverFiadoAccion(slots, sttConfidence, vigente)
     if (comando === 'cobro_deuda') return resolverCobroAccion(slots, sttConfidence, vigente)
+    // Comandos ASISTIDOS (K, L, M, N): no escriben, solo prellenan o navegan.
+    // Con la app cerrada (buzón) no existen: necesitan el formulario delante.
+    if (comando === 'entrada_inventario' || comando === 'cambio_precio' || comando === 'traspaso' || comando === 'cuadre_accion') {
+      if (ventaDirecta === true) return { tipo: 'cancelado' }
+    }
+    if (comando === 'entrada_inventario') return resolverEntradaAccion(slots, sttConfidence, vigente)
+    if (comando === 'cambio_precio') return resolverCambioPrecioAccion(slots, sttConfidence, vigente)
+    if (comando === 'traspaso') return resolverTraspasoAccion(slots, sttConfidence, vigente)
+    if (comando === 'cuadre_accion') return resolverCuadreAccion(slots, sttConfidence)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa: primero se intenta la frase con varias líneas; si alguna
@@ -1580,6 +1836,14 @@ function _create(ubicacion) {
         return prepararFiado(accion)
       case 'cobrar':
         return prepararCobro(accion)
+      case 'entrada':
+        return prepararEntrada(accion)
+      case 'cambio_precio':
+        return prepararCambioPrecio(accion)
+      case 'traspaso':
+        return prepararTraspaso(accion)
+      case 'cuadre':
+        return ejecutarCuadre(accion, vigente)
       default:
         return
     }
@@ -1734,7 +1998,45 @@ function _create(ubicacion) {
       await fiarCandidato(candidato, datos)
       return
     }
+    if (datos.comando === 'entrada_inventario') {
+      await procesarCandidatoAsistido(candidato, datos, 'entrada_inventario')
+      return
+    }
+    if (datos.comando === 'cambio_precio') {
+      await procesarCandidatoAsistido(candidato, datos, 'cambio_precio')
+      return
+    }
+    if (datos.comando === 'traspaso') {
+      await procesarCandidatoAsistido(candidato, datos, 'traspaso')
+      return
+    }
     prepararVenta(candidato.row, datos.slots, datos.slots?.ubicacion || undefined)
+  }
+
+  /**
+   * Tras elegir el producto a mano en un comando asistido, se prepara el
+   * formulario con la misma cantidad/precio ya dictados.
+   */
+  async function procesarCandidatoAsistido(candidato, datos, comando) {
+    const slots = datos.slots ?? {}
+    if (comando === 'entrada_inventario') {
+      return prepararEntrada({
+        fila: candidato.row,
+        cantidad: Math.max(1, Math.trunc(Number(slots.cantidad) || 1)),
+        precioUnitario: Number(slots.precioUnitario) > 0 ? Number(slots.precioUnitario) : null
+      })
+    }
+    if (comando === 'cambio_precio') {
+      const precio = Number(slots.precio)
+      if (!(precio > 0)) {
+        return prepararCambioPrecio({ fila: candidato.row, precioActual: Number(candidato.row?.precioVentaActual ?? 0), precio: null })
+      }
+      return prepararCambioPrecio({ fila: candidato.row, precioActual: Number(candidato.row?.precioVentaActual ?? 0), precio })
+    }
+    return prepararTraspaso({
+      fila: candidato.row,
+      cantidad: Math.max(1, Math.trunc(Number(slots.cantidad) || 1))
+    })
   }
 
   const tituloCandidatos = computed(() => {
@@ -1742,6 +2044,9 @@ function _create(ubicacion) {
     if (comando === 'consulta_stock') return 'Confirma qué producto consultar'
     if (comando === 'consulta_precio') return 'Confirma de qué producto quieres el precio'
     if (comando === 'venta_fiada') return 'Confirma qué producto fiar'
+    if (comando === 'entrada_inventario') return 'Confirma qué producto entró'
+    if (comando === 'cambio_precio') return 'Confirma de qué producto cambiar el precio'
+    if (comando === 'traspaso') return 'Confirma qué producto traspasar'
     return 'Confirma el producto'
   })
 

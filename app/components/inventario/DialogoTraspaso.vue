@@ -45,7 +45,9 @@
 
 <script setup>
 const props = defineProps({
-  productoId: { type: String, default: null }
+  productoId: { type: String, default: null },
+  /** Voz (Fase N): cantidad dictada para el traspaso. */
+  prefill: { type: Object, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -85,7 +87,8 @@ const valida = computed(() =>
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { cantidad: 1, loteId: null }
+  const cantidadDicha = Math.max(1, Math.trunc(Number(props.prefill?.cantidad) || 1))
+  form.value = { cantidad: cantidadDicha, loteId: null }
   const [prods, ls] = await Promise.all([inv.cargarProductos(), inv.lotesConStock(props.productoId, 'almacen')])
   nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
   lotes.value = ls ?? []

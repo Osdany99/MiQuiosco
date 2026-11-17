@@ -86,6 +86,50 @@ export function fraseVentaMultiple({ lineas = [], lugar = 'almacén', importe = 
   return `Voy a vender ${cuerpo} del ${lugar}${cola}`
 }
 
+/** Frases de los comandos asistidos (K, L, M, N). Ninguna pide un «sí»:
+ *  el jefe confirma en el formulario. */
+export function fraseEntrada({ cantidad, nombre, precio = null }) {
+  const n = Math.trunc(Number(cantidad) || 0)
+  const cuerpo = n > 0
+    ? `Entrada de ${describirCantidad(n, nombre)} al almacén`
+    : 'Entrada al almacén'
+  const monto = formatearImporte(precio)
+  const cola = monto ? ` a ${monto} pesos.` : '. No dijiste el costo: uso el último.'
+  return `${cuerpo}${cola} Revisa y confirma.`
+}
+
+export function fraseCambioPrecio({ nombre, actual = null, nuevo = null }) {
+  const base = String(nombre ?? '').trim() || 'ese producto'
+  const hoy = formatearImporte(actual)
+  const va = formatearImporte(nuevo)
+  const arranque = hoy ? `${base} cuesta ${hoy} pesos.` : `Precio de ${base}.`
+  if (!va) return `${arranque} Dime cuánto lo pongo.`
+  return `${arranque} Lo voy a poner en ${va} pesos. Revisa y confirma.`
+}
+
+export function fraseTraspaso({ cantidad, nombre }) {
+  const n = Math.trunc(Number(cantidad) || 0)
+  const cuerpo = n > 0
+    ? `Traspaso de ${describirCantidad(n, nombre)} del almacén al quiosco.`
+    : 'Traspaso del almacén al quiosco.'
+  return `${cuerpo} Revisa y confirma.`
+}
+
+/**
+ * Cuadre por voz: solo lleva al cuadre y lee lo que hay. El cierre nunca lo hace
+ * la voz; el jefe escribe el dinero real y pulsa el botón. Sin cuadre abierto no
+ * se da ninguna instrucción de cierre.
+ */
+export function fraseCuadre({ accion, hablaCaja = '', sinCuadre = false }) {
+  const base = String(hablaCaja ?? '').trim()
+  if (sinCuadre) return base || 'No hay un cuadre abierto.'
+  if (accion === 'cerrar') {
+    const cola = 'Para cerrarlo, escribe el dinero real en caja y pulsa Cerrar cuadre. La voz no cierra el cuadre.'
+    return base ? `${base} ${cola}` : cola
+  }
+  return base ? `Te llevo al cuadre. ${base}` : 'Te llevo al cuadre.'
+}
+
 /** Aviso cuando piden más de lo que hay. */
 export function fraseStockInsuficiente({ disponible, nombre, lugar }) {
   const base = String(nombre ?? '').trim() || 'ese producto'
@@ -121,7 +165,7 @@ export function fraseFiado({ cantidad, nombre, cliente, importe = null }) {
 }
 
 /** Ayuda hablada: qué sabe hacer el asistente. */
-export const FRASE_AYUDA = 'Puedo vender, fiar, cobrar, consultar stock, precios, deudas y las ventas del día, y abrir pantallas. Prueba: vende dos panes; fía dos panes a Juan; cobra 200 a Juan; cómo va el día.'
+export const FRASE_AYUDA = 'Puedo vender, fiar, cobrar, consultar stock, precios, deudas y las ventas del día, abrir pantallas y prellenar entradas, precios y traspasos. Prueba: vende dos panes; fía dos panes a Juan; cobra 200 a Juan; entraron 20 panes a 10 pesos; cambia el precio del pan a 25; pasa 5 panes al quiosco.'
 
 /** No hay respuesta previa que repetir. */
 export const FRASE_NADA_QUE_REPETIR = 'No tengo nada que repetir todavía.'

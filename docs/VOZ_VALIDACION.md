@@ -111,6 +111,41 @@ Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
 | J4 | «vende 2 pan de leche y 3 pan de leche» | Un renglón de 5 | | |
 | J5 | App cerrada: «oye nova, vende 3 panes y 2 refrescos» | «De uno en uno, por favor»; no deja nada | | |
 
+### K — Entrada al almacén (asistida)
+
+| # | Qué decir/hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| K1 | «entraron 20 panes a 10 pesos» | Abre la entrada con 20 y costo 10; **no** guarda solo | | |
+| K2 | «llegaron 5 panes» (sin costo) | Usa el último precio pagado y lo avisa | | |
+| K3 | «entraron panes» (producto ambiguo) | Menú de candidatos; al elegir, prellena igual | | |
+| K4 | Pulsar Cancelar tras dictar | No queda lote ni movimiento | | |
+
+### L — Cambio de precio (asistido)
+
+| # | Qué decir/hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| L1 | «cambia el precio del pan a 25» | Diálogo con actual y 25; al guardar aparece en el historial | | |
+| L2 | «pon el refresco a 60» | Sigue siendo **venta**, no cambio de precio | | |
+| L3 | Cancelar el diálogo | El precio del producto no cambia | | |
+
+### M — Cuadre (asistido)
+
+| # | Qué decir/hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| M1 | «abre el cuadre» | Lleva a `/cuadre` y lee la caja sin crear nada | | |
+| M2 | «cierra el cuadre» / «cierra y confirma el cuadre» | Lleva al cuadre y pide el dinero real; **no** cierra | | |
+| M3 | Pulsar Cerrar cuadre sin dinero real | El cuadre sigue abierto (aviso de caja) | | |
+| M4 | «abre el cuadre» con un cuadre cerrado | Lo dice y no crea otro | | |
+
+### N — Traspaso (asistido)
+
+| # | Qué decir/hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| N1 | «pasa 5 panes del almacén al quiosco» | Abre el traspaso con 5 y lotes FIFO | | |
+| N2 | «pasa 9 refrescos al quiosco» con 3 en almacén | Avisa de la cantidad y no abre nada | | |
+| N3 | «pasa 5 panes del quiosco al almacén» | Rechaza el sentido inverso con un aviso | | |
+| N4 | Cancelar el traspaso | No mueve stock | | |
+
 ## Cierre: nada a medias
 
 Después de recorrer los casos, revisar que no quedó basura:
@@ -137,6 +172,10 @@ Después de recorrer los casos, revisar que no quedó basura:
 | H | | |
 | I | | |
 | J | | |
+| K | | |
+| L | | |
+| M | | |
+| N | | |
 
 Con las fases de escritura aprobadas se levanta la puerta para **K, L, M y N**
 (ver `C:\Users\Osdany\.opencode\plan\voz-fases-restantes.md`).

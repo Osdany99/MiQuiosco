@@ -300,6 +300,29 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
 watch(vozDialogAbierto, (abierto) => {
   if (!abierto) vozActiva.value.limpiar()
 })
+
+/**
+ * Un diálogo por comando asistido. Comparten `vozDialogAbierto` (la voz abrió un
+ * formulario) pero solo el del modo activo queda abierto: si los tres
+ * escucharan el mismo booleano, se abrirían los tres a la vez.
+ */
+const MODOS_DIALOGO_VENTA = new Set(['venta', 'casa', 'familiar', 'regalo', 'deuda', 'cobro'])
+const dialogoVentaAbierto = computed({
+  get: () => vozDialogAbierto.value && MODOS_DIALOGO_VENTA.has(vozActiva.value.modo.value),
+  set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
+const dialogoEntradaAbierto = computed({
+  get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'entrada',
+  set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
+const dialogoPrecioAbierto = computed({
+  get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'precio',
+  set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
+const dialogoTraspasoAbierto = computed({
+  get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'traspaso',
+  set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
 // Cambiar de quiosco a almacén no debe arrastrar el producto ni dejar el
 // micrófono de la ubicación anterior abierto.
 watch(ubicacionVozActual, () => {
@@ -639,11 +662,33 @@ const userMenuItems = computed(() => {
 
       <InventarioDialogoVenta
         ref="vozDialogRef"
-        v-model="vozDialogAbierto"
+        v-model="dialogoVentaAbierto"
         :producto="vozActiva.producto.value"
         :ubicacion="vozActiva.prefill.value?.ubicacion ?? ubicacionVozActual"
         :modo="vozActiva.modo.value"
         :prefill="vozActiva.prefill.value"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+      />
+
+      <!-- Comandos asistidos (K, L, N): cada uno tiene su diálogo y su propio
+           v-model; solo se abre el que corresponde al modo activo. Ninguno se
+           confirma por voz. -->
+      <InventarioDialogoEntrada
+        v-model="dialogoEntradaAbierto"
+        :producto-id="vozActiva.modo.value === 'entrada' ? (vozActiva.producto.value?.productoId ?? null) : null"
+        :prefill="vozActiva.modo.value === 'entrada' ? vozActiva.prefill.value : null"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+      />
+      <ProductoDialogoPrecio
+        v-model="dialogoPrecioAbierto"
+        :producto="vozActiva.modo.value === 'precio' ? vozActiva.producto.value : null"
+        :prefill="vozActiva.modo.value === 'precio' ? vozActiva.prefill.value : null"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+      />
+      <InventarioDialogoTraspaso
+        v-model="dialogoTraspasoAbierto"
+        :producto-id="vozActiva.modo.value === 'traspaso' ? (vozActiva.producto.value?.productoId ?? null) : null"
+        :prefill="vozActiva.modo.value === 'traspaso' ? vozActiva.prefill.value : null"
         @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
       />
 
