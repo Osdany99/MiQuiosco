@@ -2,7 +2,7 @@
   <BaseDialog
     v-model="isOpen"
     :title="cfg.titulo"
-    :description="`${cfg.descripcion} · ${producto?.nombre ?? ''}`"
+    :description="descripcionDialogo"
     :confirm-text="cfg.confirmar"
     :loading="guardando"
     :disabled-guardar="!valida"
@@ -24,62 +24,90 @@
         />
       </UFormField>
 
-      <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
-        <span class="font-medium truncate">{{ producto?.nombre ?? '—' }}</span>
-        <UBadge
-          size="sm"
-          variant="soft"
-          color="neutral"
-          :icon="ubicacion === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
-          :label="etiquetaUbicacion"
-        />
-      </div>
-
-      <InventarioLotesPicker
-        v-if="lotes.length"
-        :lotes="lotes"
-        :cantidad="Number(form.cantidad) || 0"
-        :producto-nombre="producto?.nombre ?? ''"
-        @update:consumo="onConsumo"
-      />
-      <p v-if="!lotes.length && producto?.productoId" class="text-xs text-muted">
-        No hay lotes con stock para este producto.
-      </p>
-
-      <div class="grid gap-2" :class="esRegalo ? 'grid-cols-1' : 'grid-cols-2'">
-        <UFormField label="Cantidad">
-          <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
-        </UFormField>
-        <UFormField
-          v-if="!esRegalo"
-          :label="precioFijo ? 'Precio (costo)' : 'Precio de venta'"
+      <!-- Varias líneas dictadas de una vez: una fila por producto, cantidades
+           editables y un solo registro al confirmar. -->
+      <div v-if="esMultiple" class="space-y-2">
+        <div
+          v-for="(linea, idx) in lineasForm"
+          :key="linea.productoId ?? idx"
+          class="space-y-2 rounded-md bg-elevated/50 p-3"
         >
-          <BaseInputNumber
-            v-model="form.precioVentaUsado"
-            :readonly="precioFijo"
-            :increment="!precioFijo"
-            :decrement="!precioFijo"
-          />
-        </UFormField>
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-medium truncate">{{ linea.nombre }}</span>
+            <span class="font-mono text-sm">{{ fmtPrecio(subtotalLinea(linea)) }}</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <UFormField label="Cantidad">
+              <BaseInputNumber v-model="linea.cantidad" :step="1" :min="1" />
+            </UFormField>
+            <UFormField label="Precio de venta">
+              <BaseInputNumber v-model="linea.precioVentaUsado" />
+            </UFormField>
+          </div>
+          <p v-if="linea.cantidad > linea.disponible" class="text-xs text-error font-medium">
+            Solo hay {{ linea.disponible }} en {{ etiquetaUbicacion.toLowerCase() }}.
+          </p>
+        </div>
       </div>
 
-      <p v-if="loteEspecial" class="text-xs text-muted">
-        Lote {{ textoEstadoLote }}: se venderá por su precio de compra; puedes editarlo.
-      </p>
-      <p v-if="cantidadExcedeStock" class="text-xs text-warning font-medium">
-        La cantidad por voz ({{ props.prefill?.cantidad }}) supera el stock disponible ({{ disponible }}). Reduce antes de guardar.
-      </p>
-      <p v-if="superaDisponible" class="text-xs text-error font-medium">
-        Solo hay {{ totalDisponibleStock }} en {{ etiquetaUbicacion.toLowerCase() }}.
-      </p>
+      <template v-if="!esMultiple">
+        <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
+          <span class="font-medium truncate">{{ producto?.nombre ?? '—' }}</span>
+          <UBadge
+            size="sm"
+            variant="soft"
+            color="neutral"
+            :icon="ubicacion === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
+            :label="etiquetaUbicacion"
+          />
+        </div>
 
-      <p v-if="esCasa" class="text-xs text-muted">
-        Se registrará al costo FIFO real del lote, así que la venta de casa no
-        deja ganancia ni pérdida.
-      </p>
-      <p v-else-if="esRegalo" class="text-xs text-muted">
-        Un regalo no tiene importe: solo descuenta la cantidad del inventario.
-      </p>
+        <InventarioLotesPicker
+          v-if="lotes.length"
+          :lotes="lotes"
+          :cantidad="Number(form.cantidad) || 0"
+          :producto-nombre="producto?.nombre ?? ''"
+          @update:consumo="onConsumo"
+        />
+        <p v-if="!lotes.length && producto?.productoId" class="text-xs text-muted">
+          No hay lotes con stock para este producto.
+        </p>
+
+        <div class="grid gap-2" :class="esRegalo ? 'grid-cols-1' : 'grid-cols-2'">
+          <UFormField label="Cantidad">
+            <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
+          </UFormField>
+          <UFormField
+            v-if="!esRegalo"
+            :label="precioFijo ? 'Precio (costo)' : 'Precio de venta'"
+          >
+            <BaseInputNumber
+              v-model="form.precioVentaUsado"
+              :readonly="precioFijo"
+              :increment="!precioFijo"
+              :decrement="!precioFijo"
+            />
+          </UFormField>
+        </div>
+
+        <p v-if="loteEspecial" class="text-xs text-muted">
+          Lote {{ textoEstadoLote }}: se venderá por su precio de compra; puedes editarlo.
+        </p>
+        <p v-if="cantidadExcedeStock" class="text-xs text-warning font-medium">
+          La cantidad por voz ({{ props.prefill?.cantidad }}) supera el stock disponible ({{ disponible }}). Reduce antes de guardar.
+        </p>
+        <p v-if="superaDisponible" class="text-xs text-error font-medium">
+          Solo hay {{ totalDisponibleStock }} en {{ etiquetaUbicacion.toLowerCase() }}.
+        </p>
+
+        <p v-if="esCasa" class="text-xs text-muted">
+          Se registrará al costo FIFO real del lote, así que la venta de casa no
+          deja ganancia ni pérdida.
+        </p>
+        <p v-else-if="esRegalo" class="text-xs text-muted">
+          Un regalo no tiene importe: solo descuenta la cantidad del inventario.
+        </p>
+      </template>
 
       <div class="rounded-md bg-elevated/50 p-3 text-sm flex justify-between">
         <span>{{ esRegalo ? 'Importe' : 'Total' }}</span>
@@ -190,7 +218,16 @@ const esCasa = computed(() => modoActual.value === 'casa')
 const esRegalo = computed(() => modoActual.value === 'regalo')
 const precioFijo = computed(() => cfg.value.precio === 'fijo')
 
+/** Venta con varias líneas dictadas de una vez («3 panes y 2 refrescos»). */
+const esMultiple = computed(() =>
+  Array.isArray(props.prefill?.lineas) && props.prefill.lineas.length > 1
+)
+const lineasForm = ref([])
+
 const etiquetaUbicacion = computed(() => props.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén')
+const descripcionDialogo = computed(() => esMultiple.value
+  ? `${cfg.value.descripcion} ${etiquetaUbicacion.value.toLowerCase()} · ${lineasForm.value.length} productos`
+  : `${cfg.value.descripcion} · ${props.producto?.nombre ?? ''}`)
 const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
 const totalDisponibleStock = computed(() =>
   (lotes.value ?? []).reduce((acc, l) => acc + (Number(l?.saldo) || 0), 0) || Number(props.producto?.stock ?? 0)
@@ -199,10 +236,19 @@ const superaDisponible = computed(() =>
   consumoPlan.value.faltante > 0
 )
 const total = computed(() =>
-  esRegalo.value
-    ? 0
-    : (Number(form.value.cantidad) || 0) * (Number(form.value.precioVentaUsado) || 0)
+  esMultiple.value
+    ? lineasForm.value.reduce(
+        (s, l) => s + (Number(l.cantidad) || 0) * (Number(l.precioVentaUsado) || 0),
+        0
+      )
+    : esRegalo.value
+      ? 0
+      : (Number(form.value.cantidad) || 0) * (Number(form.value.precioVentaUsado) || 0)
 )
+
+function subtotalLinea(linea) {
+  return (Number(linea?.cantidad) || 0) * (Number(linea?.precioVentaUsado) || 0)
+}
 
 const opcionesLote = computed(() =>
   (lotes.value ?? []).map(l => ({
@@ -237,14 +283,22 @@ const costoLoteSeleccionado = computed(() =>
   Number(loteSeleccionado.value?.precioUnitario ?? props.producto?.costoActual ?? props.producto?.precioCompraActual ?? 0)
 )
 
-const valida = computed(() =>
-  Boolean(props.producto?.productoId)
-  && Number(form.value.cantidad) >= 1
-  && !superaDisponible.value
-  && (lotes.value.length === 0 || consumoPlan.value.lineas.length > 0)
-  && (esRegalo.value || Number(form.value.precioVentaUsado) >= 0)
-  && (!esDeuda.value || Boolean(form.value.clienteId))
-)
+const valida = computed(() => {
+  if (esMultiple.value) {
+    return lineasForm.value.length >= 2 && lineasForm.value.every(l =>
+      Boolean(l.productoId)
+      && Number(l.cantidad) >= 1
+      && Number(l.cantidad) <= Number(l.disponible)
+      && Number(l.precioVentaUsado) >= 0
+    )
+  }
+  return Boolean(props.producto?.productoId)
+    && Number(form.value.cantidad) >= 1
+    && !superaDisponible.value
+    && (lotes.value.length === 0 || consumoPlan.value.lineas.length > 0)
+    && (esRegalo.value || Number(form.value.precioVentaUsado) >= 0)
+    && (!esDeuda.value || Boolean(form.value.clienteId))
+})
 
 /** Precio inicial según el modo: venta normal usa el de catálogo; casa y
  * familiar usan el costo actual (el lote más reciente), que es el "precio de
@@ -267,10 +321,35 @@ watch(isOpen, async (open) => {
   if (!open) {
     abriendo = false
     cantidadExcedeStock.value = false
+    lineasForm.value = []
     return
   }
   abriendo = true
   cantidadExcedeStock.value = false
+
+  // Venta con varias líneas: no hay lote que elegir (cada producto consume por
+  // FIFO al registrar) y el stock ya viene proyectado desde la voz.
+  if (esMultiple.value) {
+    form.value = { clienteId: null, cantidad: 1, precioVentaUsado: 0, loteId: null }
+    lineasForm.value = props.prefill.lineas.map(l => ({
+      productoId: l.productoId,
+      nombre: l.nombre,
+      cantidad: Math.max(1, Math.trunc(Number(l.cantidad) || 1)),
+      precioVentaUsado: Number(l.precioVentaUsado) || 0,
+      disponible: Number(l.disponible ?? l.fila?.[props.ubicacion] ?? 0),
+      fila: l.fila ?? null
+    }))
+    try {
+      const pid = auth.usuarioActual.value?.puestoId
+      clientes.value = (await fiado.cargarClientes(pid)) ?? []
+    } catch {
+      clientes.value = []
+    }
+    if (props.prefill?.clienteId) form.value.clienteId = props.prefill.clienteId
+    abriendo = false
+    return
+  }
+
   // La línea nace del producto tocado: cantidad 1 y el precio que corresponda
   // al modo. El jefe no puede cambiar qué producto se vende.
   form.value = {
@@ -345,17 +424,28 @@ watch(() => form.value.loteId, () => {
 }, { flush: 'post' })
 
 async function confirmar() {
-  const planLineas = (consumoPlan.value?.lineas || []).filter(l => Number(l?.cantidad) > 0)
-  const baseLineas = planLineas.length
-    ? planLineas
-    : [{ loteId: (form.value.loteId ?? lotes.value?.[0]?.id ?? null), cantidad: Math.trunc(Number(form.value.cantidad) || 0) }]
-  const lineas = baseLineas.map((c, idx) => ({
-    productoId: props.producto.productoId,
-    cantidad: Math.trunc(Number(c.cantidad) || 0),
-    precioVentaUsado: esRegalo.value ? 0 : (Number(form.value.precioVentaUsado) || 0),
-    secuencia: idx,
-    loteId: c.loteId ?? form.value.loteId ?? lotes.value?.[0]?.id ?? null
-  }))
+  const lineas = esMultiple.value
+    ? lineasForm.value.map((l, idx) => ({
+        productoId: l.productoId,
+        cantidad: Math.trunc(Number(l.cantidad) || 0),
+        precioVentaUsado: Number(l.precioVentaUsado) || 0,
+        secuencia: idx,
+        // FIFO: cada línea consume del lote más antiguo del producto.
+        loteId: null
+      }))
+    : (() => {
+        const planLineas = (consumoPlan.value?.lineas || []).filter(l => Number(l?.cantidad) > 0)
+        const baseLineas = planLineas.length
+          ? planLineas
+          : [{ loteId: (form.value.loteId ?? lotes.value?.[0]?.id ?? null), cantidad: Math.trunc(Number(form.value.cantidad) || 0) }]
+        return baseLineas.map((c, idx) => ({
+          productoId: props.producto.productoId,
+          cantidad: Math.trunc(Number(c.cantidad) || 0),
+          precioVentaUsado: esRegalo.value ? 0 : (Number(form.value.precioVentaUsado) || 0),
+          secuencia: idx,
+          loteId: c.loteId ?? form.value.loteId ?? lotes.value?.[0]?.id ?? null
+        }))
+      })()
   guardando.value = true
   try {
     let creada = null

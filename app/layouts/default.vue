@@ -166,6 +166,7 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
   let resultado = 'timeout'
   let confianza = 0
   let correcciones = 0
+  let avisoManual = false
   confirmandoVoz.value = true
   try {
     if (voiceRaw.estado.value === 'listening') return
@@ -238,7 +239,9 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       const cambio = await vozActiva.value.cambiarCantidad(respuesta.cantidad)
       if (!cambio?.ok) {
         // `cambiarCantidad` ya explicó el stock; el formulario queda abierto.
+        // En una venta de varios productos ya avisó que se corrige a mano.
         resultado = 'abandonado'
+        if (cambio?.motivo === 'multiple') avisoManual = true
         break
       }
       prefill = vozActiva.value.prefill.value
@@ -285,10 +288,12 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
   } else if (resultado === 'afirmado' && vozDialogRef.value?.confirmar) {
     vozDialogRef.value.confirmar()
   } else {
-    try {
-      await ttsRaw.speak('Sin respuesta, confirme manualmente.')
-    } catch {
-      /* noop */
+    if (!avisoManual) {
+      try {
+        await ttsRaw.speak('Sin respuesta, confirme manualmente.')
+      } catch {
+        /* noop */
+      }
     }
   }
 })

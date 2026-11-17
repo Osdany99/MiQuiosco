@@ -68,6 +68,24 @@ export function fraseVenta({ cantidad, nombre, lugar, importe = null }) {
   return monto ? `${base} por ${monto} pesos.` : `${base}.`
 }
 
+/**
+ * Frase del read-back de una venta con varias líneas. Nombra cada producto en
+ * orden y cierra con el total, que es la cifra que delata una cantidad mal
+ * oída. La confirmación va en la misma locución.
+ */
+export function fraseVentaMultiple({ lineas = [], lugar = 'almacén', importe = null }) {
+  const partes = (lineas ?? [])
+    .filter(l => Math.trunc(Number(l?.cantidad) || 0) > 0)
+    .map(l => describirCantidad(l.cantidad, l.nombre))
+  if (!partes.length) return `Confirma la venta del ${lugar}.`
+  const cuerpo = partes.length === 1
+    ? partes[0]
+    : `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+  const monto = formatearImporte(importe)
+  const cola = monto ? ` por ${monto} pesos.` : '.'
+  return `Voy a vender ${cuerpo} del ${lugar}${cola}`
+}
+
 /** Aviso cuando piden más de lo que hay. */
 export function fraseStockInsuficiente({ disponible, nombre, lugar }) {
   const base = String(nombre ?? '').trim() || 'ese producto'

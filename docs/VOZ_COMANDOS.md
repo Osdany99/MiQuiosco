@@ -117,6 +117,27 @@ frases claras y completas.
 - Se rechazan frases ambiguas como `sí pero no`, `si tengo`, `sí mañana` o
   `sí luego`: ante la duda se cae al modo manual.
 
+### Varias líneas en una frase (solo app abierta)
+
+«Vende 3 panes y 2 refrescos» abre **un solo formulario** con una fila por
+producto:
+
+- La frase se parte por comas, «y» y «con». La ubicación y el tipo de venta
+  valen para toda la venta; si dos trozos dicen ubicaciones distintas, no se
+  adivina.
+- **Cada producto debe resolverse sin dudas**. Si uno no aparece, hay varios
+  parecidos o no alcanza el stock, la frase vuelve al flujo de una línea: se
+  pregunta en vez de inventar una fila.
+- «2 panes y 3 panes» es **un renglón de 5**; si los dos precios dictados no
+  coinciden, no se mezclan.
+- La lectura nombra cada producto y el total: «Voy a vender 3 unidades de Pan y
+  2 unidades de Refresco del almacén por 70 pesos. Diga sí para confirmar.»
+- El registro es **una sola venta** con varias líneas (FIFO por producto).
+- La corrección hablada de cantidad **no aplica** aquí: se corrige en el
+  formulario, porque la voz no sabe a qué línea se refiere.
+- Con la **app cerrada** el servicio sigue diciendo «De uno en uno, por favor»:
+  el buzón no reparte una frase entre varias acciones.
+
 ### Consultas de precio, deudas, «repite» y ayuda (app abierta)
 
 Con la app abierta el intérprete reconoce además:
@@ -234,9 +255,10 @@ Crea una **deuda directa** (fuera de cuadre), igual que el formulario de
 - Lo dictado **no cobra**: un fiado por voz crea la deuda, no recibe pagos.
 
 ## Deudas por voz
-Solo la **consulta**: no se fía ni se cobra por voz. La lógica es pura y vive en
-`shared/voz/deudas.js`; el servicio nativo la replica en `ConsultaDeuda.java`
-sobre el resumen que la app deja en el snapshot.
+Se consultan, se pueden **fiar** y **cobrar** por voz (secciones anteriores). La
+lógica de la consulta es pura y vive en `shared/voz/deudas.js`; el servicio
+nativo la replica en `ConsultaDeuda.java` sobre el resumen que la app deja en el
+snapshot.
 
 | Frase | Qué responde |
 |---|---|
@@ -339,7 +361,7 @@ quiosco» o «del kiosco». Con la app abierta manda la ruta (`/quiosco` → qui
 | Falta aquí pero hay en la otra ubicación | «En quiosco no hay; en almacén quedan 4. No la anoté.» | No |
 | Varios parecidos o sin nombre | «¿Pan de leche, pan de agua o pan dulce?» | Espera elección |
 | Producto no vendible | «Ese producto no se vende suelto.» | No |
-| Dos productos en una frase | «De uno en uno, por favor.» | No |
+| Dos productos en una frase (app cerrada) | «De uno en uno, por favor.» | No |
 
 Tiempos: 8 s para el comando y para la elección, 6 s para la confirmación. Si
 se acaba el tiempo, no se anota. Volver a decir «oye nova» reinicia el
@@ -836,6 +858,14 @@ umbral de repetición y sin nombres.
     crea uno. Con fiado y transferencias, las descuenta del efectivo esperado.
 52. Con la app cerrada, «cómo va la caja» pide abrir la app; «cuánto gané hoy»
     responde desde el snapshot.
+53. «vende 3 panes y 2 refrescos» con la app abierta abre **un** formulario con
+    dos filas y lee «Voy a vender 3 unidades de Pan y 2 unidades de Refresco del
+    almacén por 70 pesos».
+54. «vende 3 panes y 2 refrescos» con un producto sin stock (o ambiguo) **no**
+    abre la venta múltiple: cae al flujo de una línea y pregunta.
+55. «vende treinta y cinco panes» sigue siendo **una** línea de 35, no 30 + 5.
+56. «vende 2 panes y 3 panes» abre un solo renglón de 5; con la app cerrada,
+    «vende 3 panes y 2 refrescos» dice «De uno en uno, por favor».
 
 ## Limitaciones conocidas
 

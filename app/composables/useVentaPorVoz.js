@@ -19,6 +19,7 @@ import {
   UMBRAL_PRODUCTO,
   decidirProducto,
   elegirAlternativa,
+  extraerSlots,
   interpretar,
   resolverUbicacion,
   normalizar
@@ -35,9 +36,10 @@ import { buscarClienteDeuda, distribuirCobro, formatearDeuda, resumirDeudas, sal
 import { formatearDia, formatearGanancia } from '#shared/voz/dia'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
+import { agruparPorProducto, segmentarVentaMultiple } from '#shared/voz/multi'
 import { proyectarStock } from '../utils/voice/pendientes'
 import { ajustarCantidadVoz } from '../utils/voice/prefill'
 import { useVozAlias } from './useVozAlias'
@@ -221,12 +223,84 @@ function _create(ubicacion) {
   }
 
   /**
+   * Venta con varias líneas en una sola frase («3 panes y 2 refrescos»).
+   * El formulario recibe las líneas resueltas y las registra en un solo
+   * `registrarVentaDirecta`; la voz sigue sin escribir nada por su cuenta.
+   */
+  function prepararVentaMultiple(accion) {
+    const ubi = accion?.destino?.ubicacion || accion?.ubicacion || ubicacion
+    const lineas = (accion?.lineas ?? []).map(l => ({
+      productoId: l.productoId,
+      nombre: l.nombre,
+      cantidad: l.cantidad,
+      precioVentaUsado: l.precioUnitario,
+      disponible: l.disponible,
+      fila: l.fila
+    }))
+    if (lineas.length < 2) {
+      // «2 panes y 3 panes»: un solo producto, pero la cantidad ya está sumada.
+      const unica = lineas[0]
+      return prepararVenta(
+        unica?.fila ?? null,
+        {
+          cantidad: unica?.cantidad ?? 1,
+          tipoVenta: 'directa',
+          precioUnitario: unica?.precioUnitario ?? null,
+          clienteHint: null
+        },
+        ubi
+      )
+    }
+    prefill.value = {
+      modo: 'venta',
+      ubicacion: ubi,
+      cantidad: lineas.reduce((s, l) => s + l.cantidad, 0),
+      tipoVenta: 'directa',
+      precioVentaUsado: null,
+      clienteHint: null,
+      clienteId: null,
+      lineas
+    }
+    modo.value = 'venta'
+    // El primer producto abre el diálogo (el layout escucha `producto`), pero
+    // el formulario pinta la lista completa de `prefill.lineas`.
+    producto.value = lineas[0].fila
+    estado.value = 'listo'
+    voice.registrar('voz.listo', {
+      producto: lineas.map(l => l.nombre).join(' + '),
+      cantidad: prefill.value.cantidad,
+      ubicacion: ubi,
+      lineas: lineas.length
+    })
+    programarReadBack(producto.value)
+  }
+
+  /**
    * Habla la venta prellenada con su importe y, si toca, la petición de
    * confirmación. Se reutiliza al corregir la cantidad para leer la nueva.
    */
   function programarReadBack(fila) {
     const filaActual = fila ?? producto.value
     readBackPromise.value = (async () => {
+      // Venta con varias líneas: se leen todas y el total.
+      if (Array.isArray(prefill.value?.lineas) && prefill.value.lineas.length) {
+        const lugar = prefill.value.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
+        const total = prefill.value.lineas.reduce(
+          (s, l) => s + (Number(l.cantidad) || 0) * (Number(l.precioVentaUsado) || 0),
+          0
+        )
+        let texto = fraseVentaMultiple({ lineas: prefill.value.lineas, lugar, importe: total })
+        readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value) && tts.habilitado.value
+        if (readBackIncluyeConfirmacion.value) texto = `${texto} ${FRASE_CONFIRMAR}`
+        readBackTexto.value = texto
+        try {
+          if (tts?.speak) await tts.speak(texto)
+          else toast.add({ title: 'Voz (lectura)', description: texto, color: 'neutral', duration: 8000 })
+        } catch {
+          /* noop */
+        }
+        return
+      }
       const nombre = filaActual?.nombre ?? producto.value?.nombre ?? 'producto'
       const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
       const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
@@ -264,6 +338,19 @@ function _create(ubicacion) {
     const actual = prefill.value
     const n = Math.trunc(Number(cantidad) || 0)
     if (!filaActual || !actual || n < 1) return { ok: false }
+    // En una venta de varios productos la corrección hablada no sabe a qué
+    // línea se refiere: se corrige en el formulario, no se adivina.
+    if (Array.isArray(actual.lineas) && actual.lineas.length) {
+      const mensaje = 'Esta venta lleva varios productos: corrige las cantidades en el formulario.'
+      ultimoError.value = mensaje
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
+      toast.add({ title: 'Voz', description: mensaje, color: 'warning', duration: 8000 })
+      return { ok: false, motivo: 'multiple' }
+    }
     const ubi = actual.ubicacion === 'quiosco' ? 'quiosco' : 'almacen'
     const disponible = Number(filaActual[ubi]) || 0
     const ajuste = ajustarCantidadVoz(n, disponible)
@@ -388,6 +475,81 @@ function _create(ubicacion) {
       })
     }
     return accion
+  }
+
+  /**
+   * Resuelve una venta dictada con VARIAS líneas («3 panes y 2 refrescos»).
+   * Devuelve una acción `venta_multiple` o `null` para caer al flujo normal de
+   * una sola línea. Solo con la app abierta: la revisión del buzón sigue de uno
+   * en uno.
+   */
+  async function resolverVentaMultiAccion(texto, sttConfidence = 0, vigente = () => true, opciones = {}) {
+    if (opciones.ventaDirecta) return null
+    const multi = segmentarVentaMultiple(texto, vozLexico.lexico.value)
+    if (!multi) return null
+    // El formulario múltiple registra una venta directa; casa, familiar o
+    // regalo siguen de uno en uno, donde el modo está claro.
+    if ((multi.tipoVenta || 'directa') !== 'directa') return null
+
+    const permitirConflicto = opciones.permitirConflicto ?? esRutaInventario(route.path)
+    const destino = resolverUbicacion({ ubicacion: multi.ubicacion }, ubicacion, { permitirConflicto })
+    // Ubicación contradictoria: el flujo de una línea da el aviso correcto.
+    if (destino.conflicto) return null
+    const catalogo = await catalogoDe(destino.ubicacion)
+    if (!vigente()) return { tipo: 'cancelado' }
+
+    // «Pan con queso» puede ser UN producto que se llama así: si el dictado
+    // completo coincide con un nombre del catálogo, no se parte.
+    const unico = extraerSlots('venta_directa', texto, vozLexico.lexico.value)
+    if (esProductoUnico(catalogo, unico?.productoHint)) return null
+
+    const resueltas = []
+    for (const segmento of multi.segmentos) {
+      const accion = resolverVentaPura({
+        slots: { ...segmento, ubicacion: multi.ubicacion, tipoVenta: multi.tipoVenta },
+        catalogo,
+        ubicacionVista: ubicacion,
+        permitirConflicto,
+        sttConfidence,
+        ventaDirecta: false
+      })
+      // Una sola duda (producto, stock o destino) y la frase vuelve al flujo
+      // de una línea: se pregunta, no se inventa la línea.
+      if (accion.tipo !== 'venta') return null
+      if (accion.destino.ubicacion !== destino.ubicacion) return null
+      resueltas.push(accion)
+    }
+
+    // «2 panes y 3 panes» es un solo renglón de 5; el stock se compara con la
+    // suma, no línea a línea.
+    const lineas = agruparPorProducto(resueltas.map(a => ({
+      productoId: a.fila.productoId,
+      nombre: a.fila.nombre,
+      cantidad: a.cantidad,
+      precioUnitario: a.precioUnitario,
+      disponible: Number(a.fila?.[destino.ubicacion] ?? 0),
+      fila: a.fila
+    })))
+    if (!lineas || !lineas.length) return null
+    if (lineas.some(l => l.cantidad > l.disponible)) return null
+
+    const total = Math.round(
+      lineas.reduce((s, l) => s + l.cantidad * (Number(l.precioUnitario) || 0), 0) * 100
+    ) / 100
+    voice.registrar('voz.multi', {
+      ubicacion: destino.ubicacion,
+      lineas: lineas.length,
+      total
+    })
+    return { tipo: 'venta_multiple', lineas, destino, ubicacion: destino.ubicacion, sttConfidence, total }
+  }
+
+  /** ¿El dictado completo corresponde a un único producto del catálogo? */
+  function esProductoUnico(catalogo, hint) {
+    const buscado = normalizar(hint)
+    if (!buscado) return false
+    if ((catalogo ?? []).some(f => normalizar(f?.nombre) === buscado)) return true
+    return (alias.paraEmparejar.value ?? []).some(a => normalizar(a?.texto) === buscado)
   }
 
   async function manejarNavegacion(slots, vigente = () => true) {
@@ -1328,7 +1490,10 @@ function _create(ubicacion) {
     if (comando === 'cobro_deuda') return resolverCobroAccion(slots, sttConfidence, vigente)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
-    // venta_directa
+    // venta_directa: primero se intenta la frase con varias líneas; si alguna
+    // no resuelve sin dudas, cae al flujo de una sola línea.
+    const multi = await resolverVentaMultiAccion(textoElegido, sttConfidence, vigente, { ventaDirecta, permitirConflicto })
+    if (multi) return multi
     return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta, permitirConflicto })
   }
 
@@ -1409,6 +1574,8 @@ function _create(ubicacion) {
       case 'venta':
         // Siempre el formulario; la confirmación hablada la maneja el layout.
         return prepararVenta(accion.fila, accion.slots, accion.destino.ubicacion)
+      case 'venta_multiple':
+        return prepararVentaMultiple(accion)
       case 'fiar':
         return prepararFiado(accion)
       case 'cobrar':
