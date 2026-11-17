@@ -16,6 +16,8 @@ const filas = ref([])
 const cargando = ref(false)
 const route = useRoute()
 const nueva = ref({ categoria: 'venta_fuerte', valor: '', clave: null, nota: '' })
+/** Plantilla de referencia que llega desde «Usar plantilla» (/admin/voz). */
+const plantillaRef = ref('')
 const prueba = ref({ categoria: 'navegacion_verbo', valor: '', clave: 'deudas', plantillas: '' })
 const resultadoPrueba = ref(null)
 
@@ -79,7 +81,20 @@ async function alternar(fila) {
 }
 
 onMounted(() => {
-  if (route.query.valor) nueva.value.valor = String(route.query.valor)
+  const plantillaQuery = route.query.plantilla
+  const valorQuery = route.query.valor
+  if (plantillaQuery) {
+    // La plantilla es una frase enmascarada («vende <n> <producto>»), no una
+    // palabra: se deja como referencia y en la nota. Solo se precarga el valor
+    // si la plantilla entera cabe como palabra del léxico.
+    const plantilla = String(plantillaQuery).trim()
+    plantillaRef.value = plantilla
+    nueva.value.nota = `Plantilla: ${plantilla}`.slice(0, 120)
+    const candidata = plantilla.replace(/[<>]/g, ' ').trim()
+    if (/^[a-z]{2,24}$/.test(candidata)) nueva.value.valor = candidata
+  } else if (valorQuery) {
+    nueva.value.valor = String(valorQuery)
+  }
   void cargar()
 })
 </script>
@@ -111,6 +126,16 @@ onMounted(() => {
         Añadir
       </UButton>
     </div>
+
+    <UAlert
+      v-if="plantillaRef"
+      color="info"
+      variant="soft"
+      icon="i-lucide-info"
+      class="mt-2"
+      title="Plantilla de referencia"
+      :description="`«${plantillaRef}» es el dictado que no se reconoció. Añade la palabra concreta que falte (no la frase entera).`"
+    />
 
     <BaseTable
       :data="filas"

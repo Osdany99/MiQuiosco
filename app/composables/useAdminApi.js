@@ -99,6 +99,10 @@ export function useAdminApi() {
     return pedir(`/api/admin/fallos/${id}`, { method: 'PATCH', body: cambios })
   }
 
+  function resumenVoz() {
+    return pedir('/api/admin/voz/resumen')
+  }
+
   function listarEventosVoz(filtros = {}) {
     return pedir('/api/admin/voz/eventos', { query: filtros })
   }
@@ -148,6 +152,7 @@ export function useAdminApi() {
     listarFallos,
     actualizarFallo,
     listarEventosVoz,
+    resumenVoz,
     marcarEventoVoz,
     limpiarEventosVoz,
     listarConfirmacionesVoz,

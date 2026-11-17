@@ -9,6 +9,20 @@ const errorCarga = ref(null)
 const filas = ref([])
 const api = useAdminApi()
 
+// Filtro por puesto y carga incremental: el endpoint ya aceptaba `puestoId` y
+// `limit`, pero la pantalla siempre pedía los últimos 200 sin más.
+const puestoId = ref('todos')
+const puestos = ref([])
+const limite = ref(200)
+const LIMITE_MAX = 1000
+
+const opcionesPuesto = computed(() => [
+  { label: 'Todos los puestos', value: 'todos' },
+  ...(puestos.value ?? []).map(p => ({ label: p.nombre || p.id, value: p.id }))
+])
+
+const hayMas = computed(() => filas.value.length >= limite.value && limite.value < LIMITE_MAX)
+
 const columnas = [
   { accessorKey: 'creadoEn', header: 'Cuándo' },
   { accessorKey: 'puestoNombre', header: 'Puesto' },
@@ -38,7 +52,9 @@ async function cargar() {
   cargando.value = true
   errorCarga.value = null
   try {
-    filas.value = await api.listarConfirmacionesVoz()
+    const query = { limit: limite.value }
+    if (puestoId.value !== 'todos') query.puestoId = puestoId.value
+    filas.value = await api.listarConfirmacionesVoz(query)
   } catch (e) {
     errorCarga.value = e?.message || 'Error al cargar confirmaciones.'
   } finally {
@@ -46,7 +62,30 @@ async function cargar() {
   }
 }
 
-onMounted(cargar)
+async function cargarPuestos() {
+  try {
+    puestos.value = await api.listarPuestos()
+  } catch {
+    puestos.value = []
+  }
+}
+
+function cargarMas() {
+  if (!hayMas.value) return
+  limite.value = Math.min(LIMITE_MAX, limite.value + 200)
+  void cargar()
+}
+
+function reiniciar() {
+  limite.value = 200
+  void cargar()
+}
+
+onMounted(() => {
+  void cargarPuestos()
+  void cargar()
+})
+watch(puestoId, reiniciar)
 
 const porResultado = computed(() => {
   return filas.value.reduce((acc, f) => {
@@ -75,7 +114,7 @@ const porResultado = computed(() => {
       />
     </template>
 
-    <div class="flex flex-wrap gap-2 text-sm">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
       <span class="text-muted">Resultados:</span>
       <UBadge color="success" variant="soft" label="Auto-confirmados" />
       <span>{{ porResultado['auto-confirmado'] || 0 }}</span>
@@ -83,6 +122,12 @@ const porResultado = computed(() => {
       <span>{{ porResultado.cancelado || 0 }}</span>
       <UBadge color="warning" variant="soft" label="Abandonados" />
       <span>{{ porResultado.abandonado || 0 }}</span>
+      <USelect
+        v-model="puestoId"
+        :items="opcionesPuesto"
+        size="sm"
+        class="ml-auto w-56"
+      />
     </div>
 
     <UAlert
@@ -145,5 +190,18 @@ const porResultado = computed(() => {
         </span>
       </template>
     </BaseTable>
+
+    <div v-if="hayMas" class="mt-4 flex justify-center">
+      <UButton
+        variant="outline"
+        icon="i-lucide-chevron-down"
+        label="Cargar más"
+        :loading="cargando"
+        @click="cargarMas"
+      />
+    </div>
+    <p v-else-if="filas.length >= LIMITE_MAX" class="mt-4 text-center text-xs text-muted">
+      Mostrando los últimos {{ LIMITE_MAX }}. Filtra por puesto para ver otros.
+    </p>
   </BaseHeaderPage>
 </template>

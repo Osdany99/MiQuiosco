@@ -1,4 +1,6 @@
 <script setup>
+import { computed } from 'vue'
+
 definePageMeta({
   layout: 'admin',
   middleware: ['super-admin']
@@ -10,6 +12,20 @@ const cargando = ref(false)
 const errorCarga = ref(null)
 const limpiando = ref(false)
 const confirmarDepurar = ref(false)
+// La retención la fija el super admin en la config de flota: el diálogo la lee
+// en vez de prometer 30 días fijos.
+const retencionDias = ref(null)
+
+async function cargarRetencion() {
+  try {
+    const respuesta = await api.obtenerConfigVoz()
+    const dias = Number(respuesta?.config?.retencionDias)
+    retencionDias.value = Number.isFinite(dias) && dias > 0 ? dias : null
+  } catch {
+    retencionDias.value = null
+  }
+}
+const diasDepuracion = computed(() => retencionDias.value ?? 30)
 
 async function limpiarAntiguos() {
   confirmarDepurar.value = false
@@ -26,6 +42,16 @@ async function limpiarAntiguos() {
 }
 const filas = ref([])
 const filtroEstado = ref('abierto')
+/** Salud del módulo: última telemetría y proofs recientes. */
+const resumen = ref(null)
+
+async function cargarResumen() {
+  try {
+    resumen.value = await api.resumenVoz()
+  } catch {
+    resumen.value = null
+  }
+}
 
 const opcionesEstado = [
   { label: 'Abiertos', value: 'abierto' },
@@ -65,6 +91,7 @@ async function cargar() {
   try {
     const query = filtroEstado.value === 'todos' ? {} : { estado: filtroEstado.value }
     filas.value = await api.listarEventosVoz(query)
+    void cargarResumen()
   } catch (e) {
     errorCarga.value = e?.message || 'Error al cargar eventos de voz.'
   } finally {
@@ -82,7 +109,10 @@ async function marcar(id, estado) {
   }
 }
 
-onMounted(cargar)
+onMounted(() => {
+  void cargar()
+  void cargarRetencion()
+})
 watch(filtroEstado, cargar)
 </script>
 
@@ -125,6 +155,22 @@ watch(filtroEstado, cargar)
       icon="i-lucide-alert-circle"
       :title="errorCarga"
     />
+
+    <div v-if="resumen" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+      <span class="flex items-center gap-1">
+        <UIcon name="i-lucide-activity" class="size-4" />
+        Último evento: {{ resumen.eventos.ultimoEn ? fmtFechaHora(resumen.eventos.ultimoEn) : 'nunca' }}
+      </span>
+      <span class="flex items-center gap-1">
+        <UIcon name="i-lucide-inbox" class="size-4" />
+        {{ resumen.eventos.abiertos }} abiertos de {{ resumen.eventos.total }}
+      </span>
+      <span class="flex items-center gap-1">
+        <UIcon name="i-lucide-shield-check" class="size-4" />
+        {{ resumen.confirmaciones.ultimos7d }} confirmaciones en 7 días
+        <span v-if="resumen.confirmaciones.ultimaEn">· última {{ fmtFechaHora(resumen.confirmaciones.ultimaEn) }}</span>
+      </span>
+    </div>
 
     <BaseTable
       :data="filas"
@@ -190,7 +236,7 @@ watch(filtroEstado, cargar)
             variant="soft"
             icon="i-lucide-list-plus"
             label="Usar plantilla"
-            :to="`/admin/voz-lexico?valor=${encodeURIComponent(row.original.plantilla || '')}`"
+            :to="`/admin/voz-lexico?plantilla=${encodeURIComponent(row.original.plantilla || '')}`"
           />
           <UButton
             size="xs"
@@ -223,7 +269,7 @@ watch(filtroEstado, cargar)
     <BaseDialog
       v-model="confirmarDepurar"
       title="Depurar eventos antiguos"
-      description="Se eliminan los eventos con más de 30 días y menos de 3 intentos."
+      :description="`Se eliminan los eventos con más de ${diasDepuracion} días y menos de 3 intentos.`"
       confirm-text="Depurar"
       confirm-color="warning"
       :loading="limpiando"

@@ -18,6 +18,7 @@ const toast = useToast()
 const cargando = ref(false)
 const guardando = ref(false)
 const limpiando = ref(false)
+const confirmarDepurar = ref(false)
 const errorCarga = ref(null)
 const errorForm = ref('')
 const form = ref(normalizarVozConfig({}))
@@ -82,6 +83,7 @@ async function guardar() {
 }
 
 async function depurar() {
+  confirmarDepurar.value = false
   limpiando.value = true
   try {
     const r = await api.limpiarEventosVoz()
@@ -234,7 +236,7 @@ onMounted(cargar)
             variant="outline"
             block
             :loading="limpiando"
-            @click="depurar"
+            @click="confirmarDepurar = true"
           >
             Depurar ahora
           </UButton>
@@ -249,5 +251,20 @@ onMounted(cargar)
       title="Cómo llega a los equipos"
       description="Cada equipo descarga esta configuración al sincronizar y guarda una copia para trabajar sin red. Un cambio manual en Ajustes → Avanzado se respeta hasta el próximo cambio de flota."
     />
+
+    <BaseDialog
+      v-model="confirmarDepurar"
+      title="Depurar eventos de voz"
+      :description="`Se eliminan los eventos con más de ${Number(form.retencionDias) || 30} días y menos de 3 intentos.`"
+      confirm-text="Depurar"
+      confirm-color="warning"
+      :loading="limpiando"
+      @confirm="depurar"
+    >
+      <p class="text-sm text-muted">
+        La operación no se puede deshacer. Los eventos con 3 o más intentos se
+        conservan para mejorar el léxico.
+      </p>
+    </BaseDialog>
   </BaseHeaderPage>
 </template>
