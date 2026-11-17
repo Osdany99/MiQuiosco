@@ -3,7 +3,7 @@ import { LEXICO_BASE } from '../voz/lexico.js'
 import { VISTAS_CON_RUTA } from '../permisos.js'
 
 /** Comandos que el intérprete puede devolver. `desconocido` = no se actúa. */
-export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'repetir', 'ayuda', 'navegacion', 'desconocido'], {
+export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'repetir', 'ayuda', 'navegacion', 'desconocido'], {
   message: 'Comando de voz no soportado'
 })
 
@@ -54,6 +54,16 @@ export const fiadoSlotsSchema = z.object({
   clienteHint: z.string().default('')
 })
 
+/**
+ * Slots de `cobro_deuda`. `monto` es `'todo'` o el importe dicho; nunca lleva
+ * producto porque cobrar no mueve inventario.
+ */
+export const cobroSlotsSchema = z.object({
+  clienteHint: z.string().default(''),
+  monto: z.union([z.literal('todo'), z.number().positive()]).default('todo'),
+  formaPago: z.enum(['efectivo', 'transferencia']).default('efectivo')
+})
+
 const vistasKeys = new Set(VISTAS_CON_RUTA.map(v => v.key))
 export const DESTINOS_VALIDOS = Object.keys(LEXICO_BASE.destinos || {}).filter(k => vistasKeys.has(k))
 
@@ -73,6 +83,12 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
     slots: fiadoSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('cobro_deuda'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: cobroSlotsSchema
   }),
   z.object({
     comando: z.literal('consulta_stock'),

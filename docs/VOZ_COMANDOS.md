@@ -4,8 +4,9 @@
 1. `resolverComando(transcript, lexico)` → `{ comando, confianza, reasons }`.
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
-Soportados: `venta_directa`, `venta_fiada`, `consulta_stock`, `consulta_precio`,
-`consulta_deuda`, `consulta_dia`, `repetir`, `ayuda`, `navegacion`, `desconocido`.
+Soportados: `venta_directa`, `venta_fiada`, `cobro_deuda`, `consulta_stock`,
+`consulta_precio`, `consulta_deuda`, `consulta_dia`, `repetir`, `ayuda`,
+`navegacion`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -153,6 +154,30 @@ respuestas coinciden.
   permiso de voz recibe un aviso, no cifras.
 - «cuánto vendí» **sin decir el día** no se contesta (puede ser otro día), y
   «ganancia», «costo» y «caja» quedan fuera: necesitan datos que la voz no tiene.
+
+## Cobrar deudas por voz (app abierta)
+
+Cierra el ciclo del fiado: **consulta**, **fiar** y ahora **cobrar**.
+
+- Frases: «cobra 200 a Yunior», «cobra la deuda de María», «cobra todo a Juan»,
+  «abona 50 a Juan», «Yunior me pagó 100».
+- El importe puede ser **total** («cobra la deuda de…») o **parcial**. Si se pide
+  más de lo que debe, no se cobra: «Yunior debe 2210 pesos; no puedo cobrar
+  5000».
+- Con **varias deudas** del mismo cliente se cobra **la más antigua primero**
+  (FIFO) y la lectura lo dice: «Cobro 200 pesos a Yunior. Le quedan 2110 pesos.
+  Diga sí para confirmar.»
+- **Forma de pago**: efectivo por defecto; «por transferencia» si se dice.
+- Se permiten **2 correcciones** de importe («no, eran 150») antes de confirmar.
+- Solo **jefe** y con permiso de `/deudas`. Sin lectura de voz no se cobra nada.
+- Cobrar no toca el cuadre (igual que el botón de `/deudas`): baja el saldo y
+  deja el pago registrado.
+- **«Cobra 2 panes» sigue siendo una venta**: sin deuda ni importe, el verbo se
+  interpreta como venta directa.
+- «cuánto pagó Juan» no se contesta (es una consulta que aún no existe): mejor
+  silencio que una cifra inventada.
+
+**Pendiente (F2):** cobrar con la app cerrada desde el buzón.
 
 ## Fiar por voz (app abierta y cerrada)
 
@@ -712,6 +737,12 @@ umbral de repetición y sin nombres.
 35. Con la lectura de voz apagada, un fiado no registra nada y lo avisa.
 36. Con la app cerrada, un fiado confirmado aparece en **Por revisar** como
     **Fiado** con su cliente; **Registrar** crea la deuda y **Editar** no está.
+37. «cobra 200 a Yunior» lee la deuda y solo con «sí» la cobra; el saldo de
+    `/deudas` baja 200 y el pago queda en el historial.
+38. «cobra la deuda de María» salda el total; con dos deudas, cobra primero la
+    más antigua y lo dice.
+39. «cobra 5000 a Yunior» (debe 2210) se rechaza sin cobrar nada.
+40. «cobra 2 panes» sigue abriendo la venta, no un cobro.
 
 ## Limitaciones conocidas
 
@@ -720,8 +751,8 @@ umbral de repetición y sin nombres.
 - El resumen del día se responde en los dos modos; el de la app cerrada usa el
   último snapshot y no incluye las ventas hechas en OTRO teléfono desde que se
   escribió.
-- Las deudas se consultan y se pueden **fiar** por voz; **cobrar** un fiado sigue
-  siendo solo en `/deudas` con el formulario.
+- Las deudas se consultan, se pueden **fiar** y **cobrar** por voz con la app
+  abierta; cobrar con la app cerrada (desde el buzón) queda pendiente.
 - Un fiado por voz usa el precio del catálogo y crea la deuda directa; no admite
   precio dictado ni pago inicial.
 - La auditoría central es best-effort en línea: si el envío falla o no hay

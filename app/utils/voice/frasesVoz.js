@@ -78,6 +78,18 @@ export function fraseStockInsuficiente({ disponible, nombre, lugar }) {
 
 export const FRASE_CONFIRMAR = 'Diga sí para confirmar.'
 
+/** Frase del read-back antes de cobrar una deuda. */
+export function fraseCobro({ cliente, monto, restante = 0 }) {
+  const quien = String(cliente ?? '').trim() || 'ese cliente'
+  const cobrado = formatearImporte(monto)
+  const queda = Number(restante) || 0
+  const cuerpo = cobrado ? `Cobro ${cobrado} pesos a ${quien}.` : `Cobro la deuda de ${quien}.`
+  const cola = queda > 0
+    ? `Le quedan ${formatearImporte(queda)} pesos.`
+    : 'Queda saldada.'
+  return `${cuerpo} ${cola} ${FRASE_CONFIRMAR}`
+}
+
 /** Frase del read-back antes de fiar. Lleva la confirmación en la misma locución. */
 export function fraseFiado({ cantidad, nombre, cliente, importe = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
@@ -91,7 +103,7 @@ export function fraseFiado({ cantidad, nombre, cliente, importe = null }) {
 }
 
 /** Ayuda hablada: qué sabe hacer el asistente. */
-export const FRASE_AYUDA = 'Puedo vender, fiar, consultar stock, precios, deudas y las ventas del día, y abrir pantallas. Prueba: vende dos panes; fía dos panes a Juan; cuánto cuesta el refresco; cómo va el día.'
+export const FRASE_AYUDA = 'Puedo vender, fiar, cobrar, consultar stock, precios, deudas y las ventas del día, y abrir pantallas. Prueba: vende dos panes; fía dos panes a Juan; cobra 200 a Juan; cómo va el día.'
 
 /** No hay respuesta previa que repetir. */
 export const FRASE_NADA_QUE_REPETIR = 'No tengo nada que repetir todavía.'

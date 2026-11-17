@@ -31,9 +31,9 @@ import { registrarEventoVoz } from '../utils/vozEventos'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
-import { buscarClienteDeuda, formatearDeuda, resumirDeudas } from '#shared/voz/deudas'
+import { buscarClienteDeuda, distribuirCobro, formatearDeuda, resumirDeudas, saldoTotalDeudas } from '#shared/voz/deudas'
 import { formatearDia } from '#shared/voz/dia'
-import { fraseVenta, fraseStockInsuficiente, fraseFiado, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { proyectarStock } from '../utils/voice/pendientes'
@@ -574,6 +574,148 @@ function _create(ubicacion) {
     return accion
   }
 
+  /** Habla el prompt, abre el micrófono y espera sí/no (o una corrección). */
+  async function escucharRespuestaVoz(prompt) {
+    try {
+      await tts.speak(prompt)
+    } catch {
+      /* noop */
+    }
+    await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+    voice.reset()
+    const escucha = voice.startListening({
+      contexto: { modo: conexion.modo.value, red: hayRed.value }
+    }).catch(() => {})
+    const respuesta = await confirmacion.esperar({
+      timeoutMs: zeroTouch.timeoutMs.value,
+      prompt
+    })
+    try {
+      await voice.stopListening()
+    } catch {
+      /* noop */
+    }
+    await escucha
+    voice.reset()
+    return respuesta
+  }
+
+  /**
+   * Cobro SIN efectos: cliente, deudas con saldo e importe. El reparto es FIFO
+   * (la deuda más antigua primero) y se hace en `shared/voz/deudas.js`.
+   */
+  async function resolverCobroAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!perms.puedeVista('deudas')) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No tienes permiso para cobrar deudas.',
+        auditar: { comando: 'cobro_deuda', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    if (!auth.esJefe.value) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'Solo el jefe puede cobrar deudas.',
+        auditar: { comando: 'cobro_deuda', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const pid = auth.usuarioActual.value?.puestoId
+    if (!pid) {
+      return {
+        tipo: 'error',
+        comando: 'cobro_deuda',
+        motivo: 'sin_puesto',
+        mensaje: 'No hay un puesto activo para cobrar.',
+        texto: slots?.clienteHint || ''
+      }
+    }
+
+    const hintCliente = String(slots?.clienteHint ?? '').trim()
+    if (!hintCliente) {
+      return {
+        tipo: 'aviso',
+        mensaje: '¿A quién le cobro? Di por ejemplo: cobra 200 a Yunior.',
+        auditar: { comando: 'cobro_deuda', motivo: 'sin_cliente', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const clientes = await fiado.cargarClientes(pid, { incluirSinCliente: false }).catch(() => [])
+    const parecidos = clientesSimilares(hintCliente, clientes, { umbral: 0.72 })
+    if (!parecidos.length) {
+      return {
+        tipo: 'error',
+        comando: 'cobro_deuda',
+        motivo: 'cliente_no_encontrado',
+        mensaje: `No encontré a "${hintCliente}" entre los clientes.`,
+        texto: hintCliente,
+        auditar: { comando: 'cobro_deuda', motivo: 'cliente_no_encontrado', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const [mejor, segundo] = parecidos
+    if (segundo && mejor.similitud - segundo.similitud < 0.05) {
+      const nombres = parecidos.slice(0, 3).map(p => p.cliente.nombre).join(', ')
+      return {
+        tipo: 'aviso',
+        mensaje: `Hay varios clientes parecidos: ${nombres}. Di el nombre completo.`,
+        auditar: { comando: 'cobro_deuda', motivo: 'cliente_ambiguo', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    if (!vigente()) return { tipo: 'cancelado' }
+
+    const cliente = mejor.cliente
+    const todas = await fiado.cargarDeudas().catch(() => [])
+    const cuentas = (todas ?? []).filter(c => c?.clienteId === cliente.id && Number(c.saldoPendiente) > 0)
+    if (!cuentas.length) {
+      return {
+        tipo: 'aviso',
+        mensaje: `${cliente.nombre} no tiene deudas pendientes.`,
+        auditar: { comando: 'cobro_deuda', motivo: 'sin_deuda', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const saldoTotal = saldoTotalDeudas(cuentas)
+    const pedido = slots?.monto === 'todo'
+      ? saldoTotal
+      : Math.round((Number(slots?.monto) || 0) * 100) / 100
+    if (!(pedido > 0)) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No entendí cuánto cobrar. Di por ejemplo: cobra 200 a Yunior.',
+        auditar: { comando: 'cobro_deuda', motivo: 'monto_invalido', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    if (pedido > saldoTotal) {
+      return {
+        tipo: 'aviso',
+        mensaje: `${cliente.nombre} debe ${saldoTotal} pesos; no puedo cobrar ${pedido}.`,
+        auditar: { comando: 'cobro_deuda', motivo: 'monto_excedido', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const reparto = distribuirCobro(cuentas, pedido)
+    if (!reparto.pagos.length || reparto.sobrante > 0) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No pude repartir el cobro entre las deudas de ese cliente.',
+        auditar: { comando: 'cobro_deuda', motivo: 'reparto_invalido', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    return {
+      tipo: 'cobrar',
+      cliente,
+      cuentas,
+      pagos: reparto.pagos,
+      monto: reparto.aplicado,
+      saldoTotal,
+      restante: Math.round((saldoTotal - reparto.aplicado) * 100) / 100,
+      formaPago: slots?.formaPago === 'transferencia' ? 'transferencia' : 'efectivo',
+      slots
+    }
+  }
+
   /** Fiar el producto elegido en el diálogo de candidatos. */
   function fiarCandidato(candidato, datos) {
     const fila = candidato?.row
@@ -629,35 +771,10 @@ function _create(ubicacion) {
     }
 
     /** Una escucha corta: solo para el sí/no (o una corrección de cantidad). */
-    async function escuchar() {
-      try {
-        await tts.speak(frase)
-      } catch {
-        /* noop */
-      }
-      await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
-      voice.reset()
-      const escucha = voice.startListening({
-        contexto: { modo: conexion.modo.value, red: hayRed.value }
-      }).catch(() => {})
-      const respuesta = await confirmacion.esperar({
-        timeoutMs: zeroTouch.timeoutMs.value,
-        prompt: frase
-      })
-      try {
-        await voice.stopListening()
-      } catch {
-        /* noop */
-      }
-      await escucha
-      voice.reset()
-      return respuesta
-    }
-
     let correcciones = 0
     let resultado = 'timeout'
     while (true) {
-      const respuesta = await escuchar()
+      const respuesta = await escucharRespuestaVoz(frase)
       resultado = respuesta.resultado
       if (resultado !== 'corregir') break
 
@@ -725,6 +842,128 @@ function _create(ubicacion) {
     estado.value = 'idle'
     // El stock y el saldo del cliente cambiaron: la foto de la app cerrada se
     // reescribe para no responder con datos viejos.
+    void snapshotVoz.actualizar().catch(() => {})
+  }
+
+  /**
+   * Confirma y cobra una deuda. Reparte FIFO si hay varias y no escribe nada
+   * hasta el «sí». Una corrección de importe («no, eran 150») se acepta dos veces.
+   */
+  async function prepararCobro(accion) {
+    const cliente = accion?.cliente
+    if (!cliente?.id || !accion?.pagos?.length) {
+      estado.value = 'idle'
+      throw new Error('Falta el cliente o la deuda para cobrar.')
+    }
+
+    let monto = Number(accion.monto) || 0
+    let pagos = accion.pagos
+    let restante = Number(accion.restante) || 0
+    let frase = fraseCobro({ cliente: cliente.nombre, monto, restante })
+
+    modo.value = 'cobro'
+    estado.value = 'confirmando'
+    ultimaRespuestaVoz.value = frase
+    readBackTexto.value = frase
+    readBackIncluyeConfirmacion.value = true
+    toast.add({ title: 'Cobrar por voz', description: frase, color: 'success', duration: 8000 })
+
+    if (!tts.habilitado.value) {
+      estado.value = 'idle'
+      toast.add({
+        title: 'Voz',
+        description: 'La lectura de voz está apagada: no se cobró nada.',
+        color: 'warning'
+      })
+      return
+    }
+
+    let correcciones = 0
+    let resultado = 'timeout'
+    while (true) {
+      const respuesta = await escucharRespuestaVoz(frase)
+      resultado = respuesta.resultado
+      if (resultado !== 'corregir') break
+
+      if (correcciones >= 2) {
+        resultado = 'abandonado'
+        break
+      }
+      const nuevo = Math.trunc(Number(respuesta.cantidad) || 0)
+      if (nuevo < 1 || nuevo > accion.saldoTotal) {
+        resultado = 'monto_invalido'
+        break
+      }
+      const reparto = distribuirCobro(accion.cuentas, nuevo)
+      if (!reparto.pagos.length || reparto.sobrante > 0) {
+        resultado = 'monto_invalido'
+        break
+      }
+      monto = reparto.aplicado
+      pagos = reparto.pagos
+      restante = Math.round((accion.saldoTotal - monto) * 100) / 100
+      frase = fraseCobro({ cliente: cliente.nombre, monto, restante })
+      ultimaRespuestaVoz.value = frase
+      readBackTexto.value = frase
+      correcciones++
+    }
+
+    if (resultado !== 'afirmado') {
+      estado.value = 'idle'
+      const mensaje = resultado === 'negado'
+        ? 'Cancelado.'
+        : (resultado === 'monto_invalido'
+            ? 'Ese monto no es válido. No se cobró nada.'
+            : 'Sin respuesta. No se cobró nada.')
+      toast.add({ title: 'Voz', description: mensaje, color: 'warning' })
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
+      return
+    }
+
+    let cobrado = 0
+    for (const pago of pagos) {
+      const r = await fiado.cobrarDeuda({
+        cuentaFiadoId: pago.cuentaId,
+        monto: pago.monto,
+        formaPago: accion.formaPago
+      })
+      if (!r?.ok) {
+        estado.value = 'idle'
+        const mensaje = cobrado > 0
+          ? `Cobré ${cobrado} pesos a ${cliente.nombre}. El resto no se pudo cobrar.`
+          : (r?.error?.message || 'No se pudo cobrar.')
+        toast.add({ title: 'Cobro a medias', description: mensaje, color: 'warning' })
+        try {
+          await tts.speak(mensaje)
+        } catch {
+          /* noop */
+        }
+        void snapshotVoz.actualizar().catch(() => {})
+        return
+      }
+      cobrado = Math.round((cobrado + pago.monto) * 100) / 100
+    }
+
+    const texto = restante > 0
+      ? `Cobrado: ${cobrado} pesos a ${cliente.nombre}. Le quedan ${restante}.`
+      : `Cobrado: ${cobrado} pesos a ${cliente.nombre}. Queda saldado.`
+    ultimaRespuestaVoz.value = texto
+    toast.add({
+      title: 'Cobro registrado',
+      description: texto,
+      color: 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    estado.value = 'idle'
     void snapshotVoz.actualizar().catch(() => {})
   }
 
@@ -915,7 +1154,7 @@ function _create(ubicacion) {
       const rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
       if (clas.comando === 'navegacion') {
         rec.elegido = true
-      } else if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia') {
+      } else if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia' || clas.comando === 'cobro_deuda') {
         // No dependen de catálogo: no se evalúan contra el inventario.
         rec.elegido = true
       } else if (clas.comando === 'venta_directa' || clas.comando === 'venta_fiada' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
@@ -987,6 +1226,7 @@ function _create(ubicacion) {
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
     if (comando === 'consulta_dia') return resolverConsultaDia(slots, sttConfidence)
     if (comando === 'venta_fiada') return resolverFiadoAccion(slots, sttConfidence, vigente)
+    if (comando === 'cobro_deuda') return resolverCobroAccion(slots, sttConfidence, vigente)
     if (comando === 'repetir') return { tipo: 'repetir' }
     if (comando === 'ayuda') return { tipo: 'ayuda' }
     // venta_directa
@@ -1068,6 +1308,8 @@ function _create(ubicacion) {
         return prepararVenta(accion.fila, accion.slots, accion.destino.ubicacion)
       case 'fiar':
         return prepararFiado(accion)
+      case 'cobrar':
+        return prepararCobro(accion)
       default:
         return
     }

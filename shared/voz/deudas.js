@@ -141,6 +141,47 @@ function listarParecidos(candidatos) {
 }
 
 /**
+ * Reparte un cobro entre las deudas de un cliente: **la más antigua primero**.
+ *
+ * Devuelve `pagos` (cuenta + monto) y `aplicado`. Si `sobrante > 0`, se pidió
+ * cobrar más de lo que debe y el llamador debe rechazarlo, no aplicar el resto.
+ *
+ * @param {Array} cuentas Cuentas con `id`, `creadoEn` y `saldoPendiente`.
+ * @param {number} monto Importe a cobrar.
+ */
+export function distribuirCobro(cuentas = [], monto = 0) {
+  const objetivo = redondear2(Math.max(0, Number(monto) || 0))
+  let restante = objetivo
+  const orden = [...(cuentas ?? [])].sort((a, b) => (Number(a?.creadoEn) || 0) - (Number(b?.creadoEn) || 0))
+
+  const pagos = []
+  for (const cuenta of orden) {
+    if (restante <= 0) break
+    const saldo = redondear2(cuenta?.saldoPendiente
+      ?? ((Number(cuenta?.montoTotal) || 0) - (Number(cuenta?.montoPagado) || 0)))
+    if (!(saldo > 0)) continue
+    const aplicar = Math.min(saldo, restante)
+    if (!(aplicar > 0)) continue
+    pagos.push({ cuentaId: cuenta.id, monto: redondear2(aplicar) })
+    restante = redondear2(restante - aplicar)
+  }
+
+  return {
+    pagos,
+    aplicado: redondear2(objetivo - restante),
+    sobrante: restante
+  }
+}
+
+/** Saldo pendiente total de un conjunto de cuentas. */
+export function saldoTotalDeudas(cuentas = []) {
+  return redondear2((cuentas ?? []).reduce((suma, c) => {
+    const saldo = c?.saldoPendiente ?? ((Number(c?.montoTotal) || 0) - (Number(c?.montoPagado) || 0))
+    return suma + Math.max(0, Number(saldo) || 0)
+  }, 0))
+}
+
+/**
  * Respuesta hablada (y su versión escrita) para una consulta de deudas.
  *
  * @param {object} resumen Salida de `resumirDeudas`.

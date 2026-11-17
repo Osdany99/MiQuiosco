@@ -507,6 +507,103 @@ export function extraerClienteFiado(transcript) {
   return extraerFiadoSlots(transcript).clienteHint
 }
 
+const VERBOS_COBRO = new Set([
+  'cobra', 'cobrame', 'cobrale', 'cobrar', 'cobre', 'cobren',
+  'abona', 'aboname', 'abonale', 'abonar', 'abono',
+  'paga', 'pagame', 'pagale', 'pagar', 'pago', 'pague', 'pagaron'
+])
+
+const VERBOS_COBRO_EN_MEDIO = new Set(['pago', 'pague', 'pagaron', 'abono', 'abono'])
+
+/**
+ * ¿La frase manda cobrar una deuda? «cobra 200 a Yunior», «cobra la deuda de
+ * María», «Yunior me pagó 100», «abona 50 a Juan».
+ *
+ * Tiene que ir antes que la venta: «cobra» es verbo de venta («cobra 2 panes»).
+ * La diferencia es que un cobro trae importe o deuda, no un producto.
+ */
+export function esCobroDeuda(texto) {
+  const t = normalizar(texto)
+  if (!t) return false
+  const tokens = t.split(' ')
+  // «cuánto pagó Juan» es una consulta, no un cobro.
+  if (/^(cuanto|cuanta|cuantos|cuantas)\b/.test(t)) return false
+
+  const verbo = tokens[0]
+  if (!VERBOS_COBRO.has(verbo)) {
+    // «juan me pago 200»: el cliente va delante del verbo.
+    const idx = tokens.findIndex(tok => VERBOS_COBRO_EN_MEDIO.has(tok))
+    if (idx <= 0) return false
+    return tokens.slice(0, idx).some(tok => tok !== 'me' && tok !== 'nos')
+  }
+
+  if (/\b(deuda|deudas|fiado)\b/.test(t)) return true
+
+  const idxCliente = tokens.findIndex((tok, i) => i > 0 && (tok === 'a' || tok === 'para'))
+  if (idxCliente < 0) return false
+
+  const antes = tokens.slice(1, idxCliente)
+  const conMoneda = antes.includes('pesos') || antes.includes('peso')
+  const conProducto = antes.some(tok => !PALABRAS_VACIAS.has(tok)
+    && parseNumberToken(tok) == null
+    && tok !== 'pesos' && tok !== 'peso'
+    && tok !== 'todo' && tok !== 'toda')
+  const conImporte = antes.some(tok => parseNumberToken(tok) != null
+    || tok === 'todo' || tok === 'toda')
+
+  // «cobra 2 panes a Juan» sigue siendo una venta: hay producto.
+  return (conImporte && !conProducto) || conMoneda || antes.length === 0
+}
+
+const RELLENO_CLIENTE_COBRO = new Set([
+  'de', 'del', 'la', 'el', 'los', 'las', 'deuda', 'deudas', 'fiado', 'me', 'nos'
+])
+
+/**
+ * Slots de `cobro_deuda`: a quién, cuánto y cómo paga.
+ *
+ * `monto` es `'todo'` o el importe dicho. Nunca lleva producto: cobrar no
+ * mueve inventario.
+ */
+export function extraerCobroSlots(transcript) {
+  const tokens = normalizar(transcript).split(' ').filter(Boolean)
+  const texto = tokens.join(' ')
+  const formaPago = /\btransferencia\b/.test(texto) ? 'transferencia' : 'efectivo'
+  if (!tokens.length) return { clienteHint: '', monto: 'todo', formaPago }
+
+  const idxVerbo = tokens.findIndex(t => VERBOS_COBRO.has(t))
+  let clienteTokens = []
+  let zonaMonto = []
+
+  if (idxVerbo > 0) {
+    // «juan me pago 200»
+    clienteTokens = tokens.slice(0, idxVerbo)
+    zonaMonto = tokens.slice(idxVerbo + 1)
+  } else {
+    const resto = tokens.slice(1)
+    const idxCliente = resto.findIndex(t => t === 'a' || t === 'para' || t === 'de')
+    if (idxCliente >= 0) {
+      clienteTokens = resto.slice(idxCliente + 1)
+      zonaMonto = resto.slice(0, idxCliente)
+    } else {
+      zonaMonto = resto
+    }
+  }
+
+  clienteTokens = clienteTokens.filter(t => !RELLENO_CLIENTE_COBRO.has(t) || t === 'de')
+  // «… a Yunior por transferencia»: el método de pago no es parte del nombre.
+  const cortePago = clienteTokens.findIndex(t => t === 'por' || t === 'con' || t === 'transferencia' || t === 'efectivo')
+  if (cortePago >= 0) clienteTokens = clienteTokens.slice(0, cortePago)
+
+  const numeros = zonaMonto.filter(t => t !== 'pesos' && t !== 'peso')
+  const numero = parseNumberSequence(numeros)
+  const monto = numeros.includes('todo') || numeros.includes('toda') || !numero
+    ? 'todo'
+    : Number(numero.valor)
+
+  return { clienteHint: clienteTokens.join(' ').trim(), monto, formaPago }
+}
+
 /** Nombre del cliente dicho en la frase ('' = no se dijo: se pide el total). */
 export function extraerClienteHint(transcript) {
   const tokens = normalizar(transcript).split(' ').filter(Boolean)
@@ -553,6 +650,12 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     return { comando: 'venta_fiada', confianza: 0.9, reasons: ['verbo_fiado'] }
   }
 
+  // Cobrar deuda: va antes de la venta porque «cobra» también es verbo de venta
+  // («cobra 2 panes»). Sin deuda ni importe, sigue siendo venta.
+  if (esCobroDeuda(texto)) {
+    return { comando: 'cobro_deuda', confianza: 0.9, reasons: ['verbo_cobro'] }
+  }
+
   if (c.PREFIJO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.95, reasons: ['verbo_venta'] }
   }
@@ -587,9 +690,9 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
 
   // Consulta: marcas presentes.
   if (/\bcuanto\b|\bcuanta\b|\bcuantos\b|\bcuantas\b|\bstock\b|\bexistencia(s)?\b|\binventario\b|\btenemos\b|\btengo\b|\bdisponible(s)?\b|\bhay\b|\bqueda(n)?\b/.test(texto)) {
-    // Caja y ganancia todavía no se responden por voz: mejor silencio que una
-    // cifra inventada. (Se resolverá en una fase posterior.)
-    if (/\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b/.test(texto)) {
+    // Caja, ganancia y cobros todavía no se responden como consulta: mejor
+    // silencio que una cifra inventada. («cuánto pagó Juan» no es stock.)
+    if (/\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b|\bpago\b|\bpague\b|\bpagaron\b|\babono\b/.test(texto)) {
       return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
     }
     const slots = extraerConsultaPura(texto)
@@ -816,6 +919,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
     return { productoHint: s.productoHint, ubicacion: s.ubicacion }
   }
   if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
+  if (comando === 'cobro_deuda') return extraerCobroSlots(transcript)
   if (comando === 'consulta_dia') return {}
   if (comando === 'venta_fiada') return extraerFiadoSlots(transcript, lexico)
   if (comando === 'repetir' || comando === 'ayuda') return {}
