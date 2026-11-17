@@ -1,12 +1,13 @@
-import { leerVozConfig } from '../../utils/vozConfig'
-import { limpiarEventosVoz } from '../../utils/vozEventos'
+import { ejecutarRetencionVoz } from '../../utils/vozRetencion'
 
 /**
  * Retención de los eventos de voz.
  *
- * Corre cada noche (ver `nitro.scheduledTasks` en `nuxt.config.ts`). La
- * cantidad de días la fija el super_admin en la configuración de flota; el
- * botón «Depurar» del panel usa la misma política.
+ * En un servidor Node con el proceso vivo la dispara Nitro
+ * (`nitro.scheduledTasks` en `nuxt.config.ts`). En serverless no hay proceso
+ * permanente: el mismo trabajo lo llama el cron externo contra
+ * `POST /api/tasks/voz/retencion`. Las dos vías pasan por
+ * `ejecutarRetencionVoz`, así que no pueden divergir.
  */
 export default defineTask({
   meta: {
@@ -14,8 +15,7 @@ export default defineTask({
     description: 'Borra eventos de voz antiguos según la retención de flota'
   },
   async run() {
-    const config = await leerVozConfig()
-    const eliminados = await limpiarEventosVoz({ dias: config.retencionDias })
-    return { result: { eliminados, dias: config.retencionDias } }
+    const { eliminados, dias } = await ejecutarRetencionVoz()
+    return { result: { eliminados, dias } }
   }
 })

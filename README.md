@@ -67,6 +67,11 @@ como asset del GitHub Release, actualiza las variables en Vercel, redeplega
 y verifica `/api/app-version`. Detalle completo en el Caso A de
 `docs/PUBLICAR_VERSION.md`. Los binarios **nunca** se commitean al repo.
 
+En Vercel define además `CRON_SECRET` (una vez): `vercel.json` programa el cron
+nocturno de retención de voz contra `/api/tasks/voz/retencion` y sin ese secreto
+el endpoint responde 503. En un servidor Node con el proceso vivo la tarea la
+programa Nitro y el cron externo no hace falta.
+
 ## Desarrollo local
 
 ```bash

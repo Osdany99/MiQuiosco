@@ -572,10 +572,20 @@ aplican todos los equipos:
   wake/idioma/motor y los lee si el sistema lo reinicia.
 - Un cambio manual en **Ajustes → Avanzado** (solo `super_admin`) se respeta
   hasta el próximo cambio de flota.
-- **Retención**: la tarea `voz:retencion` corre cada noche
-  (`nitro.scheduledTasks`, 03:00) y usa `retencionDias`. El botón **Depurar
-  ahora** del panel aplica la misma política. Se conservan los eventos con 3+
-  intentos y las plantillas repetidas.
+- **Retención**: la tarea `voz:retencion` usa `retencionDias` y el botón
+  **Depurar ahora** del panel aplica la misma política. Se conservan los eventos
+  con 3+ intentos y las plantillas repetidas. Cómo se dispara cada noche:
+  - **Servidor Node con el proceso vivo** (VPS, `pnpm preview`): la ejecuta
+    Nitro sola (`nitro.scheduledTasks`, 03:00).
+  - **Vercel / serverless**: no hay proceso permanente y Nitro **no** crea el
+    cron. Lo dispara `vercel.json` (`crons`, 03:00) contra
+    `POST /api/tasks/voz/retencion`, que exige `CRON_SECRET` (Vercel lo manda
+    como `Authorization: Bearer`). Sin `CRON_SECRET` responde 503 y no borra
+    nada.
+  - **Cron propio**: `curl -fsS -X POST -H "x-voz-cron-secret: $CRON_SECRET"
+    https://<host>/api/tasks/voz/retencion`.
+  - Las dos vías pasan por `ejecutarRetencionVoz` (`server/utils/vozRetencion.ts`),
+    así que no pueden divergir.
 
 ## Léxico remoto (Fase B)
 
@@ -887,6 +897,8 @@ umbral de repetición y sin nombres.
     al reintentar; los que faltan siguen en la cola.
 59. Un proof con **20** intentos fallidos o más de **14 días** se descarta solo; la
     copia local de `voice.proofs` se conserva.
+60. `POST /api/tasks/voz/retencion` sin secreto responde **401**; sin
+    `CRON_SECRET` configurado en el servidor responde **503** y no borra nada.
 
 ## Limitaciones conocidas
 
@@ -908,13 +920,13 @@ umbral de repetición y sin nombres.
   precio dictado ni pago inicial.
 - Los **alias de producto** viven en el teléfono y en el puesto: no se sincronizan
   entre equipos, así que aprender uno en un teléfono no lo enseña en el otro.
-- La auditoría central es best-effort en línea: si el envío falla o no hay
-  red, el proof queda solo local y no se encola para reintentar.
-- La retención de eventos se ejecuta con la tarea `voz:retencion` (cada noche) y
-  con el botón **Depurar ahora** del panel. En Vercel el cron lo genera Nitro; en
-  un servidor Node lo programa el propio Nitro. Si el despliegue no ejecuta
-  tareas programadas, hay que llamar a `/_nitro/tasks/voz:retencion` desde un
-  cron externo.
+- La auditoría central es best-effort: si el envío falla, el proof queda en la
+  cola local y se reintenta al volver la red (ver «Proof local»).
+- La retención de eventos se ejecuta con la tarea `voz:retencion` y con el botón
+  **Depurar ahora** del panel. En Vercel la dispara el cron de `vercel.json`
+  contra `/api/tasks/voz/retencion`; en un servidor Node la programa Nitro. Si
+  el despliegue no ejecuta ninguna de las dos, hay que llamar al endpoint (o a
+  `/_nitro/tasks/voz:retencion`) desde un cron externo.
 - El comportamiento del STT nativo sin conexión depende del paquete de idioma
   offline del dispositivo y debe probarse en modo avión.
 - El selector de **Voz de respuesta** es solo TTS; Android no expone una lista
