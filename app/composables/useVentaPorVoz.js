@@ -38,6 +38,7 @@ import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { proyectarStock } from '../utils/voice/pendientes'
 import { ajustarCantidadVoz } from '../utils/voice/prefill'
+import { useVozAlias } from './useVozAlias'
 import { useConfirmacionVoz } from './useConfirmacionVoz'
 import { useVoiceZeroTouch } from './useVoiceZeroTouch'
 import { useVozDisparo } from './useVozDisparo'
@@ -66,6 +67,7 @@ function _create(ubicacion) {
   const tts = useTts()
   const auth = useAuth()
   const fiado = useCuentasFiado()
+  const alias = useVozAlias()
   const perms = usePermisos()
   const conexion = useModoConexion()
   const { hayRed } = useSync()
@@ -313,6 +315,15 @@ function _create(ubicacion) {
   watch(() => conexion.modo.value, () => {
     cacheCatalogo.clear()
   })
+
+  // Los alias son del puesto: al entrar o cambiar de puesto se releen.
+  watch(
+    () => auth.usuarioActual.value?.puestoId ?? null,
+    (pid) => {
+      if (pid) void alias.cargar({ forzar: true }).catch(() => {})
+    },
+    { immediate: true }
+  )
 
   /**
    * Resuelve una venta SIN efectos: cliente, ubicación, catálogo y producto.
@@ -1001,7 +1012,7 @@ function _create(ubicacion) {
   async function resolverConsultaProducto(comando, slots, sttConfidence = 0, vigente = () => true) {
     const catalogo = await catalogoDe('global', { soloVendibles: false })
     if (!vigente()) return { tipo: 'cancelado' }
-    const emparejar = crearEmparejador(catalogo, sttConfidence)
+    const emparejar = crearEmparejador(catalogo, sttConfidence, alias.paraEmparejar.value)
     const encontrados = emparejar(slots.productoHint)
     if (!encontrados.length) {
       return {
@@ -1146,7 +1157,7 @@ function _create(ubicacion) {
     // catálogo y el fuzzy es el trabajo pesado del N-best.
     const emparejadores = new Map()
     const emparejarPara = (cat) => {
-      if (!emparejadores.has(cat)) emparejadores.set(cat, crearEmparejador(cat, sttConfidence))
+      if (!emparejadores.has(cat)) emparejadores.set(cat, crearEmparejador(cat, sttConfidence, alias.paraEmparejar.value))
       return emparejadores.get(cat)
     }
     for (const t of unicos) {
@@ -1420,11 +1431,38 @@ function _create(ubicacion) {
     return venderPorVoz()
   }
 
+  /**
+   * Aprende el alias cuando el jefe eligió el producto a mano. Es el único
+   * momento con señal clara; el alias solo acelera la próxima vez y se puede
+   * deshacer desde el propio aviso.
+   */
+  async function aprenderAlias(textoDicho, fila) {
+    if (!fila?.productoId) return
+    const filaAlias = await alias.aprender({
+      texto: textoDicho,
+      productoId: fila.productoId,
+      productoNombre: fila.nombre
+    }).catch(() => null)
+    if (!filaAlias || filaAlias.repetido) return
+    toast.add({
+      title: 'Alias aprendido',
+      description: `«${filaAlias.texto}» → ${fila.nombre}`,
+      color: 'neutral',
+      duration: 10000,
+      actions: [{
+        label: 'Deshacer',
+        onClick: () => { void alias.deshacer(filaAlias.id) }
+      }]
+    })
+  }
+
   async function seleccionarCandidato(candidato) {
     const datos = pendiente.value
     showCandidatos.value = false
     pendiente.value = null
     if (!candidato?.row || !datos) return
+    // La elección explícita es la señal para aprender el alias.
+    await aprenderAlias(datos.slots?.productoHint, candidato.row)
     if (datos.comando === 'consulta_stock') {
       await responderStock(candidato.row, datos.slots)
       return

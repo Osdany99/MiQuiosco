@@ -1056,6 +1056,37 @@ export const accionesPendientesVoz = sqliteTable(
 )
 
 /**
+ * Alias de producto aprendidos por el jefe («bombi» → Bombillo LED).
+ *
+ * Local al puesto y al teléfono: los productos son por puesto, así que el mismo
+ * alias no vale en otro. Se usa solo para emparejar: nunca salta la confirmación.
+ */
+export const vozAlias = sqliteTable(
+  'voz_alias',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    /** Texto normalizado (sin tildes, minúsculas) que dice el mostrador. */
+    texto: text('texto').notNull(),
+    /** 'candidato' (menú) o 'asignado' (Por revisar). */
+    origen: text('origen').notNull().default('candidato'),
+    /** Veces que el alias resolvió un dictado; sirve para podar los inútiles. */
+    aciertos: integer('aciertos').notNull().default(0),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date())
+  },
+  table => ({
+    puestoTextoUk: uniqueIndex('voz_alias_puesto_texto_uk').on(table.puestoId, table.texto),
+    productoIdx: index('voz_alias_producto_idx').on(table.productoId)
+  })
+)
+
+/**
  * Tipos inferidos.
  */
 export type PuestoSQLite = typeof puestos.$inferSelect

@@ -127,6 +127,13 @@
       "when": 1794877763497,
       "tag": "0017_lowly_loners",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794880712743,
+      "tag": "0018_reflective_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

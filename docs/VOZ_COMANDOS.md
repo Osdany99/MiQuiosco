@@ -519,6 +519,36 @@ panel `/admin/voz` muestra los eventos no reconocidos agrupados por plantilla y
 permite marcarlos como resueltos o descartados. El filtro por estado se aplica
 en SQL y está indexado por `(estado, ultimo_en)`.
 
+## Alias de productos (aprendidos)
+
+El mostrador llama a los productos de otra forma («bombi», «la malta», «pan de
+la casa»). Un **alias** une esa forma con un producto del catálogo.
+
+- **Cuándo se aprende**: solo cuando el jefe **elige a mano** el producto — en el
+  menú de candidatos («la dos») o en **Asignar producto** de **Por revisar**.
+  Nunca por una venta que salió sola.
+- **Qué se guarda**: el texto normalizado sin verbo, cantidad ni cliente
+  («vende dos bombis» → `bombi`), con el `productoId`, en la tabla local
+  `voz_alias` **por puesto**.
+- **Cómo se usa**: el alias puede **meter** en la lista un producto que el fuzzy
+  no habría encontrado, y lo deja como coincidencia casi exacta. Sigue pasando
+  por el umbral, el margen, el stock y la confirmación: **un alias nunca vende
+  solo**.
+- **Conflictos**: si el mismo texto ya apunta a otro producto, no se pisa; si el
+  texto apunta a dos productos, se ignora y se pregunta. Palabras de gramática
+  (`de`, `dos`, `vende`) y nombres oficiales no se aprenden.
+- **Límite**: 5 alias por producto; al pasarse se descarta el menos usado.
+- **Deshacer**: el aviso «Alias aprendido» trae **Deshacer** (10 s). Después se
+  borran desde **Ajustes → Voz → Alias de productos**.
+- **Alcance**: local al teléfono y al puesto. No se sincroniza entre equipos (los
+  productos son por puesto).
+
+### Alias vs léxico remoto
+
+No compiten: el **léxico remoto** son palabras de la *gramática* (verbos, marcas,
+destinos) y es global para la flota; un **alias** es el nombre de un *producto* y
+vive en un puesto. «factúrame» va al léxico; «bombi» va a los alias.
+
 ## Voz de respuesta (TTS) vs reconocimiento (STT)
 
 Son dos subsistemas independientes de Android y **no comparten selector**:
@@ -756,6 +786,14 @@ umbral de repetición y sin nombres.
     deuda) y, al registrarlas, el saldo queda en cero.
 43. «cobra la deuda de Juan» con la app cerrada se responde como cobro, no como
     consulta de deuda.
+44. Dictar «vende dos bombis» con «Bombillo LED» y «Bombillo 12W» en el catálogo
+    abre el menú; al elegir uno, aparece «Alias aprendido» y la próxima vez
+    «bombis» va directo a ese producto.
+45. **Deshacer** en ese aviso borra el alias; la siguiente vez vuelve a preguntar.
+46. Un dictado sin producto asignado a mano desde **Por revisar** enseña el alias
+    con las palabras del dictado (sin verbo ni cantidad).
+47. «bombi» con dos productos distintos apuntando al mismo alias no elige solo:
+    se pregunta.
 
 ## Limitaciones conocidas
 
@@ -770,6 +808,8 @@ umbral de repetición y sin nombres.
   deuda** en la revisión (el servicio reparte FIFO antes de escribir).
 - Un fiado por voz usa el precio del catálogo y crea la deuda directa; no admite
   precio dictado ni pago inicial.
+- Los **alias de producto** viven en el teléfono y en el puesto: no se sincronizan
+  entre equipos, así que aprender uno en un teléfono no lo enseña en el otro.
 - La auditoría central es best-effort en línea: si el envío falla o no hay
   red, el proof queda solo local y no se encola para reintentar.
 - La retención de eventos se ejecuta con la tarea `voz:retencion` (cada noche) y

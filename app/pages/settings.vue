@@ -14,6 +14,25 @@ const dictadoModo = useDictadoModo()
 const voz = useVoiceCommand()
 const vozConfig = useVozConfig()
 const servicioVoz = useVozServicio()
+const aliasVoz = useVozAlias()
+const inventarioAlias = useInventario()
+const aliasAbierto = ref(false)
+const productosAlias = ref([])
+
+/** Nombres de producto para la lista de alias (se cargan al abrir). */
+const nombreProductoAlias = productoId =>
+  productosAlias.value.find(p => (p.productoId ?? p.id) === productoId)?.nombre ?? 'Producto'
+
+async function cargarAlias() {
+  await aliasVoz.cargar().catch(() => {})
+  if (!productosAlias.value.length) {
+    productosAlias.value = (await inventarioAlias.cargarSaldos().catch(() => [])) ?? []
+  }
+}
+
+watch(aliasAbierto, (abierto) => {
+  if (abierto) void cargarAlias()
+})
 const pruebaMicrofono = ref('')
 const probandoMicrofono = ref(false)
 const update = useAppUpdate()
@@ -1159,6 +1178,46 @@ async function whOlvidarEste() {
             {{ micMotivo }}
           </p>
         </div>
+
+        <!-- Alias de producto aprendidos: el jefe los enseña y los borra. -->
+        <UCollapsible v-if="auth.esJefe.value" v-model:open="aliasAbierto" class="border-t border-default pt-3">
+          <UButton
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-tags"
+            :label="`Alias de productos (${aliasVoz.lista.value.length})`"
+          />
+          <template #content>
+            <div class="space-y-2 pt-2">
+              <p class="text-xs text-muted">
+                Se aprenden cuando eliges un producto del menú o lo asignas en
+                Por revisar. Solo mejoran el reconocimiento: nunca venden solos.
+              </p>
+              <p v-if="!aliasVoz.lista.value.length" class="text-xs text-muted">
+                Todavía no hay alias.
+              </p>
+              <ul v-else class="divide-y divide-default rounded-lg border border-default">
+                <li
+                  v-for="a in aliasVoz.lista.value"
+                  :key="a.id"
+                  class="flex items-center justify-between gap-2 px-3 py-2"
+                >
+                  <span class="text-sm min-w-0 truncate">
+                    «{{ a.texto }}» → {{ nombreProductoAlias(a.productoId) }}
+                  </span>
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="error"
+                    icon="i-lucide-trash-2"
+                    label="Borrar"
+                    @click="aliasVoz.deshacer(a.id)"
+                  />
+                </li>
+              </ul>
+            </div>
+          </template>
+        </UCollapsible>
 
         <!-- Herramientas de soporte: solo super_admin. -->
         <UCollapsible v-if="esSuperAdmin" v-model:open="avanzadoAbierto" class="border-t border-default pt-3">

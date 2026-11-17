@@ -24,6 +24,7 @@ const acciones = useAccionesPendientes()
 const snapshot = useVozSnapshot()
 const servicio = useVozServicio()
 const fiado = useCuentasFiado()
+const aliasVoz = useVozAlias()
 
 /** Nombres de los clientes: la acción guarda el id, no el nombre. */
 const clientes = ref([])
@@ -252,6 +253,22 @@ async function confirmarAsignar() {
       productoNombre: opcion.nombre,
       precioUnitario: precio
     })
+    // Asignar a mano es señal de cómo llama el mostrador a ese producto.
+    const filaAlias = await aliasVoz.aprender({
+      texto: accion.texto,
+      productoId: opcion.id,
+      productoNombre: opcion.nombre,
+      origen: 'asignado'
+    }).catch(() => null)
+    if (filaAlias && !filaAlias.repetido) {
+      toast.add({
+        title: 'Alias aprendido',
+        description: `«${filaAlias.texto}» → ${opcion.nombre}`,
+        color: 'neutral',
+        duration: 10000,
+        actions: [{ label: 'Deshacer', onClick: () => { void aliasVoz.deshacer(filaAlias.id) } }]
+      })
+    }
     dialogoAsignar.value = false
     asignando.value = null
     productoAsignado.value = null
