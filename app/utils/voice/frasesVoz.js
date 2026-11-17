@@ -165,7 +165,7 @@ export function fraseFiado({ cantidad, nombre, cliente, importe = null }) {
 }
 
 /** Ayuda hablada: qué sabe hacer el asistente. */
-export const FRASE_AYUDA = 'Puedo vender, fiar, cobrar, consultar stock, precios, deudas y las ventas del día, abrir pantallas y prellenar entradas, precios y traspasos. Prueba: vende dos panes; fía dos panes a Juan; cobra 200 a Juan; entraron 20 panes a 10 pesos; cambia el precio del pan a 25; pasa 5 panes al quiosco.'
+export const FRASE_AYUDA = 'Puedo vender, fiar, cobrar, consultar stock, precios, deudas y las ventas del día, y prellenar entradas, precios, traspasos, mermas y productos. Prueba: vende dos panes; fía dos panes a Juan; cobra 200 a Juan; entraron 20 panes a 10 pesos.'
 
 /** No hay respuesta previa que repetir. */
 export const FRASE_NADA_QUE_REPETIR = 'No tengo nada que repetir todavía.'

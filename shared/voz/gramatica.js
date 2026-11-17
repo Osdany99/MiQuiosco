@@ -336,15 +336,11 @@ function compilar(lexico) {
   if (cached) return cached
   const ventaFuerte = Array.isArray(clave?.ventaFuerte) ? clave.ventaFuerte : VERBOS_VENTA
   const ventaDebil = Array.isArray(clave?.ventaDebil) ? clave.ventaDebil : VERBOS_VENTA_DEBILES
-  const navVerbo = Array.isArray(clave?.navegacionVerbo) ? clave.navegacionVerbo : null
-  const destinos = (clave?.destinos && typeof clave.destinos === 'object') ? clave.destinos : null
   const consultaMarca = Array.isArray(clave?.consultaMarca) ? clave.consultaMarca : null
 
   const out = {
     ventaFuerte,
     ventaDebil,
-    navegacionVerbo: navVerbo,
-    destinos,
     consultaMarca,
     PREFIJO_VENTA: new RegExp(`^(${ventaFuerte.join('|')})\\b`),
     PREFIJO_VENTA_DEBIL: new RegExp(`^(${ventaDebil.join('|')})\\b`),
@@ -353,53 +349,6 @@ function compilar(lexico) {
   }
   CACHE_COMPILADO.set(clave, out)
   return out
-}
-
-const RELLENOS_NAV = new Set(['a', 'al', 'la', 'el', 'los', 'las', 'de', 'del', 'mi', 'mis', 'por', 'favor', 'pantalla', 'vista', 'seccion', 'modulo', 'en', 'ya', 'ahora', 'me'])
-const RELLENOS_COMPLEMENTO = new Set(['hoy', 'dia', 'ayer', 'actual'])
-
-// Mapa palabra → destino, cacheado por léxico compilado (`compilar` ya cachea
-// el objeto, así que la clave es estable).
-const CACHE_DESTINOS = new WeakMap()
-
-function mapaDestinos(c) {
-  const cacheado = CACHE_DESTINOS.get(c)
-  if (cacheado) return cacheado
-  const inverted = {}
-  if (c.destinos) {
-    for (const [key, palabras] of Object.entries(c.destinos)) {
-      for (const w of palabras) inverted[w] = key
-    }
-  }
-  CACHE_DESTINOS.set(c, inverted)
-  return inverted
-}
-
-/** Índice del token que nombra el destino, o -1 si no hay verbo de navegación. */
-function indiceDespuesDeVerbo(tokens, c) {
-  const verboIdx = tokens.findIndex(t => Array.isArray(c.navegacionVerbo) && c.navegacionVerbo.includes(t))
-  if (verboIdx < 0) return -1
-  let i = verboIdx + 1
-  while (i < tokens.length && RELLENOS_NAV.has(tokens[i])) i++
-  return i
-}
-
-function resolverNavegacionPuro(texto, c, lexico) {
-  const tokens = texto.split(' ').filter(Boolean)
-  const i = indiceDespuesDeVerbo(tokens, c)
-  if (i < 0 || i >= tokens.length) return false
-  const destino = mapaDestinos(c)[tokens[i]]
-  if (!destino) return false
-
-  // El resto solo puede ser relleno de navegación o complemento temporal.
-  for (let j = i + 1; j < tokens.length; j++) {
-    const t = tokens[j]
-    if (RELLENOS_NAV.has(t)) continue
-    if (RELLENOS_COMPLEMENTO.has(t)) continue
-    if (lexico?.navegacionComplemento && lexico.navegacionComplemento.includes(t)) continue
-    return false
-  }
-  return true
 }
 
 function extraerConsultaPura(texto) {
@@ -678,11 +627,6 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
 
   if (c.PREFIJO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.95, reasons: ['verbo_venta'] }
-  }
-
-  // Navegación primero (exige verbo + destino).
-  if (c.navegacionVerbo && c.destinos && resolverNavegacionPuro(texto, c, lexico)) {
-    return { comando: 'navegacion', confianza: 0.9, reasons: ['navegacion_destino'] }
   }
 
   // Deudas: "cuánto debe Juan", "las deudas de María", "quién me debe más".
@@ -1065,7 +1009,6 @@ function extraerCuadreSlots(transcript) {
 }
 
 export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
-  const c = compilar(lexico)
   if (comando === 'entrada_inventario') return extraerEntradaSlots(transcript, lexico)
   if (comando === 'cambio_precio') return extraerCambioPrecioSlots(transcript, lexico)
   if (comando === 'traspaso') return extraerTraspasoSlots(transcript, lexico)
@@ -1080,10 +1023,6 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   if (comando === 'consulta_ganancia' || comando === 'consulta_caja') return {}
   if (comando === 'venta_fiada') return extraerFiadoSlots(transcript, lexico)
   if (comando === 'repetir' || comando === 'ayuda') return {}
-  if (comando === 'navegacion') {
-    const dest = resolverNavegacionDestino(transcript, c, lexico)
-    return { destino: dest }
-  }
   if (comando !== 'venta_directa') return {}
 
   const principal = extraerBase(transcript, false, lexico)
@@ -1108,13 +1047,6 @@ export function preferirHintConTipo(candidatosAlternativa) {
   return Number(candidatosAlternativa?.[0]?.score) >= 0.99
 }
 
-function resolverNavegacionDestino(transcript, c) {
-  const tokens = normalizar(transcript).split(' ').filter(Boolean)
-  const i = indiceDespuesDeVerbo(tokens, c)
-  if (i < 0 || i >= tokens.length) return null
-  return mapaDestinos(c)[tokens[i]] ?? null
-}
-
 /**
  * Elige la mejor hipótesis STT (N-best) tras haberla evaluado.
  * Ver reglas en el plan v2 P5.
@@ -1131,8 +1063,7 @@ export function elegirAlternativa(evaluadas, { margen = 0.1 } = {}) {
     return baseIndice
   }
 
-  const validas = lista.slice(1).filter(x => x && x.comando !== 'desconocido'
-    && (x.comando === 'navegacion' || x.elegido === true))
+  const validas = lista.slice(1).filter(x => x && x.comando !== 'desconocido' && x.elegido === true)
 
   if (baseComando === 'desconocido') {
     if (validas.length) return (Number.isFinite(validas[0].indice)) ? validas[0].indice : lista.indexOf(validas[0])

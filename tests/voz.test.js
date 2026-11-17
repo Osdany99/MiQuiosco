@@ -75,7 +75,6 @@ describe('voz: clasificación (fase A)', () => {
     ['repite', 'repetir'],
     ['que puedes hacer', 'ayuda'],
     ['abre cuadre', 'cuadre_accion'],
-    ['ir a deudas', 'navegacion'],
     ['hola', 'desconocido'],
     ['', 'desconocido']
   ]

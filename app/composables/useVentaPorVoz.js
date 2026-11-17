@@ -1647,17 +1647,22 @@ function _create(ubicacion) {
     for (const t of unicos) {
       const clas = interpretar(t, vozLexico.lexico.value)
       const rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
-      if (clas.comando === 'navegacion') {
-        rec.elegido = true
-      } else if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia' || clas.comando === 'cobro_deuda') {
+      if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia' || clas.comando === 'consulta_ganancia'
+        || clas.comando === 'consulta_caja' || clas.comando === 'cobro_deuda' || clas.comando === 'cuadre_accion'
+        || clas.comando === 'repetir' || clas.comando === 'ayuda') {
         // No dependen de catálogo: no se evalúan contra el inventario.
         rec.elegido = true
-      } else if (clas.comando === 'venta_directa' || clas.comando === 'venta_fiada' || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio') {
+      } else if (clas.comando === 'venta_directa' || clas.comando === 'venta_fiada'
+        || clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio'
+        || clas.comando === 'entrada_inventario' || clas.comando === 'cambio_precio' || clas.comando === 'traspaso') {
         try {
-          const destinoUbi = (clas.slots?.ubicacion) || ubicacion
-          const cat = clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio'
+          const esConsulta = clas.comando === 'consulta_stock' || clas.comando === 'consulta_precio'
+          const esAsistido = clas.comando === 'entrada_inventario' || clas.comando === 'cambio_precio' || clas.comando === 'traspaso'
+          const cat = esConsulta
             ? await catalogoDe('global', { soloVendibles: false })
-            : await catalogoDe(destinoUbi)
+            : esAsistido
+              ? await catalogoDe('almacen', { soloVendibles: false })
+              : await catalogoDe((clas.slots?.ubicacion) || ubicacion)
           const encontrados = emparejarPara(cat)(clas.slots?.productoHint || '')
           const decision = decidirProducto(encontrados, { umbral: UMBRAL_PRODUCTO, sttConfidence })
           rec.elegido = !!decision.elegido
@@ -1715,7 +1720,6 @@ function _create(ubicacion) {
       }
     }
 
-    if (comando === 'navegacion') return { tipo: 'navegacion', slots }
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
@@ -1798,8 +1802,6 @@ function _create(ubicacion) {
           /* noop */
         }
         throw new Error(accion.mensaje)
-      case 'navegacion':
-        return manejarNavegacion(accion.slots, vigente)
       case 'consultar_stock':
         return responderStock(accion.fila, accion.slots)
       case 'consultar_precio':

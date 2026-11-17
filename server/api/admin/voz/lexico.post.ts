@@ -5,23 +5,16 @@ import { vozLexico } from '../../../database/schema'
 import { validarEntrada, lexicoEntradaSchema, CATEGORIAS_LEXICO } from '#shared/schemas/vozLexico'
 import { LEXICO_BASE } from '#shared/voz/lexico'
 
+/** Palabras del léxico base, para detectar conflictos con las nuevas. */
 function baseToEntries() {
+  const map = {
+    venta_fuerte: LEXICO_BASE.ventaFuerte,
+    venta_debil: LEXICO_BASE.ventaDebil,
+    consulta_marca: LEXICO_BASE.consultaMarca
+  } as Record<string, string[]>
   const out = []
   for (const cat of CATEGORIAS_LEXICO) {
-    if (cat !== 'navegacion_destino') {
-      const map = {
-        venta_fuerte: LEXICO_BASE.ventaFuerte,
-        venta_debil: LEXICO_BASE.ventaDebil,
-        navegacion_verbo: LEXICO_BASE.navegacionVerbo,
-        navegacion_complemento: LEXICO_BASE.navegacionComplemento,
-        consulta_marca: LEXICO_BASE.consultaMarca
-      } as Record<string, string[]>
-      for (const v of map[cat] || []) out.push({ categoria: cat, valor: v, activo: true })
-    } else {
-      for (const [clave, palabras] of Object.entries(LEXICO_BASE.destinos || {})) {
-        for (const v of palabras || []) out.push({ categoria: cat, valor: v, clave, activo: true })
-      }
-    }
+    for (const v of map[cat] || []) out.push({ categoria: cat, valor: v, activo: true })
   }
   return out
 }
@@ -48,7 +41,8 @@ export default defineEventHandler(async (event) => {
   const values = {
     categoria: parsed.data.categoria,
     valor: parsed.data.valor,
-    clave: parsed.data.clave ?? null,
+    // El léxico ya no tiene destinos: la columna se conserva en NULL.
+    clave: null,
     activo: parsed.data.activo ?? true,
     version,
     creadoPor,

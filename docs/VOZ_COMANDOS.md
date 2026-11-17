@@ -5,8 +5,9 @@
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
 Soportados: `venta_directa`, `venta_fiada`, `cobro_deuda`, `consulta_stock`,
-`consulta_precio`, `consulta_deuda`, `consulta_dia`, `repetir`, `ayuda`,
-`navegacion`, `desconocido`.
+`consulta_precio`, `consulta_deuda`, `consulta_dia`, `consulta_ganancia`,
+`consulta_caja`, `entrada_inventario`, `cambio_precio`, `cuadre_accion`,
+`traspaso`, `repetir`, `ayuda`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -578,11 +579,10 @@ cerrada.
 ## N-best
 
 El reconocedor puede devolver varias transcripciones alternativas
-(`alternativas` en `useVoiceCommand`). Para venta y consulta de stock se evalúa
-cada alternativa con el mismo emparejador y se elige la mejor con
-`elegirAlternativa` (`shared/voz/gramatica.js`). Navegación se acepta
-directamente. Si no hay margen suficiente entre alternativas, se conserva la
-transcripción base.
+(`alternativas` en `useVoiceCommand`). Cada alternativa se evalúa con el mismo
+emparejador y se elige la mejor con `elegirAlternativa`
+(`shared/voz/gramatica.js`). Si no hay margen suficiente entre alternativas, se
+conserva la transcripción base.
 
 ## Configuración de flota (Fase C)
 
@@ -654,8 +654,8 @@ la casa»). Un **alias** une esa forma con un producto del catálogo.
 
 ### Alias vs léxico remoto
 
-No compiten: el **léxico remoto** son palabras de la *gramática* (verbos, marcas,
-destinos) y es global para la flota; un **alias** es el nombre de un *producto* y
+No compiten: el **léxico remoto** son palabras de la *gramática* (verbos y
+marcas) y es global para la flota; un **alias** es el nombre de un *producto* y
 vive en un puesto. «factúrame» va al léxico; «bombi» va a los alias.
 
 ## Voz de respuesta (TTS) vs reconocimiento (STT)
@@ -869,7 +869,7 @@ funcional caso por caso:
 27. «cuánto me deben» lee el total y quién más debe; «cuánto debe Juan» el saldo
     de Juan. Con «Juan» y «Juanita» en la lista pide el nombre completo.
 28. «cuánto debo» no responde (silencio): no puede confundirse con una compra del
-    negocio. «abre deudas» sigue navegando a `/deudas`.
+    negocio. «abre deudas» no hace nada: la navegación por voz se retiró.
 29. Con la app cerrada, las mismas frases de deuda se contestan desde
     `snapshot.json`; sin snapshot pide abrir la app. Un usuario sin permiso de
     `/deudas` no oye cifras.

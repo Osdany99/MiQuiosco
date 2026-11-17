@@ -57,17 +57,12 @@ export function crearLexico(base, entradas = []) {
     if (!v.ok) continue
 
     const campo = CATEGORIA_A_CAMPO[item.categoria]
-    if (item.categoria === 'navegacion_destino') {
-      if (!lexico.destinos[item.clave]) return lexico // guard
-      if (!lexico.destinos[item.clave].includes(item.valor)) {
-        lexico.destinos[item.clave].push(item.valor)
-        efectivo.push(item)
-      }
-    } else {
-      if (!lexico[campo].includes(item.valor)) {
-        lexico[campo].push(item.valor)
-        efectivo.push(item)
-      }
+    // Una entrada de una categoría retirada (navegación) no se aplica: se
+    // ignora en vez de romper el léxico.
+    if (!campo) continue
+    if (!lexico[campo].includes(item.valor)) {
+      lexico[campo].push(item.valor)
+      efectivo.push(item)
     }
   }
 

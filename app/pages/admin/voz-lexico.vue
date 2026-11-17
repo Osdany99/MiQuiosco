@@ -15,15 +15,15 @@ const { lexico: lexicoVoz } = useVozLexico()
 const filas = ref([])
 const cargando = ref(false)
 const route = useRoute()
-const nueva = ref({ categoria: 'venta_fuerte', valor: '', clave: null, nota: '' })
+const nueva = ref({ categoria: 'venta_fuerte', valor: '', nota: '' })
 /** Plantilla de referencia que llega desde «Usar plantilla» (/admin/voz). */
 const plantillaRef = ref('')
-const prueba = ref({ categoria: 'navegacion_verbo', valor: '', clave: 'deudas', plantillas: '' })
+const prueba = ref({ categoria: 'venta_fuerte', valor: '', plantillas: '' })
 const resultadoPrueba = ref(null)
 
 function probar() {
   try {
-    const entrada = { categoria: prueba.value.categoria, valor: prueba.value.valor, clave: prueba.value.clave || null, activo: true }
+    const entrada = { categoria: prueba.value.categoria, valor: prueba.value.valor, activo: true }
     const plantillas = prueba.value.plantillas.split('\n').map(x => x.trim()).filter(Boolean)
     // Se prueba contra el léxico efectivo (base + entradas activas), no solo
     // contra LEXICO_BASE: es lo que el reconocimiento usa de verdad.
@@ -33,14 +33,11 @@ function probar() {
   }
 }
 
-const categorias = [
-  'venta_fuerte', 'venta_debil', 'navegacion_verbo', 'navegacion_complemento', 'consulta_marca', 'navegacion_destino'
-]
+const categorias = ['venta_fuerte', 'venta_debil', 'consulta_marca']
 
 const columnas = [
   { accessorKey: 'categoria', header: 'Categoría' },
   { accessorKey: 'valor', header: 'Valor' },
-  { accessorKey: 'clave', header: 'Clave' },
   { accessorKey: 'activo', header: 'Activo' },
   { accessorKey: 'version', header: 'Versión' },
   { accessorKey: 'acciones', header: '' }
@@ -62,7 +59,6 @@ async function crear() {
   try {
     await api.crearEntradaLexicoVoz({ ...nueva.value })
     nueva.value.valor = ''
-    nueva.value.clave = null
     nueva.value.nota = ''
     await cargar()
     toast.add({ title: 'Voz', description: 'Entrada creada.', color: 'success' })
@@ -120,7 +116,6 @@ onMounted(() => {
     <div class="flex flex-col gap-2 md:flex-row md:items-end">
       <USelect v-model="nueva.categoria" :items="categorias" class="w-56" />
       <UInput v-model="nueva.valor" placeholder="palabra" class="w-48" />
-      <UInput v-model="nueva.clave" placeholder="clave (solo destino)" class="w-48" />
       <UInput v-model="nueva.nota" placeholder="nota" class="w-48" />
       <UButton @click="crear">
         Añadir
@@ -151,10 +146,6 @@ onMounted(() => {
         <span class="font-mono text-xs">{{ row.original.valor }}</span>
       </template>
 
-      <template #clave-cell="{ row }">
-        {{ row.original.clave || '—' }}
-      </template>
-
       <template #activo-cell="{ row }">
         <UBadge
           :color="row.original.activo ? 'success' : 'neutral'"
@@ -178,7 +169,6 @@ onMounted(() => {
       <div class="flex flex-col gap-2 md:flex-row md:items-end">
         <USelect v-model="prueba.categoria" :items="categorias" class="w-56" />
         <UInput v-model="prueba.valor" placeholder="palabra" class="w-48" />
-        <UInput v-model="prueba.clave" placeholder="clave" class="w-48" />
         <UTextarea v-model="prueba.plantillas" placeholder="plantillas (una por línea)" class="w-64" />
         <UButton @click="probar">
           Probar

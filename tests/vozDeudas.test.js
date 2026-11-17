@@ -56,9 +56,9 @@ describe('voz: deudas — clasificación', () => {
     assert.notEqual(resolverComando('cuanto debo').comando, 'consulta_deuda')
   })
 
-  it('«abre deudas» sigue siendo navegación', () => {
-    assert.equal(resolverComando('abre deudas').comando, 'navegacion')
-    assert.equal(resolverComando('ir a deudas').comando, 'navegacion')
+  it('«abre deudas» ya no es un comando: la navegación se retiró', () => {
+    assert.notEqual(resolverComando('abre deudas').comando, 'navegacion')
+    assert.notEqual(resolverComando('ir a deudas').comando, 'navegacion')
   })
 
   it('«cuánto cuesta el pan» no se confunde con deuda', () => {
