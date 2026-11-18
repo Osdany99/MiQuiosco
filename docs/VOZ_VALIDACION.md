@@ -158,6 +158,7 @@ Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
 | O5 | Activar `saca` en `traspaso_verbo` y decir «saca 2 panes del almacén al quiosco» | Abre el traspaso; sin ubicación sigue sin actuar | | |
 | O6 | Restaurar `saca` y comprobar «saca 2 panes» | Vuelve al comportamiento anterior sin tocar código | | |
 | O7 | Quitar `rompio` de `merma_verbo` y decir «se rompió 2 panes» | No abre merma; otro verbo de la familia (`cayo`) sigue funcionando | | |
+| O8 | Abrir `/admin/voz` y cambiar a la pestaña **Confirmaciones**; abrir el enlace antiguo `/admin/voz-confirmaciones` | La pestaña muestra los proofs y el enlace antiguo redirige a ella | | |
 
 ## Cierre: nada a medias
 

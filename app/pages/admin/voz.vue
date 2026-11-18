@@ -13,11 +13,16 @@ const filtroEstado = ref('abierto')
 /** Salud del módulo: última telemetría y proofs recientes. */
 const resumen = ref(null)
 
-/** Pestaña visible: fallos no reconocidos o dictados que la app entendió. */
-const vista = ref('fallos')
+/** Pestaña visible: fallos, aciertos o confirmaciones habladas. */
+const route = useRoute()
+const VISTAS_VOZ = ['fallos', 'aciertos', 'confirmaciones']
+const vista = ref(
+  VISTAS_VOZ.includes(String(route.query.vista)) ? String(route.query.vista) : 'fallos'
+)
 const itemsVista = [
   { label: 'Fallos', value: 'fallos', icon: 'i-lucide-mic-off' },
-  { label: 'Aciertos', value: 'aciertos', icon: 'i-lucide-check-check' }
+  { label: 'Aciertos', value: 'aciertos', icon: 'i-lucide-check-check' },
+  { label: 'Confirmaciones', value: 'confirmaciones', icon: 'i-lucide-shield-check' }
 ]
 
 async function cargarResumen() {
@@ -199,8 +204,100 @@ async function borrarAciertos() {
 watch([filtroComando, filtroVentana], () => {
   if (vista.value === 'aciertos') void cargarAciertos()
 })
+// ---------------------------- Confirmaciones ----------------------------
+
+const confirmaciones = ref([])
+const cargandoConfirmaciones = ref(false)
+const errorConfirmaciones = ref(null)
+const puestoConfirmacion = ref('todos')
+const puestosConfirmacion = ref([])
+const limiteConfirmaciones = ref(200)
+const LIMITE_CONFIRMACIONES = 1000
+
+const opcionesPuestoConfirmacion = computed(() => [
+  { label: 'Todos los puestos', value: 'todos' },
+  ...(puestosConfirmacion.value ?? []).map(p => ({ label: p.nombre || p.id, value: p.id }))
+])
+
+const hayMasConfirmaciones = computed(() =>
+  confirmaciones.value.length >= limiteConfirmaciones.value
+  && limiteConfirmaciones.value < LIMITE_CONFIRMACIONES
+)
+
+const columnasConfirmaciones = [
+  { accessorKey: 'creadoEn', header: 'Cuándo' },
+  { accessorKey: 'puestoNombre', header: 'Puesto' },
+  { accessorKey: 'productoNombre', header: 'Producto' },
+  { accessorKey: 'cantidad', header: 'Cantidad' },
+  { accessorKey: 'ubicacion', header: 'Ubicación' },
+  { accessorKey: 'modo', header: 'Modo' },
+  { accessorKey: 'outcome', header: 'Resultado' },
+  { accessorKey: 'confianza', header: 'Confianza' }
+]
+
+function etiquetaOutcome(outcome) {
+  const valor = String(outcome ?? 'abandonado')
+  if (valor === 'auto-confirmado') return 'Auto-confirmado'
+  if (valor === 'cancelado') return 'Cancelado'
+  return 'Abandonado'
+}
+
+function colorOutcome(outcome) {
+  const valor = String(outcome ?? 'abandonado')
+  if (valor === 'auto-confirmado') return 'success'
+  if (valor === 'cancelado') return 'error'
+  return 'warning'
+}
+
+const porResultado = computed(() => {
+  return confirmaciones.value.reduce((acc, f) => {
+    const k = String(f.outcome ?? 'abandonado')
+    acc[k] = (acc[k] || 0) + 1
+    return acc
+  }, {})
+})
+
+async function cargarPuestosConfirmacion() {
+  try {
+    puestosConfirmacion.value = await api.listarPuestos()
+  } catch {
+    puestosConfirmacion.value = []
+  }
+}
+
+async function cargarConfirmaciones() {
+  cargandoConfirmaciones.value = true
+  errorConfirmaciones.value = null
+  try {
+    const query = { limit: limiteConfirmaciones.value }
+    if (puestoConfirmacion.value !== 'todos') query.puestoId = puestoConfirmacion.value
+    confirmaciones.value = await api.listarConfirmacionesVoz(query)
+  } catch (e) {
+    errorConfirmaciones.value = e?.message || 'Error al cargar confirmaciones.'
+  } finally {
+    cargandoConfirmaciones.value = false
+  }
+}
+
+function cargarMasConfirmaciones() {
+  if (!hayMasConfirmaciones.value) return
+  limiteConfirmaciones.value = Math.min(
+    LIMITE_CONFIRMACIONES,
+    limiteConfirmaciones.value + 200
+  )
+  void cargarConfirmaciones()
+}
+
+function reiniciarConfirmaciones() {
+  limiteConfirmaciones.value = 200
+  void cargarConfirmaciones()
+}
+
+watch(puestoConfirmacion, reiniciarConfirmaciones)
+
 watch(vista, (valor) => {
   if (valor === 'aciertos') void cargarAciertos()
+  if (valor === 'confirmaciones') void cargarConfirmaciones()
 })
 let timerBusqueda = null
 watch(busquedaTexto, () => {
@@ -213,6 +310,9 @@ watch(busquedaTexto, () => {
 
 onMounted(() => {
   void cargar()
+  void cargarPuestosConfirmacion()
+  if (vista.value === 'aciertos') void cargarAciertos()
+  if (vista.value === 'confirmaciones') void cargarConfirmaciones()
 })
 watch(filtroEstado, cargar)
 </script>
@@ -220,23 +320,19 @@ watch(filtroEstado, cargar)
 <template>
   <BaseHeaderPage
     title="Comandos de voz"
-    description="Fallos que el intérprete no pudo resolver y dictados que la app entendió"
+    description="Fallos, aciertos y confirmaciones habladas del intérprete"
     leading-icon="i-lucide-mic"
     :show-button="false"
   >
     <template #trailing>
       <span class="text-sm text-muted">
-        {{ vista === 'fallos' ? `${filas.length} eventos` : `${aciertos.length} aciertos` }}
+        <template v-if="vista === 'fallos'">{{ filas.length }} eventos</template>
+        <template v-else-if="vista === 'aciertos'">{{ aciertos.length }} aciertos</template>
+        <template v-else>{{ confirmaciones.length }} confirmaciones</template>
       </span>
-      <UButton
-        to="/admin/voz-confirmaciones"
-        icon="i-lucide-shield-check"
-        variant="outline"
-        label="Confirmaciones"
-      />
     </template>
 
-    <UTabs v-model="vista" :items="itemsVista" class="mb-4 w-full sm:w-80" />
+    <UTabs v-model="vista" :items="itemsVista" class="mb-4 w-full sm:w-96" />
 
     <!-- ------------------------------ Fallos ------------------------------ -->
     <template v-if="vista === 'fallos'">
@@ -372,7 +468,7 @@ watch(filtroEstado, cargar)
     </template>
 
     <!-- ----------------------------- Aciertos ----------------------------- -->
-    <template v-else>
+    <template v-else-if="vista === 'aciertos'">
       <UAlert
         color="info"
         variant="soft"
@@ -469,6 +565,97 @@ watch(filtroEstado, cargar)
           <span class="text-sm">{{ fmtFechaHora(row.original.creadoEn) }}</span>
         </template>
       </BaseTable>
+    </template>
+
+    <!-- -------------------------- Confirmaciones -------------------------- -->
+    <template v-else>
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span class="text-muted">Resultados:</span>
+        <UBadge color="success" variant="soft" label="Auto-confirmados" />
+        <span>{{ porResultado['auto-confirmado'] || 0 }}</span>
+        <UBadge color="error" variant="soft" label="Cancelados" />
+        <span>{{ porResultado.cancelado || 0 }}</span>
+        <UBadge color="warning" variant="soft" label="Abandonados" />
+        <span>{{ porResultado.abandonado || 0 }}</span>
+        <USelect
+          v-model="puestoConfirmacion"
+          :items="opcionesPuestoConfirmacion"
+          size="sm"
+          class="ml-auto w-56"
+        />
+      </div>
+
+      <UAlert
+        v-if="errorConfirmaciones"
+        color="error"
+        variant="soft"
+        icon="i-lucide-alert-circle"
+        :title="errorConfirmaciones"
+      />
+
+      <BaseTable
+        :data="confirmaciones"
+        :columns="columnasConfirmaciones"
+        :loading-prop="cargandoConfirmaciones"
+        :show-edit="false"
+        :show-delete="false"
+        empty-state="No hay confirmaciones de voz"
+        @reload="reiniciarConfirmaciones"
+      >
+        <template #creadoEn-cell="{ row }">
+          <span class="text-sm">{{ fmtFechaHora(row.original.creadoEn) }}</span>
+        </template>
+
+        <template #puestoNombre-cell="{ row }">
+          {{ row.original.puestoNombre || row.original.puestoId || '—' }}
+        </template>
+
+        <template #productoNombre-cell="{ row }">
+          <div class="max-w-48">
+            <p class="text-sm font-medium">
+              {{ row.original.productoNombre || row.original.productoId || '—' }}
+            </p>
+          </div>
+        </template>
+
+        <template #cantidad-cell="{ row }">
+          {{ row.original.cantidad ?? '—' }}
+        </template>
+
+        <template #ubicacion-cell="{ row }">
+          {{ row.original.ubicacion || '—' }}
+        </template>
+
+        <template #modo-cell="{ row }">
+          {{ row.original.modo || '—' }}
+        </template>
+
+        <template #outcome-cell="{ row }">
+          <UBadge
+            :color="colorOutcome(row.original.outcome)"
+            variant="soft"
+            size="sm"
+            :label="etiquetaOutcome(row.original.outcome)"
+          />
+        </template>
+
+        <template #confianza-cell="{ row }">
+          <span class="text-xs text-muted">{{ porcentaje(row.original.confianza) }}</span>
+        </template>
+      </BaseTable>
+
+      <div v-if="hayMasConfirmaciones" class="mt-4 flex justify-center">
+        <UButton
+          variant="outline"
+          icon="i-lucide-chevron-down"
+          label="Cargar más"
+          :loading="cargandoConfirmaciones"
+          @click="cargarMasConfirmaciones"
+        />
+      </div>
+      <p v-else-if="confirmaciones.length >= LIMITE_CONFIRMACIONES" class="mt-4 text-center text-xs text-muted">
+        Mostrando los últimos {{ LIMITE_CONFIRMACIONES }}. Filtra por puesto para ver otros.
+      </p>
     </template>
 
     <BaseDialog

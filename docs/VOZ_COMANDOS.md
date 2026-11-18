@@ -625,7 +625,8 @@ Cada intento de auto-confirmación deja un registro en
 
 Por defecto es una auditoría local; cuando hay red, cada proof se sube de forma
 best-effort a `voz_confirmaciones` (tabla `voz_confirmaciones`, endpoint
-`POST /api/voz/confirmaciones`) para poder consultarlo centralmente.
+`POST /api/voz/confirmaciones`) para poder consultarlo centralmente en
+**/admin/voz → pestaña Confirmaciones**.
 
 **Si la subida falla** (sin red, sesión vencida, servidor caído) el proof **no se
 pierde**: entra en una cola local (`voice.proofs.cola`, lógica pura en
@@ -742,6 +743,10 @@ entendió otra cosa (producto, cliente, cantidad o acción equivocada).
 - **/admin/voz → pestaña Aciertos** los muestra con filtros por comando, ventana
   (24 h / 7 días / todo) y búsqueda en el texto. **Borrar todos** los vacía sin
   esperar la retención.
+- **/admin/voz → pestaña Confirmaciones** muestra los proofs de la confirmación
+  hablada de ventas (auto-confirmado, cancelado o abandonado), filtrables por
+  puesto. Es la misma ruta que antes tenía su propia página; el enlace antiguo
+  redirige a esta pestaña.
 - Retención propia (`retencionAciertosDias`, 7 por defecto, 1–90): la tarea
   `voz:retencion` la aplica junto con la de fallos.
 - No se generan con la app cerrada: el buzón solo resuelve en dry-run.
@@ -1072,7 +1077,7 @@ funcional caso por caso:
     «vende 3 panes y 2 refrescos» dice «De uno en uno, por favor».
 57. Con el teléfono en **modo avión**, confirmar una venta por voz deja el proof
     en el teléfono y lo encola; al quitar el modo avión, la app lo sube sola y la
-    fila aparece en el panel de confirmaciones.
+    fila aparece en **/admin/voz → Confirmaciones**.
 58. Con la red caída a mitad de la cola, los proofs ya subidos **no** se repiten
     al reintentar; los que faltan siguen en la cola.
 59. Un proof con **20** intentos fallidos o más de **14 días** se descarta solo; la
