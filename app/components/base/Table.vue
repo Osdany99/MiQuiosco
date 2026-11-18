@@ -9,6 +9,7 @@
           :disable-filters="disableFilters"
           :show-reset="showReset"
           @reload="reload"
+          @refresh="refrescarTabla"
         >
           <slot name="toolbar-leading" />
         </TableToolbarLeft>
@@ -381,6 +382,12 @@ function reload() {
   visibleHeaders.value = props.columns.filter(c => c.visible !== false).map(c => c.header)
   internalPage.value = 1
   if (repoTable) repoTable.page.value = 1
+  refresh()
+  emit('reload')
+}
+
+/** Refresco puro: recarga sin tocar filtros, página ni columnas visibles. */
+function refrescarTabla() {
   refresh()
   emit('reload')
 }

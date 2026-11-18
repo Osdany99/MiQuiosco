@@ -222,13 +222,6 @@ onMounted(() => {
   >
     <template #trailing>
       <span class="text-sm text-muted">{{ filas.length }} palabras</span>
-      <UButton
-        icon="i-lucide-refresh-cw"
-        variant="outline"
-        label="Actualizar"
-        :loading="cargando"
-        @click="cargar"
-      />
     </template>
 
     <div class="flex flex-col gap-2 md:flex-row md:items-end">

@@ -335,16 +335,6 @@ async function guardarPin() {
     title-button="Nuevo puesto"
     @new="abrirAlta"
   >
-    <template #trailing>
-      <UButton
-        icon="i-lucide-refresh-cw"
-        variant="outline"
-        label="Actualizar"
-        :loading="cargando"
-        @click="cargar"
-      />
-    </template>
-
     <UAlert
       v-if="errorCarga"
       color="error"

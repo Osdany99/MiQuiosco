@@ -157,13 +157,6 @@ async function cambiarEstado() {
   >
     <template #trailing>
       <span class="text-sm text-muted">{{ totalRegistros }} fallos</span>
-      <UButton
-        icon="i-lucide-refresh-cw"
-        variant="outline"
-        label="Actualizar"
-        :loading="cargando"
-        @click="cargar"
-      />
     </template>
 
     <UAlert

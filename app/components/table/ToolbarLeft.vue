@@ -1,5 +1,13 @@
 <template>
   <div class="flex items-center gap-2">
+    <UTooltip text="Actualizar" :delay-duration="0">
+      <UButton
+        icon="i-lucide-refresh-cw"
+        variant="ghost"
+        size="sm"
+        @click="emit('refresh')"
+      />
+    </UTooltip>
     <UTooltip v-if="showReset" text="Restablecer" :delay-duration="0">
       <UButton
         icon="i-lucide-rotate-ccw"
@@ -95,7 +103,7 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({}) }
 })
 
-const emit = defineEmits(['update:modelValue', 'reload'])
+const emit = defineEmits(['update:modelValue', 'reload', 'refresh'])
 
 const resolvedFilterFields = computed(() => {
   if (props.disableFilters) return []
