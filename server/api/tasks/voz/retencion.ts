@@ -41,6 +41,6 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: 'No autorizado.' })
   }
 
-  const { eliminados, dias } = await ejecutarRetencionVoz()
-  return { ok: true, eliminados, dias }
+  const { eliminados, aciertos, dias, diasAciertos } = await ejecutarRetencionVoz()
+  return { ok: true, eliminados, aciertos, dias, diasAciertos }
 })

@@ -260,6 +260,20 @@
       "when": 1794974457921,
       "tag": "0036_far_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794981463378,
+      "tag": "0037_nebulous_silhouette",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794981506154,
+      "tag": "0038_sour_starfox",
+      "breakpoints": true
     }
   ]
 }

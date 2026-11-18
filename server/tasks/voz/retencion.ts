@@ -15,7 +15,7 @@ export default defineTask({
     description: 'Borra eventos de voz antiguos según la retención de flota'
   },
   async run() {
-    const { eliminados, dias } = await ejecutarRetencionVoz()
-    return { result: { eliminados, dias } }
+    const { eliminados, aciertos, dias, diasAciertos } = await ejecutarRetencionVoz()
+    return { result: { eliminados, aciertos, dias, diasAciertos } }
   }
 })

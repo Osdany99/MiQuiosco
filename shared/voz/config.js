@@ -13,9 +13,12 @@ export const VOZ_WAKE_DEFECTO = 'oye nova'
 export const VOZ_MOTOR_DEFECTO = 'auto'
 export const VOZ_IDIOMA_DEFECTO = 'sistema'
 export const VOZ_RETENCION_DEFECTO = 30
+export const VOZ_RETENCION_ACIERTOS_DEFECTO = 7
 
 export const VOZ_RETENCION_MIN = 7
 export const VOZ_RETENCION_MAX = 365
+export const VOZ_RETENCION_ACIERTOS_MIN = 1
+export const VOZ_RETENCION_ACIERTOS_MAX = 90
 export const VOZ_WAKE_MAX = 40
 
 /**
@@ -61,6 +64,8 @@ export const VOZ_CONFIG_DEFECTO = Object.freeze({
   idioma: VOZ_IDIOMA_DEFECTO,
   retencionDias: VOZ_RETENCION_DEFECTO,
   capturarTexto: false,
+  capturarAciertos: false,
+  retencionAciertosDias: VOZ_RETENCION_ACIERTOS_DEFECTO,
   version: 0,
   actualizadoEn: null
 })
@@ -101,6 +106,13 @@ export function normalizarVozConfig(raw) {
       numeroEntero(datos.retencionDias, VOZ_RETENCION_DEFECTO)
     )
   )
+  const retencionAciertosDias = Math.min(
+    VOZ_RETENCION_ACIERTOS_MAX,
+    Math.max(
+      VOZ_RETENCION_ACIERTOS_MIN,
+      numeroEntero(datos.retencionAciertosDias, VOZ_RETENCION_ACIERTOS_DEFECTO)
+    )
+  )
   const version = Math.max(0, numeroEntero(datos.version, 0))
   const actualizadoEn = datos.actualizadoEn
     ? String(datos.actualizadoEn)
@@ -112,6 +124,8 @@ export function normalizarVozConfig(raw) {
     idioma,
     retencionDias,
     capturarTexto: datos.capturarTexto === true,
+    capturarAciertos: datos.capturarAciertos === true,
+    retencionAciertosDias,
     version,
     actualizadoEn
   }

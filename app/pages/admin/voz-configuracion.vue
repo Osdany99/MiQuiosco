@@ -2,6 +2,8 @@
 import {
   IDIOMAS_FLOTA,
   MOTORES_FLOTA,
+  VOZ_RETENCION_ACIERTOS_MAX,
+  VOZ_RETENCION_ACIERTOS_MIN,
   VOZ_RETENCION_MAX,
   VOZ_RETENCION_MIN,
   normalizarVozConfig
@@ -60,7 +62,9 @@ async function guardar() {
     motor: form.value.motor,
     idioma: form.value.idioma,
     retencionDias: Number(form.value.retencionDias),
-    capturarTexto: form.value.capturarTexto === true
+    capturarTexto: form.value.capturarTexto === true,
+    capturarAciertos: form.value.capturarAciertos === true,
+    retencionAciertosDias: Number(form.value.retencionAciertosDias)
   })
   if (!parsed.success) {
     errorForm.value = parsed.error.issues?.[0]?.message || 'Revisa los valores.'
@@ -240,6 +244,29 @@ onMounted(cargar)
               lo que se dijo y qué se extrajo. Puede incluir nombres de clientes,
               así que se apaga a mano cuando termines.
             </p>
+          </div>
+
+          <div class="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
+            <USwitch v-model="form.capturarAciertos" color="warning">
+              Guardar comandos exitosos (con su texto)
+            </USwitch>
+            <p class="text-xs text-muted">
+              Guarda una fila por cada dictado que la app entendió y aplicó, con la
+              frase cruda y la acción resultante. Sirve para detectar comandos que
+              «funcionaron» pero entendieron otra cosa. Puede contener nombres de
+              clientes: apágalo y bórralos desde la pestaña Aciertos del panel.
+            </p>
+            <UFormField
+              label="Retención de aciertos"
+              :help="`Entre ${VOZ_RETENCION_ACIERTOS_MIN} y ${VOZ_RETENCION_ACIERTOS_MAX} días. Van una fila por dictado.`"
+            >
+              <UInputNumber
+                v-model="form.retencionAciertosDias"
+                :min="VOZ_RETENCION_ACIERTOS_MIN"
+                :max="VOZ_RETENCION_ACIERTOS_MAX"
+                class="w-full"
+              />
+            </UFormField>
           </div>
 
           <UButton

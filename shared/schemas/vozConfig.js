@@ -3,6 +3,8 @@ import { z } from 'zod'
 import {
   IDIOMAS_VOZ_FLOTA,
   MOTORES_VOZ,
+  VOZ_RETENCION_ACIERTOS_MAX,
+  VOZ_RETENCION_ACIERTOS_MIN,
   VOZ_RETENCION_MAX,
   VOZ_RETENCION_MIN,
   esWakeValido,
@@ -33,5 +35,22 @@ export const vozConfigSchema = z.object({
    * Guarda la frase cruda de los dictados fallidos. Se apaga a mano: mientras
    * esté encendido, el panel puede mostrar nombres de clientes sin enmascarar.
    */
-  capturarTexto: z.boolean().default(false)
+  capturarTexto: z.boolean().default(false),
+  /**
+   * Guarda los dictados que la app resolvió bien, con su frase cruda. Es
+   * diagnóstico temporal: una fila por dictado y retención corta.
+   */
+  capturarAciertos: z.boolean().default(false),
+  retencionAciertosDias: z
+    .number()
+    .int('La retención de aciertos debe ser un número entero de días.')
+    .min(
+      VOZ_RETENCION_ACIERTOS_MIN,
+      `La retención mínima de aciertos es ${VOZ_RETENCION_ACIERTOS_MIN} día.`
+    )
+    .max(
+      VOZ_RETENCION_ACIERTOS_MAX,
+      `La retención máxima de aciertos es ${VOZ_RETENCION_ACIERTOS_MAX} días.`
+    )
+    .default(7)
 }).strict()

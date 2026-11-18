@@ -30,6 +30,8 @@ import { voiceCommandSchema } from '#shared/schemas/voiceCommand'
 
 import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
 import { registrarEventoVoz } from '../utils/vozEventos'
+import { registrarAciertoVoz } from '../utils/vozAciertos'
+import { ACCIONES_ACIERTO, detalleDeAccion } from '../utils/voice/detalleAcierto'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
@@ -128,6 +130,9 @@ function _create(ubicacion) {
   const ultimoError = ref(null)
   /** Última frase elegida del dictado, para la captura de diagnóstico. */
   let ultimoDictado = ''
+  /** Comando interpretado y confianza del STT del último dictado. */
+  let ultimoComando = ''
+  let ultimaConfianza = 0
   /**
    * Acción que no tiene formulario (mover producto). El layout la lee, la habla y
    * pide el «sí» SIEMPRE, sin mirar el switch de confirmación.
@@ -2380,6 +2385,8 @@ function _create(ubicacion) {
     }
 
     const { comando, slots } = validacion.data
+    ultimoComando = comando
+    ultimaConfianza = Number(sttConfidence) || 0
     if (comando === 'desconocido') {
       const motivo = interpretado?.reasons?.[0] || 'sin_comando'
       return {
@@ -2502,6 +2509,21 @@ function _create(ubicacion) {
           texto: vozConfig.config.value.capturarTexto ? ultimoDictado : null
         })
       })()
+    }
+
+    // Diagnóstico de aciertos: una fila por dictado que llegó a una acción
+    // aplicable. Los fallos y ambigüedades ya se auditan arriba. Solo se apunta
+    // si la flota lo tiene encendido: es material temporal y con datos crudos.
+    if (vozConfig.config.value.capturarAciertos === true
+      && !accion.auditar
+      && ACCIONES_ACIERTO.has(accion.tipo)) {
+      void registrarAciertoVoz({
+        comando: accion.comando || ultimoComando || 'desconocido',
+        resultado: accion.tipo,
+        detalle: detalleDeAccion(accion),
+        texto: ultimoDictado || null,
+        confianza: ultimaConfianza
+      })
     }
 
     switch (accion.tipo) {

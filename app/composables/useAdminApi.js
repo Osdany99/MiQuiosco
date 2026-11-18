@@ -115,6 +115,14 @@ export function useAdminApi() {
     return pedir('/api/admin/voz/limpiar', { method: 'POST' })
   }
 
+  function listarAciertosVoz(filtros = {}) {
+    return pedir('/api/admin/voz/aciertos', { query: filtros })
+  }
+
+  function limpiarAciertosVoz() {
+    return pedir('/api/admin/voz/aciertos/limpiar', { method: 'POST' })
+  }
+
   function listarConfirmacionesVoz(filtros = {}) {
     return pedir('/api/admin/voz/confirmaciones', { query: filtros })
   }
@@ -155,6 +163,8 @@ export function useAdminApi() {
     resumenVoz,
     marcarEventoVoz,
     limpiarEventosVoz,
+    listarAciertosVoz,
+    limpiarAciertosVoz,
     listarConfirmacionesVoz,
     listarLexicoVoz,
     crearEntradaLexicoVoz,

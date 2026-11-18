@@ -9,6 +9,7 @@ import { mergeFields } from '../utils/syncMerge.js'
 import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
 import { registrarFallosLocales, subirFallosPendientes } from '../utils/syncFallos'
 import { subirEventosVozPendientes } from '../utils/vozEventos'
+import { subirAciertosVozPendientes } from '../utils/vozAciertos'
 import { useVozLexico } from './useVozLexico'
 import { useVozConfig } from './useVozConfig'
 import { infoDispositivo } from '../utils/dispositivo'
@@ -470,6 +471,7 @@ function _create() {
         // queda pendiente para la próxima sync.
         await subirFallosPendientes(fetch).catch(() => {})
         await subirEventosVozPendientes(fetch).catch(() => {})
+        await subirAciertosVozPendientes(fetch).catch(() => {})
         await vozLexico.refrescar(fetch).catch(() => {})
         await vozConfig.refrescar(fetch).catch(() => {})
         await reportarEstadoSync(exito).catch(() => {})

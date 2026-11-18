@@ -1324,6 +1324,46 @@ export const vozEventos = pgTable(
 export type VozEvento = typeof vozEventos.$inferSelect
 export type NuevoVozEvento = typeof vozEventos.$inferInsert
 
+// Dictados que el intérprete resolvió y la app aplicó. A diferencia de
+// `voz_eventos` (contador de fallos agrupado), aquí hay una fila por dictado:
+// el texto crudo y la acción permiten revisar si se entendió bien. Fila
+// temporal de diagnóstico: solo se llena con `voz_config.capturar_aciertos`.
+export const vozAciertos = pgTable(
+  'voz_aciertos',
+  {
+    // El id lo genera el cliente para que reintentar la subida no duplique.
+    id: uuid('id').primaryKey(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    // Lo que interpretó la gramática (`venta_directa`, `cobro_deuda`…).
+    comando: text('comando').notNull(),
+    // Lo que la app aplicó (`venta`, `consultar_stock`, `ajuste`…).
+    resultado: text('resultado').notNull(),
+    detalle: text('detalle'),
+    // Frase cruda, sin enmascarar. Solo con `capturar_aciertos` encendido.
+    texto: text('texto'),
+    confianza: doublePrecision('confianza'),
+    appVersion: text('app_version'),
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow()
+  },
+  table => ({
+    // El panel filtra por puesto/ventana temporal y ordena por fecha.
+    puestoCreadoIdx: index('voz_aciertos_puesto_creado_en_idx').on(
+      table.puestoId,
+      table.creadoEn
+    ),
+    comandoCreadoIdx: index('voz_aciertos_comando_creado_en_idx').on(
+      table.comando,
+      table.creadoEn
+    )
+  })
+)
+
+export type VozAcierto = typeof vozAciertos.$inferSelect
+export type NuevoVozAcierto = typeof vozAciertos.$inferInsert
+
 // Auditoría central de la confirmación hablada: pruebas de auto-confirmación que el dispositivo
 // intentó registrar. Solo datos estructurados, nunca texto crudo de voz.
 export const vozConfirmaciones = pgTable(
@@ -1393,6 +1433,10 @@ export const vozConfig = pgTable('voz_config', {
   // Guarda la frase cruda de los dictados fallidos (diagnóstico). Apagado por
   // defecto y manual: puede contener nombres de clientes.
   capturarTexto: boolean('capturar_texto').notNull().default(false),
+  // Guarda una fila por dictado exitoso (con su frase) para revisar si se
+  // entendió bien. Diagnóstico temporal: apagado por defecto.
+  capturarAciertos: boolean('capturar_aciertos').notNull().default(false),
+  retencionAciertosDias: integer('retencion_aciertos_dias').notNull().default(7),
   version: integer('version').notNull().default(1),
   actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
   actualizadoPor: uuid('actualizado_por').references(() => usuarios.id)
