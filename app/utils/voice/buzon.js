@@ -157,9 +157,12 @@ export function pendienteDesdeAccion(accion, entrada) {
     return null
   }
 
-  // Los comandos asistidos (K, L, M, N) necesitan el formulario delante: si un
-  // dictado llegara hasta aquí, se ignora en vez de anotarse como venta.
-  if (accion.tipo === 'entrada' || accion.tipo === 'cambio_precio' || accion.tipo === 'traspaso' || accion.tipo === 'cuadre') {
+  // Los comandos asistidos (K, L, M, N, P4, P5) necesitan el formulario delante
+  // o un «sí» con pantalla: si un dictado llegara hasta aquí, se ignora en vez
+  // de anotarse como venta.
+  if (accion.tipo === 'entrada' || accion.tipo === 'cambio_precio' || accion.tipo === 'traspaso' || accion.tipo === 'cuadre'
+    || accion.tipo === 'ajuste' || accion.tipo === 'producto_alta' || accion.tipo === 'deuda_dinero'
+    || accion.tipo === 'transferencia_cuadre') {
     return null
   }
 

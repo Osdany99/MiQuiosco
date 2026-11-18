@@ -126,3 +126,47 @@ export function resolverTraspaso(accion, catalogo = [], { sttConfidence = 0 } = 
     efectivo: resuelto.efectivo
   }
 }
+
+/**
+ * Merma o devolución al almacén (P4b). Solo el jefe llega aquí.
+ *
+ * La devolución siempre sale del quiosco (es lo que el diálogo sabe hacer); la
+ * merma se registra donde se dictó o donde se dijo («se rompieron 3 panes del
+ * quiosco»). Se comprueba el stock porque un ajuste mayor que lo que hay deja
+ * el inventario en negativo y el lote sin saldo que descontar.
+ */
+export function resolverAjuste(accion, catalogo = [], { sttConfidence = 0, ubicacion = 'almacen' } = {}) {
+  const resuelto = resolverProducto(accion, catalogo, sttConfidence)
+  if (resuelto.tipo !== 'ok') return resuelto
+
+  const fila = resuelto.fila
+  const tipoAjuste = accion?.slots?.tipo === 'devolucion' ? 'devolucion' : 'merma'
+  const lugar = tipoAjuste === 'devolucion'
+    ? 'quiosco'
+    : (accion?.slots?.ubicacion === 'quiosco' || accion?.slots?.ubicacion === 'almacen'
+        ? accion.slots.ubicacion
+        : ubicacion)
+  const cantidad = Math.max(1, Math.trunc(Number(accion?.slots?.cantidad) || 1))
+  const disponible = Number(fila?.[lugar] ?? 0)
+
+  if (cantidad > disponible) {
+    return {
+      tipo: 'aviso',
+      motivo: 'stock_insuficiente',
+      mensaje: `En ${lugar === 'quiosco' ? 'el quiosco' : 'el almacén'} solo hay ${disponible} de ${fila?.nombre}. Baja la cantidad y vuelve a dictarlo.`,
+      disponible
+    }
+  }
+
+  return {
+    tipo: 'ok',
+    comando: 'ajuste_inventario',
+    fila,
+    cantidad,
+    disponible,
+    tipoAjuste,
+    ubicacion: lugar,
+    motivo: String(accion?.slots?.motivo ?? '').trim().slice(0, 200),
+    efectivo: resuelto.efectivo
+  }
+}

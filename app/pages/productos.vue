@@ -37,6 +37,8 @@ const columns = [
 
 const tableRef = ref(null)
 const formRef = ref(null)
+const route = useRoute()
+const router = useRouter()
 const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
 const perms = usePermisos()
 // Producto inactivo no se vende: al desmarcar Activo se desmarca Vende solo.
@@ -177,6 +179,16 @@ onMounted(() => {
   setTimeout(() => {
     if (!sortable) initSortable()
   }, 1500)
+
+  // Alta dictada por voz (P4c): `/productos?nuevo=1&nombre=…&precio=…` abre el
+  // formulario prellenado. La persona revisa y pulsa Guardar: la voz no escribe.
+  const { nuevo, nombre, precio, ...resto } = route.query
+  if (nuevo) {
+    nuevoProducto()
+    form.value.nombre = String(nombre ?? '')
+    form.value.precioVentaActual = Number(precio) > 0 ? Number(precio) : 0
+    void router.replace({ path: route.path, query: resto })
+  }
 })
 
 onBeforeUnmount(() => destruirSortable())

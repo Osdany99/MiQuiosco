@@ -15,6 +15,7 @@ import { Capacitor } from '@capacitor/core'
 import { useAuth } from './useAuth'
 import { useVozLexico } from './useVozLexico'
 import { useCuentasFiado } from './useCuentasFiado'
+import { useTransferencias } from './useTransferencias'
 import {
   UMBRAL_PRODUCTO,
   decidirProducto,
@@ -37,10 +38,10 @@ import { formatearDia, formatearGanancia, resumirDia } from '#shared/voz/dia'
 import { rangoDeIso } from '#shared/voz/fechas'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseAjuste, fraseProductoAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, fraseDeudaDinero, fraseTransferencia, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
 
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
-import { resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
+import { resolverAjuste, resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
 import { agruparPorProducto, segmentarVentaMultiple } from '#shared/voz/multi'
 import { proyectarStock } from '../utils/voice/pendientes'
 import { ajustarCantidadVoz } from '../utils/voice/prefill'
@@ -51,6 +52,7 @@ import { useVoiceZeroTouch } from './useVoiceZeroTouch'
 import { useVozDisparo } from './useVozDisparo'
 import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
+import { evaluarTrabajador, FRASE_TRABAJADOR } from '#shared/voz/trabajador'
 
 const MODO_POR_TIPO = {
   directa: 'venta',
@@ -74,6 +76,7 @@ function _create(ubicacion) {
   const tts = useTts()
   const auth = useAuth()
   const fiado = useCuentasFiado()
+  const transf = useTransferencias()
   const alias = useVozAlias()
   const perms = usePermisos()
   const conexion = useModoConexion()
@@ -721,6 +724,90 @@ function _create(ubicacion) {
     }
   }
 
+  /**
+   * P4b — merma o devolución al almacén. Solo el jefe: una merma es una pérdida
+   * y la decide quien responde por el inventario.
+   *
+   * La devolución siempre vuelve del quiosco al almacén; la merma se registra
+   * donde se dictó o donde se dijo («del quiosco»). El stock se comprueba en esa
+   * ubicación: un ajuste mayor deja el lote sin saldo que descontar.
+   */
+  async function resolverAjusteAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!auth.esJefe.value) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'Solo el jefe puede registrar mermas y devoluciones.',
+        auditar: { comando: 'ajuste_inventario', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+    const tipoAjuste = slots?.tipo === 'devolucion' ? 'devolucion' : 'merma'
+    const lugar = tipoAjuste === 'devolucion'
+      ? 'quiosco'
+      : (slots?.ubicacion === 'quiosco' || slots?.ubicacion === 'almacen' ? slots.ubicacion : ubicacion)
+    const nombreLugar = lugar === 'almacen' ? 'el almacén' : 'el quiosco'
+    if (!perms.puedeVista(lugar) || !perms.puedeAccion(lugar, 'ajuste')) {
+      return { tipo: 'aviso', mensaje: `No tienes permiso para ajustar inventario en ${nombreLugar}.` }
+    }
+    const catalogo = await catalogoDe(lugar, { soloVendibles: false })
+    if (!vigente()) return { tipo: 'cancelado' }
+    const resuelto = resolverAjuste({ slots: { ...slots, tipo: tipoAjuste } }, catalogo, { sttConfidence, ubicacion: lugar })
+    if (resuelto.tipo === 'ambiguo') {
+      return {
+        tipo: 'ambiguo',
+        comando: 'ajuste_inventario',
+        candidatos: resuelto.candidatos,
+        slots: { ...slots, tipo: tipoAjuste },
+        sttConfidence,
+        encontrados: resuelto.candidatos.length,
+        efectivo: resuelto.efectivo
+      }
+    }
+    if (resuelto.tipo !== 'ok') return { ...resuelto, comando: 'ajuste_inventario', sttConfidence }
+    return {
+      tipo: 'ajuste',
+      comando: 'ajuste_inventario',
+      fila: resuelto.fila,
+      cantidad: resuelto.cantidad,
+      disponible: resuelto.disponible,
+      ajusteTipo: resuelto.tipoAjuste,
+      ubicacion: resuelto.ubicacion,
+      motivo: resuelto.motivo,
+      slots,
+      sttConfidence
+    }
+  }
+
+  /**
+   * P4c — alta de producto. No escribe: navega a `/productos` con el formulario
+   * prellenado (nombre y, si se dictó, precio). El botón Guardar es la
+   * confirmación; por eso no se pide un «sí» hablado.
+   */
+  async function resolverProductoAlta(slots, sttConfidence = 0) {
+    if (!auth.esJefe.value || !perms.puedeVista('productos')) {
+      return { tipo: 'aviso', mensaje: 'Solo el jefe puede crear productos.' }
+    }
+    const nombre = String(slots?.nombre ?? '').trim()
+    if (!nombre) {
+      return { tipo: 'aviso', mensaje: '¿Cómo se llama el producto? Prueba: crea un producto pan de leche a 25.' }
+    }
+    const productos = await inv.cargarProductos().catch(() => [])
+    const parecido = crearEmparejador(productos ?? [], sttConfidence)(nombre)
+      .find(c => Number(c.scoreEfectivo) >= 0.86)
+    if (parecido) {
+      return {
+        tipo: 'aviso',
+        mensaje: `Ya existe «${parecido.row?.nombre ?? nombre}». Revisa /productos antes de crear otro.`
+      }
+    }
+    const precio = Number(slots?.precio)
+    return {
+      tipo: 'producto_alta',
+      nombre,
+      precio: Number.isFinite(precio) && precio > 0 ? precio : null,
+      sttConfidence
+    }
+  }
+
   /** Fase M — cuadre: solo lleva a la pantalla y lee totales. */
   function resolverCuadreAccion(slots, sttConfidence = 0) {
     if (!perms.puedeVista('cuadre')) {
@@ -797,7 +884,70 @@ function _create(ubicacion) {
     hablarAsistido(texto)
   }
 
-  /** Prepara el traspaso almacén → quiosco (Fase N). */ function prepararTraspaso(accion) {
+  /**
+   * Prepara la merma / devolución (P4b): el diálogo abre con producto,
+   * cantidad, tipo y el motivo dictado. El jefe revisa y guarda.
+   */
+  function prepararAjuste(accion) {
+    prefill.value = {
+      modo: 'ajuste',
+      ubicacion: accion.ubicacion,
+      tipo: accion.ajusteTipo,
+      cantidad: accion.cantidad,
+      motivo: accion.motivo
+    }
+    producto.value = accion.fila
+    modo.value = 'ajuste'
+    estado.value = 'listo'
+    const texto = fraseAjuste({
+      tipo: accion.ajusteTipo,
+      cantidad: accion.cantidad,
+      nombre: accion.fila?.nombre,
+      motivo: accion.motivo,
+      lugar: accion.ubicacion
+    })
+    toast.add({
+      title: accion.ajusteTipo === 'devolucion' ? 'Devolución al almacén' : 'Merma',
+      description: texto,
+      color: 'neutral',
+      duration: 8000
+    })
+    voice.registrar('voz.ajuste', {
+      tipo: accion.ajusteTipo,
+      producto: accion.fila?.nombre ?? '',
+      cantidad: accion.cantidad,
+      ubicacion: accion.ubicacion,
+      motivo: accion.motivo
+    })
+    hablarAsistido(texto)
+  }
+
+  /**
+   * Prepara el alta de producto (P4c): navega a `/productos` con el formulario
+   * ya abierto y prellenado. No se pide un «sí»: el botón Guardar es la
+   * confirmación, y sin él no se escribe nada.
+   */
+  async function prepararProductoAlta(accion) {
+    const texto = fraseProductoAlta({ nombre: accion.nombre, precio: accion.precio })
+    ultimaRespuestaVoz.value = texto
+    toast.add({ title: 'Nuevo producto', description: texto, color: 'neutral', duration: 8000 })
+    voice.registrar('voz.producto', {
+      nombre: accion.nombre ?? '',
+      precio: accion.precio ?? 0
+    })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    const query = { nuevo: '1', nombre: accion.nombre }
+    if (accion.precio) query.precio = String(accion.precio)
+    await navigateTo({ path: '/productos', query })
+    estado.value = 'idle'
+  }
+
+  /** Prepara el traspaso almacén → quiosco (Fase N). */
+  function prepararTraspaso(accion) {
     prefill.value = {
       modo: 'traspaso',
       cantidad: accion.cantidad
@@ -1035,16 +1185,29 @@ function _create(ubicacion) {
   }
 
   /**
+   * Cuadre abierto del puesto (el más reciente si hubiera duplicados). Solo
+   * lee: la voz nunca crea ni abre un cuadre.
+   */
+  async function leerCuadreAbierto() {
+    const puestoId = auth.usuarioActual.value?.puestoId ?? null
+    if (!puestoId) return null
+    try {
+      const { data: filas } = await cuadresRepo.readAll()
+      return (filas ?? [])
+        .filter(c => c?.estado === 'abierto' && c?.puestoId === puestoId)
+        .sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')))[0] ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * Lee el cuadre abierto y sus líneas SIN crear ni escribir nada. Devuelve el
    * resumen que hablan «cómo va la caja» y el cierre asistido (Fase M).
    */
   async function leerResumenCaja() {
-    const puestoId = auth.usuarioActual.value?.puestoId ?? null
     try {
-      const { data: filas } = await cuadresRepo.readAll()
-      const abierto = (filas ?? [])
-        .filter(c => c?.estado === 'abierto' && c?.puestoId === puestoId)
-        .sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')))[0]
+      const abierto = await leerCuadreAbierto()
       if (!abierto) return null
       const { data: items } = await cuadreItemsRepo.readAll({ query: { cuadreId: abierto.id } })
       const lineas = (items ?? []).filter(l => l?.cuadreId === abierto.id)
@@ -1103,7 +1266,11 @@ function _create(ubicacion) {
    * hay varios parecidos.
    */
   async function resolverFiadoAccion(slots, sttConfidence = 0, vigente = () => true) {
-    if (!perms.puedeVista('deudas')) {
+    // El trabajador no suele tener `/deudas`: dentro del cuadre manda el
+    // permiso de la tarjeta de fiado.
+    const puedeFiar = perms.puedeVista('deudas')
+      || (auth.esTrabajador.value && perms.puedeAccion('cuadre', 'fiar'))
+    if (!puedeFiar) {
       return {
         tipo: 'aviso',
         mensaje: 'No tienes permiso para fiar.',
@@ -1327,6 +1494,184 @@ function _create(ubicacion) {
       restante: Math.round((saldoTotal - reparto.aplicado) * 100) / 100,
       formaPago: slots?.formaPago === 'transferencia' ? 'transferencia' : 'efectivo',
       slots
+    }
+  }
+
+  /**
+   * Busca al cliente nombrado en una frase de dinero. Devuelve `{ cliente }` o
+   * `{ accion }` con el aviso/error ya resuelto. El centinela «Sin cliente»
+   * solo se admite cuando `incluirSinCliente` es true (transferencias).
+   */
+  async function clienteDeLaFrase(hintCliente, pid, {
+    comando,
+    sttConfidence = 0,
+    ejemplo,
+    incluirSinCliente = false
+  }) {
+    const hint = String(hintCliente ?? '').trim()
+    if (!hint) {
+      return {
+        accion: {
+          tipo: 'aviso',
+          mensaje: `¿A quién? Di por ejemplo: ${ejemplo}.`,
+          auditar: { comando, motivo: 'sin_cliente', confianza: Number(sttConfidence) || 0 }
+        }
+      }
+    }
+
+    const clientes = await fiado.cargarClientes(pid, { incluirSinCliente }).catch(() => [])
+    const parecidos = clientesSimilares(hint, clientes, { umbral: 0.72 })
+    if (!parecidos.length) {
+      return {
+        accion: {
+          tipo: 'error',
+          comando,
+          motivo: 'cliente_no_encontrado',
+          mensaje: `No encontré a "${hint}" entre los clientes.`,
+          texto: hint,
+          auditar: { comando, motivo: 'cliente_no_encontrado', confianza: Number(sttConfidence) || 0 }
+        }
+      }
+    }
+
+    const [mejor, segundo] = parecidos
+    if (segundo && mejor.similitud - segundo.similitud < 0.05) {
+      const nombres = parecidos.slice(0, 3).map(p => p.cliente.nombre).join(', ')
+      return {
+        accion: {
+          tipo: 'aviso',
+          mensaje: `Hay varios clientes parecidos: ${nombres}. Di el nombre completo.`,
+          auditar: { comando, motivo: 'cliente_ambiguo', confianza: Number(sttConfidence) || 0 }
+        }
+      }
+    }
+    return { cliente: mejor.cliente }
+  }
+
+  /**
+   * Deuda de dinero del cuadre («anota que Juan debe 500»). Solo arma la
+   * acción: escribir exige el «sí» en `prepararDeudaDinero`.
+   */
+  async function resolverDeudaDineroAccion(slots, sttConfidence = 0, vigente = () => true) {
+    // Mismo criterio que el fiado: el trabajador no suele tener `/deudas`, pero
+    // dentro del cuadre manda el permiso de la tarjeta de fiado.
+    const puedeAnotar = perms.puedeVista('deudas')
+      || (auth.esTrabajador.value && perms.puedeAccion('cuadre', 'fiar'))
+    if (!puedeAnotar) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No tienes permiso para anotar deudas.',
+        auditar: { comando: 'deuda_dinero', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const pid = auth.usuarioActual.value?.puestoId
+    if (!pid) {
+      return {
+        tipo: 'error',
+        comando: 'deuda_dinero',
+        motivo: 'sin_puesto',
+        mensaje: 'No hay un puesto activo para anotar la deuda.',
+        texto: slots?.clienteHint || ''
+      }
+    }
+
+    const monto = Math.round((Number(slots?.monto) || 0) * 100) / 100
+    if (!(monto > 0)) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No entendí cuánto debe. Di por ejemplo: anota que Juan debe 500.',
+        auditar: { comando: 'deuda_dinero', motivo: 'monto_invalido', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const cuadre = await leerCuadreAbierto()
+    if (!vigente()) return { tipo: 'cancelado' }
+    if (!cuadre?.id) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No hay un cuadre abierto. Ábrelo antes de anotar la deuda.',
+        auditar: { comando: 'deuda_dinero', motivo: 'sin_cuadre', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const busqueda = await clienteDeLaFrase(slots?.clienteHint, pid, {
+      comando: 'deuda_dinero',
+      sttConfidence,
+      ejemplo: 'anota que Juan debe 500'
+    })
+    if (busqueda.accion) return busqueda.accion
+    if (!vigente()) return { tipo: 'cancelado' }
+
+    return {
+      tipo: 'deuda_dinero',
+      cliente: busqueda.cliente,
+      monto,
+      cuadreId: cuadre.id,
+      slots,
+      sttConfidence
+    }
+  }
+
+  /**
+   * Transferencia al cuadre («transferencia de 500 a Juan»). Como la deuda de
+   * dinero, no escribe hasta el «sí». Se admite «sin cliente» (centinela).
+   */
+  async function resolverTransferenciaAccion(slots, sttConfidence = 0, vigente = () => true) {
+    if (!perms.puedeVista('cuadre') || !perms.puedeAccion('cuadre', 'transferencia')) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No tienes permiso para registrar transferencias.',
+        auditar: { comando: 'transferencia_cuadre', motivo: 'sin_permiso', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const pid = auth.usuarioActual.value?.puestoId
+    if (!pid) {
+      return {
+        tipo: 'error',
+        comando: 'transferencia_cuadre',
+        motivo: 'sin_puesto',
+        mensaje: 'No hay un puesto activo para registrar la transferencia.',
+        texto: slots?.clienteHint || ''
+      }
+    }
+
+    const monto = Math.round((Number(slots?.monto) || 0) * 100) / 100
+    if (!(monto > 0)) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No entendí cuánto. Di por ejemplo: transferencia de 500 a Juan.',
+        auditar: { comando: 'transferencia_cuadre', motivo: 'monto_invalido', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const cuadre = await leerCuadreAbierto()
+    if (!vigente()) return { tipo: 'cancelado' }
+    if (!cuadre?.id) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No hay un cuadre abierto. Ábrelo antes de registrar la transferencia.',
+        auditar: { comando: 'transferencia_cuadre', motivo: 'sin_cuadre', confianza: Number(sttConfidence) || 0 }
+      }
+    }
+
+    const busqueda = await clienteDeLaFrase(slots?.clienteHint, pid, {
+      comando: 'transferencia_cuadre',
+      sttConfidence,
+      ejemplo: 'transferencia de 500 a Juan',
+      incluirSinCliente: true
+    })
+    if (busqueda.accion) return busqueda.accion
+    if (!vigente()) return { tipo: 'cancelado' }
+
+    return {
+      tipo: 'transferencia_cuadre',
+      cliente: busqueda.cliente,
+      monto,
+      cuadreId: cuadre.id,
+      slots,
+      sttConfidence
     }
   }
 
@@ -1581,6 +1926,206 @@ function _create(ubicacion) {
     void snapshotVoz.actualizar().catch(() => {})
   }
 
+  /**
+   * Anota una deuda de dinero en el cuadre abierto. Lee lo que va a hacer y no
+   * escribe hasta el «sí». Una corrección de importe («no, eran 800») se acepta
+   * dos veces, igual que en el cobro.
+   */
+  async function prepararDeudaDinero(accion) {
+    const cliente = accion?.cliente
+    if (!cliente?.id || !accion?.cuadreId) {
+      estado.value = 'idle'
+      throw new Error('Falta el cliente o el cuadre para anotar la deuda.')
+    }
+
+    let monto = Math.round((Number(accion.monto) || 0) * 100) / 100
+    let frase = fraseDeudaDinero({ cliente: cliente.nombre, monto })
+
+    modo.value = 'deuda_dinero'
+    estado.value = 'confirmando'
+    ultimaRespuestaVoz.value = frase
+    readBackTexto.value = frase
+    readBackIncluyeConfirmacion.value = true
+    toast.add({ title: 'Deuda de dinero', description: frase, color: 'success', duration: 8000 })
+
+    if (!tts.habilitado.value) {
+      estado.value = 'idle'
+      toast.add({
+        title: 'Voz',
+        description: 'La lectura de voz está apagada: no se anotó nada.',
+        color: 'warning'
+      })
+      return
+    }
+
+    let correcciones = 0
+    let resultado = 'timeout'
+    while (true) {
+      const respuesta = await escucharRespuestaVoz(frase)
+      resultado = respuesta.resultado
+      if (resultado !== 'corregir') break
+
+      if (correcciones >= 2) {
+        resultado = 'abandonado'
+        break
+      }
+      const nuevo = Math.trunc(Number(respuesta.cantidad) || 0)
+      if (!(nuevo > 0)) {
+        resultado = 'monto_invalido'
+        break
+      }
+      monto = nuevo
+      frase = fraseDeudaDinero({ cliente: cliente.nombre, monto })
+      ultimaRespuestaVoz.value = frase
+      readBackTexto.value = frase
+      correcciones++
+    }
+
+    if (resultado !== 'afirmado') {
+      estado.value = 'idle'
+      const mensaje = resultado === 'negado'
+        ? 'Cancelado.'
+        : (resultado === 'monto_invalido'
+            ? 'Ese monto no es válido. No se anotó nada.'
+            : 'Sin respuesta. No se anotó nada.')
+      toast.add({ title: 'Voz', description: mensaje, color: 'warning' })
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
+      return
+    }
+
+    const pid = auth.usuarioActual.value?.puestoId
+    const r = await fiado.registrarNuevaDeuda({
+      clienteId: cliente.id,
+      cuadreId: accion.cuadreId,
+      puestoId: pid,
+      items: [],
+      montoTotal: monto
+    })
+    if (!r?.ok) {
+      estado.value = 'idle'
+      throw new Error(r?.error?.message || 'No se pudo anotar la deuda.')
+    }
+
+    const texto = `Anotado: ${cliente.nombre} debe ${monto} pesos.`
+    ultimaRespuestaVoz.value = texto
+    toast.add({
+      title: 'Deuda anotada',
+      description: `${cliente.nombre} debe ${monto} pesos`,
+      color: 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    estado.value = 'idle'
+    void snapshotVoz.actualizar().catch(() => {})
+  }
+
+  /**
+   * Registra una transferencia en el cuadre abierto. Misma regla: lectura y
+   * «sí» antes de escribir. El monto corregido se acepta dos veces.
+   */
+  async function prepararTransferencia(accion) {
+    const cliente = accion?.cliente
+    if (!cliente?.id || !accion?.cuadreId) {
+      estado.value = 'idle'
+      throw new Error('Falta el cliente o el cuadre para la transferencia.')
+    }
+
+    let monto = Math.round((Number(accion.monto) || 0) * 100) / 100
+    let frase = fraseTransferencia({ cliente: cliente.nombre, monto })
+
+    modo.value = 'transferencia_cuadre'
+    estado.value = 'confirmando'
+    ultimaRespuestaVoz.value = frase
+    readBackTexto.value = frase
+    readBackIncluyeConfirmacion.value = true
+    toast.add({ title: 'Transferencia', description: frase, color: 'success', duration: 8000 })
+
+    if (!tts.habilitado.value) {
+      estado.value = 'idle'
+      toast.add({
+        title: 'Voz',
+        description: 'La lectura de voz está apagada: no se registró nada.',
+        color: 'warning'
+      })
+      return
+    }
+
+    let correcciones = 0
+    let resultado = 'timeout'
+    while (true) {
+      const respuesta = await escucharRespuestaVoz(frase)
+      resultado = respuesta.resultado
+      if (resultado !== 'corregir') break
+
+      if (correcciones >= 2) {
+        resultado = 'abandonado'
+        break
+      }
+      const nuevo = Math.trunc(Number(respuesta.cantidad) || 0)
+      if (!(nuevo > 0)) {
+        resultado = 'monto_invalido'
+        break
+      }
+      monto = nuevo
+      frase = fraseTransferencia({ cliente: cliente.nombre, monto })
+      ultimaRespuestaVoz.value = frase
+      readBackTexto.value = frase
+      correcciones++
+    }
+
+    if (resultado !== 'afirmado') {
+      estado.value = 'idle'
+      const mensaje = resultado === 'negado'
+        ? 'Cancelado.'
+        : (resultado === 'monto_invalido'
+            ? 'Ese monto no es válido. No se registró nada.'
+            : 'Sin respuesta. No se registró nada.')
+      toast.add({ title: 'Voz', description: mensaje, color: 'warning' })
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
+      return
+    }
+
+    const pid = auth.usuarioActual.value?.puestoId
+    const r = await transf.registrarTransferencia({
+      clienteId: cliente.id,
+      cuadreId: accion.cuadreId,
+      monto,
+      puestoId: pid
+    })
+    if (!r?.ok) {
+      estado.value = 'idle'
+      throw new Error(r?.error?.message || 'No se pudo registrar la transferencia.')
+    }
+
+    const texto = `Transferencia registrada: ${monto} pesos de ${cliente.nombre}.`
+    ultimaRespuestaVoz.value = texto
+    toast.add({
+      title: 'Transferencia registrada',
+      description: `${monto} pesos de ${cliente.nombre}`,
+      color: 'success',
+      duration: 8000
+    })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    estado.value = 'idle'
+    void snapshotVoz.actualizar().catch(() => {})
+  }
+
   /** Repite la última respuesta hablada (consultas de stock, precio o deuda). */
   async function repetirUltimaRespuesta() {
     const texto = ultimaRespuestaVoz.value || FRASE_NADA_QUE_REPETIR
@@ -1594,14 +2139,19 @@ function _create(ubicacion) {
 
   /** Ayuda hablada: qué puede hacer el asistente. */
   async function responderAyuda() {
+    // El trabajador solo puede fiar, anotar deudas de dinero y transferencias:
+    // leerle la ayuda del jefe le ofrecería comandos que se van a rechazar.
+    const texto = auth.esTrabajador.value ? FRASE_TRABAJADOR : FRASE_AYUDA
     toast.add({
       title: 'Voz',
-      description: 'Vender, consultar stock y precios, y abrir pantallas.',
+      description: auth.esTrabajador.value
+        ? 'En el cuadre: fiar, anotar deudas de dinero y transferencias.'
+        : 'Vender, consultar stock y precios, y abrir pantallas.',
       color: 'success',
       duration: 8000
     })
     try {
-      await tts.speak(FRASE_AYUDA)
+      await tts.speak(texto)
     } catch {
       /* noop */
     }
@@ -1768,6 +2318,7 @@ function _create(ubicacion) {
       const rec = { indice: items.length, comando: clas.comando, elegido: false, ambiguo: true, efectivo: 0, encontrados: 0 }
       if (clas.comando === 'consulta_deuda' || clas.comando === 'consulta_dia' || clas.comando === 'consulta_ganancia'
         || clas.comando === 'consulta_caja' || clas.comando === 'cobro_deuda' || clas.comando === 'cuadre_accion'
+        || clas.comando === 'deuda_dinero' || clas.comando === 'transferencia_cuadre'
         || clas.comando === 'repetir' || clas.comando === 'ayuda') {
         // No dependen de catálogo: no se evalúan contra el inventario.
         rec.elegido = true
@@ -1842,6 +2393,24 @@ function _create(ubicacion) {
       }
     }
 
+    // Modo cuadre del trabajador: fuera de `/cuadre` no hace nada y dentro solo
+    // atiende la lista blanca. El filtro es puro y se prueba en node.
+    const filtroTrabajador = evaluarTrabajador({
+      esTrabajador: auth.esTrabajador.value,
+      ruta: route.path,
+      comando
+    })
+    if (filtroTrabajador) {
+      return {
+        ...filtroTrabajador,
+        auditar: {
+          comando,
+          motivo: filtroTrabajador.motivo,
+          confianza: Number(interpretado?.confidence) || 0
+        }
+      }
+    }
+
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
@@ -1850,14 +2419,20 @@ function _create(ubicacion) {
     if (comando === 'consulta_caja') return resolverConsultaCaja(slots, sttConfidence)
     if (comando === 'venta_fiada') return resolverFiadoAccion(slots, sttConfidence, vigente)
     if (comando === 'cobro_deuda') return resolverCobroAccion(slots, sttConfidence, vigente)
-    // Comandos ASISTIDOS (K, L, M, N): no escriben, solo prellenan o navegan.
-    // Con la app cerrada (buzón) no existen: necesitan el formulario delante.
-    if (comando === 'entrada_inventario' || comando === 'cambio_precio' || comando === 'traspaso' || comando === 'cuadre_accion') {
+    if (comando === 'deuda_dinero') return resolverDeudaDineroAccion(slots, sttConfidence, vigente)
+    if (comando === 'transferencia_cuadre') return resolverTransferenciaAccion(slots, sttConfidence, vigente)
+    // Comandos ASISTIDOS (K, L, M, N, P4): no escriben, solo prellenan, navegan
+    // o abren el formulario. Con la app cerrada (buzón) no existen: necesitan el
+    // formulario delante. La deuda de dinero y la transferencia también piden
+    // confirmación, que no existe sin pantalla.
+    if (comando === 'entrada_inventario' || comando === 'cambio_precio' || comando === 'traspaso' || comando === 'cuadre_accion' || comando === 'ajuste_inventario' || comando === 'producto_alta' || comando === 'deuda_dinero' || comando === 'transferencia_cuadre') {
       if (ventaDirecta === true) return { tipo: 'cancelado' }
     }
     if (comando === 'entrada_inventario') return resolverEntradaAccion(slots, sttConfidence, vigente)
     if (comando === 'cambio_precio') return resolverCambioPrecioAccion(slots, sttConfidence, vigente)
     if (comando === 'traspaso') return resolverTraspasoAccion(slots, sttConfidence, vigente)
+    if (comando === 'ajuste_inventario') return resolverAjusteAccion(slots, sttConfidence, vigente)
+    if (comando === 'producto_alta') return resolverProductoAlta(slots, sttConfidence)
     if (comando === 'cliente_alta') return resolverClienteAlta(slots, sttConfidence)
     if (comando === 'mover_producto') return resolverMoverAccion(slots, sttConfidence)
     if (comando === 'cuadre_accion') return resolverCuadreAccion(slots, sttConfidence)
@@ -1979,12 +2554,20 @@ function _create(ubicacion) {
         return prepararFiado(accion)
       case 'cobrar':
         return prepararCobro(accion)
+      case 'deuda_dinero':
+        return prepararDeudaDinero(accion)
+      case 'transferencia_cuadre':
+        return prepararTransferencia(accion)
       case 'entrada':
         return prepararEntrada(accion)
       case 'cambio_precio':
         return prepararCambioPrecio(accion)
       case 'traspaso':
         return prepararTraspaso(accion)
+      case 'ajuste':
+        return prepararAjuste(accion)
+      case 'producto_alta':
+        return prepararProductoAlta(accion)
       case 'cliente_alta':
         return prepararClienteAlta(accion)
       case 'mover':
@@ -2174,6 +2757,10 @@ function _create(ubicacion) {
       await procesarCandidatoAsistido(candidato, datos, 'traspaso')
       return
     }
+    if (datos.comando === 'ajuste_inventario') {
+      await procesarCandidatoAsistido(candidato, datos, 'ajuste_inventario')
+      return
+    }
     prepararVenta(candidato.row, datos.slots, datos.slots?.ubicacion || undefined)
   }
 
@@ -2197,6 +2784,19 @@ function _create(ubicacion) {
       }
       return prepararCambioPrecio({ fila: candidato.row, precioActual: Number(candidato.row?.precioVentaActual ?? 0), precio })
     }
+    if (comando === 'ajuste_inventario') {
+      const tipoAjuste = slots.tipo === 'devolucion' ? 'devolucion' : 'merma'
+      const lugar = tipoAjuste === 'devolucion'
+        ? 'quiosco'
+        : (slots.ubicacion === 'quiosco' || slots.ubicacion === 'almacen' ? slots.ubicacion : ubicacion)
+      return prepararAjuste({
+        fila: candidato.row,
+        cantidad: Math.max(1, Math.trunc(Number(slots.cantidad) || 1)),
+        ajusteTipo: tipoAjuste,
+        ubicacion: lugar,
+        motivo: String(slots.motivo ?? '').trim().slice(0, 200)
+      })
+    }
     return prepararTraspaso({
       fila: candidato.row,
       cantidad: Math.max(1, Math.trunc(Number(slots.cantidad) || 1))
@@ -2211,6 +2811,7 @@ function _create(ubicacion) {
     if (comando === 'entrada_inventario') return 'Confirma qué producto entró'
     if (comando === 'cambio_precio') return 'Confirma de qué producto cambiar el precio'
     if (comando === 'traspaso') return 'Confirma qué producto traspasar'
+    if (comando === 'ajuste_inventario') return 'Confirma qué producto ajustar'
     return 'Confirma el producto'
   })
 

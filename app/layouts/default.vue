@@ -14,6 +14,7 @@ const vozDialogRef = ref(null)
 const entradaDialogRef = ref(null)
 const precioDialogRef = ref(null)
 const traspasoDialogRef = ref(null)
+const ajusteDialogRef = ref(null)
 const clienteDialogRef = ref(null)
 const zeroTouch = useVoiceZeroTouch()
 const voiceRaw = useVoiceCommand()
@@ -196,7 +197,7 @@ async function escucharRespuesta(nombreProducto) {
 }
 
 /** Modos con formulario que también se confirman por voz. */
-const MODOS_ASISTIDOS = new Set(['entrada', 'precio', 'traspaso', 'cliente'])
+const MODOS_ASISTIDOS = new Set(['entrada', 'precio', 'traspaso', 'ajuste', 'cliente'])
 
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
@@ -407,6 +408,10 @@ const dialogoTraspasoAbierto = computed({
   get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'traspaso',
   set: (valor) => { if (!valor) vozDialogAbierto.value = false }
 })
+const dialogoAjusteAbierto = computed({
+  get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'ajuste',
+  set: (valor) => { if (!valor) vozDialogAbierto.value = false }
+})
 const dialogoClienteAbierto = computed({
   get: () => vozDialogAbierto.value && vozActiva.value.modo.value === 'cliente',
   set: (valor) => { if (!valor) vozDialogAbierto.value = false }
@@ -418,6 +423,7 @@ const dialogoAsistidoRef = computed(() => {
   if (modo === 'entrada') return entradaDialogRef.value
   if (modo === 'precio') return precioDialogRef.value
   if (modo === 'traspaso') return traspasoDialogRef.value
+  if (modo === 'ajuste') return ajusteDialogRef.value
   if (modo === 'cliente') return clienteDialogRef.value
   return null
 })
@@ -793,6 +799,14 @@ const userMenuItems = computed(() => {
         v-model="dialogoTraspasoAbierto"
         :producto-id="vozActiva.modo.value === 'traspaso' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :prefill="vozActiva.modo.value === 'traspaso' ? vozActiva.prefill.value : null"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+      />
+      <InventarioDialogoAjuste
+        ref="ajusteDialogRef"
+        v-model="dialogoAjusteAbierto"
+        :producto-id="vozActiva.modo.value === 'ajuste' ? (vozActiva.producto.value?.productoId ?? null) : null"
+        :ubicacion="vozActiva.modo.value === 'ajuste' ? (vozActiva.prefill.value?.ubicacion || ubicacionVozActual) : ubicacionVozActual"
+        :prefill="vozActiva.modo.value === 'ajuste' ? vozActiva.prefill.value : null"
         @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
       />
       <ClienteDialogo

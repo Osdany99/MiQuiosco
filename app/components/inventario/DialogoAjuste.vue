@@ -61,7 +61,10 @@
 const props = defineProps({
   productoId: { type: String, default: null },
   // Ubicación de la vista desde la que se abrió: el ajuste nunca la cambia.
-  ubicacion: { type: String, default: 'quiosco' }
+  ubicacion: { type: String, default: 'quiosco' },
+  // Prellenado desde la voz: `{ tipo, cantidad, motivo, ubicacion }`. El motivo
+  // dictado llega aquí tal cual y el jefe lo revisa antes de guardar.
+  prefill: { type: Object, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -79,15 +82,25 @@ const tipos = [{ id: 'merma', nombre: 'Merma' }, { id: 'devolucion', nombre: 'De
 const form = ref({ productoId: null, tipo: 'merma', cantidad: 0, motivo: '', loteId: null })
 
 const esDevolucion = computed(() => form.value.tipo === 'devolucion')
-const ubicacionEfectiva = computed(() => esDevolucion.value ? 'quiosco' : props.ubicacion)
+
+/**
+ * Ubicación del ajuste: la que dictó la voz (`prefill.ubicacion`) o la de la
+ * vista. La devolución siempre se registra contra el quiosco.
+ */
+const ubicacionBase = computed(() =>
+  props.prefill?.ubicacion === 'almacen' || props.prefill?.ubicacion === 'quiosco'
+    ? props.prefill.ubicacion
+    : props.ubicacion
+)
+const ubicacionEfectiva = computed(() => esDevolucion.value ? 'quiosco' : ubicacionBase.value)
 
 /**
  * La devolución siempre sale del quiosco, así que solo tiene sentido pedirla
  * desde esa vista. En el almacén el tipo queda fijo en merma.
  */
-const permiteElegirTipo = computed(() => props.ubicacion === 'quiosco')
+const permiteElegirTipo = computed(() => ubicacionBase.value === 'quiosco')
 
-const etiquetaUbicacion = computed(() => esDevolucion.value ? 'Quiosco' : (props.ubicacion === 'almacen' ? 'Almacén' : 'Quiosco'))
+const etiquetaUbicacion = computed(() => esDevolucion.value ? 'Quiosco' : (ubicacionBase.value === 'almacen' ? 'Almacén' : 'Quiosco'))
 
 const opcionesLote = computed(() =>
   lotes.value.map(l => ({
@@ -117,7 +130,14 @@ async function cargarLotes() {
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { productoId: props.productoId, tipo: 'merma', cantidad: 0, motivo: '', loteId: null }
+  const pre = props.prefill
+  form.value = {
+    productoId: props.productoId,
+    tipo: pre?.tipo === 'devolucion' ? 'devolucion' : 'merma',
+    cantidad: Number(pre?.cantidad) > 0 ? Math.trunc(Number(pre.cantidad)) : 0,
+    motivo: String(pre?.motivo ?? ''),
+    loteId: null
+  }
   const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
   nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
   saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
@@ -136,7 +156,7 @@ async function confirmar() {
     await inv.registrarAjuste({
       productoId: form.value.productoId,
       tipo: form.value.tipo,
-      ubicacion: esDevolucion.value ? 'quiosco' : props.ubicacion,
+      ubicacion: esDevolucion.value ? 'quiosco' : ubicacionBase.value,
       cantidad: Math.trunc(Number(form.value.cantidad)),
       motivo: form.value.motivo.trim(),
       nota: null,
@@ -151,4 +171,7 @@ async function confirmar() {
     guardando.value = false
   }
 }
+
+// La confirmación hablada («sí») llama a este método desde el layout.
+defineExpose({ confirmar })
 </script>

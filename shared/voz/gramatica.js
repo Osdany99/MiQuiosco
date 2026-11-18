@@ -580,6 +580,94 @@ export function extraerDeudaSlots(transcript) {
 }
 
 /**
+ * Deuda de dinero («anota que Juan debe 500», «deuda de 500 a Juan»,
+ * «fía 500 pesos a Juan»). Es una anotación del cuadre, no mueve inventario.
+ *
+ * Exige una cifra: «la deuda de Juan» es una consulta. Con «fía» solo cuenta si
+ * se dice la moneda, para no comerse «fía 2 panes a Juan».
+ */
+const RE_MONEDA = /\b(?:pesos?|cup|cuc|mn|centavos?)\b/
+
+export function esDeudaDinero(texto) {
+  const t = normalizar(texto)
+  if (!t || !hayNumero(t)) return false
+  if (/^(?:cuanto|cuanta|cuantos|cuantas|quien|quienes)\b/.test(t)) return false
+  if (/\bdebe\b/.test(t)) return true
+  if (/^(?:deuda|debo)\b/.test(t)) return true
+  if (/\bdeudas?\b/.test(t) && RE_MONEDA.test(t)) return true
+  return VERBOS_FIADO.has(t.split(' ')[0]) && RE_MONEDA.test(t)
+}
+
+/**
+ * Transferencia al cuadre («transferencia de 500 a Juan», «transfiere 500 de
+ * Juan»). Es dinero que entra a la gaveta, no un traspaso de inventario: para
+ * el traspaso hace falta nombrar quiosco o almacén (ver `esTraspaso`).
+ */
+export function esTransferenciaCuadre(texto) {
+  const t = normalizar(texto)
+  if (!t || !hayNumero(t)) return false
+  if (/^(?:cuanto|cuanta|cuantos|cuantas|quien|quienes)\b/.test(t)) return false
+  // «cobra 200 a Juan por transferencia» es un cobro, no una transferencia.
+  if (VERBOS_COBRO.has(t.split(' ')[0])) return false
+  if (/\btransfirio\b|\btransfirieron\b/.test(t)) return true
+  if (!/\btransferencias?\b/.test(t) && !/^(?:transfiere|transfiereme|transferir|transfiero)\b/.test(t)) {
+    return false
+  }
+  return /^(?:anota|anotame|apunta|apuntame|registra|registrame|agrega|agregame|haz|hazme|pon|ponme|transfiere|transfiereme|transfiero|transferencia|transferencias)\b/.test(t)
+}
+
+// Relleno alrededor del monto: verbos, preposiciones, moneda y cortesía. Lo que
+// queda es el nombre del cliente.
+const RELLENO_MONTO_CLIENTE = new Set([
+  'pesos', 'peso', 'centavos', 'centavo', 'cuc', 'cup', 'mn',
+  'a', 'al', 'para', 'de', 'del', 'por', 'con', 'que', 'el', 'la', 'los', 'las',
+  'debe', 'deben', 'debo', 'deuda', 'deudas',
+  'anota', 'anotame', 'apunta', 'apuntame', 'registra', 'registrame',
+  'agrega', 'agregame', 'haz', 'hazme', 'pon', 'ponme',
+  'fia', 'fiale', 'fiar', 'fias', 'fian', 'fiame', 'fiamelo', 'fiarle',
+  'transferencia', 'transferencias', 'transfiere', 'transfiereme', 'transfiero',
+  'transfirio', 'transfirieron', 'me', 'le', 'les', 'se',
+  'una', 'un', 'unos', 'unas', 'hoy', 'ahora'
+])
+
+/** Monto y cliente de una frase de dinero, sin producto. */
+function extraerMontoYCliente(transcript) {
+  const tokens = normalizar(transcript).split(' ').filter(Boolean)
+  let idx = -1
+  let numero = null
+  for (let i = 0; i < tokens.length; i++) {
+    // «una transferencia de 500»: el artículo no es el monto. Solo se ignora
+    // cuando la secuencia empieza en él; «treinta y una» ya se lee entera.
+    if (tokens[i] === 'un' || tokens[i] === 'una' || tokens[i] === 'uno' || tokens[i] === 'unos' || tokens[i] === 'unas') {
+      continue
+    }
+    const n = parseNumberSequence(tokens.slice(i))
+    if (n) {
+      idx = i
+      numero = n
+      break
+    }
+  }
+  if (!numero) return { clienteHint: '', monto: null }
+
+  const antes = tokens.slice(0, idx).filter(t => !RELLENO_MONTO_CLIENTE.has(t))
+  const despues = tokens.slice(idx + numero.consumidos).filter(t => !RELLENO_MONTO_CLIENTE.has(t))
+  // El cliente puede ir delante («Juan debe 500») o detrás («500 a Juan»).
+  const clienteHint = (antes.length ? antes : despues).join(' ').trim()
+  return { clienteHint, monto: Number(numero.valor) }
+}
+
+/** Slots de `deuda_dinero`: a quién y cuánto. */
+export function extraerDeudaDineroSlots(transcript) {
+  return extraerMontoYCliente(transcript)
+}
+
+/** Slots de `transferencia_cuadre`: a quién y cuánto. */
+export function extraerTransferenciaSlots(transcript) {
+  return extraerMontoYCliente(transcript)
+}
+
+/**
  * Fase A — clasificación.
  */
 export function resolverComando(transcript, lexico = LEXICO_BASE) {
@@ -604,10 +692,20 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   if (esEntradaInventario(texto)) {
     return { comando: 'entrada_inventario', confianza: 0.9, reasons: ['verbo_entrada'] }
   }
+  // Merma / devolución al almacén: comparten verbo con nada más, pero van antes
+  // de la venta para que «se rompieron 3 panes» no se registre como venta.
+  if (esAjusteInventario(texto)) {
+    return { comando: 'ajuste_inventario', confianza: 0.9, reasons: ['verbo_ajuste'] }
+  }
   // Alta de cliente: «agrega el cliente Adrián». Va antes de la venta porque
   // comparte verbos («registra», «crea») y antes de entrada por el nombre.
   if (esAltaCliente(texto)) {
     return { comando: 'cliente_alta', confianza: 0.9, reasons: ['verbo_cliente'] }
+  }
+  // Alta de producto: exige la palabra «producto», así «crea 3 panes» sigue
+  // siendo una venta y no un alta.
+  if (esProductoAlta(texto)) {
+    return { comando: 'producto_alta', confianza: 0.9, reasons: ['verbo_producto'] }
   }
   if (esCambioPrecio(texto)) {
     return { comando: 'cambio_precio', confianza: 0.9, reasons: ['verbo_precio'] }
@@ -617,6 +715,14 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   }
   if (esTraspaso(texto)) {
     return { comando: 'traspaso', confianza: 0.9, reasons: ['verbo_traspaso'] }
+  }
+  // Deuda de dinero y transferencia al cuadre: van antes de fiar y de cobrar,
+  // que comparten verbos («fía 500 pesos», «cobra … por transferencia»).
+  if (esDeudaDinero(texto)) {
+    return { comando: 'deuda_dinero', confianza: 0.9, reasons: ['verbo_deuda_dinero'] }
+  }
+  if (esTransferenciaCuadre(texto)) {
+    return { comando: 'transferencia_cuadre', confianza: 0.9, reasons: ['verbo_transferencia'] }
   }
   if (esMoverProducto(texto)) {
     return { comando: 'mover_producto', confianza: 0.9, reasons: ['verbo_mover'] }
@@ -935,9 +1041,38 @@ const VERBOS_ENTRADA = /^(?:entraron|entro|entra|entrada|ingresaron|ingreso|ingr
 const VERBOS_PRECIO = /^(?:cambia|cambiar|cambiale|cambiamelo|pon|ponle|ponme|pongale|sube|subele|baja|bajale|actualiza|actualizale|corrige|corrigele|deja|dejalo|fija|fijale)\b/
 const VERBOS_TRASPASO = /^(?:pasa|pasame|pasale|pasar|mueve|mueveme|muevelo|muevela|traspasa|traspasame|traslada|transfiere|transferir|transfiereme|transferi|transfiero|repone|repon|reponer)\b/
 
+/**
+ * Merma: mercancía que se pierde. El verbo manda («se rompieron» → `rotos`).
+ * Incluye el sustantivo («merma de 3 panes») porque es lo que se dicta cuando
+ * no hay una desgracia concreta que contar.
+ */
+const VERBOS_MERMA = /^(?:se\s+)?(?:rompieron|rompio|rompimos|rompi|vencieron|vencio|vencimos|venci|dano|danaron|danamos|perdieron|perdio|perdimos|perdi|cayeron|cayo|caimos|mojaron|mojo|mojamos|derramaron|derramo|derramamos|merma|tira|tirame|bota|botame|descarta|descarte)\b/
+
+/**
+ * Devolución al almacén: solo se reconoce si se nombra el almacén. «Devuelve el
+ * pan» sin destino es ambiguo (podría ser un cambio de precio) y se deja como
+ * venta/duda en vez de adivinar un movimiento de inventario.
+ */
+const VERBOS_DEVOLUCION = /^(?:devuelve|devuelveme|devuelvamelo|devuelvele|regresa|regresame|retorna|retorname)\b/
+
+/** Motivo canónico por verbo: es lo que se prellena en el formulario. */
+const MOTIVOS_POR_VERBO = [
+  [/\b(?:rompi|rompio|rompieron|rompimos|roto|rotos|rota|rotas)\b/, 'rotos'],
+  [/\b(?:venci|vencio|vencieron|vencidos|vencido|vencidas|vencida)\b/, 'vencidos'],
+  [/\b(?:cayo|cayeron|caido|caidos)\b/, 'se cayó'],
+  [/\b(?:mojo|mojaron|mojado|mojados)\b/, 'se mojó'],
+  [/\b(?:derramo|derramaron|derramado|derramados)\b/, 'derramado'],
+  [/\b(?:dano|danaron|danado|danados)\b/, 'dañado'],
+  [/\b(?:perdio|perdieron|perdido|perdidos)\b/, 'perdido']
+]
+
 /** ¿La frase trae algún número (dígitos o en palabras)? */
 function hayNumero(texto) {
-  return /\d/.test(texto) || texto.split(' ').some(t => parseNumberToken(t) != null)
+  if (/\d/.test(texto)) return true
+  const tokens = texto.split(' ')
+  // «mil» y «millón» solo se resuelven en secuencia (parseNumberSequence).
+  if (tokens.includes('mil') || tokens.includes('millon') || tokens.includes('millones')) return true
+  return tokens.some(t => parseNumberToken(t) != null)
 }
 
 /** «Entraron 20 panes a 10 pesos»: entrada de lote al almacén (Fase K). */
@@ -1011,9 +1146,91 @@ function extraerTraspasoSlots(transcript, lexico) {
   }
 }
 
+/**
+ * Merma o devolución al almacén (P4b). Sin cantidades ni producto no se toca
+ * nada: la cantidad por defecto es 1 y el producto lo resuelve el catálogo.
+ */
+export function esAjusteInventario(texto) {
+  const t = normalizar(texto)
+  if (VERBOS_DEVOLUCION.test(t)) return /\balmacen\b/.test(t)
+  return VERBOS_MERMA.test(t) && (hayNumero(t) || /\bmerma\b/.test(t))
+}
+
+/** Motivo legible: el verbo, más la cola dictada tras «porque». */
+function motivoDeAjuste(texto, colaCruda) {
+  const base = MOTIVOS_POR_VERBO.find(([re]) => re.test(texto))?.[1]
+    ?? (/\bdevuelve|devuelv|regresa|retorna/.test(texto) ? 'devolución' : 'merma')
+  const cola = String(colaCruda ?? '').replace(/\s+/g, ' ').replace(/[.,;]+$/, '').trim()
+  return cola ? `${base}, ${cola}` : base
+}
+
+function extraerAjusteSlots(transcript, lexico) {
+  const texto = normalizar(transcript)
+  const crudo = String(transcript ?? '')
+  // El motivo dictado («… porque se los llevó el perro») va tal cual, con sus
+  // acentos: es lo que el jefe lee en el formulario antes de guardar.
+  const cola = crudo.match(/\b(?:porque|pues|ya\s+que)\b\s*(.+)$/i)?.[1] ?? ''
+  const sinCola = texto.replace(/\s*\b(?:porque|pues|ya que)\b[\s\S]*$/, '')
+
+  const tipo = VERBOS_DEVOLUCION.test(sinCola) && /\balmacen\b/.test(sinCola)
+    ? 'devolucion'
+    : 'merma'
+
+  const resto = sinCola
+    .replace(VERBOS_DEVOLUCION, ' ')
+    .replace(VERBOS_MERMA, ' ')
+    .replace(/^\s*(?:de|del)\s+/, ' ')
+    .replace(/\b(?:al|del|de la|de|para el|pal|desde el)\s+(?:almacen|quiosco)\b/g, ' ')
+  const { slots } = extraerBase(resto, false, lexico)
+
+  // Ubicación dicha («en el quiosco», «del almacén»): si no se dice, decide la
+  // pantalla desde la que se dicta.
+  const ubicacion = sinCola.match(/\b(?:del|de la|en el|en la|desde el|desde la)\s+(almacen|quiosco)\b/)?.[1] ?? null
+
+  return {
+    productoHint: slots.productoHint,
+    cantidad: slots.cantidad,
+    tipo,
+    ubicacion,
+    motivo: motivoDeAjuste(texto, cola)
+  }
+}
+
+/** «Crea un producto llamado Pan de leche a 25 pesos» (P4c). */
+const VERBOS_PRODUCTO = /^(?:agrega|agregame|anade|anademe|crea|creame|registra|registrame|nuevo|nueva|alta)\b/
+
+export function esProductoAlta(texto) {
+  const t = normalizar(texto)
+  if (!VERBOS_PRODUCTO.test(t)) return false
+  return /\bproductos?\b/.test(t)
+}
+
+function extraerProductoAltaSlots(transcript) {
+  let texto = normalizar(transcript)
+    .replace(VERBOS_PRODUCTO, ' ')
+    .replace(/\b(?:productos?|nuevo|nueva|llamado|llamada)\b/g, ' ')
+    .replace(/\bde\s+nombre\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // El precio es opcional: se dicta «a 25 pesos» y se quita del nombre.
+  let precio = null
+  const tokens = texto.split(' ').filter(Boolean)
+  const encontrado = parsearPrecio(tokens)
+  if (encontrado) {
+    precio = encontrado.valor
+    texto = [...tokens.slice(0, encontrado.desde), ...tokens.slice(encontrado.hasta)]
+      .join(' ')
+  }
+
+  return {
+    nombre: texto.replace(ARTICULOS_INICIALES, '').replace(/\s+/g, ' ').trim(),
+    precio
+  }
+}
+
 /** «Agrega el cliente Adrián» (Fase P3): alta de cliente por voz. */
 const VERBOS_CLIENTE = /^(?:agrega|agregame|anade|anademe|crea|creame|registra|registrame|nuevo|nueva|alta)\b/
-
 export function esAltaCliente(texto) {
   const t = normalizar(texto)
   if (!VERBOS_CLIENTE.test(t)) return false
@@ -1073,6 +1290,10 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   if (comando === 'cambio_precio') return extraerCambioPrecioSlots(transcript, lexico)
   if (comando === 'traspaso') return extraerTraspasoSlots(transcript, lexico)
   if (comando === 'cliente_alta') return extraerClienteAltaSlots(transcript)
+  if (comando === 'producto_alta') return extraerProductoAltaSlots(transcript)
+  if (comando === 'ajuste_inventario') return extraerAjusteSlots(transcript, lexico)
+  if (comando === 'deuda_dinero') return extraerDeudaDineroSlots(transcript)
+  if (comando === 'transferencia_cuadre') return extraerTransferenciaSlots(transcript)
   if (comando === 'mover_producto') return extraerMoverSlots(transcript)
   if (comando === 'cuadre_accion') return extraerCuadreSlots(transcript)
   if (comando === 'consulta_stock' || comando === 'consulta_precio') {

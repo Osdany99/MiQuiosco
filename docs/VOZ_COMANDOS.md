@@ -4,10 +4,11 @@
 1. `resolverComando(transcript, lexico)` → `{ comando, confianza, reasons }`.
 2. `extraerSlots(comando, transcript, lexico)` → slots propios del comando.
 
-Soportados: `venta_directa`, `venta_fiada`, `cobro_deuda`, `consulta_stock`,
-`consulta_precio`, `consulta_deuda`, `consulta_dia`, `consulta_ganancia`,
-`consulta_caja`, `entrada_inventario`, `cambio_precio`, `cuadre_accion`,
-`traspaso`, `repetir`, `ayuda`, `desconocido`.
+Soportados: `venta_directa`, `venta_fiada`, `cobro_deuda`, `deuda_dinero`,
+`transferencia_cuadre`, `consulta_stock`, `consulta_precio`, `consulta_deuda`,
+`consulta_dia`, `consulta_ganancia`, `consulta_caja`, `entrada_inventario`,
+`cambio_precio`, `cuadre_accion`, `traspaso`, `ajuste_inventario`, `cliente_alta`,
+`producto_alta`, `mover_producto`, `repetir`, `ayuda`, `desconocido`.
 
 ## Cómo añadir un comando
 1. Clasificarlo en `resolverComando` con su razón y confianza.
@@ -85,11 +86,14 @@ historial, no por voz.
 El micrófono se abre justo cuando el TTS termina, así que puede oír su propio
 anuncio. Tres defensas, en este orden:
 
-1. Se espera el **margen anti-eco** (400 ms) antes de abrir el micrófono.
+1. El **arranque del motor** hace de margen: el «sí» se capta desde que el
+   micrófono escucha de verdad (`esperandoMicro`), no desde que se le pidió
+   abrirse. Antes se esperaban 400 ms fijos y ese tramo se comía la respuesta.
 2. Se pasa como `prompt` **todo lo que se habló** (no solo la pregunta) y se
    descartan las transcripciones que lo repiten.
-3. Durante los primeros **700 ms** de escucha, una palabra suelta que ya estaba
-   en el anuncio («sí», «confirmar») se trata como eco y se sigue esperando.
+3. Durante los primeros **700 ms** de escucha contados desde el **fin del
+   anuncio** (`desdeMs`), una palabra suelta que ya estaba en el anuncio («sí»,
+   «confirmar») se trata como eco y se sigue esperando.
 
 Sin la tercera, oír solo el «sí» de «diga sí para confirmar» registraba la venta
 sin que el jefe hablara. El resultado (`afirmado/negado/timeout`) queda en la
@@ -97,11 +101,13 @@ traza de voz de Ajustes.
 
 ### Tiempo de espera
 
-Fijo: **6 segundos**. No se configura en Ajustes (antes había un selector de
-3/5/8/10 s que solo añadía dudas, y el servicio nativo ya esperaba 6 s). El
-mismo valor vive en `useVoiceZeroTouch.js` (`TIMEOUT_CONFIRMACION_MS`) y en
+Fijo: **6 segundos**, contados desde que el micrófono está escuchando. No se
+configura en Ajustes (antes había un selector de 3/5/8/10 s que solo añadía
+dudas, y el servicio nativo ya esperaba 6 s). El mismo valor vive en
+`useVoiceZeroTouch.js` (`TIMEOUT_CONFIRMACION_MS`) y en
 `shared/voz/dialogo.json` (`tiempos.confirmacion`). Controla cuánto tiempo el
-micrófono espera el “sí” antes de caer al modo manual.
+micrófono espera el “sí” antes de caer al modo manual. En el servicio nativo la
+caducidad se arma al terminar el anuncio, no antes de hablarlo.
 
 Si **Leer en voz alta** está apagado no hay confirmación hablada: la venta abre
 el formulario y se confirma con el botón, sin esperar en silencio.
@@ -172,6 +178,50 @@ app cerrada (el buzón los ignora: necesitan el formulario delante).
 
 En los cuatro, un producto ambiguo o inexistente se pregunta con el menú de
 candidatos y, al elegirlo a mano, se aprende el alias como en una venta.
+
+### Merma y devolución al almacén (solo jefe)
+
+«Se rompieron 3 panes, porque se cayó la caja», «se vencieron 5 yogures», «se
+mojaron 2 refrescos», «devuelve 4 panes al almacén».
+
+- Se abren en **`DialogoAjuste`**, el mismo diálogo que usa el inventario: no hay
+  un formulario paralelo. Nada se escribe hasta pulsar **Guardar**.
+- **Merma**: el motivo se dicta. Se guarda un verbo canónico (`rotos`,
+  `vencidos`, `se cayó`, `se mojó`, `derramado`, `dañado`, `perdido`) y, si se
+  dijo, la cola detrás de «porque / pues / ya que»; máximo 200 caracteres. Sin
+  motivo, se guarda solo el verbo.
+- **Devolución** (tipo `devolucion`): siempre repone **del quiosco al almacén**;
+  la cantidad no puede superar lo que hay en el quiosco.
+- La merma se registra donde se dictó o donde se dijo («del quiosco» / «del
+  almacén») y comprueba el stock de esa ubicación antes de abrir.
+- La merma va a `movimientos_inventario` (tipo `merma`), igual que el botón del
+  inventario: **no** toca gavetas del cuadre.
+- Un **trabajador no puede dictar merma ni devolución**: oye el aviso y no se
+  abre el diálogo.
+
+### Alta de producto (solo jefe)
+
+«Crea un producto llamado Pan de leche a 25 pesos», «nuevo producto Refresco de
+uva», «agrega el producto Galletas».
+
+- Lleva a **`/productos?nuevo=1&nombre=…&precio=…`** con el formulario ya
+  abierto y prellenado; sin precio, deja el campo vacío.
+- Se lee la frase, pero **no se pide «sí»**: el botón **Guardar** es la
+  confirmación. El nombre y el precio siguen siendo editables.
+- Sin la palabra «producto» la frase no es un alta («vende 2 panes» sigue siendo
+  una venta).
+
+### Mover producto de lugar (solo jefe)
+
+«Mueve el pan al quiosco», «pasa el refresco al almacén».
+
+- **No tiene formulario**: se resuelve en una sola frase. Primero lee lo que va a
+  hacer y pide **«sí» siempre**, aunque el switch de confirmación esté apagado:
+  una acción sin formulario no tiene otra confirmación humana.
+- Mueve la **fila de producto** (no el lote) y **renumera las posiciones 1..N**
+  del inventario de esa ubicación, igual que el botón de la pantalla.
+- Si el producto ya está en ese lugar, lo dice y no hace nada.
+
 
 ### Consultas de precio, deudas, «repite» y ayuda (app abierta)
 
@@ -294,7 +344,50 @@ Crea una **deuda directa** (fuera de cuadre), igual que el formulario de
   Editar: el formulario de deuda vive en `/deudas`).
 - Lo dictado **no cobra**: un fiado por voz crea la deuda, no recibe pagos.
 
+## Deuda de dinero y transferencia al cuadre (app abierta)
+
+Dos anotaciones de **dinero**, no de inventario: no mueven stock. Las dos viven
+en el cuadre abierto y las dos leen antes de escribir; sin el «sí» no se guarda
+nada.
+
+- **Deuda de dinero**: «anota que Juan debe 500», «deuda de 500 a Juan», «fía 500
+  pesos a Juan». Crea una cuenta de fiado **sin productos** por ese importe y la
+  suma al fiado del cuadre. Exige una **cifra** («la deuda de Juan» es una
+  consulta) y **cliente real**: no admite «Sin cliente».
+- **Transferencia**: «transferencia de 500 a Juan», «transfiere 500 a Juan», «Juan
+  me transfirió 500», «anota una transferencia de 500 de María». Suma al monto en
+  transferencia del cuadre y **sí admite** el centinela «Sin cliente».
+- «fía 2 panes a Juan» sigue siendo un **fiado de producto**; para que cuente
+  como deuda de dinero tiene que sonar la moneda («fía 500 pesos a Juan»).
+- «transfiere 5 panes del almacén al quiosco» sigue siendo un **traspaso**: para
+  la transferencia de dinero hace falta una cifra sin producto.
+- «cobra 200 a Juan por transferencia» sigue siendo un **cobro**.
+- Se aceptan **2 correcciones** de importe («no, eran 800») antes de confirmar.
+- Sin cuadre abierto, avisa y no crea nada; **la voz nunca abre un cuadre**.
+- Requieren permiso de deudas/cuadre. Con la **lectura de voz apagada** no se
+  guarda nada.
+- Con la **app cerrada** no existen: necesitan el «sí» con pantalla, así que el
+  buzón las ignora.
+
+## Modo cuadre del trabajador
+
+El trabajador **no dice «modo cuadre»**: la pantalla `/cuadre` *es* el modo.
+
+- Fuera de `/cuadre` (y de `/cuadre/…`) la voz **no hace nada**: avisa de que
+  abra el cuadre. `/cuadres` (historial) no cuenta como cuadre.
+- Dentro del cuadre solo atiende una **lista blanca**: `venta_fiada`,
+  `deuda_dinero`, `transferencia_cuadre`, `repetir` y `ayuda`.
+- Quedan fuera, aunque tenga el micrófono: cobrar, consultas de stock y precio,
+  venta directa, entrada, traspaso, cambio de precio, mover producto, altas,
+  merma/devolución y abrir/cerrar cuadre.
+- La **ayuda** del trabajador lee solo lo que puede hacer, no el menú del jefe.
+- El filtro es puro (`shared/voz/trabajador.js`) y se decide por ruta exacta más
+  la lista blanca; no depende de frases ni de palabras clave.
+- `Fiado` y `Transferencia` del cuadre se muestran al trabajador si tiene esas
+  acciones; **cerrar y reabrir** siguen siendo del jefe.
+
 ## Deudas por voz
+
 Se consultan, se pueden **fiar** y **cobrar** por voz (secciones anteriores). La
 lógica de la consulta es pura y vive en `shared/voz/deudas.js`; el servicio
 nativo la replica en `ConsultaDeuda.java` sobre el resumen que la app deja en el
@@ -975,6 +1068,30 @@ funcional caso por caso:
     cliente al confirmar; con la confirmación por voz activa, al decir «sí».
 75. «agrega el cliente Juan» cuando ya existe «Juan Pérez» avisa antes de
     duplicarlo.
+76. «se rompieron 3 panes porque se cayó la caja» abre el ajuste con tipo
+    **merma**, cantidad 3 y el motivo canónico más la cola dictada; **nada** se
+    guarda hasta pulsar Guardar.
+77. Una merma con más unidades de las que hay en esa ubicación avisa y **no** abre
+    el diálogo; una devolución mayor que el stock del quiosco se rechaza igual.
+78. «devuelve 4 panes al almacén» abre el ajuste de devolución del quiosco al
+    almacén, no una merma.
+79. Un trabajador que dicta «se rompieron 3 panes» oye el aviso: merma y
+    devolución son solo del jefe.
+80. «crea un producto llamado Pan de leche a 25» abre `/productos` con nombre y
+    precio; **no** pide «sí» y sin Guardar no se crea nada.
+81. «mueve el pan al quiosco» lee y pide «sí» aunque la confirmación por voz esté
+    apagada; al confirmar, la fila cambia de lugar y las posiciones quedan 1..N.
+82. «anota que Juan debe 500» lee la deuda y pide el «sí»; «no, eran 800» relee y
+    solo escribe al confirmar. Sin cuadre abierto no hace nada.
+83. «transferencia de 500 a Juan» se suma al monto en transferencia del cuadre y
+    aparece en la tarjeta; «anota una transferencia de 500 de María» también.
+84. «fía 2 panes a Juan» sigue siendo fiado de producto y «cobra 200 a Juan por
+    transferencia» sigue siendo un cobro.
+85. Un trabajador en `/cuadre` puede fiar, anotar una deuda de dinero y registrar
+    una transferencia; «vende 3 panes» o «cobra 200 a Juan» reciben el aviso del
+    modo cuadre. Fuera de `/cuadre` ninguna frase actúa por voz.
+86. Con la app cerrada, merma, alta de producto, deuda de dinero y transferencia
+    no dejan nada en **Por revisar**.
 
 ## Limitaciones conocidas
 
@@ -988,6 +1105,15 @@ funcional caso por caso:
   abierta y cerrada.
 - La **caja** solo se responde con la app abierta: el snapshot no lleva el
   cuadre. La **ganancia** sí viaja en el snapshot (versión 4).
+- La **merma** es solo del jefe y se registra como movimiento de inventario; el
+  **alta de producto** no crea nada sin pulsar Guardar (la voz solo prellena).
+- **Mover producto** no tiene formulario: por eso siempre pide el «sí», incluso
+  con la confirmación por voz apagada.
+- La **deuda de dinero** crea una cuenta de fiado sin productos (solo importe) y
+  **no** admite «Sin cliente»; la **transferencia** sí lo admite.
+- El **trabajador** solo usa la voz dentro de `/cuadre` y con la lista blanca
+  (fiar, deuda de dinero, transferencia, repetir y ayuda); el resto de comandos
+  quedan para el jefe.
 - Un snapshot anterior a la versión 4 no trae `gananciaHoy`: el servicio pide
   abrir la app en vez de leer cero.
 - Un cobro que toca **varias deudas** del mismo cliente deja **una fila por

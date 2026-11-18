@@ -122,6 +122,30 @@ export function fraseClienteAlta({ nombre }) {
 }
 
 /**
+ * Merma o devolución al almacén. El motivo se dice: es lo que distingue «rotos»
+ * de «vencidos» cuando el jefe revise el inventario dentro de un mes.
+ */
+export function fraseAjuste({ tipo = 'merma', cantidad, nombre, motivo = '', lugar = 'almacen' }) {
+  const n = Math.trunc(Number(cantidad) || 0)
+  const donde = lugar === 'quiosco' ? 'quiosco' : 'almacén'
+  const razon = String(motivo ?? '').trim()
+  const cola = razon ? ` Motivo: ${razon}.` : ''
+  if (tipo === 'devolucion') {
+    return `Voy a devolver ${describirCantidad(n, nombre)} del quiosco al almacén.${cola} Revisa y confirma.`
+  }
+  return `Voy a dar de baja ${describirCantidad(n, nombre)} del ${donde}.${cola} Revisa y confirma.`
+}
+
+/** Alta de producto: el formulario se abre prellenado y se guarda a mano. */
+export function fraseProductoAlta({ nombre, precio = null }) {
+  const cual = String(nombre ?? '').trim() || 'un producto'
+  const monto = formatearImporte(precio)
+  return monto
+    ? `Voy a crear el producto ${cual} a ${monto} pesos. Revisa y confirma.`
+    : `Voy a crear el producto ${cual}. Revisa y confirma.`
+}
+
+/**
  * Mover un producto: la única acción sin formulario, así que siempre se lee y
  * siempre pide confirmación.
  */
@@ -181,6 +205,20 @@ export function fraseFiado({ cantidad, nombre, cliente, importe = null }) {
   const monto = formatearImporte(importe)
   const cuerpo = monto ? `${base} por ${monto} pesos.` : `${base}.`
   return `${cuerpo} ${FRASE_CONFIRMAR}`
+}
+
+/** Frase del read-back antes de anotar una deuda de dinero (sin producto). */
+export function fraseDeudaDinero({ cliente, monto }) {
+  const quien = String(cliente ?? '').trim() || 'ese cliente'
+  const importe = formatearImporte(monto)
+  return `Voy a anotar que ${quien} debe ${importe} pesos en el cuadre. ${FRASE_CONFIRMAR}`
+}
+
+/** Frase del read-back antes de registrar una transferencia al cuadre. */
+export function fraseTransferencia({ cliente, monto }) {
+  const quien = String(cliente ?? '').trim() || 'sin cliente'
+  const importe = formatearImporte(monto)
+  return `Voy a registrar una transferencia de ${importe} pesos de ${quien}. ${FRASE_CONFIRMAR}`
 }
 
 /** Ayuda hablada: qué sabe hacer el asistente. */

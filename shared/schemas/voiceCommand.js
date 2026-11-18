@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /** Comandos que el intérprete puede devolver. `desconocido` = no se actúa. */
-export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'consulta_ganancia', 'consulta_caja', 'entrada_inventario', 'cambio_precio', 'cuadre_accion', 'traspaso', 'cliente_alta', 'mover_producto', 'repetir', 'ayuda', 'desconocido'], {
+export const voiceCommandId = z.enum(['venta_directa', 'venta_fiada', 'cobro_deuda', 'deuda_dinero', 'transferencia_cuadre', 'consulta_stock', 'consulta_precio', 'consulta_deuda', 'consulta_dia', 'consulta_ganancia', 'consulta_caja', 'entrada_inventario', 'cambio_precio', 'cuadre_accion', 'traspaso', 'ajuste_inventario', 'cliente_alta', 'producto_alta', 'mover_producto', 'repetir', 'ayuda', 'desconocido'], {
   message: 'Comando de voz no soportado'
 })
 
@@ -63,6 +63,21 @@ export const cobroSlotsSchema = z.object({
 })
 
 /**
+ * Deuda de dinero y transferencia al cuadre (P5). Ambas son dinero, no
+ * inventario: solo llevan a quién y cuánto. La deuda exige una cifra para no
+ * confundirse con una consulta; `null` deja que el resolutor pida el monto.
+ */
+export const deudaDineroSlotsSchema = z.object({
+  clienteHint: z.string().default(''),
+  monto: z.number().positive().nullable().default(null)
+})
+
+export const transferenciaCuadreSlotsSchema = z.object({
+  clienteHint: z.string().default(''),
+  monto: z.number().positive().nullable().default(null)
+})
+
+/**
  * Slots de los comandos ASISTIDOS (fases K, L, M, N). Ninguno escribe: la UI
  * prellena un formulario y el jefe confirma con el botón.
  *
@@ -91,6 +106,26 @@ export const traspasoSlotsSchema = z.object({
   productoHint: z.string().default(''),
   cantidad: z.number().int().min(1).default(1),
   destino: z.enum(['almacen', 'quiosco']).default('quiosco')
+})
+
+/**
+ * Merma o devolución al almacén. El motivo se dicta (o se deriva del verbo) y
+ * es obligatorio en el ajuste: aquí se permite vacío para que el formulario lo
+ * pida, pero nunca se inventa un motivo que el jefe no haya dicho.
+ */
+export const ajusteInventarioSlotsSchema = z.object({
+  productoHint: z.string().default(''),
+  cantidad: z.number().int().min(1).default(1),
+  tipo: z.enum(['merma', 'devolucion']).default('merma'),
+  /** Dónde ocurrió, si se dijo. Null = la pantalla desde la que se dictó. */
+  ubicacion: z.enum(['almacen', 'quiosco']).nullable().default(null),
+  motivo: z.string().max(200).default('')
+})
+
+/** Alta de producto: nombre y, si se dictó, precio de venta. */
+export const productoAltaSlotsSchema = z.object({
+  nombre: z.string().default(''),
+  precio: z.number().positive().nullable().default(null)
 })
 
 /** Alta de cliente: solo el nombre (se puede corregir en el formulario). */
@@ -128,6 +163,18 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
     slots: cobroSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('deuda_dinero'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: deudaDineroSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('transferencia_cuadre'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: transferenciaCuadreSlotsSchema
   }),
   z.object({
     comando: z.literal('consulta_stock'),
@@ -190,10 +237,22 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     slots: traspasoSlotsSchema
   }),
   z.object({
+    comando: z.literal('ajuste_inventario'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: ajusteInventarioSlotsSchema
+  }),
+  z.object({
     comando: z.literal('cliente_alta'),
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
     slots: clienteAltaSlotsSchema
+  }),
+  z.object({
+    comando: z.literal('producto_alta'),
+    transcript: z.string().default(''),
+    confidence: z.number().min(0).max(1).default(0),
+    slots: productoAltaSlotsSchema
   }),
   z.object({
     comando: z.literal('mover_producto'),

@@ -93,7 +93,7 @@ onMounted(() => {
       <div class="lg:col-span-2 space-y-4">
         <CuadreLineaTable
           :readonly="cuadre?.estado !== 'abierto'"
-          :puede-fiar="!esTrabajador"
+          :puede-fiar="perms.puedeAccion('cuadre', 'fiar')"
           @fiar="abrirDeudaDesdeLinea"
         />
       </div>
@@ -130,7 +130,7 @@ onMounted(() => {
         </UCard>
 
         <CuadreFiadoCard
-          v-if="!esTrabajador && perms.puedeAccion('cuadre', 'fiar')"
+          v-if="perms.puedeAccion('cuadre', 'fiar')"
           ref="fiadoCardRef"
           :cuadre-id="cuadre?.id ?? ''"
           :productos-activos="productosActivos"
@@ -139,7 +139,7 @@ onMounted(() => {
           @actualizado="recargar"
         />
         <CuadreTransferenciaCard
-          v-if="!esTrabajador && perms.puedeAccion('cuadre', 'transferencia')"
+          v-if="perms.puedeAccion('cuadre', 'transferencia')"
           :cuadre-id="cuadre?.id ?? ''"
           :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
           :readonly="cuadre?.estado !== 'abierto'"
