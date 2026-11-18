@@ -27,7 +27,6 @@ const conexion = useModoConexion()
 const route = useRoute()
 const vozQuiosco = useVentaPorVoz('quiosco')
 const vozAlmacen = useVentaPorVoz('almacen')
-const dictadoModo = useDictadoModo()
 const accionesVoz = useAccionesPendientes()
 const vozSnapshot = useVozSnapshot()
 const buzon = useBuzonVoz()
@@ -549,17 +548,21 @@ const links = computed(() => {
       { label: 'Historial del quiosco', icon: 'i-lucide-store', to: '/historial-quiosco', vista: 'historial-quiosco' },
       { label: 'Deudas', icon: 'i-lucide-hand-coins', to: '/deudas', vista: 'deudas' },
       { label: 'Venta directa', icon: 'i-lucide-receipt', to: '/venta-directa', vista: 'salidas' },
-      {
-        label: 'Por revisar (voz)',
-        icon: 'i-lucide-mic-vocal',
-        to: '/pendientes',
-        vista: 'pendientes-voz',
-        // Solo el número: el badge es un aviso, no una alarma. Lo dictado con
-        // la app cerrada aparece aquí al abrir.
-        badge: pendientesVoz.value
-          ? { label: String(pendientesVoz.value), color: 'warning', variant: 'solid', size: 'sm' }
-          : undefined
-      },
+      // Lo dictado con la app cerrada solo existe en el teléfono: en la web no
+      // hay cola que revisar y la vista sobra.
+      ...(esNativo.value
+        ? [{
+            label: 'Por revisar (voz)',
+            icon: 'i-lucide-mic-vocal',
+            to: '/pendientes',
+            vista: 'pendientes-voz',
+            // Solo el número: el badge es un aviso, no una alarma. Lo dictado
+            // con la app cerrada aparece aquí al abrir.
+            badge: pendientesVoz.value
+              ? { label: String(pendientesVoz.value), color: 'warning', variant: 'solid', size: 'sm' }
+              : undefined
+          }]
+        : []),
       { label: 'Productos', icon: 'i-lucide-package', to: '/productos', vista: 'productos' },
       ...(MOSTRAR_PROVEEDOR
         ? [{ label: 'Proveedores', icon: 'i-lucide-truck', to: '/proveedores', vista: 'proveedores' }]
@@ -726,7 +729,6 @@ const userMenuItems = computed(() => {
         :voz-estado="voiceRaw.estado.value"
         :fase-stt="voiceRaw.faseStt.value"
         :motivo="vozActiva.motivoNoDisponible.value"
-        :push-to-talk="dictadoModo.pushToTalk.value"
         :error="vozActiva.ultimoError.value"
         @activar="vozActiva.venderPorVoz()"
         @detener="vozActiva.detenerEscucha()"

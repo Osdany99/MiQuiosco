@@ -1,22 +1,15 @@
 package com.myquiosco.app;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 
 /**
- * VozOnda — puente entre el servicio y la ventana de la onda.
+ * VozOnda - puente entre el servicio y la ventana de la onda.
  *
- * El servicio corre sin UI; cuando el jefe activa «Mostrar la onda al dictar» se
- * abre `VozDialogoActivity` sobre el bloqueo y este puente le pasa el nivel del
- * micrófono y lo que se va entendiendo. También decide si la función está
- * activada, leyendo la preferencia de Capacitor (mismo SharedPreferences que el
- * resto de ajustes).
+ * El servicio corre sin UI; al dictar se abre `VozDialogoActivity` sobre el
+ * bloqueo y este puente le pasa el nivel del micrófono y lo que se va
+ * entendiendo. La onda ya no es opcional: se muestra siempre que se dicta.
  */
 public final class VozOnda {
-
-    /** Grupo de Preferences de Capacitor en Android. */
-    private static final String PREF_GRUPO = "CapacitorStorage";
-    public static final String PREF_ONDA = "voz.servicio.onda";
 
     public static final String MODO_ESCUCHANDO = "escuchando";
     public static final String MODO_HABLANDO = "hablando";
@@ -33,14 +26,9 @@ public final class VozOnda {
 
     private VozOnda() { }
 
-    /** ¿El jefe activó la onda? Se lee en cada dictado: no hace falta reiniciar. */
+    /** ¿La onda se muestra al dictar con la app cerrada? Siempre. */
     public static boolean activa(Context ctx) {
-        try {
-            SharedPreferences prefs = ctx.getSharedPreferences(PREF_GRUPO, Context.MODE_PRIVATE);
-            return "true".equals(prefs.getString(PREF_ONDA, "false"));
-        } catch (Exception e) {
-            return false;
-        }
+        return true;
     }
 
     public static float nivel() {

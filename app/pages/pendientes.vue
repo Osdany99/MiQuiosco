@@ -11,6 +11,7 @@
  * que se dijo. Nada caduca por tiempo salvo el tope de seguridad de 7 días, que
  * archiva la acción para que no se aplique a ciegas.
  */
+import { Capacitor } from '@capacitor/core'
 import { etiquetaAntiguedad, estaCaducada, puedeAplicar } from '../utils/voice/pendientes'
 
 definePageMeta({
@@ -310,6 +311,11 @@ watch(pid, (valor) => {
 }, { immediate: true })
 
 onMounted(() => {
+  // La cola es local del teléfono y no se sincroniza: en la web no existe.
+  if (!Capacitor.isNativePlatform()) {
+    void navigateTo('/quiosco', { replace: true })
+    return
+  }
   void servicio.refrescar()
   const puesto = auth.usuarioActual.value?.puestoId
   if (puesto) {

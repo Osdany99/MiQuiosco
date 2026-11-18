@@ -11,8 +11,7 @@ const props = defineProps({
   vozEstado: { type: String, default: 'idle' },
   faseStt: { type: String, default: 'idle' },
   motivo: { type: String, default: null },
-  error: { type: String, default: null },
-  pushToTalk: { type: Boolean, default: false }
+  error: { type: String, default: null }
 })
 
 const emit = defineEmits(['activar', 'cancelar', 'detener'])
@@ -82,13 +81,6 @@ const etiquetaTooltip = computed(() => {
   const f = fase.value
   if (f.clave === 'error') return `${props.error || 'No te entendí.'} Toca para reintentar.`
   if (!props.disponible && props.motivo) return `Voz no disponible: ${props.motivo}`
-  if (props.pushToTalk) {
-    if (escuchando.value) return 'Suelta para enviar'
-    if (props.estado === 'ambiguo') return 'Elegir producto'
-    if (props.estado === 'listo') return 'Listo para confirmar'
-    if (trabajando.value) return f.titulo
-    return 'Mantén pulsado para hablar (arrastra para mover)'
-  }
   if (escuchando.value) return 'Escuchando… (toca para enviar)'
   if (props.estado === 'ambiguo') return 'Elegir producto'
   if (props.estado === 'listo') return 'Listo para confirmar'
@@ -178,24 +170,14 @@ onBeforeUnmount(() => {
   if (import.meta.client) window.removeEventListener('resize', clampPosition)
 })
 
-// --- Arrastre + push-to-talk ----------------------------------------------
+// --- Arrastre --------------------------------------------------------------
 let dragStart = null
-let presionTimer = null
-let presionando = false
-
-function limpiarPresion() {
-  if (presionTimer) {
-    clearTimeout(presionTimer)
-    presionTimer = null
-  }
-}
 
 function onPointerDown(e) {
   if (!import.meta.client) return
   if (e.button && e.button !== 0) return
   isDragging.value = true
   moved.value = false
-  presionando = false
   dragStart = {
     px: e.clientX,
     py: e.clientY,
@@ -207,15 +189,6 @@ function onPointerDown(e) {
   } catch {
     /* noop */
   }
-
-  // Modo push-to-talk: se arranca tras mantener pulsado sin arrastrar.
-  if (props.pushToTalk && props.disponible && !props.ocupado) {
-    presionTimer = setTimeout(() => {
-      if (!isDragging.value || moved.value) return
-      presionando = true
-      emit('activar')
-    }, 120)
-  }
 }
 
 function onPointerMove(e) {
@@ -223,13 +196,7 @@ function onPointerMove(e) {
   const dx = e.clientX - dragStart.px
   const dy = e.clientY - dragStart.py
   if (!moved.value && Math.hypot(dx, dy) >= THRESHOLD) {
-    // Si empezó el micrófono y el usuario arrastra, se cancela (no envía).
     moved.value = true
-    limpiarPresion()
-    if (presionando) {
-      presionando = false
-      emit('cancelar')
-    }
   }
   if (moved.value) {
     const { maxX, maxY } = bounds()
@@ -241,18 +208,11 @@ function onPointerMove(e) {
 async function onPointerUp(e) {
   if (!isDragging.value) return
   isDragging.value = false
-  limpiarPresion()
   dragStart = null
   try {
     e.currentTarget?.releasePointerCapture?.(e.pointerId)
   } catch {
     /* noop */
-  }
-  if (presionando) {
-    presionando = false
-    emit('detener')
-  } else if (props.pushToTalk && (puedeCancelar.value || preparando.value) && !moved.value) {
-    emit('detener')
   }
   if (moved.value) {
     await savePosition()
@@ -262,15 +222,10 @@ async function onPointerUp(e) {
   }
 }
 
-/** Acción de toque/teclado: en push-to-talk alternar; en modo tap, detener escucha o activar. */
+/** Un toque activa o detiene: nunca hay que mantener pulsado. */
 function accion() {
   if (!props.disponible) {
     avisarNoDisponible()
-    return
-  }
-  if (props.pushToTalk) {
-    if (props.ocupado) emit('detener')
-    else emit('activar')
     return
   }
   if (puedeCancelar.value) {
@@ -286,10 +241,6 @@ function onClick(e) {
     moved.value = false
     e.preventDefault()
     e.stopPropagation()
-    return
-  }
-  if (props.pushToTalk) {
-    if (!props.disponible) avisarNoDisponible()
     return
   }
   accion()

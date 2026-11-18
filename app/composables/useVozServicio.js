@@ -17,8 +17,6 @@ import { useVozConfig } from './useVozConfig'
  */
 
 const PREF = 'voz.servicio.activo'
-/** Onda del dock sobre el bloqueo al dictar con la app cerrada. */
-const PREF_ONDA = 'voz.servicio.onda'
 
 const VozServicio = registerPlugin('VozServicio')
 
@@ -30,8 +28,8 @@ const disponible = ref(false)
 const permiso = ref(false)
 const notificaciones = ref(true)
 const exentoBateria = ref(true)
-/** Onda del dock con la app cerrada (activable en Ajustes). */
-const onda = ref(false)
+/** Onda del dock con la app cerrada: ya no es una opción, se muestra siempre. */
+const onda = ref(true)
 /** La ventana a pantalla completa está permitida por el sistema (Android 14+). */
 const pantallaCompleta = ref(true)
 /** Motor con el que está escuchando ahora mismo: 'sistema' | 'vosk' | ''. */
@@ -49,7 +47,7 @@ function aplicarEstado(r) {
   permiso.value = Boolean(r.permiso)
   if (r.notificaciones != null) notificaciones.value = Boolean(r.notificaciones)
   if (r.exentoBateria != null) exentoBateria.value = Boolean(r.exentoBateria)
-  if (r.onda != null) onda.value = Boolean(r.onda)
+  if (r.onda != null) onda.value = true
   if (r.pantallaCompleta != null) pantallaCompleta.value = Boolean(r.pantallaCompleta)
   if (r.motor != null) motorActual.value = String(r.motor)
 }
@@ -205,17 +203,11 @@ export function useVozServicio() {
   }
 
   /**
-   * Enciende o apaga la onda sobre el bloqueo. El servicio lee la preferencia
-   * en cada dictado, así que no hay que reiniciarlo.
+   * La onda se muestra siempre que se dicta con la app cerrada: el interruptor
+   * de Ajustes se retiró porque la animación es parte del dictado, no un extra.
    */
-  async function activarOnda(valor) {
-    const quiere = Boolean(valor)
-    onda.value = quiere
-    try {
-      await Preferences.set({ key: PREF_ONDA, value: String(quiere) })
-    } catch {
-      /* sin persistencia queda para esta sesión */
-    }
+  async function activarOnda() {
+    onda.value = true
     await refrescar()
   }
 

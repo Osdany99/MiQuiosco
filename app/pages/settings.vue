@@ -10,7 +10,6 @@ import { useVozServicio } from '../composables/useVozServicio'
 const toast = useToast()
 const conexion = useModoConexion()
 const tts = useTts()
-const dictadoModo = useDictadoModo()
 const voz = useVoiceCommand()
 const vozConfig = useVozConfig()
 const servicioVoz = useVozServicio()
@@ -33,8 +32,6 @@ async function cargarAlias() {
 watch(aliasAbierto, (abierto) => {
   if (abierto) void cargarAlias()
 })
-const pruebaMicrofono = ref('')
-const probandoMicrofono = ref(false)
 const update = useAppUpdate()
 const auth = useAuth()
 const { validarSincronizacion, hayRed } = useSync()
@@ -403,18 +400,6 @@ const telemetriaActivaComputed = computed({
     void fijarTelemetria(value)
   }
 })
-const dictadoPushToTalk = computed({
-  get: () => dictadoModo.pushToTalk.value,
-  set: (value) => { dictadoModo.set(value) }
-})
-const micMotivo = computed(() => {
-  if (voz.esNativo.value && voz.preferenciaMotor.value !== 'vosk' && voz.nativoDisponible.value === false) {
-    return 'Este dispositivo no tiene reconocimiento de voz.'
-  }
-  if (voz.esNativo.value && voz.permisoMicrofono.value === false) return 'Falta el permiso de micrófono.'
-  if (!voz.disponible.value) return 'No disponible.'
-  return ''
-})
 
 const itemsMotorVoz = computed(() =>
   (voz.opcionesMotor || []).map(opcion => ({ label: opcion.label, value: opcion.id }))
@@ -453,49 +438,6 @@ async function probarTts() {
     toast.add({ title: 'No se pudo reproducir la voz', description: e?.message, color: 'error' })
   } finally {
     probandoTts.value = false
-  }
-}
-
-async function probarMicrofono() {
-  if (probandoMicrofono.value) return
-  probandoMicrofono.value = true
-  pruebaMicrofono.value = ''
-  try {
-    await voz.check()
-    if (voz.esNativo.value && voz.preferenciaMotor.value !== 'vosk' && !voz.nativoDisponible.value) {
-      toast.add({ title: 'Este dispositivo no tiene reconocimiento de voz', color: 'warning' })
-      return
-    }
-    voz.registrar('stt.ui.probar', {
-      red: voz.hayInternet.value,
-      modo: conexion.modo.value,
-      motor: voz.motorVoz.value,
-      idioma: voz.idiomaEtiqueta.value,
-      offline: voz.modoActual.value === 'offline'
-    })
-    await voz.startListening({
-      contexto: { modo: conexion.modo.value, red: voz.hayInternet.value }
-    })
-    await voz.sincronizarDiagNativo()
-    if (voz.estado.value === 'error') {
-      const codigo = voz.codigoError.value
-      toast.add({
-        title: voz.error.value || 'No se pudo reconocer',
-        description: codigo ? `Código ${codigo}` : undefined,
-        color: 'error'
-      })
-      return
-    }
-    pruebaMicrofono.value = voz.transcript.value || ''
-    if (pruebaMicrofono.value) {
-      toast.add({ title: 'Prueba de micrófono: ' + pruebaMicrofono.value, color: 'success' })
-    } else {
-      toast.add({ title: 'No se escuchó nada', color: 'warning' })
-    }
-  } catch (e) {
-    toast.add({ title: 'No se pudo probar el micrófono', description: e?.message, color: 'error' })
-  } finally {
-    probandoMicrofono.value = false
   }
 }
 
@@ -1140,43 +1082,7 @@ async function whOlvidarEste() {
           <p class="text-xs text-muted">
             El interruptor de escucha está en
             <NuxtLink to="/pendientes" class="underline">Por revisar (voz)</NuxtLink>.
-          </p>
-          <USwitch
-            :model-value="servicioVoz.onda.value"
-            color="primary"
-            description="Al decir «oye nova» aparece la misma onda del dock, sobre la pantalla de bloqueo, con lo que se va entendiendo. Enciende la pantalla."
-            @update:model-value="servicioVoz.activarOnda"
-          >
-            Mostrar la onda al dictar con la app cerrada
-          </USwitch>
-        </div>
-
-        <!-- Problemas de voz: lo único técnico que el jefe necesita. -->
-        <div class="space-y-2 border-t border-default pt-3">
-          <h3 class="text-sm font-medium">
-            Si el micrófono no te entiende
-          </h3>
-          <div class="flex items-center gap-2">
-            <UButton
-              color="primary"
-              variant="soft"
-              size="sm"
-              icon="i-lucide-headphones"
-              :loading="probandoMicrofono"
-              :disabled="!voz.disponible.value"
-              @click="probarMicrofono"
-            >
-              Probar micrófono
-            </UButton>
-            <span class="text-xs text-muted">
-              Dicta algo y verás lo que el micrófono captó.
-            </span>
-          </div>
-          <p v-if="pruebaMicrofono" class="text-xs text-muted">
-            Escuchado: {{ pruebaMicrofono }}
-          </p>
-          <p v-else-if="micMotivo && !pruebaMicrofono" class="text-xs text-warning">
-            {{ micMotivo }}
+            Al dictar se muestra la onda del dock con lo que se va entendiendo.
           </p>
         </div>
 
@@ -1411,25 +1317,6 @@ async function whOlvidarEste() {
             </div>
           </template>
         </UCollapsible>
-      </div>
-    </UCard>
-    <UCard>
-      <div class="space-y-3">
-        <div>
-          <h2 class="text-sm font-medium">
-            Modo de dictado (micrófono)
-          </h2>
-          <p class="text-sm text-muted">
-            Elige cómo se activa la escucha por voz.
-          </p>
-        </div>
-        <USwitch v-model="dictadoPushToTalk">
-          Mantener pulsado para hablar
-        </USwitch>
-        <p class="text-xs text-muted">
-          Activado: mantén el micrófono pulsado mientras hablas y suelta para enviar.
-          Desactivado: pulsa una vez para empezar y usa el botón cuadrado para parar o cancelar.
-        </p>
       </div>
     </UCard>
   </div>
