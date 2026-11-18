@@ -26,12 +26,8 @@ const NUMEROS = new Set([
 
 /** Palabras que no pueden ser un alias: son gramática, no producto. */
 const RESERVADAS = new Set([
-  ...(LEXICO_BASE.ventaFuerte || []),
-  ...(LEXICO_BASE.ventaDebil || []),
-  ...(LEXICO_BASE.consultaMarca || []),
-  ...(LEXICO_BASE.navegacionVerbo || []),
-  ...(LEXICO_BASE.navegacionComplemento || []),
-  ...Object.values(LEXICO_BASE.destinos || {}).flat(),
+  // Todo el vocabulario base (venta, fiado, cobro, inventario, consultas…).
+  ...Object.values(LEXICO_BASE).flat(),
   'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
   'con', 'sin', 'en', 'al', 'para', 'por', 'favor', 'gracias',
   'quiosco', 'kiosco', 'almacen', 'deposito',

@@ -13,5 +13,17 @@ export const FRASES_DORADAS = [
   { frase: 'cuanto me deben', comando: 'consulta_deuda' },
   { frase: 'como va el dia', comando: 'consulta_dia' },
   { frase: 'cuanto vendi hoy', comando: 'consulta_dia' },
-  { frase: 'ventas de hoy', comando: 'consulta_dia' }
+  { frase: 'ventas de hoy', comando: 'consulta_dia' },
+  { frase: 'fia dos panes a juan', comando: 'venta_fiada' },
+  { frase: 'cobra 200 a juan', comando: 'cobro_deuda' },
+  { frase: 'entraron 20 panes a 10 pesos', comando: 'entrada_inventario' },
+  { frase: 'cambia el precio del pan a 25', comando: 'cambio_precio' },
+  { frase: 'pasa 5 panes del almacen al quiosco', comando: 'traspaso' },
+  { frase: 'se rompieron 3 panes', comando: 'ajuste_inventario' },
+  { frase: 'devuelve 2 panes al almacen', comando: 'ajuste_inventario' },
+  { frase: 'crea un producto pan de leche a 25', comando: 'producto_alta' },
+  { frase: 'agrega el cliente adrian', comando: 'cliente_alta' },
+  { frase: 'pon el refresco debajo del pan', comando: 'mover_producto' },
+  { frase: 'anota que juan debe 500', comando: 'deuda_dinero' },
+  { frase: 'transferencia de 500 a juan', comando: 'transferencia_cuadre' }
 ]

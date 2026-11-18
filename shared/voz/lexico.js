@@ -2,6 +2,13 @@ import { validarEntrada } from '../schemas/vozLexico.js'
 
 export const LEXICO_VERSION_SCHEMA = 1
 
+/**
+ * Vocabulario base de la voz. Lo que el super_admin añade o desactiva desde
+ * `/admin/voz-lexico` se aplica encima de esta lista.
+ *
+ * Solo verbos y marcas de una palabra: números, artículos, palabras vacías y
+ * frases de varias palabras viven en el parser y no se administran.
+ */
 export const LEXICO_BASE = Object.freeze({
   ventaFuerte: [
     'vende', 'vendeme', 'vendemelo', 'vendes', 'vendan', 'vender', 'vendo',
@@ -10,73 +17,135 @@ export const LEXICO_BASE = Object.freeze({
     'despachame', 'vendele', 'cobra', 'cobrame', 'cobrale', 'apunta', 'apuntame'
   ],
   ventaDebil: ['dame', 'damelo', 'ponme', 'ponmelo', 'pon'],
-  navegacionVerbo: ['abre', 'abrir', 'abreme', 'muestra', 'muestrame', 'ir', 've', 'vamos', 'llevame', 'entra', 'entrar', 'ensename'],
-  navegacionComplemento: ['hoy', 'dia', 'ayer', 'actual'],
-  consultaMarca: ['cuanto', 'cuanta', 'cuantos', 'cuantas', 'hay', 'queda', 'quedan', 'stock', 'existencia', 'existencias', 'tenemos', 'tengo', 'disponible', 'disponibles', 'inventario'],
-  destinos: {
-    cuadre: ['cuadre'], cuadres: ['cuadres'],
-    productos: ['productos', 'producto', 'catalogo'],
-    clientes: ['clientes', 'cliente'],
-    deudas: ['deudas', 'deuda', 'fiados', 'fiado'],
-    recargas: ['recargas', 'recarga'],
-    graficas: ['graficas', 'grafica', 'estadisticas'],
-    quiosco: ['quiosco', 'kiosco'], almacen: ['almacen', 'inventario'],
-    usuarios: ['usuarios'], proveedores: ['proveedores']
-  }
+  consultaMarca: [
+    'cuanto', 'cuanta', 'cuantos', 'cuantas', 'hay', 'queda', 'quedan',
+    'stock', 'existencia', 'existencias', 'tenemos', 'tengo', 'disponible',
+    'disponibles', 'inventario'
+  ],
+  fiadoVerbo: ['fia', 'fiale', 'fiar', 'fias', 'fian', 'fiame', 'fiamelo', 'fiarle'],
+  fiadoVentaVerbo: [
+    'vende', 'vendeme', 'anota', 'anotame', 'apunta', 'apuntame', 'registra',
+    'saca', 'despacha'
+  ],
+  cobroVerbo: [
+    'cobra', 'cobrame', 'cobrale', 'cobrar', 'cobre', 'cobren',
+    'abona', 'aboname', 'abonale', 'abonar', 'abono',
+    'paga', 'pagame', 'pagale', 'pagar', 'pago', 'pague', 'pagaron'
+  ],
+  cobroMarca: ['pago', 'pague', 'pagaron', 'abono'],
+  precioMarca: ['cuesta', 'cuestan', 'precio', 'precios', 'vale', 'valen', 'sale', 'salen'],
+  deudaMarca: ['debe', 'deben', 'deuda', 'deudas'],
+  entradaVerbo: [
+    'entraron', 'entro', 'entra', 'entrada', 'ingresaron', 'ingreso', 'ingresa',
+    'llegaron', 'llego', 'llega', 'compre', 'compramos', 'compra', 'recibi',
+    'recibimos', 'meti', 'metimos', 'mete', 'echaron', 'echo'
+  ],
+  precioVerbo: [
+    'cambia', 'cambiar', 'cambiale', 'cambiamelo', 'pon', 'ponle', 'ponme',
+    'pongale', 'sube', 'subele', 'baja', 'bajale', 'actualiza', 'actualizale',
+    'corrige', 'corrigele', 'deja', 'dejalo', 'fija', 'fijale'
+  ],
+  traspasoVerbo: [
+    'pasa', 'pasame', 'pasale', 'pasar', 'mueve', 'mueveme', 'muevelo',
+    'muevela', 'traspasa', 'traspasame', 'traslada', 'transfiere', 'transferir',
+    'transfiereme', 'transferi', 'transfiero', 'repone', 'repon', 'reponer'
+  ],
+  transferenciaVerbo: ['transfiere', 'transfiereme', 'transferir', 'transfiero', 'transferi'],
+  mermaVerbo: [
+    'rompieron', 'rompio', 'rompimos', 'rompi', 'vencieron', 'vencio',
+    'vencimos', 'venci', 'dano', 'danaron', 'danamos', 'perdieron', 'perdio',
+    'perdimos', 'perdi', 'cayeron', 'cayo', 'caimos', 'mojaron', 'mojo',
+    'mojamos', 'derramaron', 'derramo', 'derramamos', 'merma', 'tira',
+    'tirame', 'bota', 'botame', 'descarta', 'descarte'
+  ],
+  devolucionVerbo: [
+    'devuelve', 'devuelveme', 'devuelvamelo', 'devuelvele', 'regresa',
+    'regresame', 'retorna', 'retorname'
+  ],
+  altaVerbo: [
+    'agrega', 'agregame', 'anade', 'anademe', 'crea', 'creame', 'registra',
+    'registrame', 'nuevo', 'nueva', 'alta'
+  ],
+  moverVerbo: ['pon', 'ponme', 'coloca', 'colocame', 'mueve', 'mueveme', 'ordena', 'ordename'],
+  cuadreAbrir: ['abre', 'abrir', 'abreme'],
+  cuadreCerrar: ['cierra', 'cerrar', 'cierralo', 'cierre']
 })
 
 const CATEGORIA_A_CAMPO = {
   venta_fuerte: 'ventaFuerte',
   venta_debil: 'ventaDebil',
-  navegacion_verbo: 'navegacionVerbo',
-  navegacion_complemento: 'navegacionComplemento',
+  fiado_verbo: 'fiadoVerbo',
+  fiado_venta_verbo: 'fiadoVentaVerbo',
+  cobro_verbo: 'cobroVerbo',
+  cobro_marca: 'cobroMarca',
   consulta_marca: 'consultaMarca',
-  navegacion_destino: 'destinos'
+  precio_marca: 'precioMarca',
+  deuda_marca: 'deudaMarca',
+  entrada_verbo: 'entradaVerbo',
+  precio_verbo: 'precioVerbo',
+  traspaso_verbo: 'traspasoVerbo',
+  transferencia_verbo: 'transferenciaVerbo',
+  merma_verbo: 'mermaVerbo',
+  devolucion_verbo: 'devolucionVerbo',
+  alta_verbo: 'altaVerbo',
+  mover_verbo: 'moverVerbo',
+  cuadre_abrir: 'cuadreAbrir',
+  cuadre_cerrar: 'cuadreCerrar'
 }
 
 function clonar(base) {
-  return {
-    ventaFuerte: [...(base.ventaFuerte || [])],
-    ventaDebil: [...(base.ventaDebil || [])],
-    navegacionVerbo: [...(base.navegacionVerbo || [])],
-    navegacionComplemento: [...(base.navegacionComplemento || [])],
-    consultaMarca: [...(base.consultaMarca || [])],
-    destinos: Object.fromEntries(Object.entries(base.destinos || {}).map(([k, v]) => [k, [...v]]))
+  const out = {}
+  for (const campo of Object.values(CATEGORIA_A_CAMPO)) {
+    out[campo] = [...(base?.[campo] || [])]
   }
-}
-
-// Devuelve un léxico NUEVO (no muta base). Ignora entradas inválidas o inactivas.
-export function crearLexico(base, entradas = []) {
-  const lexico = clonar(base || LEXICO_BASE)
-  const efectivo = (base ? baseToEntries(lexico) : [])
-
-  for (const entrada of (Array.isArray(entradas) ? entradas : [])) {
-    const item = { activo: true, ...entrada }
-    if (item.activo === false) continue
-    const v = validarEntrada(item, efectivo)
-    if (!v.ok) continue
-
-    const campo = CATEGORIA_A_CAMPO[item.categoria]
-    // Una entrada de una categoría retirada (navegación) no se aplica: se
-    // ignora en vez de romper el léxico.
-    if (!campo) continue
-    if (!lexico[campo].includes(item.valor)) {
-      lexico[campo].push(item.valor)
-      efectivo.push(item)
-    }
-  }
-
-  return Object.freeze ? Object.freeze(lexico) : lexico
+  return out
 }
 
 function baseToEntries(base) {
   const out = []
-  for (const cat of ['venta_fuerte', 'venta_debil', 'navegacion_verbo', 'navegacion_complemento', 'consulta_marca']) {
-    const campo = CATEGORIA_A_CAMPO[cat]
-    for (const v of base[campo] || []) out.push({ categoria: cat, valor: v, activo: true })
-  }
-  for (const [clave, palabras] of Object.entries(base.destinos || {})) {
-    for (const v of palabras || []) out.push({ categoria: 'navegacion_destino', valor: v, clave, activo: true })
+  for (const [categoria, campo] of Object.entries(CATEGORIA_A_CAMPO)) {
+    for (const valor of base?.[campo] || []) out.push({ categoria, valor, activo: true })
   }
   return out
+}
+
+/**
+ * Devuelve un léxico NUEVO (no muta la base) con las altas y bajas aplicadas.
+ *
+ * Una entrada `activo:false` es un tombstone: quita esa palabra base de su
+ * categoría. Las palabras retiradas se devuelven en `retiradas` para que el
+ * intérprete no las resucite por el respaldo de «cantidad + producto».
+ */
+export function crearLexico(base, entradas = []) {
+  const lexico = clonar(base || LEXICO_BASE)
+  const retiradas = []
+  const lista = Array.isArray(entradas) ? entradas : []
+
+  for (const entrada of lista) {
+    const item = { activo: true, ...entrada }
+    const campo = CATEGORIA_A_CAMPO[item.categoria]
+    // Categoría retirada del producto (navegación): se ignora sin romper.
+    if (!campo) continue
+
+    const v = validarEntrada(item, baseToEntries(lexico), baseToEntries(base || LEXICO_BASE))
+    if (!v.ok) continue
+
+    const actual = lexico[campo]
+    if (item.activo === false) {
+      if (actual.includes(item.valor)) {
+        lexico[campo] = actual.filter(valor => valor !== item.valor)
+        retiradas.push({ categoria: item.categoria, valor: item.valor })
+      }
+    } else if (!actual.includes(item.valor)) {
+      lexico[campo].push(item.valor)
+    }
+  }
+
+  lexico.retiradas = retiradas
+  return Object.freeze ? Object.freeze(lexico) : lexico
+}
+
+/** Entradas del léxico base como lista, para validar altas desde el panel. */
+export function entradasLexicoBase(base = LEXICO_BASE) {
+  return baseToEntries(base)
 }

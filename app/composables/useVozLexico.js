@@ -51,18 +51,15 @@ function _create() {
         await cargarLocal()
         return
       }
-      // mezcla por `categoria|valor`
+      // mezcla por `categoria|valor`. Las entradas inactivas se conservan: son
+      // tombstones que `crearLexico()` aplica para retirar palabras base.
       const mapa = new Map()
       for (const e of (entradas.value || [])) {
         mapa.set(`${e.categoria}|${e.valor}`, { ...e })
       }
       for (const entrada of (resp.entradas || [])) {
         const key = `${entrada.categoria}|${entrada.valor}`
-        if (entrada.activo === false) {
-          mapa.delete(key)
-        } else {
-          mapa.set(key, entrada)
-        }
+        mapa.set(key, entrada)
       }
       entradas.value = Array.from(mapa.values())
       const nuevaVersion = Number(resp.version)

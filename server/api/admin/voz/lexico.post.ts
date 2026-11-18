@@ -2,22 +2,11 @@ import { eq, sql } from 'drizzle-orm'
 import { requireSuperAdmin } from '../../../utils/auth'
 import { db } from '../../../database/client'
 import { vozLexico } from '../../../database/schema'
-import { validarEntrada, lexicoEntradaSchema, CATEGORIAS_LEXICO } from '#shared/schemas/vozLexico'
-import { LEXICO_BASE } from '#shared/voz/lexico'
-
-/** Palabras del léxico base, para detectar conflictos con las nuevas. */
-function baseToEntries() {
-  const map = {
-    venta_fuerte: LEXICO_BASE.ventaFuerte,
-    venta_debil: LEXICO_BASE.ventaDebil,
-    consulta_marca: LEXICO_BASE.consultaMarca
-  } as Record<string, string[]>
-  const out = []
-  for (const cat of CATEGORIAS_LEXICO) {
-    for (const v of map[cat] || []) out.push({ categoria: cat, valor: v, activo: true })
-  }
-  return out
-}
+import {
+  validarEntrada,
+  lexicoEntradaSchema
+} from '#shared/schemas/vozLexico'
+import { entradasLexicoBase } from '#shared/voz/lexico'
 
 export default defineEventHandler(async (event) => {
   await requireSuperAdmin(event)
@@ -29,8 +18,15 @@ export default defineEventHandler(async (event) => {
 
   const creadoPor = null
   const dbActivos = await db.select().from(vozLexico).where(eq(vozLexico.activo, true))
-  const efectivo = baseToEntries().concat(dbActivos.map(r => ({ categoria: r.categoria, valor: r.valor, clave: r.clave ?? undefined, activo: r.activo })))
-  const v = validarEntrada(parsed.data, efectivo)
+  const efectivo = entradasLexicoBase().concat(
+    dbActivos.map(r => ({
+      categoria: r.categoria,
+      valor: r.valor,
+      clave: r.clave ?? undefined,
+      activo: r.activo
+    }))
+  )
+  const v = validarEntrada(parsed.data, efectivo, entradasLexicoBase())
   if (!v.ok) {
     throw createError({ statusCode: 409, statusMessage: `Entrada inválida: ${v.motivo}` })
   }
