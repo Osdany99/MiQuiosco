@@ -60,6 +60,7 @@ export const VOZ_CONFIG_DEFECTO = Object.freeze({
   motor: VOZ_MOTOR_DEFECTO,
   idioma: VOZ_IDIOMA_DEFECTO,
   retencionDias: VOZ_RETENCION_DEFECTO,
+  capturarTexto: false,
   version: 0,
   actualizadoEn: null
 })
@@ -110,6 +111,7 @@ export function normalizarVozConfig(raw) {
     motor,
     idioma,
     retencionDias,
+    capturarTexto: datos.capturarTexto === true,
     version,
     actualizadoEn
   }

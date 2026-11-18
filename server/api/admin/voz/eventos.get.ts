@@ -28,6 +28,7 @@ export default defineEventHandler(async (event) => {
       comando: vozEventos.comando,
       motivo: vozEventos.motivo,
       plantilla: vozEventos.plantilla,
+      texto: vozEventos.texto,
       confianza: vozEventos.confianza,
       intentos: vozEventos.intentos,
       estado: vozEventos.estado,

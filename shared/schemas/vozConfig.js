@@ -28,5 +28,10 @@ export const vozConfigSchema = z.object({
     .number()
     .int('La retención debe ser un número entero de días.')
     .min(VOZ_RETENCION_MIN, `La retención mínima es ${VOZ_RETENCION_MIN} días.`)
-    .max(VOZ_RETENCION_MAX, `La retención máxima es ${VOZ_RETENCION_MAX} días.`)
+    .max(VOZ_RETENCION_MAX, `La retención máxima es ${VOZ_RETENCION_MAX} días.`),
+  /**
+   * Guarda la frase cruda de los dictados fallidos. Se apaga a mano: mientras
+   * esté encendido, el panel puede mostrar nombres de clientes sin enmascarar.
+   */
+  capturarTexto: z.boolean().default(false)
 }).strict()

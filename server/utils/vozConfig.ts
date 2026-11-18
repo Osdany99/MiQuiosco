@@ -20,6 +20,7 @@ function normalizar(fila: Partial<VozConfig> | null | undefined) {
     motor: fila?.motor,
     idioma: fila?.idioma,
     retencionDias: fila?.retencionDias,
+    capturarTexto: fila?.capturarTexto,
     version: fila?.version,
     actualizadoEn: fila?.actualizadoEn instanceof Date
       ? fila.actualizadoEn.toISOString()
@@ -56,6 +57,7 @@ interface DatosVozConfig {
   motor: string
   idioma: string
   retencionDias: number
+  capturarTexto: boolean
 }
 
 export async function guardarVozConfig(
@@ -69,6 +71,7 @@ export async function guardarVozConfig(
       motor: datos.motor,
       idioma: datos.idioma,
       retencionDias: datos.retencionDias,
+      capturarTexto: datos.capturarTexto,
       version: sql`${vozConfig.version} + 1`,
       actualizadoEn: new Date(),
       actualizadoPor: usuarioId
@@ -86,6 +89,7 @@ export async function guardarVozConfig(
       motor: datos.motor,
       idioma: datos.idioma,
       retencionDias: datos.retencionDias,
+      capturarTexto: datos.capturarTexto,
       version: 1,
       actualizadoPor: usuarioId
     })
@@ -96,6 +100,7 @@ export async function guardarVozConfig(
         motor: datos.motor,
         idioma: datos.idioma,
         retencionDias: datos.retencionDias,
+        capturarTexto: datos.capturarTexto,
         version: sql`${vozConfig.version} + 1`,
         actualizadoEn: new Date(),
         actualizadoPor: usuarioId

@@ -59,7 +59,8 @@ async function guardar() {
     wake: form.value.wake,
     motor: form.value.motor,
     idioma: form.value.idioma,
-    retencionDias: Number(form.value.retencionDias)
+    retencionDias: Number(form.value.retencionDias),
+    capturarTexto: form.value.capturarTexto === true
   })
   if (!parsed.success) {
     errorForm.value = parsed.error.issues?.[0]?.message || 'Revisa los valores.'
@@ -229,6 +230,17 @@ onMounted(cargar)
             La tarea nocturna borra los eventos antiguos con menos de 3 intentos.
             Los que se repiten se conservan para mejorar el léxico.
           </p>
+
+          <div class="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
+            <USwitch v-model="form.capturarTexto" color="warning">
+              Guardar el texto dictado (sin enmascarar)
+            </USwitch>
+            <p class="text-xs text-muted">
+              Para diagnosticar por qué falla una frase: el panel de eventos muestra
+              lo que se dijo y qué se extrajo. Puede incluir nombres de clientes,
+              así que se apaga a mano cuando termines.
+            </p>
+          </div>
 
           <UButton
             icon="i-lucide-trash-2"

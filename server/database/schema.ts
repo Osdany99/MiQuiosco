@@ -1297,6 +1297,9 @@ export const vozEventos = pgTable(
     comando: text('comando').notNull(),
     motivo: text('motivo').notNull(),
     plantilla: text('plantilla'),
+    // Frase cruda (sin enmascarar) del último dictado que falló. Solo se
+    // rellena con `voz_config.capturar_texto` encendido: material de diagnóstico.
+    texto: text('texto'),
     claveHash: text('clave_hash').notNull().default(''),
     confianza: doublePrecision('confianza'),
     intentos: integer('intentos').notNull().default(1),
@@ -1387,6 +1390,9 @@ export const vozConfig = pgTable('voz_config', {
   motor: text('motor').notNull().default('auto'),
   idioma: text('idioma').notNull().default('sistema'),
   retencionDias: integer('retencion_dias').notNull().default(30),
+  // Guarda la frase cruda de los dictados fallidos (diagnóstico). Apagado por
+  // defecto y manual: puede contener nombres de clientes.
+  capturarTexto: boolean('capturar_texto').notNull().default(false),
   version: integer('version').notNull().default(1),
   actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
   actualizadoPor: uuid('actualizado_por').references(() => usuarios.id)

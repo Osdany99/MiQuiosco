@@ -45,6 +45,7 @@ import { agruparPorProducto, segmentarVentaMultiple } from '#shared/voz/multi'
 import { proyectarStock } from '../utils/voice/pendientes'
 import { ajustarCantidadVoz } from '../utils/voice/prefill'
 import { useVozAlias } from './useVozAlias'
+import { useVozConfig } from './useVozConfig'
 import { useConfirmacionVoz } from './useConfirmacionVoz'
 import { useVoiceZeroTouch } from './useVoiceZeroTouch'
 import { useVozDisparo } from './useVozDisparo'
@@ -82,6 +83,7 @@ function _create(ubicacion) {
   const zeroTouch = useVoiceZeroTouch()
   const disparo = useVozDisparo()
   const snapshotVoz = useVozSnapshot()
+  const vozConfig = useVozConfig()
   // Caja: solo lectura del cuadre abierto y sus líneas (nunca se crea ni se
   // guarda un cuadre desde la voz).
   const cuadresRepo = useRepo(TABLES.cuadres, { toast: false })
@@ -121,10 +123,12 @@ function _create(ubicacion) {
   const showCandidatos = ref(false)
   const pendiente = ref(null)
   const ultimoError = ref(null)
+  /** Última frase elegida del dictado, para la captura de diagnóstico. */
+  let ultimoDictado = ''
   /**
- * Acción que no tiene formulario (mover producto). El layout la lee, la habla y
- * pide el «sí» SIEMPRE, sin mirar el switch de confirmación.
- */
+   * Acción que no tiene formulario (mover producto). El layout la lee, la habla y
+   * pide el «sí» SIEMPRE, sin mirar el switch de confirmación.
+   */
   const accionSinFormulario = ref(null)
   // Cada comando tiene una generación: cancelar o reiniciar invalida la
   // anterior para que una promesa tardía no reabra el diálogo.
@@ -1809,6 +1813,9 @@ function _create(ubicacion) {
    */
   async function resolver(texto, { sttConfidence = 0, alternativas = [], vigente = () => true, ventaDirecta = null } = {}) {
     const textoElegido = await elegirTexto(texto, sttConfidence, alternativas)
+    // Frase elegida del último comando: la captura de diagnóstico la usa tal
+    // cual, sin enmascarar, solo si la flota lo tiene activado.
+    ultimoDictado = String(textoElegido ?? '')
     const interpretado = interpretar(textoElegido, vozLexico.lexico.value)
     voice.registrar('voz.interpretar', {
       texto: textoElegido,
@@ -1903,7 +1910,8 @@ function _create(ubicacion) {
           comando: auditoria.comando,
           motivo: motivoConHint(auditoria.motivo, accion.texto),
           confianza: auditoria.confianza,
-          plantilla
+          plantilla,
+          texto: vozConfig.config.value.capturarTexto ? ultimoDictado : null
         })
       })()
     } else if (accion.comando && accion.motivo) {
@@ -1915,7 +1923,8 @@ function _create(ubicacion) {
           comando: accion.comando,
           motivo: motivoConHint(accion.motivo, accion.texto),
           confianza: Number(accion.sttConfidence) || 0,
-          plantilla
+          plantilla,
+          texto: vozConfig.config.value.capturarTexto ? ultimoDictado : null
         })
       })()
     }

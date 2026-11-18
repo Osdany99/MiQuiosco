@@ -253,6 +253,13 @@
       "when": 1794842557148,
       "tag": "0035_futuristic_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794974457921,
+      "tag": "0036_far_thundra",
+      "breakpoints": true
     }
   ]
 }

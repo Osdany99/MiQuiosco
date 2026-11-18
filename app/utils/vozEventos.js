@@ -52,6 +52,9 @@ export async function registrarEventoVoz(datos) {
       }
     }
     plantilla = plantilla || null
+    // Frase cruda: solo viaja cuando la flota tiene la captura encendida. El
+    // servidor vuelve a comprobarlo, pero no se manda si no hace falta.
+    const texto = datos?.texto ? String(datos.texto).trim().slice(0, 200) : null
     const mapa = await leer()
     const k = clave(comando, motivo, plantilla)
     const prev = (mapa[k] && typeof mapa[k] === 'object') ? mapa[k] : { intentos: 0, confianza: null, plantilla }
@@ -59,7 +62,7 @@ export async function registrarEventoVoz(datos) {
     const confianza = (typeof datos?.confianza === 'number' && Number.isFinite(datos.confianza))
       ? datos.confianza
       : prev.confianza
-    mapa[k] = { intentos, confianza, plantilla }
+    mapa[k] = { intentos, confianza, plantilla, texto: texto ?? prev.texto ?? null }
     await escribir(mapa)
   } catch {
     /* noop */
@@ -79,6 +82,7 @@ export async function eventosVozPendientes() {
       comando: comando || 'desconocido',
       motivo: motivo || '',
       plantilla,
+      texto: (v && typeof v.texto === 'string') ? v.texto : null,
       confianza: (v && typeof v.confianza === 'number') ? v.confianza : null,
       intentos: Math.max(1, Number(v?.intentos) || 1)
     }

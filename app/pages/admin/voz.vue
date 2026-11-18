@@ -156,6 +156,12 @@ watch(filtroEstado, cargar)
 
       <template #plantilla-cell="{ row }">
         <span class="font-mono text-xs">{{ row.original.plantilla || '—' }}</span>
+        <span v-if="row.original.texto" class="mt-1 flex flex-col gap-0.5">
+          <span class="text-[10px] font-semibold uppercase tracking-wide text-warning">
+            Texto dictado
+          </span>
+          <span class="font-mono text-xs">«{{ row.original.texto }}»</span>
+        </span>
       </template>
 
       <template #comando-cell="{ row }">

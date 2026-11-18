@@ -10,8 +10,8 @@ function claveHashDe(comando: string, motivo: string, plantilla: string | null |
 export async function registrarEventosVoz(
   puestoId: string,
   _dispositivoId: string | null,
-  eventos: Array<{ comando: string, motivo: string, plantilla?: string | null, confianza?: number | null, intentos?: number }>,
-  opts: { appVersion?: string | null } = {}
+  eventos: Array<{ comando: string, motivo: string, plantilla?: string | null, texto?: string | null, confianza?: number | null, intentos?: number }>,
+  opts: { appVersion?: string | null, capturarTexto?: boolean } = {}
 ): Promise<number> {
   if (!puestoId || !Array.isArray(eventos) || !eventos.length) return 0
   let guardados = 0
@@ -20,6 +20,9 @@ export async function registrarEventosVoz(
     const motivo = String(e?.motivo ?? '').trim().slice(0, 60)
     if (!comando || !motivo) continue
     const plantilla = e?.plantilla ? String(e.plantilla).trim().slice(0, 120) : null
+    // El flag manda en el servidor: aunque un cliente mande texto, sin
+    // `capturarTexto` no se guarda.
+    const texto = opts.capturarTexto && e?.texto ? String(e.texto).trim().slice(0, 200) : null
     const claveHash = claveHashDe(comando, motivo, plantilla)
     const intentos = Math.max(1, Math.min(100000, Number(e.intentos) || 1))
     const confianza = typeof e.confianza === 'number' && Number.isFinite(e.confianza) ? e.confianza : null
@@ -32,6 +35,7 @@ export async function registrarEventosVoz(
           comando,
           motivo,
           plantilla,
+          texto,
           claveHash,
           confianza,
           intentos,
@@ -41,6 +45,7 @@ export async function registrarEventosVoz(
           target: [vozEventos.puestoId, vozEventos.claveHash],
           set: {
             plantilla: plantilla ?? vozEventos.plantilla,
+            texto: texto ?? vozEventos.texto,
             intentos: sql`${vozEventos.intentos} + ${intentos}`,
             confianza: confianza ?? vozEventos.confianza,
             ultimoEn: sql`now()`,
