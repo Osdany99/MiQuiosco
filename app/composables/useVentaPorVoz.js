@@ -1863,6 +1863,32 @@ function _create(ubicacion) {
     return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta })
   }
 
+  /**
+   * Motivos en los que saber QUÉ se extrajo es la mitad del diagnóstico: sin el
+   * hint, «producto no encontrado» no distingue un producto inexistente de un
+   * corte malo del dictado («pan de» en vez de «pan»).
+   */
+  const MOTIVOS_CON_HINT = new Set([
+    'producto_no_encontrado',
+    'cliente_no_encontrado',
+    'cliente_ambiguo',
+    'producto_ambiguo'
+  ])
+
+  /** `motivo: "hint"` sin pasar de los 60 caracteres del esquema de eventos. */
+  function motivoConHint(motivo, hint) {
+    const base = String(motivo ?? '')
+    if (!MOTIVOS_CON_HINT.has(base)) return base
+    const texto = String(hint ?? '').replace(/\s+/g, ' ').trim()
+    if (!texto) return base
+    const prefijo = `${base}: "`
+    // Menos la comilla de cierre.
+    const disponible = 60 - prefijo.length - 1
+    if (disponible < 4) return base
+    const recortado = texto.length <= disponible ? texto : `${texto.slice(0, disponible - 1)}…`
+    return `${prefijo}${recortado}"`
+  }
+
   /** Aplica una acción del resolver. Único sitio con efectos del flujo. */
   async function ejecutar(accion, { gen = null } = {}) {
     if (!accion || accion.tipo === 'cancelado') return
@@ -1875,7 +1901,7 @@ function _create(ubicacion) {
         const plantilla = await plantillaPara(accion.texto || '')
         await registrarEventoVoz({
           comando: auditoria.comando,
-          motivo: auditoria.motivo,
+          motivo: motivoConHint(auditoria.motivo, accion.texto),
           confianza: auditoria.confianza,
           plantilla
         })
@@ -1887,7 +1913,7 @@ function _create(ubicacion) {
         const plantilla = await plantillaPara(accion.texto || '')
         await registrarEventoVoz({
           comando: accion.comando,
-          motivo: accion.motivo,
+          motivo: motivoConHint(accion.motivo, accion.texto),
           confianza: Number(accion.sttConfidence) || 0,
           plantilla
         })

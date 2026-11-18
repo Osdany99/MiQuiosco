@@ -1,6 +1,4 @@
 <script setup>
-import { computed } from 'vue'
-
 definePageMeta({
   layout: 'admin',
   middleware: ['super-admin']
@@ -10,36 +8,6 @@ const toast = useToast()
 const api = useAdminApi()
 const cargando = ref(false)
 const errorCarga = ref(null)
-const limpiando = ref(false)
-const confirmarDepurar = ref(false)
-// La retención la fija el super admin en la config de flota: el diálogo la lee
-// en vez de prometer 30 días fijos.
-const retencionDias = ref(null)
-
-async function cargarRetencion() {
-  try {
-    const respuesta = await api.obtenerConfigVoz()
-    const dias = Number(respuesta?.config?.retencionDias)
-    retencionDias.value = Number.isFinite(dias) && dias > 0 ? dias : null
-  } catch {
-    retencionDias.value = null
-  }
-}
-const diasDepuracion = computed(() => retencionDias.value ?? 30)
-
-async function limpiarAntiguos() {
-  confirmarDepurar.value = false
-  limpiando.value = true
-  try {
-    await api.limpiarEventosVoz()
-    toast.add({ title: 'Voz', description: 'Eventos antiguos depurados.', color: 'success' })
-    await cargar()
-  } catch (e) {
-    toast.add({ title: 'Error', description: e?.message || 'No se pudo limpiar.', color: 'error' })
-  } finally {
-    limpiando.value = false
-  }
-}
 const filas = ref([])
 const filtroEstado = ref('abierto')
 /** Salud del módulo: última telemetría y proofs recientes. */
@@ -85,12 +53,24 @@ function colorEstado(estado) {
   return 'warning'
 }
 
+/**
+ * El motivo puede llevar el texto extraído (`producto_no_encontrado: "pan de"`).
+ * Se separa para mostrarlo en mono y que el corte se vea de un vistazo.
+ */
+function partirMotivo(motivo) {
+  const texto = String(motivo ?? '')
+  const corte = texto.indexOf(': "')
+  if (corte < 0 || !texto.endsWith('"')) return { motivoBase: texto, motivoHint: '' }
+  return { motivoBase: texto.slice(0, corte), motivoHint: texto.slice(corte + 3, -1) }
+}
+
 async function cargar() {
   cargando.value = true
   errorCarga.value = null
   try {
     const query = filtroEstado.value === 'todos' ? {} : { estado: filtroEstado.value }
-    filas.value = await api.listarEventosVoz(query)
+    const eventos = await api.listarEventosVoz(query)
+    filas.value = (eventos ?? []).map(f => ({ ...f, ...partirMotivo(f.motivo) }))
     void cargarResumen()
   } catch (e) {
     errorCarga.value = e?.message || 'Error al cargar eventos de voz.'
@@ -111,7 +91,6 @@ async function marcar(id, estado) {
 
 onMounted(() => {
   void cargar()
-  void cargarRetencion()
 })
 watch(filtroEstado, cargar)
 </script>
@@ -130,21 +109,6 @@ watch(filtroEstado, cargar)
         icon="i-lucide-shield-check"
         variant="outline"
         label="Confirmaciones"
-      />
-      <UButton
-        icon="i-lucide-trash-2"
-        variant="outline"
-        label="Depurar"
-        color="warning"
-        :loading="limpiando"
-        @click="confirmarDepurar = true"
-      />
-      <UButton
-        icon="i-lucide-refresh-cw"
-        variant="outline"
-        label="Actualizar"
-        :loading="cargando"
-        @click="cargar"
       />
     </template>
 
@@ -199,7 +163,12 @@ watch(filtroEstado, cargar)
       </template>
 
       <template #motivo-cell="{ row }">
-        {{ row.original.motivo }}
+        <div class="flex flex-col gap-0.5">
+          <span class="text-xs">{{ row.original.motivoBase }}</span>
+          <span v-if="row.original.motivoHint" class="font-mono text-xs text-muted">
+            «{{ row.original.motivoHint }}»
+          </span>
+        </div>
       </template>
 
       <template #puestoNombre-cell="{ row }">
@@ -255,6 +224,7 @@ watch(filtroEstado, cargar)
             @click="marcar(row.original.id, 'descartado')"
           />
           <UButton
+            v-if="row.original.estado !== 'abierto'"
             size="xs"
             color="neutral"
             variant="soft"
@@ -265,20 +235,5 @@ watch(filtroEstado, cargar)
         </div>
       </template>
     </BaseTable>
-
-    <BaseDialog
-      v-model="confirmarDepurar"
-      title="Depurar eventos antiguos"
-      :description="`Se eliminan los eventos con más de ${diasDepuracion} días y menos de 3 intentos.`"
-      confirm-text="Depurar"
-      confirm-color="warning"
-      :loading="limpiando"
-      @confirm="limpiarAntiguos"
-    >
-      <p class="text-sm text-muted">
-        La operación no se puede deshacer. Los eventos con muchos intentos o
-        recientes se conservan.
-      </p>
-    </BaseDialog>
   </BaseHeaderPage>
 </template>
