@@ -696,6 +696,9 @@ aplican todos los equipos:
 | `motor` | `auto` | Motor del dock y del servicio (tabla anterior). |
 | `idioma` | `sistema` | Idioma del reconocimiento. `sistema` usa el locale del teléfono; si no es español, `es-US`. App y servicio reciben el mismo valor resuelto. |
 | `retencionDias` | `30` | Días que se conservan los eventos de voz (entre 7 y 365). |
+| `capturarTexto` | `false` | Guarda la frase cruda de los dictados **fallidos** (sin enmascarar). |
+| `capturarAciertos` | `false` | Guarda una fila por dictado **exitoso**, con su frase cruda y la acción aplicada. |
+| `retencionAciertosDias` | `7` | Días que se conservan los aciertos (entre 1 y 90). |
 
 - Tabla `voz_config` (una fila) y esquema Zod compartido
   (`shared/schemas/vozConfig.js`). Cada guardado sube `version`.
@@ -707,9 +710,10 @@ aplican todos los equipos:
   wake/idioma/motor y los lee si el sistema lo reinicia.
 - Un cambio manual en **Ajustes → Avanzado** (solo `super_admin`) se respeta
   hasta el próximo cambio de flota.
-- **Retención**: la tarea `voz:retencion` usa `retencionDias` y el botón
-  **Depurar ahora** del panel aplica la misma política. Se conservan los eventos
-  con 3+ intentos y las plantillas repetidas. Cómo se dispara cada noche:
+- **Retención**: la tarea `voz:retencion` usa `retencionDias` para los fallos y
+  `retencionAciertosDias` para los aciertos; el botón **Depurar ahora** del panel
+  aplica la misma política. Se conservan los eventos con 3+ intentos y las
+  plantillas repetidas. Cómo se dispara cada noche:
   - **Servidor Node con el proceso vivo** (VPS, `pnpm preview`): la ejecuta
     Nitro sola (`nitro.scheduledTasks`, 03:00).
   - **Vercel / serverless**: no hay proceso permanente y Nitro **no** crea el
@@ -722,12 +726,49 @@ aplican todos los equipos:
   - Las dos vías pasan por `ejecutarRetencionVoz` (`server/utils/vozRetencion.ts`),
     así que no pueden divergir.
 
-## Léxico remoto (Fase B)
+## Aciertos de voz (diagnóstico temporal)
 
-Contadores de motivos sin texto primero; plantillas enmascaradas después. El
-panel `/admin/voz` muestra los eventos no reconocidos agrupados por plantilla y
-permite marcarlos como resueltos o descartados. El filtro por estado se aplica
-en SQL y está indexado por `(estado, ultimo_en)`.
+`voz_eventos` cuenta los fallos; `voz_aciertos` guarda **una fila por dictado
+que la app entendió y aplicó**, para revisar si el comando «exitoso» entendió
+otra cosa (producto, cliente, cantidad o acción equivocada).
+
+- Se enciende en **/admin/voz-configuracion → Telemetría** con «Guardar comandos
+  exitosos» (por defecto apagado). Mientras está encendido se guarda la frase
+  cruda, el comando interpretado, la acción aplicada (`venta`, `consultar_stock`,
+  `ajuste`…), un detalle corto (producto, cantidad, cliente, importe) y la
+  confianza del STT.
+- Se sube en la sincronización (`POST /api/voz/aciertos`); sin red queda en la
+  cola local (máx. 500). El servidor descarta todo si el flag está apagado.
+- **/admin/voz → pestaña Aciertos** los muestra con filtros por comando, ventana
+  (24 h / 7 días / todo) y búsqueda en el texto. **Borrar todos** los vacía sin
+  esperar la retención.
+- Retención propia (`retencionAciertosDias`, 7 por defecto, 1–90): la tarea
+  `voz:retencion` la aplica junto con la de fallos.
+- No se generan con la app cerrada: el buzón solo resuelve en dry-run.
+
+## Léxico administrable (base + remoto)
+
+El vocabulario que reconoce la gramática vive en `shared/voz/lexico.js` y se
+administra desde **/admin/voz-lexico**. La tabla muestra **palabras base +
+entradas remotas** juntas:
+
+- **Desactivar** una palabra base crea un *tombstone* (`voz_lexico.activo = false`):
+  la retira de esa categoría. No la bloquea en todo el sistema: si la activas en
+  otra categoría, esa categoría la recoge.
+- **Restaurar** borra el tombstone y devuelve la palabra base.
+- Si una palabra vive en varias categorías, la fila muestra «también en: …»:
+  desactivarla en una no la desactiva en las demás.
+- **Regla de retirada**: una palabra retirada de `venta_fuerte`/`venta_debil` no
+  vuelve por el respaldo «cantidad + producto». «saca 2 panes» con `saca`
+  retirada responde `desconocido` (`palabra_retirada`), no una venta.
+- Categorías: venta fuerte/débil, fiado, fiado por venta, cobro, marcas de cobro,
+  consulta, precio, deuda, entrada, cambio de precio, traspaso, transferencia,
+  merma, devolución, altas, mover y cuadre (abrir/cerrar).
+- **No se administran**: números, artículos, palabras vacías, preposiciones de
+  ubicación, posiciones («debajo de»), colas de motivo («porque»), monedas y
+  frases de varias palabras. Son estructura del parser, no vocabulario.
+- El cambio llega a los equipos en la siguiente sincronización
+  (`/api/voz/lexico?desde=version`); los tombstone también viajan.
 
 ## Alias de productos (aprendidos)
 
@@ -1092,6 +1133,21 @@ funcional caso por caso:
     modo cuadre. Fuera de `/cuadre` ninguna frase actúa por voz.
 86. Con la app cerrada, merma, alta de producto, deuda de dinero y transferencia
     no dejan nada en **Por revisar**.
+87. Encender «Guardar comandos exitosos», dictar una venta y una consulta de
+    stock, sincronizar y ver dos filas en **/admin/voz → Aciertos** con el texto,
+    el comando y la acción aplicada.
+88. Apagar el switch: los dictados nuevos no crean filas y el servidor descarta
+    lo que llegue de un equipo con la copia vieja de la configuración.
+89. **Borrar todos** en Aciertos vacía la tabla; la retención de 7 días la aplica
+    la tarea `voz:retencion`.
+90. En **/admin/voz-lexico**, desactivar `saca` de `venta_fuerte`, sincronizar y
+    comprobar que «saca 2 panes» ya no abre una venta.
+91. Con `saca` desactivada de venta y activa en `traspaso_verbo`, «saca 2 panes
+    del almacén al quiosco» abre el traspaso; sin ubicación sigue sin actuar.
+92. Restaurar `saca` y comprobar que «saca 2 panes» vuelve al comportamiento
+    anterior sin tocar código.
+93. Quitar `rompio` de `merma_verbo` y comprobar que «se rompió 2 panes» ya no
+    abre merma; otro verbo de la misma familia (`cayo`) sigue funcionando.
 
 ## Limitaciones conocidas
 
@@ -1107,6 +1163,11 @@ funcional caso por caso:
   cuadre. La **ganancia** sí viaja en el snapshot (versión 4).
 - La **merma** es solo del jefe y se registra como movimiento de inventario; el
   **alta de producto** no crea nada sin pulsar Guardar (la voz solo prellena).
+- Los **aciertos de voz** no cubren la app cerrada: el buzón solo resuelve en
+  dry-run. Son diagnóstico temporal y se borran a mano o por retención.
+- El **léxico** administra verbos y marcas, no números ni frases. Retirar una
+  palabra de un flujo no impide que la frase la recoja otra familia que la tenga
+  activa; el panel muestra esos solapes como «también en».
 - **Mover producto** no tiene formulario: por eso siempre pide el «sí», incluso
   con la confirmación por voz apagada.
 - La **deuda de dinero** crea una cuenta de fiado sin productos (solo importe) y

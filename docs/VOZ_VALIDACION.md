@@ -37,6 +37,7 @@ Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
 | C1 | Cambiar wake/idioma/motor como `super_admin` en `/admin/voz-configuracion` | La APK lo aplica tras sincronizar; sin red usa la copia local | | |
 | C2 | Cambiar la retención a 7 días y pulsar «Depurar ahora» | Borra solo lo viejo y conserva eventos con 3+ intentos | | |
 | C3 | Con el servicio nativo activo, reiniciar el teléfono | La escucha queda en pausa; el aviso recuerda abrir la app | | |
+| C4 | Encender «Guardar comandos exitosos» y sincronizar | La APK sube los dictados nuevos a `voz_aciertos` | | |
 
 ### E1 — Consultar deudas
 
@@ -146,6 +147,18 @@ Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
 | N3 | «pasa 5 panes del quiosco al almacén» | Rechaza el sentido inverso con un aviso | | |
 | N4 | Cancelar el traspaso | No mueve stock | | |
 
+### O — Aciertos y léxico administrable
+
+| # | Qué hacer | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| O1 | Con la captura de aciertos encendida, dictar una venta y una consulta de stock; sincronizar | `/admin/voz → Aciertos` muestra dos filas con texto, comando, acción y detalle | | |
+| O2 | Apagar la captura y dictar otra venta | No aparece una fila nueva; el servidor descarta lo que llegue de una copia vieja | | |
+| O3 | Pulsar «Borrar todos» en Aciertos | La lista queda vacía y no se puede deshacer | | |
+| O4 | En `/admin/voz-lexico`, desactivar `saca` de `venta_fuerte`; sincronizar y decir «saca 2 panes» | No abre venta: el panel de fallos registra `palabra_retirada` | | |
+| O5 | Activar `saca` en `traspaso_verbo` y decir «saca 2 panes del almacén al quiosco» | Abre el traspaso; sin ubicación sigue sin actuar | | |
+| O6 | Restaurar `saca` y comprobar «saca 2 panes» | Vuelve al comportamiento anterior sin tocar código | | |
+| O7 | Quitar `rompio` de `merma_verbo` y decir «se rompió 2 panes» | No abre merma; otro verbo de la familia (`cayo`) sigue funcionando | | |
+
 ## Cierre: nada a medias
 
 Después de recorrer los casos, revisar que no quedó basura:
@@ -158,6 +171,7 @@ Después de recorrer los casos, revisar que no quedó basura:
 | El stock de los productos usados volvió a su sitio | | |
 | `voice.proofs` tiene un proof por confirmación (sin duplicados) | | |
 | `voz_confirmaciones` recibió los proofs con red y la cola quedó vacía | | |
+| Los aciertos de prueba se borraron desde la pestaña Aciertos | | |
 
 ## Resultado
 
