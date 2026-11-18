@@ -1,24 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget de voz: un solo botón que abre el dictado directo al almacén, con la
+  app cerrada y sin decir «oye nova». La animación vive en la ventana de la
+  onda (VozDialogoActivity): un widget no puede animar sus vistas.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetVozRaiz"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@drawable/widget_voz_fondo"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="@drawable/widget_voz_ripple"
+    android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="8dp"
-    android:background="#1E293B">
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="10dp">
 
-    <Button
-        android:id="@+id/widgetVoiceQuiosco"
+    <ImageView
+        android:id="@+id/widgetVozIcono"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:contentDescription="@string/widget_voz_descripcion"
+        android:src="@drawable/ic_widget_mic" />
+
+    <LinearLayout
+        android:id="@+id/widgetVozTextos"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
         android:layout_weight="1"
-        android:text="Voz qui"
-        android:textSize="12sp" />
+        android:orientation="vertical">
 
-    <Button
-        android:id="@+id/widgetVoiceAlmacen"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:text="Voz alm"
-        android:textSize="12sp" />
+        <TextView
+            android:id="@+id/widgetVozTitulo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:text="@string/widget_voz_titulo"
+            android:textColor="#FFFFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widgetVozSubtitulo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:text="@string/widget_voz_subtitulo"
+            android:textColor="#A6FFFFFF"
+            android:textSize="11sp" />
+    </LinearLayout>
 </LinearLayout>

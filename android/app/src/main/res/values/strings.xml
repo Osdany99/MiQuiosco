@@ -8,4 +8,7 @@
     <string name="shortcut_voice_quiosco_long">Vender por voz en quiosco</string>
     <string name="shortcut_voice_almacen_short">Voz almacén</string>
     <string name="shortcut_voice_almacen_long">Vender por voz en almacén</string>
+    <string name="widget_voz_titulo">Dictar venta</string>
+    <string name="widget_voz_subtitulo">Almacén</string>
+    <string name="widget_voz_descripcion">Dicta una venta al almacén sin abrir la app</string>
 </resources>

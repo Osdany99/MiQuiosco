@@ -75,6 +75,8 @@ public class VozEscuchaService extends Service {
     public static final String EXTRA_IDIOMA = "idioma";
     /** Arrancar ya en pausa (la app está abierta y el dock usa el micrófono). */
     public static final String EXTRA_PAUSADO = "pausado";
+    /** Dictado lanzado desde el widget: no hace falta decir «oye nova». */
+    public static final String EXTRA_DIRECTO = "directo";
     /** Motor de reconocimiento: "auto" (por defecto), "sistema" o "vosk". */
     public static final String EXTRA_MOTOR = "motor";
 
@@ -117,6 +119,8 @@ public class VozEscuchaService extends Service {
     /** Vosk no pudo cargar el modelo: no se vuelve a intentar en esta sesión. */
     private boolean voskFalloTodo = false;
     private final Set<String> wakeVariantes = new LinkedHashSet<>();
+    /** La próxima frase es un comando aunque no diga «oye nova» (widget). */
+    private volatile boolean directoPendiente = false;
 
     // ── Diálogo (paridad con la app abierta) ──────────────────────────────
     // El servicio decide y conversa igual que el dock, pero en vez de tocar la
@@ -371,6 +375,13 @@ public class VozEscuchaService extends Service {
             return START_STICKY;
         }
         pausado = false;
+        // El widget abre la escucha sin frase de activación: la primera frase
+        // que se oiga ya es el comando.
+        if (intent != null && intent.getBooleanExtra(EXTRA_DIRECTO, false)) {
+            directoPendiente = true;
+            actualizarNotificacion("Dictando venta al almacén");
+            mostrarOnda("Escuchando…");
+        }
         comenzarEscucha();
         return START_STICKY;
     }
@@ -778,6 +789,9 @@ public class VozEscuchaService extends Service {
         estado = Estado.REPOSO;
         estadoEnEspera = null;
         ttsHablando = false;
+        // Un dictado directo a medias no debe convertir la próxima charla en
+        // comando: al cancelar se pierde.
+        directoPendiente = false;
         // Un fiado o cobro a medias no debe sobrevivir a la cancelación.
         productoPendiente = null;
         clientePendiente = null;
@@ -961,6 +975,13 @@ public class VozEscuchaService extends Service {
         }
 
         if (traeFrase) {
+            procesarComando(contenido, confianza);
+            return;
+        }
+        // Dictado desde el widget: no hay frase de activación que esperar, la
+        // primera frase oída ya es el comando.
+        if (directoPendiente) {
+            directoPendiente = false;
             procesarComando(contenido, confianza);
             return;
         }

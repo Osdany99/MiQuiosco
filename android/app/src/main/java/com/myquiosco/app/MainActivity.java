@@ -6,6 +6,18 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
 
+    /**
+     * ¿La app está en primer plano? El widget lo consulta para no abrir una
+     * segunda escucha: si la app está visible, el dictado lo lleva el dock.
+     */
+    public static volatile boolean visible = false;
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        visible = hasFocus;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // Plugins propios de la app (instalador de APK, lector de SMS, contactos,
