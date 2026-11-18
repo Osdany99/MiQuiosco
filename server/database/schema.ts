@@ -1324,8 +1324,8 @@ export const vozEventos = pgTable(
 export type VozEvento = typeof vozEventos.$inferSelect
 export type NuevoVozEvento = typeof vozEventos.$inferInsert
 
-// Dictados que el intérprete resolvió y la app aplicó. A diferencia de
-// `voz_eventos` (contador de fallos agrupado), aquí hay una fila por dictado:
+// Dictados que el intérprete resolvió y la app preparó o aplicó. A diferencia
+// de `voz_eventos` (contador de fallos agrupado), aquí hay una fila por dictado:
 // el texto crudo y la acción permiten revisar si se entendió bien. Fila
 // temporal de diagnóstico: solo se llena con `voz_config.capturar_aciertos`.
 export const vozAciertos = pgTable(

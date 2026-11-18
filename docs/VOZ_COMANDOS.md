@@ -729,8 +729,8 @@ aplican todos los equipos:
 ## Aciertos de voz (diagnóstico temporal)
 
 `voz_eventos` cuenta los fallos; `voz_aciertos` guarda **una fila por dictado
-que la app entendió y aplicó**, para revisar si el comando «exitoso» entendió
-otra cosa (producto, cliente, cantidad o acción equivocada).
+que la app entendió y preparó o aplicó**, para revisar si el comando «exitoso»
+entendió otra cosa (producto, cliente, cantidad o acción equivocada).
 
 - Se enciende en **/admin/voz-configuracion → Telemetría** con «Guardar comandos
   exitosos» (por defecto apagado). Mientras está encendido se guarda la frase
