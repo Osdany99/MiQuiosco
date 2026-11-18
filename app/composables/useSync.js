@@ -1,4 +1,5 @@
 import { Preferences } from '@capacitor/preferences'
+import { Capacitor } from '@capacitor/core'
 import { Network } from '@capacitor/network'
 import { $api } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
@@ -6,11 +7,24 @@ import { push as pushOffline, pull as pullOffline } from '../server-offline/api/
 import { removePendingDeletesAccepted, enrichForSync } from '../server-offline/api/_factory'
 import { useDb } from '../server-offline/db/client'
 import { mergeFields } from '../utils/syncMerge.js'
+import { registrarSyncLog, mensajeDeError } from '../utils/syncLog'
+import { registrarFallosLocales, subirFallosPendientes } from '../utils/syncFallos'
+import { subirEventosVozPendientes } from '../utils/vozEventos'
+import { subirAciertosVozPendientes } from '../utils/vozAciertos'
+import { useVozLexico } from './useVozLexico'
+import { useVozConfig } from './useVozConfig'
+import { useVozServicio } from './useVozServicio'
+import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
+import { getAuthInstance } from './useAuth.js'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
+let _autoConfigurado = false
+let _toastSingleton = null
 
 const PREF_ULTIMA_SYNC = 'ultima_sincronizacion_en'
+const PREF_ULTIMA_SYNC_OK = 'ultima_sincronizacion_ok_en'
+const PREF_ULTIMO_INTENTO = 'ultimo_intento_en'
 
 // Filas por petición de push. El push era UN solo POST con todos los
 // pendientes: con miles de filas superaba el timeout del cliente (15 s) y el
@@ -59,14 +73,26 @@ export function haySyncEnCurso() {
   return controlesSync.size > 0
 }
 
-export function useSync() {
-  const auth = useAuth()
-  const toast = useToast()
+function _create() {
+  const auth = (import.meta.client && getAuthInstance()) || useAuth()
+  const toast = (() => {
+    try {
+      const t = useToast()
+      _toastSingleton = t
+      return t
+    } catch {
+      return _toastSingleton
+    }
+  })()
 
   const sincronizando = ref(false)
+  const vozLexico = useVozLexico()
+  const vozConfig = useVozConfig()
   const ultimaSync = ref(null)
   const pendientesCount = ref(0)
   const hayRed = ref(true)
+  const ultimaSyncOk = ref(null)
+  const ultimoIntento = ref(null)
 
   function getHeaders() {
     const token = auth.jwtSync.value
@@ -86,6 +112,13 @@ export function useSync() {
     const stored = await Preferences.get({ key: PREF_ULTIMA_SYNC })
     if (stored.value) ultimaSync.value = Number(stored.value)
 
+    try {
+      const s1 = await Preferences.get({ key: PREF_ULTIMA_SYNC_OK })
+      if (s1.value) ultimaSyncOk.value = Number(s1.value)
+      const s2 = await Preferences.get({ key: PREF_ULTIMO_INTENTO })
+      if (s2.value) ultimoIntento.value = Number(s2.value)
+    } catch {}
+
     await actualizarPendientesCount()
 
     try {
@@ -99,10 +132,43 @@ export function useSync() {
     try {
       const handle = await Network.addListener('networkStatusChange', (s) => {
         hayRed.value = s.connected
+        if (s.connected) {
+          sincronizarAuto({ motivo: 'red', silencioso: true }).catch(() => {})
+        }
       })
       _networkListenerHandle = handle
     } catch {
       // Network no disponible (navegador / SSR)
+    }
+
+    // Validación forzada tras importar una BD reparada (ver backupBd.js).
+    try {
+      const r = await Preferences.get({ key: 'sync_revalidar_tras_importacion' })
+      if (r.value === '1') {
+        await Preferences.remove({ key: 'sync_revalidar_tras_importacion' })
+        setTimeout(() => {
+          validarSincronizacion(true).catch(() => {})
+        }, 0)
+      }
+    } catch {}
+
+    if (!_autoConfigurado) {
+      _autoConfigurado = true
+      ;(async () => {
+        try {
+          const { App } = await import('@capacitor/app')
+          await App.addListener('appStateChange', (estado) => {
+            if (estado?.isActive) {
+              sincronizarAuto({ motivo: 'primer_plano', silencioso: true }).catch(() => {})
+            }
+          })
+        } catch { /* no nativo / SSR */ }
+      })()
+      setInterval(() => {
+        if (hayRed.value && pendientesCount.value > 0) {
+          sincronizarAuto({ motivo: 'timer', silencioso: true }).catch(() => {})
+        }
+      }, 25 * 60 * 1000)
     }
   }
 
@@ -124,8 +190,7 @@ export function useSync() {
   }
 
   function informarFase(fase, actual = 0, total = 0) {
-    faseSync.value = fase
-    progresoSync.value = { actual, total }
+    faseSync.value = fase, progresoSync.value = { actual, total }
   }
 
   function fueCancelada(signal) {
@@ -169,31 +234,79 @@ export function useSync() {
     for (const lote of lotes) {
       if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-      if (lote.deletes) {
-        const res = await fetch(API_ROUTES.syncPush, {
-          method: 'POST',
-          body: { deletes: lote.deletes },
-          signal,
-          timeoutMs: TIMEOUT_PUSH_MS
-        })
-        if (res.deletesAceptados?.length) {
-          await removePendingDeletesAccepted(res.deletesAceptados)
+      const tablaLote = lote.deletes ? 'deletes' : lote.tabla
+      const filasLote = lote.deletes ? lote.deletes.length : lote.filas.length
+      const inicioLote = Date.now()
+
+      try {
+        if (lote.deletes) {
+          const res = await fetch(API_ROUTES.syncPush, {
+            method: 'POST',
+            body: { deletes: lote.deletes },
+            signal,
+            timeoutMs: TIMEOUT_PUSH_MS
+          })
+          if (res.deletesAceptados?.length) {
+            await removePendingDeletesAccepted(res.deletesAceptados)
+          }
+          enviados += lote.deletes.length
+        } else {
+          const res = await fetch(API_ROUTES.syncPush, {
+            method: 'POST',
+            body: { [lote.tabla]: lote.filas },
+            signal,
+            timeoutMs: TIMEOUT_PUSH_MS
+          })
+          // Cierre inmediato del lote: si el siguiente falla, lo ya aceptado no
+          // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
+          // uno por fila.
+          await marcarAceptados(lote.tabla, res.aceptados)
+          await marcarBasesAceptadas(lote.tabla, lote.filas, res.aceptados)
+          await absorberConflictos(res.conflictos, signal)
+
+          // Rechazos por fila: se quedan pendientes en el dispositivo y se
+          // guardan en el buzón para que el panel sepa qué fila y por qué.
+          if (res.rechazos?.length) {
+            await registrarFallosLocales(res.rechazos.map(rechazo => ({
+              tipo: 'push_rechazo',
+              fase: 'push',
+              tabla: rechazo.tabla ?? lote.tabla,
+              registroId: rechazo.id,
+              codigoHttp: rechazo.codigo,
+              motivo: rechazo.motivo,
+              mensaje: rechazo.detalle,
+              fila: lote.filas.find(f => f.id === rechazo.id),
+              contexto: { transitorio: !!rechazo.transitorio }
+            })))
+          }
+
+          enviados += lote.filas.length
         }
-        enviados += lote.deletes.length
-      } else {
-        const res = await fetch(API_ROUTES.syncPush, {
-          method: 'POST',
-          body: { [lote.tabla]: lote.filas },
-          signal,
-          timeoutMs: TIMEOUT_PUSH_MS
-        })
-        // Cierre inmediato del lote: si el siguiente falla, lo ya aceptado no
-        // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
-        // uno por fila.
-        await marcarAceptados(lote.tabla, res.aceptados)
-        await absorberConflictos(res.conflictos, signal)
-        enviados += lote.filas.length
+      } catch (err) {
+        // El lote que falla es el dato más útil del log: sin esto solo se sabe
+        // "falló la sync", no dónde. La cancelación del usuario no es un error.
+        if (!fueCancelada(signal)) {
+          await registrarSyncLog({
+            nivel: 'error',
+            evento: 'push_lote_error',
+            tabla: tablaLote,
+            filas: filasLote,
+            duracionMs: Date.now() - inicioLote,
+            http: err?.status ?? err?.statusCode ?? null,
+            mensaje: mensajeDeError(err),
+            datos: { timeout: !!err?.timeout }
+          })
+        }
+        throw err
       }
+
+      await registrarSyncLog({
+        evento: 'push_lote',
+        tabla: tablaLote,
+        filas: filasLote,
+        duracionMs: Date.now() - inicioLote,
+        http: 200
+      })
 
       informarFase('subiendo', enviados, total)
     }
@@ -204,6 +317,7 @@ export function useSync() {
   async function _ejecutarPull(signal) {
     const desde = ultimaSync.value ?? 0
     informarFase('bajando')
+    const inicioPull = Date.now()
     const pullResult = await fetch(API_ROUTES.syncPull + '?desde=' + desde, {
       signal,
       timeoutMs: TIMEOUT_PULL_MS
@@ -211,11 +325,23 @@ export function useSync() {
     if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
     const total = contarPayload(pullResult)
+    await registrarSyncLog({
+      evento: 'pull',
+      filas: total,
+      duracionMs: Date.now() - inicioPull,
+      http: 200,
+      datos: { desde }
+    })
+
     informarFase('aplicando', 0, total)
     await pullOffline(pullResult, {
       signal,
       onProgress: procesados => informarFase('aplicando', Math.min(procesados, total), total)
     }, null)
+    try {
+      const { usePermisos } = await import('./usePermisos.js')
+      if (pullResult?.puesto) await usePermisos().guardarDesdePuesto(pullResult.puesto)
+    } catch {}
     informarFase('aplicando', total, total)
 
     const ahora = pullResult.timestamp_servidor ?? Date.now()
@@ -225,9 +351,9 @@ export function useSync() {
     return pullResult
   }
 
-  async function sincronizarAhora() {
+  async function sincronizarAhora(silencioso = false) {
     if (!auth.sesionLocalVigente()) {
-      toast.add({
+      if (!silencioso) toast?.add?.({
         title: 'Sesión expirada',
         description: 'Vuelve a iniciar sesión para sincronizar.',
         color: 'warning'
@@ -238,7 +364,7 @@ export function useSync() {
     }
 
     if (!hayRed.value) {
-      toast.add({
+      if (!silencioso) toast?.add?.({
         title: 'Sin conexión',
         description: 'No hay red disponible para sincronizar.',
         color: 'error'
@@ -247,7 +373,7 @@ export function useSync() {
     }
 
     if (!auth.jwtSync.value) {
-      toast.add({
+      if (!silencioso) toast?.add?.({
         title: 'Reautenticación',
         description: 'Necesitas volver a iniciar sesión para sincronizar.',
         color: 'warning'
@@ -259,14 +385,21 @@ export function useSync() {
 
     sincronizando.value = true
     return enColaSync(() => conSenalSync(async (signal) => {
+      const inicioMs = Date.now()
+      let exito = false
       try {
         informarFase('preparando')
+        await registrarSyncLog({
+          evento: 'sync_inicio',
+          datos: { desde: ultimaSync.value, pendientes: pendientesCount.value }
+        })
+
         // `pushOffline` lee las filas crudas y con `sincronizado = 0`. Se pasa
         // el auth para filtrar por puesto antes de partir los lotes.
         const pendientes = await pushOffline({}, auth)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-        await _subirPendientes(pendientes, signal)
+        const subida = await _subirPendientes(pendientes, signal)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
         for (let intento = 0; intento < 2; intento++) {
@@ -279,17 +412,51 @@ export function useSync() {
           }
         }
 
+        exito = true
+        ultimaSyncOk.value = Date.now()
+        await Preferences.set({ key: PREF_ULTIMA_SYNC_OK, value: String(ultimaSyncOk.value) }).catch(() => {})
+        await registrarSyncLog({
+          evento: 'sync_fin',
+          duracionMs: Date.now() - inicioMs,
+          filas: subida.enviados,
+          datos: { enviados: subida.enviados, total: subida.total }
+        })
         return true
       } catch (err) {
         if (fueCancelada(signal) || err?.cancelacionUsuario) {
-          toast.add({
+          await registrarSyncLog({
+            nivel: 'warn',
+            evento: 'sync_cancelada',
+            duracionMs: Date.now() - inicioMs
+          })
+          toast?.add?.({
             title: 'Sincronización cancelada',
             description: 'Puedes reintentarlo cuando quieras: no se perdió ningún cambio.',
             color: 'info'
           })
           return false
         }
-        toast.add({
+        await registrarSyncLog({
+          nivel: 'error',
+          evento: 'sync_error',
+          duracionMs: Date.now() - inicioMs,
+          http: err?.status ?? err?.statusCode ?? null,
+          mensaje: mensajeDeError(err),
+          datos: {
+            timeout: !!err?.timeout,
+            fase: faseSync.value
+          }
+        })
+        // Además de la traza local, el fallo va al buzón que sube al servidor.
+        await registrarFallosLocales([{
+          tipo: 'sync_error',
+          fase: 'sync',
+          codigoHttp: err?.status ?? err?.statusCode ?? null,
+          motivo: err?.timeout ? 'red' : (err?.status || err?.statusCode ? 'http' : 'red'),
+          mensaje: mensajeDeError(err),
+          contexto: { timeout: !!err?.timeout, fase: faseSync.value }
+        }])
+        if (!silencioso) toast?.add?.({
           title: 'Error en sincronización',
           description:
             err.data?.statusMessage
@@ -302,6 +469,14 @@ export function useSync() {
       } finally {
         sincronizando.value = false
         await actualizarPendientesCount().catch(() => {})
+        // Sube el buzón de fallos (lotes de 100). Best-effort: si no hay red se
+        // queda pendiente para la próxima sync.
+        await subirFallosPendientes(fetch).catch(() => {})
+        await subirEventosVozPendientes(fetch).catch(() => {})
+        await subirAciertosVozPendientes(fetch).catch(() => {})
+        await vozLexico.refrescar(fetch).catch(() => {})
+        await vozConfig.refrescar(fetch).catch(() => {})
+        await reportarEstadoSync(exito).catch(() => {})
       }
     }))
   }
@@ -309,7 +484,7 @@ export function useSync() {
   async function pullServidor({ silent = false } = {}) {
     if (!auth.sesionLocalVigente()) {
       if (!silent) {
-        toast.add({
+        toast?.add?.({
           title: 'Sesión expirada',
           description: 'Vuelve a iniciar sesión para sincronizar.',
           color: 'warning'
@@ -334,7 +509,7 @@ export function useSync() {
       } catch (err) {
         if (fueCancelada(signal) || err?.cancelacionUsuario) {
           if (!silent) {
-            toast.add({
+            toast?.add?.({
               title: 'Sincronización cancelada',
               description: 'Puedes reintentarlo cuando quieras: no se perdió ningún cambio.',
               color: 'info'
@@ -342,8 +517,25 @@ export function useSync() {
           }
           return false
         }
+        // El primer pull (aprovisionamiento) es el que más interesa diagnosticar
+        // si falla: de él depende que el aparato quede usable.
+        await registrarSyncLog({
+          nivel: 'error',
+          evento: 'pull_error',
+          http: err?.status ?? err?.statusCode ?? null,
+          mensaje: mensajeDeError(err),
+          datos: { desde: ultimaSync.value, timeout: !!err?.timeout }
+        })
+        await registrarFallosLocales([{
+          tipo: 'pull_error',
+          fase: 'pull',
+          codigoHttp: err?.status ?? err?.statusCode ?? null,
+          motivo: 'red',
+          mensaje: mensajeDeError(err),
+          contexto: { desde: ultimaSync.value, timeout: !!err?.timeout }
+        }])
         if (!silent) {
-          toast.add({
+          toast?.add?.({
             title: 'Error en sincronización',
             description:
               err.data?.statusMessage
@@ -378,6 +570,19 @@ export function useSync() {
     }
   }
 
+  async function marcarBasesAceptadas(tabla, filas, aceptados) {
+    const set = new Set(aceptados ?? [])
+    if (!set.size) return
+    const { Preferences } = await import('@capacitor/preferences')
+    for (const fila of filas ?? []) {
+      if (!set.has(fila.id)) continue
+      try {
+        const ts = fila.actualizadoEn ? new Date(fila.actualizadoEn).getTime() : 0
+        if (ts) await Preferences.set({ key: `sync_base:${tabla}:${fila.id}`, value: String(ts) })
+      } catch {}
+    }
+  }
+
   async function absorberConflictos(conflictos, signal) {
     if (!conflictos) return
     let vistos = 0
@@ -388,7 +593,27 @@ export function useSync() {
         try {
           const server = conflicto.server ?? conflicto
           const client = conflicto.client ?? conflicto
-          const { merged, difiereDelServidor } = mergeFields(server, client)
+          let base = null
+          try {
+            const { Preferences } = await import('@capacitor/preferences')
+            const raw = await Preferences.get({ key: `sync_base_val:${tabla}:${server?.id}` })
+            base = raw?.value ? JSON.parse(raw.value) : null
+          } catch {}
+          try {
+            // Hacer visible el conflicto en el buzón central (/admin/fallos):
+            // se reporta como push_rechazo/conflicto para que el jefe lo revise.
+            await registrarFallosLocales([{
+              tipo: 'push_rechazo',
+              fase: 'push',
+              tabla: String(tabla),
+              registroId: server?.id ?? client?.id,
+              codigoHttp: 409,
+              motivo: 'conflicto',
+              mensaje: 'Conflicto resuelto por merge: el servidor tenia una version posterior.',
+              contexto: {}
+            }])
+          } catch {}
+          const { merged, difiereDelServidor } = mergeFields(server, client, base)
           // Si el merge aporta datos que el servidor no tenía (null→valor
           // del cliente), se marca no-sincronizado y se refresca el
           // timestamp para que el próximo push lo suba.
@@ -399,6 +624,12 @@ export function useSync() {
           // servidor, así que su marca de tiempo es la buena. Con
           // enrichForUpdate la fila quedaría siempre pendiente de subir.
           await useDb().update(tabla, merged.id, enrichForSync(tabla, patch))
+          try {
+            const { Preferences } = await import('@capacitor/preferences')
+            const _tsSrc = conflicto?.server?.actualizadoEn ?? conflicto?.actualizadoEn
+            const ts = _tsSrc ? new Date(_tsSrc).getTime() : 0
+            if (ts) await Preferences.set({ key: `sync_base:${tabla}:${merged.id}`, value: String(ts) })
+          } catch {}
         } catch {
           // absorber conflicto best-effort
         }
@@ -427,6 +658,49 @@ export function useSync() {
     pendientesCount.value = total
   }
 
+  /**
+   * Lo que el equipo sabe de su propia voz, para que el panel vea el motor
+   * efectivo y qué puede correr. En web no hay servicio: no se manda nada.
+   */
+  async function vozReportada() {
+    try {
+      if (!Capacitor.isNativePlatform()) return {}
+      const voz = useVozServicio()
+      await voz.refrescar().catch(() => {})
+      return {
+        ...(voz.motorActual.value ? { vozMotor: voz.motorActual.value } : {}),
+        vozVosk: Boolean(voz.voskListo.value),
+        vozStt: Boolean(voz.sttSistema.value)
+      }
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * Latido al servidor (`POST /api/sync/estado`): pendientes locales, si la
+   * última sync completa terminó bien y qué motor de voz está usando. Alimenta
+   * el panel de dispositivos.
+   *
+   * Es telemetría: el llamador la envuelve en `.catch()` y nunca bloquea la UI.
+   */
+  async function reportarEstadoSync(syncOk) {
+    if (!auth.jwtSync.value || !hayRed.value) return
+    const info = infoDispositivo()
+    const voz = await vozReportada()
+    await fetch(API_ROUTES.syncEstado, {
+      method: 'POST',
+      body: {
+        pendientes: pendientesCount.value,
+        syncOk: syncOk === true,
+        modelo: info.modelo,
+        android: info.android,
+        ...voz
+      },
+      timeoutMs: 15000
+    })
+  }
+
   async function descargarCatalogo() {
     try {
       const data = await fetch(API_ROUTES.syncProductosActivos)
@@ -446,7 +720,7 @@ export function useSync() {
         }
       }
     } catch (err) {
-      toast.add({
+      toast?.add?.({
         title: 'Error',
         description: err.data?.statusMessage || err.message,
         color: 'error'
@@ -454,15 +728,71 @@ export function useSync() {
     }
   }
 
+  async function validarSincronizacion(silencioso = false) {
+    try {
+      ultimaSync.value = 0
+      ultimaSyncOk.value = null
+      ultimoIntento.value = null
+      await Preferences.set({ key: PREF_ULTIMA_SYNC, value: '0' })
+      await Preferences.remove({ key: PREF_ULTIMA_SYNC_OK }).catch(() => {})
+      await Preferences.remove({ key: PREF_ULTIMO_INTENTO }).catch(() => {})
+      for (const tabla of TABLAS_SYNC) {
+        try {
+          await useDb().marcarTodosNoSincronizados(tabla)
+        } catch { /* tabla aún no migrada */ }
+      }
+      await actualizarPendientesCount()
+    } catch { /* tolerante */ }
+    return await sincronizarAhora(silencioso)
+  }
+
+  function puedeSincronizarEnSegundoPlano() {
+    return !!auth.jwtSync.value
+  }
+
+  function esDebida() {
+    const ahora = Date.now()
+    if (ultimoIntento.value && ahora - ultimoIntento.value < 5 * 60 * 1000) return false
+    if (!ultimaSyncOk.value) return true
+    const ms = ahora - ultimaSyncOk.value
+    if (ms > 12 * 60 * 60 * 1000) return true
+    if (pendientesCount.value > 0 && ms > 30 * 60 * 1000) return true
+    return false
+  }
+
+  async function sincronizarAuto({ motivo = 'auto', silencioso = true } = {}) {
+    void motivo
+    if (!puedeSincronizarEnSegundoPlano()) return false
+    if (!hayRed.value) return false
+    if (haySyncEnCurso()) return false
+    if (!esDebida()) return false
+    ultimoIntento.value = Date.now()
+    try {
+      await Preferences.set({ key: PREF_ULTIMO_INTENTO, value: String(ultimoIntento.value) })
+    } catch {}
+    const ok = await sincronizarAhora(silencioso)
+    if (ok) {
+      ultimaSyncOk.value = Date.now()
+      try {
+        await Preferences.set({ key: PREF_ULTIMA_SYNC_OK, value: String(ultimaSyncOk.value) })
+      } catch {}
+    }
+    return ok
+  }
+
   return {
     sincronizando: readonly(sincronizando),
     faseSync: readonly(faseSync),
     progresoSync: readonly(progresoSync),
     ultimaSync: readonly(ultimaSync),
+    ultimaSyncOk: readonly(ultimaSyncOk),
+    ultimoIntento: readonly(ultimoIntento),
     pendientesCount: readonly(pendientesCount),
     hayRed: readonly(hayRed),
     cargarEstado,
     sincronizarAhora,
+    sincronizarAuto,
+    validarSincronizacion,
     pullServidor,
     conSenalSync,
     informarFase,
@@ -474,6 +804,19 @@ export function useSync() {
     descargarCatalogo,
     aplicarPull: pullOffline
   }
+}
+
+let _syncSingleton = null
+
+/**
+ * Singleton: `useSync()` se instancia en el layout, el dock, el login y Ajustes.
+ * Sin esto cada uno tenía su propio `hayRed`, `sincronizando`, `ultimaSync` y
+ * `pendientesCount`, así que el banner y el dock podían mostrar estados
+ * distintos (y la red detectada en un sitio no llegaba a otro).
+ */
+export function useSync() {
+  if (!_syncSingleton) _syncSingleton = _create()
+  return _syncSingleton
 }
 
 // mergeFields re-export removed to avoid Nuxt auto-import duplicate warning;

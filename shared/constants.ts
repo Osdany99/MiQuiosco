@@ -9,9 +9,9 @@ export const PUESTO_PRINCIPAL_ID_FIJO = '00000000-0000-0000-0000-000000000002'
  * a un NULL, la transferencia sin cliente conocido apunta a esta fila: es una
  * deuda sin dueño, no un hueco en la base.
  *
- * ID fijo por el mismo motivo que JEFE_ID_FIJO: todos los dispositivos
- * generan el mismo, así el sync (que funde por id) produce una sola fila en vez
- * de un "Sin cliente" por aparato.
+ * El ID fijo solo se conserva para la migración del puesto principal: cada
+ * puesto tiene ahora su propio centinela y se identifica por `es_centinela`,
+ * no por el ID (un ID compartido chocaba entre puestos).
  */
 export const CLIENTE_SIN_CLIENTE_ID_FIJO = '00000000-0000-0000-0000-000000000003'
 export const CLIENTE_SIN_CLIENTE_NOMBRE = 'Sin cliente'

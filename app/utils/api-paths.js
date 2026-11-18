@@ -10,5 +10,9 @@ export const API_ROUTES = {
   appVersion: '/api/app-version',
   syncProductosActivos: '/api/sync/productos-activos',
   syncPush: '/api/sync/push',
-  syncPull: '/api/sync/pull'
+  syncPull: '/api/sync/pull',
+  syncEstado: '/api/sync/estado',
+  syncFallos: '/api/sync/fallos',
+  vozEventos: '/api/voz/eventos',
+  vozAciertos: '/api/voz/aciertos'
 }

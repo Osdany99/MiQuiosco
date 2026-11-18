@@ -49,6 +49,7 @@ function normalizarLinea(i) {
     id: i.id,
     cuadreId: i.cuadreId,
     productoId: i.productoId,
+    loteId: i.loteId ?? null,
     precioVentaUsado: Number(i.precioVentaUsado ?? 0),
     cantidad: Number(i.cantidad ?? 0),
     subtotal: Number(i.subtotal ?? 0),
@@ -279,20 +280,19 @@ export function useCuadre() {
   )
 
   const faltanteReal = computed(() => {
-    if (totalRealCaja.value === null) return null
-    return totalEsperado.value - totalRealCaja.value - montoTransferencia.value - montoFiado.value
+    const caja = totalRealCaja.value ?? 0
+    return totalEsperado.value - caja - montoTransferencia.value - montoFiado.value
   })
 
   const diferencia = computed(() => {
-    if (totalRealCaja.value === null) return null
+    const caja = totalRealCaja.value ?? 0
     // El fiado es venta justificada (no es faltante): el jefe lo cuenta como
     // parte del esperado. Los cobros posteriores son directos (fuera del
     // cuadre) y no entran aquí.
-    return (totalRealCaja.value + montoTransferencia.value + montoFiado.value) - totalEsperado.value
+    return (caja + montoTransferencia.value + montoFiado.value) - totalEsperado.value
   })
 
   const tipoDiferencia = computed(() => {
-    if (diferencia.value === null) return null
     if (Math.abs(diferencia.value) < 0.005) return 'exacto'
     return diferencia.value > 0 ? 'sobrante' : 'faltante'
   })
@@ -594,6 +594,7 @@ export function useCuadre() {
             id: generateId(),
             cuadreId,
             productoId: prod.id,
+            loteId: null,
             precioVentaUsado: prod.precioVentaActual,
             cantidad: 0,
             subtotal: 0,
@@ -602,6 +603,61 @@ export function useCuadre() {
             esExtra: false,
             secuencia: ++maxSec
           })
+        }
+
+        // Lotes especiales con stock en el quiosco: se auto-duplica la línea
+        // para que el jefe pueda vender del lote defectuoso/liquidación/etc. al
+        // costo, sin tener que duplicar a mano la primera vez del día.
+        const pidCuadre = auth.usuarioActual.value?.puestoId ?? null
+        let lotesFilas = []
+        let movsFilas = []
+        try {
+          const lotesRepo = useRepo(loteConfig, { toast: false })
+          const movsRepo = useRepo(movimientoConfig, { toast: false })
+          const { data: ld } = await lotesRepo.readAll()
+          lotesFilas = ld ?? []
+          const { data: md } = await movsRepo.readAll()
+          movsFilas = md ?? []
+        } catch {
+          lotesFilas = []
+          movsFilas = []
+        }
+        if (pidCuadre) {
+          lotesFilas = lotesFilas.filter(l => !l.puestoId || l.puestoId === pidCuadre)
+          movsFilas = movsFilas.filter(m => !m.puestoId || m.puestoId === pidCuadre)
+        }
+        const { lotesConSaldo } = await import('../../shared/inventario/operaciones')
+        for (const prod of productosActivos.value) {
+          try {
+            const qui = lotesConSaldo(lotesFilas, movsFilas, prod.id, 'quiosco')
+            const especiales = qui.filter(l => l.estadoLote && l.estadoLote !== 'normal')
+            for (const lote of especiales) {
+              if (visibles.some(v => v.loteId === lote.id)) continue
+              maxSec++
+              const estadoTxt = lote.estadoLote === 'liquidacion'
+                ? 'Liquidación'
+                : lote.estadoLote === 'defectuoso'
+                  ? 'Defectuoso'
+                  : lote.estadoLote === 'vencimiento_proximo'
+                    ? 'Vencimiento próximo'
+                    : lote.estadoLote
+              visibles.push({
+                id: generateId(),
+                cuadreId,
+                productoId: prod.id,
+                loteId: lote.id,
+                precioVentaUsado: Number(lote.precioUnitario) || 0,
+                cantidad: 0,
+                subtotal: 0,
+                tipoLinea: 'normal',
+                nota: `Lote ${estadoTxt}`,
+                esExtra: true,
+                secuencia: maxSec
+              })
+            }
+          } catch {
+            // Sin lotes, no se genera extra (no pasa nada).
+          }
         }
       }
       lineas.value = visibles
@@ -617,18 +673,75 @@ export function useCuadre() {
       })
     } else if (autoPopulate) {
       let seq = 0
-      lineas.value = productosActivos.value.map(prod => ({
+      const baseLines = productosActivos.value.map(prod => ({
         id: generateId(),
         cuadreId,
         productoId: prod.id,
+        loteId: null,
         precioVentaUsado: prod.precioVentaActual,
         cantidad: 0,
         subtotal: 0,
         tipoLinea: 'normal',
         nota: null,
         esExtra: false,
-        secuencia: ++seq
+        secuencia: seq + 1
       }))
+      let seq2 = seq
+      for (const l of baseLines) l.secuencia = ++seq2
+      // Lotes especiales...
+      seq = seq2
+      try {
+        const pid = auth.usuarioActual.value?.puestoId ?? null
+        let lotesFilas = []
+        let movsFilas = []
+        const lotesRepo = useRepo(loteConfig, { toast: false })
+        const movsRepo = useRepo(movimientoConfig, { toast: false })
+        const { data: ld } = await lotesRepo.readAll()
+        lotesFilas = ld ?? []
+        const { data: md } = await movsRepo.readAll()
+        movsFilas = md ?? []
+        if (pid) {
+          lotesFilas = lotesFilas.filter(l => !l.puestoId || l.puestoId === pid)
+          movsFilas = movsFilas.filter(m => !m.puestoId || m.puestoId === pid)
+        }
+        const { lotesConSaldo } = await import('../../shared/inventario/operaciones')
+        for (const prod of productosActivos.value) {
+          const qui = lotesConSaldo(lotesFilas, movsFilas, prod.id, 'quiosco')
+          const especiales = qui.filter(l => l.estadoLote && l.estadoLote !== 'normal')
+          for (const lote of especiales) {
+            seq = seq + 1
+            const estadoTxt = lote.estadoLote === 'liquidacion'
+              ? 'Liquidación'
+              : lote.estadoLote === 'defectuoso'
+                ? 'Defectuoso'
+                : lote.estadoLote === 'vencimiento_proximo'
+                  ? 'Vencimiento próximo'
+                  : lote.estadoLote
+            baseLines.push({
+              id: generateId(),
+              cuadreId,
+              productoId: prod.id,
+              loteId: lote.id,
+              precioVentaUsado: Number(lote.precioUnitario) || 0,
+              cantidad: 0,
+              subtotal: 0,
+              tipoLinea: 'normal',
+              nota: `Lote ${estadoTxt}`,
+              esExtra: true,
+              secuencia: seq
+            })
+          }
+        }
+      } catch {}
+      lineas.value = baseLines
+      const ordenDe2 = new Map(productosActivos.value.map(p => [p.id, Number(p.orden ?? 9999)]))
+      lineas.value.sort((a, b) => {
+        const pa = ordenDe2.get(a.productoId) ?? 9999
+        const pb = ordenDe2.get(b.productoId) ?? 9999
+        if (pa !== pb) return pa - pb
+        if (a.esExtra !== b.esExtra) return a.esExtra ? 1 : -1
+        return 0
+      })
     } else {
       lineas.value = []
     }
@@ -696,6 +809,7 @@ export function useCuadre() {
       if (existente) {
         const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
           || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
+          || (existente.loteId ?? null) !== (linea.loteId ?? null)
           || existente.tipoLinea !== linea.tipoLinea
           || existente.nota !== linea.nota
           || existente.esExtra !== linea.esExtra
@@ -705,6 +819,7 @@ export function useCuadre() {
             cantidad: linea.cantidad,
             precioVentaUsado: linea.precioVentaUsado,
             subtotal: linea.subtotal,
+            loteId: linea.loteId ?? null,
             tipoLinea: linea.tipoLinea,
             nota: linea.nota,
             esExtra: linea.esExtra,
@@ -720,6 +835,7 @@ export function useCuadre() {
           id: linea.id,
           cuadreId: linea.cuadreId,
           productoId: linea.productoId,
+          loteId: linea.loteId ?? null,
           precioVentaUsado: linea.precioVentaUsado,
           cantidad: linea.cantidad,
           subtotal: linea.subtotal,
@@ -774,6 +890,7 @@ export function useCuadre() {
       id: generateId(),
       cuadreId: linea.cuadreId,
       productoId: linea.productoId,
+      loteId: null,
       precioVentaUsado: prod ? Number(prod.precioVentaActual) : Number(linea.precioVentaUsado),
       cantidad: 0,
       subtotal: 0,
@@ -965,7 +1082,7 @@ export function useCuadre() {
     const lineasVenta = lineas.value
       .filter(l => Number(l.cantidad) > 0)
       .sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
-      .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad }))
+      .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad, loteId: l.loteId ?? null, secuencia: Number(l.secuencia ?? 0) }))
     const ids = [...new Set(lineasVenta.map(l => l.productoId))]
     const lotesPorProducto = new Map(ids.map(id => [id, lotesConSaldo(filasLotes, movs, id, 'quiosco')]))
     const { movimientos, costoTotal, faltantes } = construirVentaCuadre({

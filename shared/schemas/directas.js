@@ -5,7 +5,8 @@ const lineaDirecta = z.object({
   productoId: z.string().uuid('ID de producto inválido'),
   cantidad: z.number().int().min(0, 'La cantidad no puede ser negativa'),
   precioVentaUsado: z.number().min(0, 'El precio no puede ser negativo'),
-  secuencia: z.number().int().min(0).optional().default(0)
+  secuencia: z.number().int().min(0).optional().default(0),
+  loteId: z.string().uuid('ID de lote inválido').nullable().optional()
 })
 
 /**
@@ -30,7 +31,13 @@ export const ventaDirectaSchema = z.object({
   lineas: z
     .array(lineaDirecta)
     .min(1, 'Debe incluir al menos un producto.'),
-  notas: z.string().nullable().optional()
+  notas: z.string().nullable().optional(),
+  /**
+   * Fecha de la venta en epoch ms. Solo la usa la cola de voz: una venta
+   * dictada ayer y confirmada hoy debe quedar en el día en que se dictó. El
+   * servidor la acota a los últimos días y rechaza fechas futuras.
+   */
+  creadoEn: z.number().int().positive().optional()
 })
 
 /**

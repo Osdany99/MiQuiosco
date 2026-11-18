@@ -16,6 +16,7 @@
  */
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { useDb } from '../server-offline/db/client'
+import { Preferences } from '@capacitor/preferences'
 
 /**
  * Puente con `DbBackupPlugin` (Java, en android/app/src/main/java).
@@ -121,7 +122,14 @@ export async function restaurarCopiaBd() {
     // Sin reabrir al terminar: la conexión no debe volver a abrirse sobre el
     // archivo recién sustituido. Quien llama recarga la página después, que es
     // lo que reabre la base y aplica las migraciones que falten.
-    return await p.aplicarCopia()
+    const res = await p.aplicarCopia()
+    // Avisar al arranque para forzar una validación completa de sincronización:
+    // el archivo restaurado puede llevar flags `sincronizado` que no coinciden
+    // con el servidor ni estado de cursor; se reconcilia al primer cargaEstado.
+    try {
+      await Preferences.set({ key: 'sync_revalidar_tras_importacion', value: '1' })
+    } catch {}
+    return res
   } catch (err) {
     // Si la sustitución falló, el archivo viejo sigue en su sitio pero la
     // conexión está cerrada: se reabre para no dejar la app inservible y sin

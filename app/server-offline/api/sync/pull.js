@@ -10,8 +10,10 @@
  * reaplica sin duplicar (upsert por id).
  */
 import { SYNC_TABLES } from '../../../../shared/tables'
-import { removePendingDeletesAccepted, enrichForInsert, enrichForSync } from '../_factory'
+import { calcularHashFila } from '../../../utils/hashFila'
+import { removePendingDeletesAccepted, enrichForInsert, enrichForSync, registrarSyncConflictos } from '../_factory'
 import { useDb } from '../../db/client'
+import { Preferences } from '@capacitor/preferences'
 
 const SYNC_TABLAS = SYNC_TABLES
 /** Filas por transacción de aplicación. */
@@ -25,18 +27,46 @@ const LOTE_APLICACION = 200
 async function upsertRegistro(cfg, reg, existentes) {
   const db = useDb()
   if (existentes.has(reg.id)) {
+    const local = existentes.get(reg.id)
+    const localSync = typeof local === 'object' && local !== null ? local.sincronizado : local
     // No pisar ediciones locales aún no subidas (sincronizado = 0):
     // se resuelven vía push / conflicto, donde el timestamp decide.
     // Sin esto, un pull tras el login borra cambios locales pendientes.
-    if (!existentes.get(reg.id)) return false
+    if (!localSync) return false
+    // Drift temprano: si la fila está marcada como sincronizada pero el
+    // contenido ya difiere del servidor, se registra como conflicto para que
+    // el centro de conflictos (Fase 11) lo muestre. Se absorbe el servidor.
+    try {
+      const lh = await calcularHashFila(local)
+      const sh = await calcularHashFila(reg)
+      if (lh && sh && lh !== sh) {
+        void registrarSyncConflictos([{
+          tabla: cfg.tabla,
+          id: reg.id,
+          servidorHash: sh,
+          clienteHash: lh
+        }])
+      }
+    } catch { /* best-effort */ }
     // enrichForSync, no enrichForUpdate: lo que llega es del servidor, así que
     // se respetan su actualizadoEn y queda marcada como sincronizada.
     await db.update(cfg.tabla, reg.id, enrichForSync(cfg.tabla, { ...reg, sincronizado: 1 }))
-    existentes.set(reg.id, 1)
+    try {
+      const ts = reg.actualizadoEn ? new Date(reg.actualizadoEn).getTime() : 0
+      if (ts) await Preferences.set({ key: `sync_base:${cfg.tabla}:${reg.id}`, value: String(ts) })
+      // instantánea base para el 3-way merge de Fase 10
+      await Preferences.set({ key: `sync_base_val:${cfg.tabla}:${reg.id}`, value: JSON.stringify(reg) })
+    } catch {}
+    existentes.set(reg.id, { ...local, sincronizado: 1 })
     return true
   }
   await db.insert(cfg.tabla, enrichForInsert(cfg.tabla, { ...reg, sincronizado: 1 }))
-  existentes.set(reg.id, 1)
+  try {
+    const ts = reg.actualizadoEn ? new Date(reg.actualizadoEn).getTime() : 0
+    if (ts) await Preferences.set({ key: `sync_base:${cfg.tabla}:${reg.id}`, value: String(ts) })
+    await Preferences.set({ key: `sync_base_val:${cfg.tabla}:${reg.id}`, value: JSON.stringify(reg) })
+  } catch {}
+  existentes.set(reg.id, { ...reg, sincronizado: 1 })
   return true
 }
 
@@ -55,7 +85,7 @@ export async function pull(pullResult, _opts, _auth) {
 
     // Una sola lectura por tabla (id + sincronizado) en vez de un getById por fila.
     const filasLocales = await db.queryAll(cfg.tabla)
-    const existentes = new Map(filasLocales.map(r => [r.id, r.sincronizado]))
+    const existentes = new Map(filasLocales.map(r => [r.id, r]))
 
     for (let i = 0; i < registros.length; i += LOTE_APLICACION) {
       const trozo = registros.slice(i, i + LOTE_APLICACION)

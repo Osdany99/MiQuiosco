@@ -20,7 +20,7 @@ export default defineNuxtConfig({
       // Sin prefijo NUXT_PUBLIC_ a propósito: Vercel bloquea ese prefijo en
       // su UI (ver docs/PUBLICAR_VERSION.md). Los nombres coinciden con .env.
       sessionExpirationTrabajadorHoras: process.env.SESSION_EXPIRATION_TRABAJADOR_HORAS || '24',
-      sessionInactivityTimeoutJefeSegundos: process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || '60'
+      sessionInactivityTimeoutJefeSegundos: process.env.SESSION_INACTIVITY_TIMEOUT_JEFE_SEGUNDOS || '900'
     }
   },
 
@@ -40,6 +40,16 @@ export default defineNuxtConfig({
   nitro: {
     prerender: {
       routes: ['/']
+    },
+    // Retención de eventos de voz: tarea programada cada noche. En un servidor
+    // Node con el proceso vivo la ejecuta Nitro; en serverless (Vercel) no hay
+    // proceso permanente y la dispara el cron de `vercel.json` contra
+    // `POST /api/tasks/voz/retencion` (mismo trabajo, misma política).
+    experimental: {
+      tasks: true
+    },
+    scheduledTasks: {
+      '0 3 * * *': 'voz:retencion'
     },
     // Margen para /api/sync/*: aunque el cliente manda lotes pequeños, un
     // push/pull puede tardar más que el límite por defecto de Vercel.
@@ -80,7 +90,13 @@ export default defineNuxtConfig({
         'lucide:upload',
         'lucide:check',
         'lucide:key',
-        'lucide:loader-2'
+        'lucide:loader-2',
+        // Iconos de la revisión de voz. Se listan explícitamente porque
+        // `scan` no siempre los recoge en dev (el menú se quedaba sin icono).
+        'lucide:mic-vocal',
+        'lucide:inbox',
+        'lucide:radio',
+        'lucide:search'
       ]
     },
     fallbackToApi: false

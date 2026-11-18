@@ -38,6 +38,16 @@ const cuadreItemsConfig = TABLES.cuadre_items
 const cuentasFiadoConfig = TABLES.cuentas_fiado
 const cuentasFiadoItemsConfig = TABLES.cuentas_fiado_items
 
+/**
+ * Marca de versión de los saldos, compartida entre instancias.
+ *
+ * La voz cachea el catálogo dos minutos para no releer todo en cada comando.
+ * Ese cache quedaría ciego a una venta hecha desde otra pantalla (o desde la
+ * revisión de acciones pendientes), y la voz ofrecería stock que ya no existe.
+ * Cada `cargarSaldos()` sube la marca y el cache se descarta.
+ */
+const versionSaldos = ref(0)
+
 export function useInventario() {
   const toast = useToast()
   const conexion = useModoConexion()
@@ -100,6 +110,7 @@ export function useInventario() {
   async function cargarSaldos() {
     if (esOnline.value) {
       saldos.value = await $api('/api/inventario/saldos', { headers: apiHeaders() })
+      versionSaldos.value++
       return saldos.value
     }
     const pid = puestoIdActual()
@@ -110,6 +121,7 @@ export function useInventario() {
     ])
     const f = arr => arr.filter(x => !pid || x.puestoId === pid)
     saldos.value = vistaSaldos({ productos: f(productos), lotes: f(lotesRows), movimientos: f(movs) })
+    versionSaldos.value++
     return saldos.value
   }
 
@@ -256,6 +268,7 @@ export function useInventario() {
         cantidad: parsed.data.cantidad,
         motivo: parsed.data.motivo,
         nota: parsed.data.nota ?? null,
+        loteId: parsed.data.loteId ?? null,
         lotesOrdenados: disponibles,
         meta: { puestoId: pid, usuarioId, ahora }
       })
@@ -282,7 +295,11 @@ export function useInventario() {
    */
   async function registrarVentaDirecta(datos) {
     exigirJefe()
-    const parsed = ventaDirectaSchema.safeParse(datos)
+    // Parámetros internos (no del formulario ni del schema): `id` lo fija la
+    // cola de voz para que reintentar no duplique la venta, y `creadoEn` es la
+    // fecha del dictado, que puede ser de horas antes (revisión al final del día).
+    const { id: idFijado, creadoEn: creadoEnFijado, ...resto } = datos ?? {}
+    const parsed = ventaDirectaSchema.safeParse(resto)
     if (!parsed.success) {
       throw new Error(parsed.error.issues.map(i => i.message).join('; '))
     }
@@ -290,15 +307,16 @@ export function useInventario() {
     if (!pid) throw new Error('Sin puesto asignado.')
     cargando.value = true
     try {
+      const fechaVenta = Number(creadoEnFijado) || Date.now()
       if (esOnline.value) {
         return await $api('/api/ventas-directas', {
           method: 'POST',
-          body: parsed.data,
+          body: { ...parsed.data, creadoEn: fechaVenta },
           headers: apiHeaders()
         })
       }
       const usuarioId = auth.usuarioActual.value?.id ?? null
-      const ahora = Date.now()
+      const ahora = fechaVenta
       const [filasLotes, movs, prods] = await Promise.all([
         filasPuesto(lotesRepo, pid),
         filasPuesto(movimientosRepo, pid),
@@ -312,7 +330,7 @@ export function useInventario() {
       const lotesPorProducto = new Map(
         ids.map(id => [id, lotesConSaldo(filasLotes, movs, id, parsed.data.ubicacion)])
       )
-      const ventaId = generarId()
+      const ventaId = idFijado || generarId()
       const venta = construirVentaDirecta({
         lineas: parsed.data.lineas,
         lotesPorProducto,
@@ -337,7 +355,9 @@ export function useInventario() {
           ganancia: venta.ganancia,
           notas: parsed.data.notas ?? null,
           usuarioId,
-          anulado: false
+          anulado: false,
+          // Fecha del dictado (o ahora): la venta pertenece al día en que se dijo.
+          creadoEn: fechaVenta
         })
         for (const it of venta.items) {
           await r(ventasDirectasItemsRepo).create({ ...it, ventaDirectaId: ventaId })
@@ -353,6 +373,62 @@ export function useInventario() {
       }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
+      throw err
+    } finally {
+      cargando.value = false
+    }
+  }
+
+  /**
+   * Anula una venta directa (corrección manual desde el historial).
+   *
+   * Marca `anulado = true` en la venta y en sus movimientos de inventario,
+   * con `sincronizado = 0` para que el push suba el cambio. Como
+   * `lotesConSaldo` ignora los movimientos anulados, el stock se restaura
+   * automáticamente al recargar saldos.
+   *
+   * Solo jefe. Válida mientras `sincronizado = 0` (no subida aún al servidor).
+   */
+  async function anularVentaDirecta(ventaId) {
+    exigirJefe()
+    const pid = puestoIdActual()
+    if (!pid) throw new Error('Sin puesto asignado.')
+    cargando.value = true
+    try {
+      const venta = await r(ventasDirectasRepo).read(ventaId)
+      if (!venta) throw new Error('Venta no encontrada.')
+      if (venta.anulado) throw new Error('La venta ya está anulada.')
+      if (venta.puestoId !== pid) throw new Error('La venta no pertenece a este puesto.')
+
+      // 1. Marcar la venta como anulada (sincronizado = 0 para que suba al push).
+      await r(ventasDirectasRepo).update(ventaId, {
+        anulado: true,
+        sincronizado: 0,
+        actualizadoEn: Date.now()
+      })
+
+      // 2. Marcar los movimientos de inventario relacionados como anulados.
+      const movs = await r(movimientosRepo).readAll({ query: { ventaDirectaId: ventaId } })
+      const usuarioId = auth.usuarioActual.value?.id ?? null
+      const ahora = Date.now()
+      for (const m of (movs ?? [])) {
+        if (!m.anulado) {
+          await r(movimientosRepo).update(m.id, {
+            anulado: true,
+            anuladoPor: usuarioId,
+            anuladoEn: ahora,
+            sincronizado: 0,
+            actualizadoEn: ahora
+          })
+        }
+      }
+
+      // 3. Recargar saldos para que el stock se vea restaurado (FIFO ignora anulados).
+      await cargarSaldos().catch(() => {})
+
+      return { id: ventaId, anulado: true, montoTotal: venta.montoTotal }
+    } catch (err) {
+      toast.add({ title: 'Error al anular', description: err.message, color: 'error' })
       throw err
     } finally {
       cargando.value = false
@@ -398,7 +474,7 @@ export function useInventario() {
     }
 
     const cabecera = (ventas ?? []).filter(v =>
-      (!pid || v.puestoId === pid) && !v.anulado && enRango(v)
+      (!pid || v.puestoId == null || v.puestoId === pid) && !v.anulado && enRango(v)
     )
     const ids = new Set(cabecera.map(v => v.id))
 
@@ -573,6 +649,32 @@ export function useInventario() {
     return sugerenciaReposicion({ productos, saldos: mapa })
   }
 
+  /**
+   * Mueve un producto a la posición `indice` (base 0) del catálogo visible y
+   * renumera 1..N. Solo guarda las filas cuyo `orden` cambia. Lo usan el
+   * arrastre de `/productos` y la voz.
+   */
+  async function moverProducto(id, indice) {
+    exigirJefe()
+    const productos = await cargarProductos()
+    const actual = productos.findIndex(p => p.id === id)
+    if (actual < 0) throw new Error('Producto no encontrado.')
+    const lista = [...productos]
+    const [movido] = lista.splice(actual, 1)
+    const destino = Math.max(0, Math.min(lista.length, Math.trunc(Number(indice) || 0)))
+    lista.splice(destino, 0, movido)
+
+    let cambios = 0
+    for (let i = 0; i < lista.length; i++) {
+      const orden = i + 1
+      if (Number(lista[i].orden ?? 0) === orden) continue
+      await r(productosRepo).update(lista[i].id, { orden })
+      cambios++
+    }
+    await cargarSaldos().catch(() => {})
+    return { cambios, posicion: destino + 1, total: lista.length }
+  }
+
   async function cargarProductos() {
     const todos = await r(productosRepo).readAll()
     const pid = puestoIdActual()
@@ -591,9 +693,34 @@ export function useInventario() {
       .map(p => ({ ...p, seVende: p.activoQuiosco !== false }))
   }
 
+  /**
+   * Lotes con stock positivo para un producto/ubicacion, ordenados del mas
+   * viejo al mas nuevo. Se usa para poblar los selectores de lote.
+   */
+  async function lotesConStock(productoId, ubicacion = 'almacen') {
+    const pid = puestoIdActual()
+    const [filasLotes, movs] = await Promise.all([
+      filasPuesto(lotesRepo, pid),
+      filasPuesto(movimientosRepo, pid)
+    ])
+    const lotesProducto = (filasLotes ?? []).filter(l => !productoId || l.productoId === productoId)
+    return lotesConSaldo(lotesProducto, movs ?? [], productoId, ubicacion)
+  }
+  async function cambiarEstadoLote(loteId, nuevoEstado) {
+    if (esOnline.value) {
+      return $api(`/api/lotes/${loteId}/estado`, {
+        method: 'PATCH',
+        body: { estadoLote: nuevoEstado },
+        headers: apiHeaders()
+      })
+    }
+    return r(lotesRepo).patch(loteId, { estadoLote: nuevoEstado })
+  }
+
   return {
     cargando,
     saldos,
+    versionSaldos,
     proveedores,
     lotes,
     proveedoresRepo,
@@ -607,13 +734,17 @@ export function useInventario() {
     cargarSaldos,
     cargarProductos,
     cargarProductosConEstado,
+    moverProducto,
     registrarEntrada,
     registrarTraspaso,
     registrarAjuste,
     registrarVentaDirecta,
+    anularVentaDirecta,
     cargarVentasDirectas,
     cargarDesgloseLote,
     corregirLote,
-    sugerenciaParaManana
+    cambiarEstadoLote,
+    sugerenciaParaManana,
+    lotesConStock
   }
 }

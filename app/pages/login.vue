@@ -9,12 +9,19 @@ definePageMeta({
 const PREF_WEBAUTHN_ULTIMO_USUARIO = 'webauthn_ultimo_usuario'
 
 const auth = useAuth()
+useSync() // pre-warm setup-safe instances used by runtime calls during login
 const route = useRoute()
 const toast = useToast()
 
 const nombreUsuario = ref('')
 const pin = ref('')
 const error = ref(null)
+
+const avisoSesion = computed(() =>
+  route.query.reason === 'session_expired'
+    ? 'Tu sesión expiró. Vuelve a iniciar sesión.'
+    : null
+)
 
 // --- Modos de entrada ---
 // Nativo con biometría: tabs Huella (plugin) / Normal.
@@ -190,6 +197,11 @@ async function onSubmit() {
       await Preferences.set({ key: PREF_WEBAUTHN_ULTIMO_USUARIO, value: nombreUsuario.value.trim() }).catch(() => {})
     }
 
+    if (!esNativo.value && response?.usuario?.rol === 'super_admin') {
+      await navigateTo('/admin')
+      return
+    }
+
     await irAlDestino(response)
   } catch (err) {
     error.value = err.data?.statusMessage || err.statusMessage || err.message || 'Error desconocido al iniciar sesión.'
@@ -213,6 +225,15 @@ async function onSubmit() {
           </div>
         </div>
       </template>
+
+      <UAlert
+        v-if="avisoSesion && !error"
+        color="warning"
+        variant="soft"
+        icon="i-lucide-clock"
+        :title="avisoSesion"
+        class="mb-4"
+      />
 
       <UTabs
         v-if="mostrarTabs"
@@ -357,6 +378,10 @@ async function onSubmit() {
         >
           Entrar
         </UButton>
+
+        <p class="text-center text-xs text-muted">
+          El primer inicio de sesión en un dispositivo requiere conexión a internet.
+        </p>
       </UForm>
     </UCard>
 

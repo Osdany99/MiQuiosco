@@ -15,6 +15,7 @@ definePageMeta({
 
 const toast = useToast()
 const auth = useAuth()
+const perms = usePermisos()
 const rec = useRecargas()
 
 const tableRef = ref(null)
@@ -201,20 +202,13 @@ onUnmounted(() => soltarResume?.())
 </script>
 
 <template>
+  <!-- Sin botón "Adicionar": la recarga entra desde el SMS, no se crea a mano. -->
   <BaseHeaderPage
     title="Recargas"
     description="Historial de recargas registradas"
     leading-icon="i-lucide-smartphone-charging"
+    :show-button="false"
   >
-    <template #trailing>
-      <UButton
-        icon="i-lucide-bar-chart-2"
-        variant="outline"
-        label="Ver gráficas"
-        @click="navigateTo('/graficas?seccion=recargas')"
-      />
-    </template>
-
     <BaseTable
       ref="tableRef"
       :config="config"
@@ -279,7 +273,7 @@ onUnmounted(() => soltarResume?.())
       <template #acciones-cell="{ row }">
         <div class="flex gap-1 justify-end">
           <UButton
-            v-if="!row.original.clienteId"
+            v-if="!row.original.clienteId && perms.puedeAccion('recargas', 'asignar_cliente')"
             size="xs"
             color="neutral"
             variant="ghost"
@@ -287,7 +281,7 @@ onUnmounted(() => soltarResume?.())
             @click="abrirAsignar(row.original)"
           />
           <UButton
-            v-else-if="row.original.estadoPago !== 'pagada'"
+            v-else-if="row.original.estadoPago !== 'pagada' && perms.puedeAccion('recargas', 'cobrar')"
             size="xs"
             icon="i-lucide-hand-coins"
             color="primary"

@@ -9,14 +9,22 @@ import {
   date,
   pgEnum,
   index,
-  uniqueIndex
+  uniqueIndex,
+  jsonb
 } from 'drizzle-orm/pg-core'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 
 /**
  * Enumeraciones de la base de datos.
  */
-export const rolEnum = pgEnum('rol', ['jefe', 'trabajador', 'cliente'])
+/**
+ * Roles del servidor.
+ *
+ * `super_admin` vive en el puesto marcado `central` y solo administra puestos,
+ * dispositivos y fallos (panel web). No tiene vistas operativas: los endpoints
+ * de negocio siguen exigiendo `jefe`.
+ */
+export const rolEnum = pgEnum('rol', ['jefe', 'trabajador', 'cliente', 'super_admin'])
 export const estadoCuadreEnum = pgEnum('estado_cuadre', ['abierto', 'cerrado'])
 export const tipoLineaEnum = pgEnum('tipo_linea', [
   'normal',
@@ -70,6 +78,16 @@ export const puestos = pgTable('puestos', {
   id: uuid('id').primaryKey().defaultRandom(),
   nombre: text('nombre').notNull(),
   activo: boolean('activo').notNull().default(true),
+  /**
+   * Puesto "central": aloja al super admin. Solo puede haber uno en la
+   * práctica; el panel lo ignora al crear/editar puestos normales.
+   */
+  central: boolean('central').notNull().default(false),
+  /**
+   * Base para los permisos por puesto (Fase 7). Se reserva ya para no tener que
+   * migrar `puestos` otra vez; por ahora el APK lo ignora.
+   */
+  permisos: jsonb('permisos').notNull().default({}),
   creadoEn: timestamp('creado_en', { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -92,6 +110,12 @@ export const usuarios = pgTable(
     rol: rolEnum('rol').notNull(),
     pinHash: text('pin_hash').notNull(),
     activo: boolean('activo').notNull().default(true),
+    /**
+     * Se incrementa al resetear el PIN. Los JWT llevan el valor vigente y
+     * `requireAuth` rechaza los que quedaron atrás: así un reset invalida los
+     * tokens abiertos sin esperar a que expiren.
+     */
+    tokenVersion: integer('token_version').notNull().default(0),
     salario: doublePrecision('salario'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
@@ -103,7 +127,10 @@ export const usuarios = pgTable(
   table => ({
     rolIdx: index('usuarios_rol_idx').on(table.rol),
     activoIdx: index('usuarios_activo_idx').on(table.activo),
-    puestoNombreUk: uniqueIndex('usuarios_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    // Nombre único GLOBAL: con varios puestos el login busca solo por nombre
+    // (el dispositivo no sabe su puesto antes de entrar), así que dos "Ana" en
+    // locales distintos no pueden coexistir.
+    nombreUk: uniqueIndex('usuarios_nombre_uk').on(table.nombre),
     actualizadoEnIdx: index('usuarios_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
@@ -146,6 +173,7 @@ export const productos = pgTable(
       .notNull()
       .default(0),
     unidad: text('unidad'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -276,6 +304,7 @@ export const cuadreItems = pgTable(
     productoId: uuid('producto_id')
       .notNull()
       .references(() => productos.id),
+    loteId: uuid('lote_id').references(() => lotes.id, { onDelete: 'set null' }),
     precioVentaUsado: doublePrecision('precio_venta_usado').notNull(),
     cantidad: doublePrecision('cantidad')
       .notNull()
@@ -550,6 +579,7 @@ export const lotes = pgTable(
     entradaRef: uuid('entrada_ref'),
     anulado: boolean('anulado').notNull().default(false),
     notas: text('notas'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoPor: uuid('creado_por').references(() => usuarios.id),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
@@ -749,6 +779,12 @@ export const deletedRecords = pgTable(
   'deleted_records',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * Puesto al que pertenece el registro borrado. Nullable solo por las filas
+     * antiguas (se rellenan en la migración): sin esto cualquier dispositivo
+     * recibía los borrados de TODOS los puestos.
+     */
+    puestoId: uuid('puesto_id').references(() => puestos.id),
     tabla: text('tabla').notNull(),
     registroId: text('registro_id').notNull(),
     eliminadoEn: timestamp('eliminado_en', { withTimezone: true })
@@ -757,6 +793,7 @@ export const deletedRecords = pgTable(
   },
   table => ({
     tablaIdx: index('deleted_records_tabla_idx').on(table.tabla),
+    puestoEliminadoIdx: index('deleted_records_puesto_idx').on(table.puestoId, table.eliminadoEn),
     eliminadoEnIdx: index('deleted_records_eliminado_en_idx').on(table.eliminadoEn)
   })
 )
@@ -842,6 +879,12 @@ export const clientes = pgTable(
      * principal y aquí queda la trazabilidad de qué pasó.
      */
     fusionadoEn: uuid('fusionado_en').references((): AnyPgColumn => clientes.id),
+    /**
+     * Cliente centinela del puesto ("Sin cliente"), usado en las transferencias
+     * cuyo cliente no se conoce. Antes era un ID fijo global; con varios puestos
+     * cada uno tiene el suyo (el ID fijo chocaba entre puestos).
+     */
+    esCentinela: boolean('es_centinela').notNull().default(false),
     creadoEn: timestamp('creado_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -854,6 +897,7 @@ export const clientes = pgTable(
     puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
     activoIdx: index('clientes_activo_idx').on(table.activo),
     fusionadoIdx: index('clientes_fusionado_idx').on(table.fusionadoEn),
+    centinelaIdx: index('clientes_centinela_idx').on(table.puestoId, table.esCentinela),
     actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn)
   })
 )
@@ -1041,6 +1085,160 @@ export const cuadresRecarga = pgTable(
 )
 
 /**
+ * Dispositivos (APKs) que sincronizan contra el servidor.
+ *
+ * El `id` lo genera el propio dispositivo en su primer arranque y viaja en el
+ * header `x-dispositivo-id`, así que la fila se crea en el primer login online
+ * (aprovisionamiento) y sobrevive a cierres de sesión. El panel de super admin
+ * la usa para saber qué equipos hay por puesto, con qué usuarios entraron y
+ * cuándo sincronizaron por última vez.
+ */
+export const dispositivos = pgTable(
+  'dispositivos',
+  {
+    id: uuid('id').primaryKey(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    /** Nombre editable desde el panel (ej. "Caja 1"). */
+    nombre: text('nombre'),
+    modelo: text('modelo'),
+    android: text('android'),
+    /** versionCode de la APK, tal cual llega en `x-app-version-code`. */
+    appVersion: text('app_version'),
+    /**
+     * Motor de voz con el que el aparato está escuchando de verdad
+     * (`vosk` | `sistema`). Lo reporta en cada sync: así el panel puede ver un
+     * fallback («preferido Vosk, usando sistema») sin adivinar.
+     */
+    vozMotor: text('voz_motor'),
+    /** ¿Tiene el modelo Vosk extraído y listo? Lo reporta el APK. */
+    vozVosk: boolean('voz_vosk'),
+    /** ¿Hay reconocedor del sistema disponible? Lo reporta el APK. */
+    vozStt: boolean('voz_stt'),
+    ultimaConexionEn: timestamp('ultima_conexion_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Última sync COMPLETA (push + pull) confirmada por el propio aparato. */
+    ultimaSyncOkEn: timestamp('ultima_sync_ok_en', { withTimezone: true }),
+    /** Pendientes que el aparato reportó en su último contacto. */
+    pendientes: integer('pendientes').notNull().default(0),
+    /** Revocado desde el panel: sus syncs se rechazan con 403. */
+    revocado: boolean('revocado').notNull().default(false),
+    provisionadoEn: timestamp('provisionado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('dispositivos_puesto_idx').on(table.puestoId),
+    ultimaConexionIdx: index('dispositivos_ultima_conexion_idx').on(table.ultimaConexionEn),
+    actualizadoEnIdx: index('dispositivos_actualizado_en_idx').on(table.actualizadoEn)
+  })
+)
+
+/**
+ * Auditoría de accesos por dispositivo.
+ *
+ * Responde a "con qué usuarios accedió este equipo". Los logins ONLINE los
+ * escribe el servidor aquí; los OFFLINE viajan por el buzón local (fase 3).
+ */
+export const tipoAccesoEnum = pgEnum('tipo_acceso', [
+  'login',
+  'logout',
+  'activacion',
+  'reset_pin'
+])
+
+export const accesos = pgTable(
+  'accesos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    /**
+     * Nullable: un login desde la web no trae dispositivo. No se pone FK a
+     * `usuarios` con cascade para no perder la traza al borrar un usuario.
+     */
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    usuarioId: uuid('usuario_id').references(() => usuarios.id),
+    tipo: tipoAccesoEnum('tipo').notNull(),
+    appVersion: text('app_version'),
+    ip: text('ip'),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  table => ({
+    puestoIdx: index('accesos_puesto_idx').on(table.puestoId, table.creadoEn),
+    dispositivoIdx: index('accesos_dispositivo_idx').on(table.dispositivoId, table.creadoEn),
+    usuarioIdx: index('accesos_usuario_idx').on(table.usuarioId, table.creadoEn)
+  })
+)
+
+/**
+ * Fallos de sincronización reportados por los dispositivos (Fase 3).
+ *
+ * Es el registro CENTRAL que el super admin revisa: por puesto y por
+ * dispositivo, agrupados por `clave_hash` (se incrementa `intentos` en vez de
+ * crear una fila por cada reintento). No tiene FKs a tablas de negocio a
+ * propósito: un fallo puede referirse a una fila que nunca llegó a existir.
+ *
+ * `fila` y `contexto` llegan ya redactados por el cliente (sin PIN/token); el
+ * servidor los vuelve a recortar y redactar antes de guardarlos.
+ */
+export const syncFallos = pgTable(
+  'sync_fallos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    /** sha256 de tipo|fase|tabla|registro|motivo|codigo. Deduplica por puesto. */
+    claveHash: text('clave_hash').notNull(),
+    /** push_rechazo | sync_error | pull_error | login_offline | otro */
+    tipo: text('tipo').notNull(),
+    fase: text('fase'),
+    tabla: text('tabla'),
+    registroId: text('registro_id'),
+    loteId: text('lote_id'),
+    codigoHttp: integer('codigo_http'),
+    /** padre_ausente | validacion | duplicado | servidor | ... */
+    motivo: text('motivo'),
+    mensaje: text('mensaje'),
+    fila: jsonb('fila'),
+    contexto: jsonb('contexto'),
+    appVersion: text('app_version'),
+    /** Modelo del aparato, tal cual lo reporta el propio equipo. */
+    dispositivo: text('dispositivo'),
+    intentos: integer('intentos').notNull().default(1),
+    creadoEn: timestamp('creado_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ultimoEn: timestamp('ultimo_en', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** null = abierto. El panel lo marca al corregirlo. */
+    resueltoEn: timestamp('resuelto_en', { withTimezone: true }),
+    resueltoPor: uuid('resuelto_por'),
+    nota: text('nota')
+  },
+  table => ({
+    puestoClaveUk: uniqueIndex('sync_fallos_puesto_clave_uk').on(table.puestoId, table.claveHash),
+    puestoEstadoIdx: index('sync_fallos_puesto_estado_idx').on(table.puestoId, table.resueltoEn),
+    dispositivoIdx: index('sync_fallos_dispositivo_idx').on(table.dispositivoId, table.ultimoEn),
+    ultimoEnIdx: index('sync_fallos_ultimo_en_idx').on(table.ultimoEn)
+  })
+)
+
+/**
  * Tipos inferidos de las tablas para uso en el código de la app.
  */
 export type Puesto = typeof puestos.$inferSelect
@@ -1089,6 +1287,199 @@ export type CobroRecarga = typeof cobrosRecarga.$inferSelect
 export type NuevoCobroRecarga = typeof cobrosRecarga.$inferInsert
 export type CuadreRecarga = typeof cuadresRecarga.$inferSelect
 export type NuevoCuadreRecarga = typeof cuadresRecarga.$inferInsert
+export type Dispositivo = typeof dispositivos.$inferSelect
+export type NuevoDispositivo = typeof dispositivos.$inferInsert
+export type Acceso = typeof accesos.$inferSelect
+export type NuevoAcceso = typeof accesos.$inferInsert
+export type TipoAcceso = (typeof tipoAccesoEnum.enumValues)[number]
+export type FalloSync = typeof syncFallos.$inferSelect
+export type NuevoFalloSync = typeof syncFallos.$inferInsert
+
+// Contadores de comandos de voz (Fase B temprana). Sin plantillas ni texto.
+export const vozEventos = pgTable(
+  'voz_eventos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    comando: text('comando').notNull(),
+    motivo: text('motivo').notNull(),
+    plantilla: text('plantilla'),
+    // Frase cruda (sin enmascarar) del último dictado que falló. Solo se
+    // rellena con `voz_config.capturar_texto` encendido: material de diagnóstico.
+    texto: text('texto'),
+    claveHash: text('clave_hash').notNull().default(''),
+    confianza: doublePrecision('confianza'),
+    intentos: integer('intentos').notNull().default(1),
+    appVersion: text('app_version'),
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+    estado: text('estado').default('abierto'),
+    ultimoEn: timestamp('ultimo_en', { withTimezone: true }).notNull().defaultNow()
+  },
+  table => ({
+    puestoClaveHashUk: uniqueIndex('voz_eventos_puesto_clave_hash_uk').on(
+      table.puestoId,
+      table.claveHash
+    ),
+    // El panel admin filtra por estado y ordena por último evento.
+    estadoUltimoEnIdx: index('voz_eventos_estado_ultimo_en_idx').on(
+      table.estado,
+      table.ultimoEn
+    )
+  })
+)
+
+export type VozEvento = typeof vozEventos.$inferSelect
+export type NuevoVozEvento = typeof vozEventos.$inferInsert
+
+// Dictados que el intérprete resolvió y la app preparó o aplicó. A diferencia
+// de `voz_eventos` (contador de fallos agrupado), aquí hay una fila por dictado:
+// el texto crudo y la acción permiten revisar si se entendió bien. Fila
+// temporal de diagnóstico: solo se llena con `voz_config.capturar_aciertos`.
+export const vozAciertos = pgTable(
+  'voz_aciertos',
+  {
+    // El id lo genera el cliente para que reintentar la subida no duplique.
+    id: uuid('id').primaryKey(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    // Lo que interpretó la gramática (`venta_directa`, `cobro_deuda`…).
+    comando: text('comando').notNull(),
+    // Lo que la app aplicó (`venta`, `consultar_stock`, `ajuste`…).
+    resultado: text('resultado').notNull(),
+    detalle: text('detalle'),
+    // Frase cruda, sin enmascarar. Solo con `capturar_aciertos` encendido.
+    texto: text('texto'),
+    confianza: doublePrecision('confianza'),
+    appVersion: text('app_version'),
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow()
+  },
+  table => ({
+    // El panel filtra por puesto/ventana temporal y ordena por fecha.
+    puestoCreadoIdx: index('voz_aciertos_puesto_creado_en_idx').on(
+      table.puestoId,
+      table.creadoEn
+    ),
+    comandoCreadoIdx: index('voz_aciertos_comando_creado_en_idx').on(
+      table.comando,
+      table.creadoEn
+    )
+  })
+)
+
+export type VozAcierto = typeof vozAciertos.$inferSelect
+export type NuevoVozAcierto = typeof vozAciertos.$inferInsert
+
+// Auditoría central de la confirmación hablada: pruebas de auto-confirmación que el dispositivo
+// intentó registrar. Solo datos estructurados, nunca texto crudo de voz.
+export const vozConfirmaciones = pgTable(
+  'voz_confirmaciones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    puestoId: uuid('puesto_id')
+      .notNull()
+      .references(() => puestos.id),
+    dispositivoId: uuid('dispositivo_id').references(() => dispositivos.id),
+    productoId: uuid('producto_id').references(() => productos.id),
+    productoNombre: text('producto_nombre'),
+    cantidad: integer('cantidad'),
+    ubicacion: text('ubicacion'),
+    modo: text('modo'),
+    confianza: doublePrecision('confianza'),
+    outcome: text('outcome').notNull(), // auto-confirmado | cancelado | abandonado
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow()
+  },
+  table => ({
+    // El panel filtra por puesto/estado temporal y ordena por fecha.
+    puestoCreadoIdx: index('voz_confirmaciones_puesto_creado_en_idx').on(
+      table.puestoId,
+      table.creadoEn
+    )
+  })
+)
+
+export type VozConfirmacion = typeof vozConfirmaciones.$inferSelect
+export type NuevaVozConfirmacion = typeof vozConfirmaciones.$inferInsert
+
+// Léxico remoto de comandos de voz (P7). Solo sinónimos a categorías cerradas.
+export const vozLexico = pgTable(
+  'voz_lexico',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoria: text('categoria').notNull(),
+    valor: text('valor').notNull(),
+    clave: text('clave'),
+    activo: boolean('activo').notNull().default(true),
+    version: integer('version').notNull().default(1),
+    creadoPor: uuid('creado_por'),
+    creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+    actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+    nota: text('nota')
+  },
+  table => ({
+    categoriaValorUk: uniqueIndex('voz_lexico_categoria_valor_uk').on(table.categoria, table.valor)
+  })
+)
+
+export type VozLexico = typeof vozLexico.$inferSelect
+export type NuevoVozLexico = typeof vozLexico.$inferInsert
+
+/**
+ * Configuración de flota de la voz. Una sola fila (`id = 1`) que el
+ * super_admin edita desde `/admin/voz-configuracion` y todos los equipos
+ * descargan al sincronizar. `version` sube en cada cambio para que los
+ * teléfonos sepan cuándo volver a aplicar los valores locales.
+ */
+export const vozConfig = pgTable('voz_config', {
+  id: integer('id').primaryKey().default(1),
+  wake: text('wake').notNull().default('oye nova'),
+  motor: text('motor').notNull().default('auto'),
+  idioma: text('idioma').notNull().default('sistema'),
+  retencionDias: integer('retencion_dias').notNull().default(30),
+  // Guarda la frase cruda de los dictados fallidos (diagnóstico). Apagado por
+  // defecto y manual: puede contener nombres de clientes.
+  capturarTexto: boolean('capturar_texto').notNull().default(false),
+  // Guarda una fila por dictado exitoso (con su frase) para revisar si se
+  // entendió bien. Diagnóstico temporal: apagado por defecto.
+  capturarAciertos: boolean('capturar_aciertos').notNull().default(false),
+  retencionAciertosDias: integer('retencion_aciertos_dias').notNull().default(7),
+  version: integer('version').notNull().default(1),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPor: uuid('actualizado_por').references(() => usuarios.id)
+})
+
+export type VozConfig = typeof vozConfig.$inferSelect
+export type NuevaVozConfig = typeof vozConfig.$inferInsert
+
+/**
+ * Overrides de la voz por equipo.
+ *
+ * La fila de `voz_config` es el valor por defecto de la flota; aquí cada aparato
+ * puede pisar `motor`, `idioma` o la palabra clave. Un campo en `null` hereda de
+ * la flota, así que vaciarlo devuelve al default sin borrar la fila.
+ *
+ * Solo la lee el servidor al resolver `GET /api/voz/config` (y el panel de super
+ * admin). No es una tabla de sync: no viaja como dato de negocio offline.
+ */
+export const vozConfigDispositivo = pgTable('voz_config_dispositivo', {
+  dispositivoId: uuid('dispositivo_id')
+    .primaryKey()
+    .references(() => dispositivos.id, { onDelete: 'cascade' }),
+  motor: text('motor'),
+  idioma: text('idioma'),
+  wake: text('wake'),
+  /** Sube solo con cambios de ESTE equipo (la de flota es `voz_config.version`). */
+  version: integer('version').notNull().default(1),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPor: uuid('actualizado_por').references(() => usuarios.id)
+})
+
+export type VozConfigDispositivo = typeof vozConfigDispositivo.$inferSelect
+export type NuevaVozConfigDispositivo = typeof vozConfigDispositivo.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'

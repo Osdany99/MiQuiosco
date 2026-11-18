@@ -19,7 +19,7 @@
           size="sm"
           variant="soft"
           color="neutral"
-          :icon="ubicacion === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
+          :icon="ubicacionEfectiva === 'quiosco' ? 'i-lucide-store' : 'i-lucide-warehouse'"
           :label="etiquetaUbicacion"
         />
       </div>
@@ -32,6 +32,18 @@
           class="w-full"
         />
       </UFormField>
+
+      <UFormField v-if="lotes.length" label="Lote">
+        <USelectMenu
+          v-model="form.loteId"
+          :items="opcionesLote"
+          value-key="id"
+          label-key="label"
+          class="w-full"
+          :disabled="lotes.length <= 1"
+        />
+      </UFormField>
+
       <UFormField label="Cantidad">
         <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
       </UFormField>
@@ -49,7 +61,10 @@
 const props = defineProps({
   productoId: { type: String, default: null },
   // Ubicación de la vista desde la que se abrió: el ajuste nunca la cambia.
-  ubicacion: { type: String, default: 'quiosco' }
+  ubicacion: { type: String, default: 'quiosco' },
+  // Prellenado desde la voz: `{ tipo, cantidad, motivo, ubicacion }`. El motivo
+  // dictado llega aquí tal cual y el jefe lo revisa antes de guardar.
+  prefill: { type: Object, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -59,26 +74,47 @@ const toast = useToast()
 
 const nombreProducto = ref('')
 const saldosMap = ref(new Map())
+const lotes = ref([])
 const guardando = ref(false)
 
 const tipos = [{ id: 'merma', nombre: 'Merma' }, { id: 'devolucion', nombre: 'Devolución al almacén' }]
 
-const form = ref({ productoId: null, tipo: 'merma', cantidad: 0, motivo: '' })
+const form = ref({ productoId: null, tipo: 'merma', cantidad: 0, motivo: '', loteId: null })
 
 const esDevolucion = computed(() => form.value.tipo === 'devolucion')
+
+/**
+ * Ubicación del ajuste: la que dictó la voz (`prefill.ubicacion`) o la de la
+ * vista. La devolución siempre se registra contra el quiosco.
+ */
+const ubicacionBase = computed(() =>
+  props.prefill?.ubicacion === 'almacen' || props.prefill?.ubicacion === 'quiosco'
+    ? props.prefill.ubicacion
+    : props.ubicacion
+)
+const ubicacionEfectiva = computed(() => esDevolucion.value ? 'quiosco' : ubicacionBase.value)
 
 /**
  * La devolución siempre sale del quiosco, así que solo tiene sentido pedirla
  * desde esa vista. En el almacén el tipo queda fijo en merma.
  */
-const permiteElegirTipo = computed(() => props.ubicacion === 'quiosco')
+const permiteElegirTipo = computed(() => ubicacionBase.value === 'quiosco')
 
-const etiquetaUbicacion = computed(() => esDevolucion.value ? 'Quiosco' : (props.ubicacion === 'almacen' ? 'Almacén' : 'Quiosco'))
-const disponible = computed(() => {
-  const s = saldosMap.value.get(form.value.productoId)
-  if (!s) return 0
-  return props.ubicacion === 'almacen' ? s.almacen : s.quiosco
-})
+const etiquetaUbicacion = computed(() => esDevolucion.value ? 'Quiosco' : (ubicacionBase.value === 'almacen' ? 'Almacén' : 'Quiosco'))
+
+const opcionesLote = computed(() =>
+  lotes.value.map(l => ({
+    id: l.id,
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}${l.estadoLote && l.estadoLote !== 'normal' ? ` · ${l.estadoLote}` : ''}`
+  }))
+)
+
+const loteSeleccionado = computed(() =>
+  (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
+)
+
+const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
+
 const valida = computed(() =>
   form.value.productoId
   && Number(form.value.cantidad) >= 1
@@ -86,24 +122,45 @@ const valida = computed(() =>
   && form.value.motivo.trim().length > 0
 )
 
+async function cargarLotes() {
+  const ls = await inv.lotesConStock(form.value.productoId, ubicacionEfectiva.value)
+  lotes.value = ls ?? []
+  form.value.loteId = lotes.value[0]?.id ?? null
+}
+
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { productoId: props.productoId, tipo: 'merma', cantidad: 0, motivo: '' }
+  const pre = props.prefill
+  form.value = {
+    productoId: props.productoId,
+    tipo: pre?.tipo === 'devolucion' ? 'devolucion' : 'merma',
+    cantidad: Number(pre?.cantidad) > 0 ? Math.trunc(Number(pre.cantidad)) : 0,
+    motivo: String(pre?.motivo ?? ''),
+    loteId: null
+  }
   const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
   nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
   saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
+  await cargarLotes()
+})
+
+watch(() => form.value.tipo, async () => {
+  if (!isOpen.value) return
+  await cargarLotes()
 })
 
 async function confirmar() {
+  const loteId = form.value.loteId ?? lotes.value[0]?.id ?? null
   guardando.value = true
   try {
     await inv.registrarAjuste({
       productoId: form.value.productoId,
       tipo: form.value.tipo,
-      ubicacion: esDevolucion.value ? 'quiosco' : props.ubicacion,
+      ubicacion: esDevolucion.value ? 'quiosco' : ubicacionBase.value,
       cantidad: Math.trunc(Number(form.value.cantidad)),
       motivo: form.value.motivo.trim(),
-      nota: null
+      nota: null,
+      loteId
     })
     toast.add({ title: 'Ajuste guardado', color: 'success' })
     isOpen.value = false
@@ -114,4 +171,7 @@ async function confirmar() {
     guardando.value = false
   }
 }
+
+// La confirmación hablada («sí») llama a este método desde el layout.
+defineExpose({ confirmar })
 </script>

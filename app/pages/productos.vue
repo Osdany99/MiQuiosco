@@ -11,7 +11,6 @@ const fields = [
   { name: 'nombre', label: 'Nombre', type: 'text', required: true, placeholder: 'Nombre del producto', colSpan: 'sm:col-span-2', props: { class: 'w-full', maxlength: 100 } },
   { name: 'descripcion', label: 'Descripción', type: 'text', required: false, placeholder: 'Descripción opcional', colSpan: 'sm:col-span-2', props: { class: 'w-full' } },
   { name: 'precioVentaActual', label: 'Precio venta', type: 'number', required: true, props: { class: 'w-full', min: 0, step: 100 } },
-  { name: 'unidad', label: 'Unidad', type: 'text', required: false, placeholder: 'unidad, lb, paquete...', props: { class: 'w-full', maxlength: 30 } },
   { name: 'stockMinimoQuiosco', label: 'Mínimo quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'stockRecomendadoQuiosco', label: 'Recomendado quiosco', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
   { name: 'stockMinimoAlmacen', label: 'Mínimo almacén', type: 'number', required: false, props: { class: 'w-full', min: 0, step: 1 } },
@@ -38,8 +37,10 @@ const columns = [
 
 const tableRef = ref(null)
 const formRef = ref(null)
-const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, unidad: '', stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
-
+const route = useRoute()
+const router = useRouter()
+const form = ref({ id: null, nombre: '', descripcion: '', precioCompraActual: 0, precioVentaActual: 0, orden: 0, stockMinimoQuiosco: 0, stockRecomendadoQuiosco: 0, stockMinimoAlmacen: 0, activo: true, activoQuiosco: true })
+const perms = usePermisos()
 // Producto inactivo no se vende: al desmarcar Activo se desmarca Vende solo.
 watch(() => form.value.activo, (activo) => {
   if (!activo) form.value.activoQuiosco = false
@@ -178,6 +179,16 @@ onMounted(() => {
   setTimeout(() => {
     if (!sortable) initSortable()
   }, 1500)
+
+  // Alta dictada por voz (P4c): `/productos?nuevo=1&nombre=…&precio=…` abre el
+  // formulario prellenado. La persona revisa y pulsa Guardar: la voz no escribe.
+  const { nuevo, nombre, precio, ...resto } = route.query
+  if (nuevo) {
+    nuevoProducto()
+    form.value.nombre = String(nombre ?? '')
+    form.value.precioVentaActual = Number(precio) > 0 ? Number(precio) : 0
+    void router.replace({ path: route.path, query: resto })
+  }
 })
 
 onBeforeUnmount(() => destruirSortable())
@@ -187,7 +198,7 @@ onBeforeUnmount(() => destruirSortable())
   <BaseHeaderPage
     :title="config.label.plural"
     description="Catálogo de productos del puesto"
-    :title-button="'Nuevo ' + config.label.singular"
+    :title-button="perms.puedeAccion('productos', 'crear') ? 'Nuevo ' + config.label.singular : ''"
     @new="nuevoProducto"
   >
     <BaseTable
@@ -198,6 +209,8 @@ onBeforeUnmount(() => destruirSortable())
       :form-ref="formRef"
       :pagination="false"
       :query="{ orderBy: 'orden', orderDir: 'asc' }"
+      :show-edit="perms.puedeAccion('productos', 'editar')"
+      :show-delete="false"
     >
       <template #form>
         <BaseForm
@@ -244,6 +257,7 @@ onBeforeUnmount(() => destruirSortable())
       <template #row-actions-extra="{ rowData }">
         <UTooltip text="Ver historial de precios" :delay-duration="0">
           <UButton
+            v-if="perms.puedeAccion('productos', 'historial')"
             icon="i-lucide-clock"
             size="sm"
             color="neutral"

@@ -10,7 +10,10 @@ const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
 const ventasDirectasConfig = TABLES.ventas_directas
+const ventaDirectaItemConfig = TABLES.ventas_directas_items
 const cuentaFiadoConfig = TABLES.cuentas_fiado
+const cuentaFiadoItemConfig = TABLES.cuentas_fiado_items
+const movimientoConfig = TABLES.movimientos_inventario
 const pagoFiadoConfig = TABLES.pagos_fiado
 const recargaConfig = TABLES.recargas
 const cobroRecargaConfig = TABLES.cobros_recarga
@@ -49,6 +52,7 @@ export async function calcularGrafica(key, opts) {
   const itemsRepo = useRepo(cuadreItemConfig, { toast: false })
   const ventasDirectasRepo = useRepo(ventasDirectasConfig, { toast: false })
   const cuentasFiadoRepo = useRepo(cuentaFiadoConfig, { toast: false })
+  const movimientosRepo = useRepo(movimientoConfig, { toast: false })
   const pagosRepo = useRepo(pagoFiadoConfig, { toast: false })
   const recargasRepo = useRepo(recargaConfig, { toast: false })
   const cobrosRecargaRepo = useRepo(cobroRecargaConfig, { toast: false })
@@ -60,9 +64,8 @@ export async function calcularGrafica(key, opts) {
     // 'ganancia-real-fifo'), pero la función sigue viva como contrapunto de
     // 'diferencia-estimada-real'.
     case 'productos-menor-rotacion': return _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo)
-    case 'ganancia-por-periodo': return _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
-    case 'ingresos-por-periodo': return _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
-    case 'ingresos-fuera-de-cuadre': return _ingresosFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo)
+    case 'ganancia-por-periodo': return _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo)
+    case 'ingresos-por-periodo': return _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo)
     case 'regalos-descuentos-por-periodo': return _regalosDescuentosPeriodo(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'faltantes-sobrantes-acumulados': return _faltantesSobrantes(opts, productoRepo, cuadreRepo, itemsRepo)
     case 'evolucion-producto': return _evolucionProducto(opts, productoRepo, cuadreRepo, itemsRepo)
@@ -387,8 +390,17 @@ async function _productosMenorRotacion(opts, productoRepo, cuadreRepo, itemsRepo
     .slice(0, 10)
 }
 
-async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
-  const { items, prodMap, cuadres, fechaDeCuadre } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
+/**
+ * Filas { periodo, ganancia } del cuadre: una por cuadre cerrado en el rango.
+ *
+ * La ganancia es la FIFO congelada al cerrar (exacta); los cuadres viejos
+ * (ganancia null) caen a la estimación histórica con el precio de compra
+ * actual. Después se resta el pago al trabajador de cada cuadre.
+ *
+ * Es la base de la barra "cuadre" de `ganancia-por-periodo` y del detalle que
+ * la acompaña: si cada parte lo calculara a su manera, los números no cerrarían.
+ */
+function filasGananciaCuadre({ items, cuadres, fechaDeCuadre, prodMap }) {
   const filas = []
   const porCuadre = new Map()
   for (const c of cuadres) porCuadre.set(c.id, c)
@@ -403,8 +415,6 @@ async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
     const periodo = fechaDeCuadre[cuadreId] || ''
     if (!periodo) continue
     const c = porCuadre.get(cuadreId)
-    // Ganancia FIFO congelada al cerrar: exacta. Cuadres viejos (null) usan
-    // la estimación histórica con el precio de compra actual.
     if (c?.ganancia != null) {
       filas.push({ periodo, ganancia: Number(c.ganancia) || 0 })
       continue
@@ -427,18 +437,105 @@ async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
     if (!periodo) continue
     filas.push({ periodo, ganancia: -pago })
   }
+  return filas
+}
+
+/**
+ * Una fila por salida fuera de cuadre del rango: ventas directas (efectivo,
+ * casa, familiar, regalo), deudas directas y mermas.
+ *
+ * Es la base de la barra "fuera de cuadre" (ingreso y ganancia) y de su
+ * detalle: así la barra y el desglose se calculan con el mismo conjunto.
+ *
+ * La ganancia de la venta viene congelada al vender (FIFO); la merma no tiene
+ * ingreso y resta el costo del lote como pérdida.
+ */
+async function filasFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo) {
+  const [ventas, deudas, movimientos] = await Promise.all([
+    ventasDirectasRepo.readAll(),
+    cuentasFiadoRepo.readAll(),
+    movimientosRepo.readAll()
+  ]).then(rs => rs.map(fila))
+
+  const desdeStr = opts.desde || ''
+  const hastaStr = opts.hasta || ''
+
+  // aDia y NO String(creadoEn).slice(0,10): los repos normalizan a epoch ms,
+  // y el slice de un epoch daba '1735689600' como "fecha".
+  const filas = []
+  for (const v of ventas) {
+    const dia = aDia(v.creadoEn)
+    if (v.anulado || !dia || !enRango(dia, desdeStr, hastaStr)) continue
+    filas.push({
+      id: v.id,
+      origen: 'venta',
+      tipo: v.tipoVenta ?? 'directa',
+      periodo: dia,
+      fechaMs: ts(v.creadoEn),
+      clienteId: v.clienteId ?? null,
+      ingreso: Number(v.montoTotal) || 0,
+      ganancia: Number(v.ganancia) || 0
+    })
+  }
+  // Deudas directas: el ingreso se reconoce al crearse (la mercancía salió).
+  for (const c of deudas) {
+    const dia = aDia(c.creadoEn)
+    if (c.cuadreOrigenId || !dia || !enRango(dia, desdeStr, hastaStr)) continue
+    filas.push({
+      id: c.id,
+      origen: 'fiado',
+      tipo: 'fiado',
+      periodo: dia,
+      fechaMs: ts(c.creadoEn),
+      clienteId: c.clienteId ?? null,
+      ingreso: Number(c.montoTotal) || 0,
+      ganancia: Number(c.ganancia) || 0
+    })
+  }
+  // Mermas: no hay ingreso, solo la pérdida del costo del lote.
+  for (const m of movimientos) {
+    if (m.anulado || m.tipo !== 'merma') continue
+    const dia = aDia(m.creadoEn)
+    if (!dia || !enRango(dia, desdeStr, hastaStr)) continue
+    filas.push({
+      id: m.id,
+      origen: 'merma',
+      tipo: 'merma',
+      periodo: dia,
+      fechaMs: ts(m.creadoEn),
+      clienteId: null,
+      productoId: m.productoId ?? null,
+      cantidad: Math.abs(Math.trunc(Number(m.cantidad) || 0)),
+      motivo: m.motivo ?? null,
+      ingreso: 0,
+      ganancia: -(Number(m.importe) || 0)
+    })
+  }
+  return filas
+}
+
+async function _gananciaPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo) {
+  const [datos, fuera] = await Promise.all([
+    cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo),
+    filasFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo)
+  ])
+  const filas = [
+    ...filasGananciaCuadre(datos).map(f => ({ periodo: f.periodo, gananciaCuadre: f.ganancia })),
+    ...fuera.map(f => ({ periodo: f.periodo, gananciaDirecta: f.ganancia }))
+  ]
   return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
-    ganancia: Math.round(g.reduce((s, x) => s + x.ganancia, 0))
+    gananciaCuadre: Math.round(g.reduce((s, x) => s + (x.gananciaCuadre || 0), 0)),
+    gananciaDirecta: Math.round(g.reduce((s, x) => s + (x.gananciaDirecta || 0), 0))
   }))
 }
 
 /**
- * Detalle de UNA barra de las gráficas por período (ganancia, ingresos): qué
- * productos se vendieron, cuánto dejó cada uno y su subtotal.
+ * Detalle de la barra "cuadre" de las gráficas por período (ganancia,
+ * ingresos): qué productos se vendieron, cuánto dejó cada uno y su subtotal.
  *
- * Solo cuadres cerrados del período, igual que la barra. Las ventas y deudas
- * directas quedan fuera a propósito: si el detalle las sumara, la cuenta no
- * cerraría con el número que se ve arriba.
+ * Solo cuadres cerrados del período, igual que la barra. Lo vendido fuera de
+ * cuadre tiene su propio detalle (`detalleFueraDeCuadrePeriodo`): si este lo
+ * sumara, la cuenta no cerraría con el número que se ve arriba.
  *
  * La ganancia de cada producto es la REAL — subtotal menos el costo FIFO del
  * lote que se consumió — y no la estimada con el precio de compra de hoy. El
@@ -565,64 +662,143 @@ export async function detalleGananciaPeriodo(opts) {
   }
 }
 
-async function _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo) {
-  const { items, fechaDeCuadre } = await cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo)
+/**
+ * Detalle de la barra "fuera de cuadre" (ganancia e ingresos por período): una
+ * fila por salida del período — venta directa, deuda directa o merma.
+ *
+ * Usa la MISMA base que la barra (`filasFueraDeCuadre`), así que el total del
+ * diálogo cierra con el número que se ve arriba. Los productos y el cliente se
+ * resuelven aquí: la barra solo necesita importes, el desglose necesita saber
+ * qué salió y a quién.
+ *
+ * @param {Object} opts — { periodo, agrupacion, desde, hasta }
+ * @returns {Promise<{ periodo: string, lineas: Array, totales: Object }>}
+ */
+export async function detalleFueraDeCuadrePeriodo(opts) {
+  const vacio = { periodo: String(opts?.periodo ?? ''), lineas: [], totales: null }
+  if (!opts?.periodo) return vacio
+
+  const agrupacion = opts.agrupacion || 'dia'
+  const filas = await filasFueraDeCuadre(
+    opts,
+    useRepo(ventasDirectasConfig, { toast: false }),
+    useRepo(cuentaFiadoConfig, { toast: false }),
+    useRepo(movimientoConfig, { toast: false })
+  )
+  const delPeriodo = filas.filter(f => clavePeriodo(f.periodo, agrupacion) === opts.periodo)
+  if (delPeriodo.length === 0) return vacio
+
+  const [itemsVenta, itemsCuenta, productos, clientes] = await Promise.all([
+    useRepo(ventaDirectaItemConfig, { toast: false }).readAll(),
+    useRepo(cuentaFiadoItemConfig, { toast: false }).readAll(),
+    useRepo(productoConfig, { toast: false }).readAll(),
+    useRepo(clienteConfig, { toast: false }).readAll()
+  ]).then(rs => rs.map(fila))
+
+  const productoPorId = new Map(productos.map(p => [p.id, p.nombre]))
+  const clientePorId = new Map(clientes.map(c => [c.id, c.nombre]))
+  const itemsPorVenta = new Map()
+  for (const i of itemsVenta) {
+    if (!itemsPorVenta.has(i.ventaDirectaId)) itemsPorVenta.set(i.ventaDirectaId, [])
+    itemsPorVenta.get(i.ventaDirectaId).push(i)
+  }
+  const itemsPorCuenta = new Map()
+  for (const i of itemsCuenta) {
+    if (!itemsPorCuenta.has(i.cuentaFiadoId)) itemsPorCuenta.set(i.cuentaFiadoId, [])
+    itemsPorCuenta.get(i.cuentaFiadoId).push(i)
+  }
+
+  const ETIQUETA = {
+    directa: 'Venta directa',
+    casa: 'Venta de casa',
+    familiar: 'Venta familiar',
+    regalo: 'Regalo',
+    fiado: 'Deuda directa',
+    merma: 'Merma'
+  }
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100
+
+  const lineas = delPeriodo
+    .map((f) => {
+      const items = f.origen === 'venta'
+        ? (itemsPorVenta.get(f.id) ?? [])
+        : f.origen === 'fiado' ? (itemsPorCuenta.get(f.id) ?? []) : []
+      const nombres = items
+        .map(i => productoPorId.get(i.productoId) ?? '—')
+        .filter(Boolean)
+      const cantidad = items.length
+        ? items.reduce((s, i) => s + (Number(i.cantidad) || 0), 0)
+        : Number(f.cantidad) || 0
+      return {
+        id: f.id,
+        fecha: f.fechaMs || null,
+        tipo: f.tipo,
+        etiqueta: ETIQUETA[f.tipo] ?? 'Salida',
+        producto: nombres.length
+          ? nombres.join(', ')
+          : (productoPorId.get(f.productoId) ?? '—'),
+        cliente: clientePorId.get(f.clienteId) ?? '',
+        cantidad: r2(cantidad),
+        motivo: f.motivo ?? '',
+        ingreso: Math.round(Number(f.ingreso) || 0),
+        ganancia: Math.round(Number(f.ganancia) || 0)
+      }
+    })
+    .sort((a, b) => (b.fecha ?? 0) - (a.fecha ?? 0))
+
+  // Los totales se redondean sobre la suma cruda, igual que la barra: sumar las
+  // filas ya redondeadas podía dejar el diálogo un peso por encima del dibujo.
+  let ingreso = 0
+  let ganancia = 0
+  let ventas = 0
+  let mermas = 0
+  for (const f of delPeriodo) {
+    ingreso += f.ingreso
+    ganancia += f.ganancia
+    if (f.origen === 'venta') ventas += f.ingreso
+    else if (f.origen === 'merma') mermas += f.ganancia
+  }
+
+  const ingresoR = Math.round(ingreso)
+  const gananciaR = Math.round(ganancia)
+  const mermasR = Math.round(mermas)
+  const ventasR = Math.round(ventas)
+  // Se derivan de lo ya redondeado para que los renglones sumen exacto y la
+  // última línea siga coincidiendo con la barra.
+  const gananciaProductos = gananciaR - mermasR
+  const costo = ingresoR - gananciaProductos
+
+  return {
+    periodo: String(opts.periodo),
+    lineas,
+    totales: {
+      ingreso: ingresoR,
+      costo,
+      ventas: ventasR,
+      deudas: ingresoR - ventasR,
+      mermas: mermasR,
+      gananciaProductos,
+      ganancia: gananciaR
+    }
+  }
+}
+
+async function _ingresosPorPeriodo(opts, productoRepo, cuadreRepo, itemsRepo, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo) {
+  const [{ items, fechaDeCuadre }, fuera] = await Promise.all([
+    cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo),
+    filasFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo, movimientosRepo)
+  ])
   const filas = []
   for (const i of items) {
     if ((Number(i.cantidad) || 0) <= 0) continue
     const periodo = fechaDeCuadre[i.cuadreId] || ''
     if (!periodo) continue
-    filas.push({ periodo, ingresoTotal: Number(i.subtotal) || 0 })
+    filas.push({ periodo, ingresoCuadre: Number(i.subtotal) || 0 })
   }
+  for (const f of fuera) filas.push({ periodo: f.periodo, ingresoDirecto: f.ingreso })
   return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
-    ingresoTotal: g.reduce((s, x) => s + x.ingresoTotal, 0)
-  }))
-}
-
-/**
- * Ingresos y ganancia fuera del cuadre: ventas directas en efectivo + deudas
- * directas. No viven en ningún cuadre (por eso no aparecen en
- * `ingresos-por-periodo` ni en `ganancia-por-periodo`), pero son dinero real
- * del negocio y por eso deserve su propia serie.
- *
- * La ganancia viene congelada en cada registro (FIFO al momento de la venta),
- * así que un cambio de precio posterior no altera lo ya mostrado.
- */
-async function _ingresosFueraDeCuadre(opts, ventasDirectasRepo, cuentasFiadoRepo) {
-  const [ventas, deudas] = await Promise.all([
-    ventasDirectasRepo.readAll(),
-    cuentasFiadoRepo.readAll()
-  ]).then(rs => rs.map(fila))
-
-  const desdeStr = opts.desde || ''
-  const hastaStr = opts.hasta || ''
-
-  // aDia y NO String(creadoEn).slice(0,10): los repos normalizan a epoch ms,
-  // y el slice de un epoch daba '1735689600' como "fecha".
-  const filas = []
-  for (const v of ventas) {
-    const dia = aDia(v.creadoEn)
-    if (v.anulado || !dia || !enRango(dia, desdeStr, hastaStr)) continue
-    filas.push({
-      periodo: dia,
-      ingresoDirecto: Number(v.montoTotal) || 0,
-      gananciaDirecta: Number(v.ganancia) || 0
-    })
-  }
-  // Deudas directas: el ingreso se reconoce al crearse (la mercancía salió).
-  for (const c of deudas) {
-    const dia = aDia(c.creadoEn)
-    if (c.cuadreOrigenId || !dia || !enRango(dia, desdeStr, hastaStr)) continue
-    filas.push({
-      periodo: dia,
-      ingresoDirecto: Number(c.montoTotal) || 0,
-      gananciaDirecta: Number(c.ganancia) || 0
-    })
-  }
-
-  return sumarPorPeriodo(filas, opts.agrupacion || 'dia', g => ({
-    ingresoDirecto: Math.round(g.reduce((s, x) => s + x.ingresoDirecto, 0)),
-    gananciaDirecta: Math.round(g.reduce((s, x) => s + x.gananciaDirecta, 0))
+    ingresoCuadre: Math.round(g.reduce((s, x) => s + (x.ingresoCuadre || 0), 0)),
+    ingresoDirecto: Math.round(g.reduce((s, x) => s + (x.ingresoDirecto || 0), 0))
   }))
 }
 

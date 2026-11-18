@@ -155,6 +155,132 @@
       "when": 1793849353198,
       "tag": "0021_modern_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793998239520,
+      "tag": "0022_sharp_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793999808002,
+      "tag": "0023_plain_valeria_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794000805545,
+      "tag": "0024_jazzy_logan",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794001499905,
+      "tag": "0025_conscious_shape",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794074923587,
+      "tag": "0026_classy_young_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794078128291,
+      "tag": "0027_public_ares",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794086939765,
+      "tag": "0028_greedy_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794203706870,
+      "tag": "0029_wet_titanium_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794204792700,
+      "tag": "0030_chief_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794205446620,
+      "tag": "0031_rare_dark_phoenix",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794206331155,
+      "tag": "0032_pale_malcolm_colcord",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794252616502,
+      "tag": "0033_vengeful_king_bedlam",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794253204105,
+      "tag": "0034_light_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794842557148,
+      "tag": "0035_futuristic_falcon",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794974457921,
+      "tag": "0036_far_thundra",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794981463378,
+      "tag": "0037_nebulous_silhouette",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794981506154,
+      "tag": "0038_sour_starfox",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795026296771,
+      "tag": "0039_nosy_black_panther",
+      "breakpoints": true
     }
   ]
 }

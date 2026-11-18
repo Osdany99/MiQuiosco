@@ -1,5 +1,6 @@
 <script setup>
 const auth = useAuth()
+const perms = usePermisos()
 const route = useRoute()
 const cuadreIdParam = computed(() => route.query.id || null)
 const {
@@ -22,7 +23,6 @@ const fiadoCardRef = ref(null)
  * ausentes de la app.
  */
 const etiquetaDiferencia = computed(() => {
-  if (faltanteReal.value == null) return 'Pendiente'
   if (faltanteReal.value > 0) return 'Faltante'
   if (faltanteReal.value < 0) return 'Sobrante'
   return 'Exacto'
@@ -73,7 +73,7 @@ onMounted(() => {
   >
     <template #trailing>
       <UButton
-        v-if="!esTrabajador && cuadre?.estado === 'cerrado'"
+        v-if="!esTrabajador && perms.puedeAccion('cuadre', 'reabrir') && cuadre?.estado === 'cerrado'"
         variant="outline"
         color="warning"
         icon="i-lucide-rotate-ccw"
@@ -81,7 +81,7 @@ onMounted(() => {
         @click="reabrirCuadre"
       />
       <UButton
-        v-if="!esTrabajador && cuadre?.estado === 'abierto'"
+        v-if="!esTrabajador && perms.puedeAccion('cuadre', 'cerrar') && cuadre?.estado === 'abierto'"
         color="success"
         icon="i-lucide-lock"
         label="Cerrar cuadre"
@@ -93,7 +93,7 @@ onMounted(() => {
       <div class="lg:col-span-2 space-y-4">
         <CuadreLineaTable
           :readonly="cuadre?.estado !== 'abierto'"
-          :puede-fiar="!esTrabajador"
+          :puede-fiar="perms.puedeAccion('cuadre', 'fiar')"
           @fiar="abrirDeudaDesdeLinea"
         />
       </div>
@@ -121,16 +121,16 @@ onMounted(() => {
             <hr class="border-t border-gray-200 dark:border-gray-800">
             <div
               class="flex justify-between items-center font-semibold"
-              :class="faltanteReal == null ? 'text-gray-500' : faltanteReal > 0 ? 'text-error' : faltanteReal < 0 ? 'text-success' : ''"
+              :class="faltanteReal > 0 ? 'text-error' : faltanteReal < 0 ? 'text-success' : ''"
             >
               <span>{{ etiquetaDiferencia }}</span>
-              <span class="font-mono">{{ faltanteReal == null ? '—' : fmtPrecio(Math.abs(faltanteReal)) }}</span>
+              <span class="font-mono">{{ fmtPrecio(Math.abs(faltanteReal)) }}</span>
             </div>
           </div>
         </UCard>
 
         <CuadreFiadoCard
-          v-if="!esTrabajador"
+          v-if="perms.puedeAccion('cuadre', 'fiar')"
           ref="fiadoCardRef"
           :cuadre-id="cuadre?.id ?? ''"
           :productos-activos="productosActivos"
@@ -139,7 +139,7 @@ onMounted(() => {
           @actualizado="recargar"
         />
         <CuadreTransferenciaCard
-          v-if="!esTrabajador"
+          v-if="perms.puedeAccion('cuadre', 'transferencia')"
           :cuadre-id="cuadre?.id ?? ''"
           :puesto-id="auth.usuarioActual.value?.puestoId ?? ''"
           :readonly="cuadre?.estado !== 'abierto'"

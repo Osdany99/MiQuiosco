@@ -144,7 +144,7 @@ export function useCuentasFiado() {
     return `Tope excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}, incluye fiado).`
   }
 
-  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoPagadoInicial, formaPagoInicial, puestoId }) {
+  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoTotal: montoDirecto, montoPagadoInicial, formaPagoInicial, puestoId }) {
     cargando.value = true
     try {
       const topeMsg = await validarTopeLocal(cuadreId, items)
@@ -156,11 +156,13 @@ export function useCuentasFiado() {
         // Endpoint transaccional del servidor (cuenta + items + pago inicial + cuadre)
         await $api('/api/cuentas-fiado', {
           method: 'POST',
-          body: { clienteId, cuadreOrigenId: cuadreId, items, montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
+          body: { clienteId, cuadreOrigenId: cuadreId, items, montoTotal: Number(montoDirecto ?? 0), montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
           headers: apiHeaders()
         })
       } else {
-        const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+        const montoTotal = (items ?? []).length > 0
+          ? (items ?? []).reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+          : Number(montoDirecto ?? 0)
         // El servidor rechaza esto con 400; en local se guardaba una deuda
         // 'pagada' con un abono mayor que la deuda. Con el formulario de fiado
         // por fila (cantidad + pago inicial juntos) el despiste es de un clic.
@@ -177,7 +179,7 @@ export function useCuentasFiado() {
           montoPagado: montoPagadoInicial || 0,
           estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= montoTotal ? 'pagada' : 'parcial'
         })
-        for (const it of items) {
+        for (const it of (items ?? [])) {
           await r(itemsRepo).create({
             cuentaFiadoId: nueva.id,
             productoId: it.productoId,
@@ -287,7 +289,7 @@ export function useCuentasFiado() {
    * de la cuenta; el fiado pendiente del origen baja únicamente si ese
    * cuadre sigue abierto (un cerrado no se reescribe).
    */
-  async function cobrarDeuda({ cuentaFiadoId, cuadreId = null, monto, formaPago }) {
+  async function cobrarDeuda({ id = null, cuentaFiadoId, cuadreId = null, monto, formaPago }) {
     cargando.value = true
     try {
       if (esOnline.value) {
@@ -304,7 +306,15 @@ export function useCuentasFiado() {
         const saldo = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
         if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
 
-        await r(pagosRepo).create({ cuentaFiadoId, cuadreId: null, monto, formaPago })
+        // El id se asigna al dictar (app cerrada): reintentar no duplica el pago.
+        const pagoId = String(id || '').trim() || undefined
+        await r(pagosRepo).create({
+          ...(pagoId ? { id: pagoId } : {}),
+          cuentaFiadoId,
+          cuadreId: null,
+          monto,
+          formaPago
+        })
         const nuevoPagado = Number(cuenta.montoPagado) + monto
         await r(cuentasRepo).update(cuentaFiadoId, {
           montoPagado: nuevoPagado,
@@ -332,7 +342,7 @@ export function useCuentasFiado() {
    * cuadre abierto). No pasa por el tope ni toca ningún cuadre, pero sí
    * descuenta inventario y congela su costo FIFO en la propia cuenta.
    */
-  async function registrarDeudaDirecta({ clienteId, lineas, ubicacion = 'almacen', montoPagadoInicial = 0, formaPagoInicial = 'efectivo' }) {
+  async function registrarDeudaDirecta({ id = null, clienteId, lineas, ubicacion = 'almacen', montoPagadoInicial = 0, formaPagoInicial = 'efectivo' }) {
     cargando.value = true
     try {
       if (esOnline.value) {
@@ -380,7 +390,7 @@ export function useCuentasFiado() {
         throw new Error('El pago inicial no puede superar el monto total.')
       }
 
-      const cuentaId = crypto.randomUUID()
+      const cuentaId = String(id || '').trim() || crypto.randomUUID()
       await db.transaction(async () => {
         await r(cuentasRepo).create({
           id: cuentaId,

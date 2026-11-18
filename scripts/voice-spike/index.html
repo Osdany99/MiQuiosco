@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice Spike - MiQuiosco</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px; }
+  button { padding: 14px 18px; font-size: 16px; cursor: pointer; }
+  input, select { padding: 8px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 13px; }
+  .muted { color: #666; font-size: 13px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+  <h1>Voice Spike - MiQuiosco (Fase 0)</h1>
+  <p class="muted">Mide Web Speech API (Chromium). Manten presionado el boton para hablar; suelta para parar.</p>
+
+  <div class="row" style="margin: 8px 0;">
+    <label>Producto esperado:
+      <select id="expectedProduct"></select>
+    </label>
+    <label>Cantidad esperada:
+      <input id="expectedQty" type="number" min="1" value="1" />
+    </label>
+    <label>Ubicacion esperada:
+      <select id="expectedLoc"><option value="quiosco">quiosco</option><option value="almacen">almacen</option></select>
+    </label>
+  </div>
+
+  <div class="row" style="margin: 16px 0;">
+    <button id="btn">Hablar (hold)</button>
+    <span id="status" class="muted">idle</span>
+  </div>
+
+  <div style="margin: 8px 0;">
+    <strong>Transcripcion:</strong>
+    <div id="transcript" style="padding: 8px; border: 1px solid #eee; min-height: 28px;"></div>
+  </div>
+
+  <div class="row" style="margin: 8px 0;">
+    <button id="export">Exportar CSV</button>
+    <button id="clear">Limpiar</button>
+    <span id="metrics" class="muted"></span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Transcript</th><th>Latencia (ms)</th><th>Top match</th><th>WER</th><th>Acc producto</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script type="module">
+    import * as M from './metrics.js';
+    const catalog = await (await fetch('./catalog.json')).json();
+    const products = catalog.products;
+
+    const sel = document.getElementById('expectedProduct');
+    for (const p of products) {
+      const o = document.createElement('option');
+      o.value = p.canonicalSpeak;
+      o.textContent = p.name + ' (' + p.id.slice(0,8) + ')';
+      sel.appendChild(o);
+    }
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = null;
+    let listening = false;
+    let t0 = 0;
+    const rows = [];
+
+    const status = document.getElementById('status');
+    const transcript = document.getElementById('transcript');
+    const rowsEl = document.getElementById('rows');
+
+    function render() {
+      rowsEl.innerHTML = rows.map((r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${r.text}</td>
+          <td>${r.latency}</td>
+          <td>${r.top ? r.top.name + ' (d=' + r.top.distance + ')' : '-'}</td>
+          <td>${r.wer.toFixed(3)}</td>
+          <td>${r.acc === 1 ? 'OK' : 'FAIL'}</td>
+        </tr>`).join('');
+      const lats = rows.map(r => r.latency);
+      document.getElementById('metrics').textContent =
+        'n=' + rows.length + ' | p50=' + M.percentile(lats, 50) + 'ms | p95=' + M.percentile(lats, 95) + 'ms';
+    }
+
+    if (!SR) {
+      status.textContent = 'Web Speech API no soportado en este navegador';
+    } else {
+      rec = new SR();
+      rec.lang = 'es-ES';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onstart = () => { listening = true; status.textContent = 'listening...'; t0 = performance.now(); };
+      rec.onresult = (e) => {
+        const res = e.results[0][0];
+        const text = res.transcript;
+        const latency = Math.round(performance.now() - t0);
+        transcript.textContent = text;
+        const top = M.topMatch(text, products);
+        const expectedProduct = document.getElementById('expectedProduct').value;
+        const expectedQty = Number(document.getElementById('expectedQty').value);
+        const qtyMatch = text.match(/(\d+)/);
+        const actualQty = qtyMatch ? Number(qtyMatch[1]) : null;
+        const werVal = M.wer(expectedProduct, text);
+        const accProd = top && top.product.canonicalSpeak === expectedProduct ? 1 : 0;
+        rows.push({ text, latency, top: top ? { name: top.product.name, distance: top.distance } : null,
+                    wer: werVal, acc: accProd, expectedQty, actualQty });
+        render();
+      };
+      rec.onerror = (e) => { status.textContent = 'error: ' + e.error; };
+      rec.onend = () => { listening = false; status.textContent = 'idle'; };
+    }
+
+    const btn = document.getElementById('btn');
+    btn.addEventListener('mousedown', () => { if (rec && !listening) rec.start(); });
+    btn.addEventListener('mouseup', () => { if (rec && listening) rec.stop(); });
+    btn.addEventListener('touchstart', (e) => { e.preventDefault(); if (rec && !listening) rec.start(); });
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); if (rec && listening) rec.stop(); });
+
+    document.getElementById('export').addEventListener('click', () => {
+      const blob = new Blob([M.toCSV(rows)], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'voice-spike-results.csv';
+      a.click();
+    });
+    document.getElementById('clear').addEventListener('click', () => { rows.length = 0; render(); });
+  </script>
+</body>
+</html>

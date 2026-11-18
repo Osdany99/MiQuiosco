@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="voice_quiosco"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_voice_quiosco_short"
+        android:shortcutLongLabel="@string/shortcut_voice_quiosco_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="miqiosco://voice/quiosco?voice=1"
+            android:targetPackage="${applicationId}"
+            android:targetClass="com.myquiosco.app.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="voice_almacen"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_voice_almacen_short"
+        android:shortcutLongLabel="@string/shortcut_voice_almacen_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="miqiosco://voice/almacen?voice=1"
+            android:targetPackage="${applicationId}"
+            android:targetClass="com.myquiosco.app.MainActivity" />
+    </shortcut>
+</shortcuts>

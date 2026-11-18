@@ -6,7 +6,7 @@
  * estructuras sin importar de dónde vienen.
  */
 
-export type Rol = 'jefe' | 'trabajador' | 'cliente'
+export type Rol = 'jefe' | 'trabajador' | 'cliente' | 'super_admin'
 
 export interface Usuario {
   id: string
@@ -99,6 +99,17 @@ export interface LoginResponse {
     nombre: string
     rol: Rol
     puestoId: string
+  }
+  /**
+   * Puesto del usuario. El dispositivo lo necesita para crear su fila local y
+   * hacer el pull completo: el login es solo por nombre y no conoce el puesto
+   * de antemano.
+   */
+  puesto?: {
+    id: string
+    nombre: string
+    activo: boolean
+    permisos?: Record<string, boolean>
   }
   expiraEn?: number
 }
@@ -213,4 +224,10 @@ export interface PullResponse {
   transferencia_items: TransferenciaItem[]
   ajustes: Ajuste[]
   timestamp_servidor: number
+  puesto?: {
+    id: string
+    nombre: string
+    activo: boolean
+    permisos?: Record<string, boolean>
+  }
 }

@@ -14,8 +14,9 @@ const props = defineProps({
 })
 
 /**
- * Al tocar una barra se emite el período (`detalle`), no el evento de ECharts:
- * lo que interesa es la categoría, que es la clave del período ya agrupado.
+ * Al tocar "Ver detalle" se emite `{ periodo, tipo }`, no el evento de ECharts:
+ * la categoría es la clave del período ya agrupado y `tipo` es el desglose que
+ * declaró la gráfica para esa serie.
  */
 const emit = defineEmits(['detalle'])
 
@@ -26,7 +27,7 @@ function truncar(texto, max = 16) {
 
 // El tooltip con botón solo se pinta donde la gráfica lo pide (config.detalle).
 // Las demás siguen con el tooltip de ECharts y su valueFormatter.
-const conDetalle = computed(() => props.config.detalle === true)
+const conDetalle = computed(() => !!props.config.detalle)
 const colorMode = useColorMode()
 
 /** El tooltip se escribe como HTML: sin escapar, un nombre con '<' lo rompe. */
@@ -39,24 +40,56 @@ function escapar(texto) {
 }
 
 /**
- * Mismo cuerpo que el tooltip por defecto (título + una línea por serie) más un
- * enlace al detalle del período. Va con estilos en línea porque el tooltip es un
- * div suelto de ECharts, fuera del árbol de la app donde viven las clases de
- * Tailwind.
+ * Qué clave de `yKeys` es la serie del renglón. Se busca por índice y, si
+ * ECharts no lo manda, por nombre visible: así el enlace no depende de un solo
+ * campo del evento.
+ */
+function claveSerie(p) {
+  const yKeys = props.config.yKeys || []
+  const idx = Number(p?.seriesIndex)
+  if (Number.isInteger(idx) && yKeys[idx]) return yKeys[idx]
+  const nombre = p?.seriesName
+  return Object.entries(props.config.labels || {}).find(([, visible]) => visible === nombre)?.[0] ?? ''
+}
+
+/**
+ * Qué desglose abre esa serie. La gráfica lo declara en la config
+ * (`detalle: { gananciaCuadre: 'cuadre', gananciaDirecta: 'fuera' }`); si solo
+ * dice `detalle: true`, se manda la clave y el consumidor decide.
+ */
+function tipoDeSerie(clave) {
+  const mapa = props.config.detalle
+  return typeof mapa === 'object' && mapa ? (mapa[clave] ?? '') : clave
+}
+
+/**
+ * Un renglón por serie con SU "Ver detalle". Va con `trigger: 'axis'` a
+ * propósito: así el enlace existe aunque esa serie valga 0 ese día (una barra
+ * sin altura no se puede tocar) y no hay que adivinar qué barra se abrió.
+ * Los estilos van en línea porque el tooltip es un div suelto de ECharts,
+ * fuera del árbol de la app donde viven las clases de Tailwind.
  */
 function tooltipConDetalle(params) {
   const lista = Array.isArray(params) ? params : [params]
   const oscuro = colorMode.value === 'dark'
-  const periodo = lista[0]?.axisValue ?? ''
-  const filas = lista
-    .map(p => `${p.marker ?? ''} ${escapar(p.seriesName ?? '')}: ${fmtNumeroExacto(p.value)}`)
-    .join('<br />')
+  // `axisValue` y no `axisValueLabel`: el segundo trae la etiqueta ya recortada
+  // por el formatter del eje, y el enlace necesita la clave completa.
+  const periodo = lista[0]?.axisValue ?? lista[0]?.name ?? ''
+  const titulo = lista[0]?.axisValueLabel ?? periodo
+  const colorEnlace = oscuro ? '#38bdf8' : '#0284c7'
 
-  return [
-    `<div style="font-weight:600">${escapar(truncar(periodo, 24))}</div>`,
-    filas,
-    `<a data-grafica-detalle="${escapar(periodo)}" style="display:inline-block;margin-top:8px;padding-top:6px;border-top:1px solid ${oscuro ? '#44403c' : '#e7e5e4'};color:${oscuro ? '#38bdf8' : '#0284c7'};cursor:pointer;font-weight:600;text-decoration:underline">Ver detalle</a>`
-  ].join('')
+  const filas = lista.map((p) => {
+    const clave = claveSerie(p)
+    const tipo = tipoDeSerie(clave)
+    return [
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">',
+      `<span>${p?.marker ?? ''} ${escapar(p?.seriesName ?? '')}: ${fmtNumeroExacto(p?.value)}</span>`,
+      `<a data-grafica-detalle="${escapar(periodo)}" data-grafica-tipo="${escapar(tipo)}" style="color:${colorEnlace};cursor:pointer;font-weight:600;text-decoration:underline">Ver detalle</a>`,
+      '</div>'
+    ].join('')
+  }).join('')
+
+  return `<div style="font-weight:600;margin-bottom:4px">${escapar(truncar(titulo, 24))}</div>${filas}`
 }
 
 const option = computed(() => {
@@ -110,9 +143,12 @@ const option = computed(() => {
     ...(props.config.colors ? { color: props.config.colors } : {}),
     tooltip: conDetalle.value
       ? {
+          // Por eje: el tooltip lista las series del período y cada renglón
+          // tiene su enlace. Con 'item' solo se podía abrir la barra que tenía
+          // altura, así que una serie en 0 quedaba inaccesible.
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
-          // Sin esto el tooltip no acepta el puntero y el enlace no se puede tocar.
+          // Sin esto el tooltip no acepta el puntero y los enlaces no se pueden tocar.
           enterable: true,
           formatter: tooltipConDetalle
         }
@@ -139,7 +175,10 @@ const option = computed(() => {
 function alTocar(e) {
   const enlace = e.target?.closest?.('[data-grafica-detalle]')
   if (!enlace) return
-  emit('detalle', enlace.getAttribute('data-grafica-detalle'))
+  emit('detalle', {
+    periodo: enlace.getAttribute('data-grafica-detalle') ?? '',
+    tipo: enlace.getAttribute('data-grafica-tipo') ?? ''
+  })
 }
 </script>
 

@@ -117,6 +117,7 @@ export function useRecargas() {
   async function cargarPendientes() {
     const filas = await smsRepo.readAll({ query: { estado: 'pendiente' } })
     pendientes.value = (filas || [])
+      .filter(Boolean)
       .slice()
       .sort((a, b) => (b.recibidoEn ?? 0) - (a.recibidoEn ?? 0))
     return pendientes.value

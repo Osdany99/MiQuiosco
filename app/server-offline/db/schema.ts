@@ -79,7 +79,9 @@ export const usuarios = sqliteTable(
   table => ({
     rolIdx: index('usuarios_rol_idx').on(table.rol),
     activoIdx: index('usuarios_activo_idx').on(table.activo),
-    puestoNombreUk: uniqueIndex('usuarios_puesto_nombre_uk').on(table.puestoId, table.nombre),
+    // Nombre único GLOBAL (espejo de Postgres): el login busca solo por nombre,
+    // porque el dispositivo no conoce su puesto antes de entrar.
+    nombreUk: uniqueIndex('usuarios_nombre_uk').on(table.nombre),
     actualizadoEnIdx: index('usuarios_actualizado_en_idx').on(table.actualizadoEn),
     rolCheck: check('usuarios_rol_check', sql`${table.rol} IN ('jefe', 'trabajador', 'cliente')`)
   })
@@ -104,6 +106,7 @@ export const productos = sqliteTable(
     stockRecomendadoQuiosco: real('stock_recomendado_quiosco').notNull().default(0),
     stockMinimoAlmacen: real('stock_minimo_almacen').notNull().default(0),
     unidad: text('unidad'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -208,6 +211,7 @@ export const cuadreItems = sqliteTable(
     id: text('id').primaryKey(),
     cuadreId: text('cuadre_id').notNull(),
     productoId: text('producto_id').notNull(),
+    loteId: text('lote_id'),
     precioVentaUsado: real('precio_venta_usado').notNull(),
     cantidad: real('cantidad').notNull().default(0),
     subtotal: real('subtotal').notNull().default(0),
@@ -477,6 +481,7 @@ export const lotes = sqliteTable(
     entradaRef: text('entrada_ref'),
     anulado: integer('anulado', { mode: 'boolean' }).notNull().default(false),
     notas: text('notas'),
+    estadoLote: text('estado_lote').notNull().default('normal'),
     creadoPor: text('creado_por'),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
@@ -768,6 +773,14 @@ export const clientes = sqliteTable(
      * no romper el historial que los referencia.
      */
     fusionadoEn: text('fusionado_en'),
+    /**
+     * Cliente centinela del puesto ("Sin cliente"). Antes se reconocía por un
+     * ID fijo global, que chocaba entre puestos. Ahora cada puesto tiene el
+     * suyo y se identifica por esta bandera.
+     */
+    esCentinela: integer('es_centinela', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -782,6 +795,7 @@ export const clientes = sqliteTable(
     puestoIdx: index('clientes_puesto_idx').on(table.puestoId),
     puestoNombreIdx: index('clientes_puesto_nombre_idx').on(table.puestoId, table.nombre),
     fusionadoIdx: index('clientes_fusionado_idx').on(table.fusionadoEn),
+    centinelaIdx: index('clientes_centinela_idx').on(table.puestoId, table.esCentinela),
     actualizadoEnIdx: index('clientes_actualizado_en_idx').on(table.actualizadoEn),
     sincIdx: index('clientes_sincronizado_idx').on(table.sincronizado)
   })
@@ -874,6 +888,201 @@ export const cuadresRecarga = sqliteTable(
     puestoFechaUk: uniqueIndex('cuadres_recarga_puesto_fecha_uk').on(table.puestoId, table.fecha),
     actualizadoEnIdx: index('cuadres_recarga_actualizado_en_idx').on(table.actualizadoEn),
     sincIdx: index('cuadres_recarga_sincronizado_idx').on(table.sincronizado)
+  })
+)
+
+/**
+ * Trazas locales de sincronización (ring buffer, no se sincroniza).
+ *
+ * Sirve para diagnosticar fallos en el propio teléfono y para adjuntar el
+ * contexto de las últimas líneas cuando se sube un fallo al servidor (fase 3).
+ * NO entra en SYNC_TABLES: es telemetría del aparato, no un dato de negocio.
+ *
+ * Nunca debe contener PIN, token, `pinHash` ni cabeceras Authorization; el
+ * escritor (`app/utils/syncLog.js`) redacta esos campos antes de insertar.
+ */
+export const NIVELES_SYNC_LOG = ['info', 'warn', 'error'] as const
+export type NivelSyncLog = (typeof NIVELES_SYNC_LOG)[number]
+
+export const syncLog = sqliteTable(
+  'sync_log',
+  {
+    id: text('id').primaryKey(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    nivel: text('nivel', { enum: NIVELES_SYNC_LOG }).notNull().default('info'),
+    /** sync_inicio, sync_fin, sync_error, push_lote, pull, ... */
+    evento: text('evento').notNull(),
+    tabla: text('tabla'),
+    loteId: text('lote_id'),
+    filas: integer('filas'),
+    duracionMs: integer('duracion_ms'),
+    http: integer('http'),
+    mensaje: text('mensaje'),
+    /** JSON ya redactado y truncado. */
+    datos: text('datos')
+  },
+  table => ({
+    creadoEnIdx: index('sync_log_creado_en_idx').on(table.creadoEn),
+    nivelIdx: index('sync_log_nivel_idx').on(table.nivel)
+  })
+)
+
+/**
+ * Buzón local de fallos de sincronización (Fase 3).
+ *
+ * Cada fallo se guarda aquí hasta que puede subirse a `POST /api/sync/fallos`
+ * (`subido_en` lo marca). Se deduplica por `clave`: un mismo rechazo repetido
+ * incrementa `intentos` en vez de llenar el teléfono. NO entra en SYNC_TABLES.
+ */
+export const syncFallos = sqliteTable(
+  'sync_fallos',
+  {
+    id: text('id').primaryKey(),
+    /** Clave estable: tipo|fase|tabla|registro|motivo|codigo. */
+    clave: text('clave').notNull(),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    ultimoEn: integer('ultimo_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    tipo: text('tipo').notNull(),
+    fase: text('fase'),
+    tabla: text('tabla'),
+    registroId: text('registro_id'),
+    loteId: text('lote_id'),
+    codigoHttp: integer('codigo_http'),
+    motivo: text('motivo'),
+    mensaje: text('mensaje'),
+    /** JSON ya redactado. */
+    fila: text('fila'),
+    /** JSON ya redactado y recortado. */
+    contexto: text('contexto'),
+    appVersion: text('app_version'),
+    dispositivo: text('dispositivo'),
+    intentos: integer('intentos').notNull().default(1),
+    /** null = pendiente de subir. */
+    subidoEn: integer('subido_en', { mode: 'timestamp_ms' })
+  },
+  table => ({
+    claveUk: uniqueIndex('sync_fallos_clave_uk').on(table.clave),
+    subidoIdx: index('sync_fallos_subido_idx').on(table.subidoEn),
+    creadoEnIdx: index('sync_fallos_creado_en_idx').on(table.creadoEn)
+  })
+)
+
+/**
+ * Cola de acciones dictadas por voz que esperan revisión humana.
+ *
+ * La voz NUNCA escribe una venta sola: lo dictado por el jefe se guarda aquí
+ * (incluso con la app cerrada, vía el servicio en primer plano) y se aplica
+ * solo cuando alguien confirma en pantalla. Por eso la tabla es local al
+ * teléfono y NO entra en SYNC_TABLES: `ventas_directas` es la que se
+ * sincroniza cuando la acción se aplica.
+ *
+ * `dictadoEn` es la fecha de la venta (no la de confirmación): el jefe puede
+ * revisar al final del día y la venta debe quedar en el día en que se dijo.
+ * `origenId` es el nombre del fichero del buzón nativo y su índice único hace
+ * que reimportar el buzón no duplique acciones.
+ */
+export const ESTADOS_ACCION_VOZ = ['pendiente', 'aplicada', 'archivada'] as const
+export type EstadoAccionVoz = (typeof ESTADOS_ACCION_VOZ)[number]
+export const ORIGENES_ACCION_VOZ = ['app', 'servicio'] as const
+
+export const accionesPendientesVoz = sqliteTable(
+  'acciones_pendientes_voz',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    /** Quién dictó la acción ("dictada por X" en la pantalla de revisión). */
+    usuarioId: text('usuario_id').notNull(),
+    /** Copia del nombre: el usuario puede renombrarse o desactivarse. */
+    usuarioNombre: text('usuario_nombre'),
+    ubicacion: text('ubicacion', { enum: ['almacen', 'quiosco'] })
+      .notNull()
+      .default('quiosco'),
+    tipo: text('tipo').notNull().default('venta'),
+    tipoVenta: text('tipo_venta', { enum: TIPOS_VENTA_DIRECTA })
+      .notNull()
+      .default('directa'),
+    /** Transcripción cruda: se conserva para auditar una mala interpretación. */
+    texto: text('texto').notNull(),
+    sttConfidence: real('stt_confidence'),
+    origen: text('origen', { enum: ORIGENES_ACCION_VOZ }).notNull().default('app'),
+    origenId: text('origen_id'),
+    productoId: text('producto_id'),
+    productoNombre: text('producto_nombre'),
+    cantidad: integer('cantidad').notNull().default(1),
+    /** Precio del momento del dictado: un cambio posterior no la altera. */
+    precioUnitario: real('precio_unitario').notNull().default(0),
+    importe: real('importe').notNull().default(0),
+    clienteId: text('cliente_id'),
+    /** Deuda que se cobra (solo acciones `tipo = 'cobro'`). */
+    cuentaFiadoId: text('cuenta_fiado_id'),
+    /** 'efectivo' | 'transferencia' en un cobro. */
+    formaPago: text('forma_pago'),
+    estado: text('estado', { enum: ESTADOS_ACCION_VOZ }).notNull().default('pendiente'),
+    /** Motivo de archivo o del último error al aplicar. */
+    motivo: text('motivo'),
+    /** Id preasignado de la venta: aplicar dos veces no duplica. */
+    ventaDirectaId: text('venta_directa_id'),
+    dictadoEn: integer('dictado_en', { mode: 'timestamp_ms' }).notNull(),
+    aplicadaEn: integer('aplicada_en', { mode: 'timestamp_ms' }),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    sincronizado: integer('sincronizado', { mode: 'boolean' })
+      .notNull()
+      .default(false)
+  },
+  table => ({
+    origenUk: uniqueIndex('acciones_pendientes_voz_origen_uk').on(table.origenId),
+    puestoEstadoIdx: index('acciones_pendientes_voz_puesto_estado_idx').on(
+      table.puestoId,
+      table.estado,
+      table.dictadoEn
+    ),
+    dictadoIdx: index('acciones_pendientes_voz_dictado_idx').on(table.dictadoEn),
+    estadoCheck: check(
+      'acciones_pendientes_voz_estado_check',
+      sql`${table.estado} IN ('pendiente', 'aplicada', 'archivada')`
+    )
+  })
+)
+
+/**
+ * Alias de producto aprendidos por el jefe («bombi» → Bombillo LED).
+ *
+ * Local al puesto y al teléfono: los productos son por puesto, así que el mismo
+ * alias no vale en otro. Se usa solo para emparejar: nunca salta la confirmación.
+ */
+export const vozAlias = sqliteTable(
+  'voz_alias',
+  {
+    id: text('id').primaryKey(),
+    puestoId: text('puesto_id').notNull(),
+    productoId: text('producto_id').notNull(),
+    /** Texto normalizado (sin tildes, minúsculas) que dice el mostrador. */
+    texto: text('texto').notNull(),
+    /** 'candidato' (menú) o 'asignado' (Por revisar). */
+    origen: text('origen').notNull().default('candidato'),
+    /** Veces que el alias resolvió un dictado; sirve para podar los inútiles. */
+    aciertos: integer('aciertos').notNull().default(0),
+    creadoEn: integer('creado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    actualizadoEn: integer('actualizado_en', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date())
+  },
+  table => ({
+    puestoTextoUk: uniqueIndex('voz_alias_puesto_texto_uk').on(table.puestoId, table.texto),
+    productoIdx: index('voz_alias_producto_idx').on(table.productoId)
   })
 )
 

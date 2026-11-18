@@ -1,10 +1,12 @@
 import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { shallowRef, readonly } from 'vue'
+import { getDispositivoId } from './dispositivo'
 
 const PREF_API_BASE = 'api_base_url'
 const TIMEOUT_MS = 15000
 const HEADER_VERSION_CODE = 'x-app-version-code'
+const HEADER_DISPOSITIVO = 'x-dispositivo-id'
 
 let cachedBase = undefined
 let cachedVersionCode = undefined
@@ -125,6 +127,18 @@ export async function $api(path, opts = {}) {
     ? { [HEADER_VERSION_CODE]: String(versionCode) }
     : {}
 
+  // Identidad estable del aparato: provisiona `dispositivos`, audita accesos y
+  // permite revocarlo desde el panel. Solo el APK la envía: un navegador (dev,
+  // panel /admin o web) no es un equipo del negocio y llenaría el panel de
+  // filas "Equipo sin nombre" que nunca sincronizan.
+  const dispositivoId = Capacitor.isNativePlatform()
+    ? await getDispositivoId().catch(() => null)
+    : null
+  const headersBase = {
+    ...versionHeaders,
+    ...(dispositivoId ? { [HEADER_DISPOSITIVO]: dispositivoId } : {})
+  }
+
   const controller = new AbortController()
   // El timeout ya no es el único motivo de abort: se distingue del abort del
   // usuario para poder dar un mensaje útil ("tardó demasiado") en vez del
@@ -152,7 +166,7 @@ export async function $api(path, opts = {}) {
   try {
     const result = await $fetch(url, {
       ...opciones,
-      headers: { ...versionHeaders, ...opciones.headers },
+      headers: { ...headersBase, ...opciones.headers },
       signal: controller.signal
     })
     _serverAlcanzable.value = true

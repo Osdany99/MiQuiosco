@@ -22,24 +22,13 @@
       </p>
     </UCard>
 
-    <div class="flex justify-end mb-4">
-      <USelectMenu
-        v-model="filtroOrigen"
-        :items="opcionesOrigen"
-        value-key="value"
-        label-key="label"
-        :search-input="false"
-        class="w-40"
-      />
-    </div>
-
     <div v-if="cargando" class="flex justify-center py-12">
       <UIcon name="i-lucide-loader-circle" class="animate-spin size-8 text-muted-foreground" />
     </div>
 
     <template v-else-if="tab === 'deudas'">
       <UAlert
-        v-if="deudasFiltradas.length === 0"
+        v-if="deudas.length === 0"
         color="success"
         variant="soft"
         icon="i-lucide-circle-check"
@@ -50,15 +39,18 @@
 
       <BaseTable
         v-else
-        :data="deudasFiltradas"
+        :data="deudasMostradas"
         :columns="columnasDeuda"
         :ui="uiTabla"
-        :pagination="false"
         :show-edit="false"
         :show-delete="false"
-        :disable-filters="true"
-        :show-reset="false"
+        :filter-fields="camposFiltro"
+        :empty-state="textoVacioDeudas"
       >
+        <template #toolbar-leading>
+          <UInputDate v-model="diaDeudas" size="sm" class="w-44" />
+          <USwitch v-model="verTodasDeudas" label="Ver todas" />
+        </template>
         <template #nombreCliente-cell="{ row }">
           <div class="min-w-0">
             <p class="truncate font-medium">
@@ -142,16 +134,17 @@
 
     <BaseTable
       v-else
-      :data="pagadasFiltradas"
-      :columns="columnasDeuda"
+      :data="pagadasMostradas"
+      :columns="columnasPagadas"
       :ui="uiTabla"
-      :pagination="false"
       :show-edit="false"
       :show-delete="false"
-      :disable-filters="true"
-      :show-reset="false"
-      empty-state="Sin deudas saldadas"
+      :filter-fields="camposFiltro"
+      :empty-state="textoVacioSaldadas"
     >
+      <template #toolbar-leading>
+        <UInputDate v-model="diaSaldadas" size="sm" class="w-44" />
+      </template>
       <template #nombreCliente-cell="{ row }">
         {{ row.original.nombreCliente ?? 'Cliente' }}
       </template>
@@ -183,8 +176,8 @@
       <template #saldoPendiente-cell>
         <span class="text-muted">—</span>
       </template>
-      <template #creadoEn-cell="{ row }">
-        {{ formatearFecha(row.original.creadoEn) }}
+      <template #actualizadoEn-cell="{ row }">
+        {{ formatearFecha(row.original.actualizadoEn ?? row.original.creadoEn) }}
       </template>
       <template #ganancia-cell="{ row }">
         <span v-if="row.original.ganancia != null" class="font-mono">{{ fmtPrecio(row.original.ganancia) }}</span>
@@ -259,6 +252,9 @@
 </template>
 
 <script setup>
+import { CalendarDate } from '@internationalized/date'
+import { aDia } from '../../shared/inventario/analitica'
+
 definePageMeta({
   middleware: ['jefe']
 })
@@ -312,6 +308,12 @@ const columnasDeuda = [
   { accessorKey: 'acciones', header: '' }
 ]
 
+// En Saldadas la fecha que interesa es la del saldado, y es justo la que usa el
+// filtro: así columna y filtro hablan de lo mismo.
+const columnasPagadas = columnasDeuda.map(col =>
+  col.accessorKey === 'creadoEn' ? { accessorKey: 'actualizadoEn', header: 'Saldada' } : col
+)
+
 // El cobro es siempre directo: el jefe cobra en físico y ningún cuadre
 // registra el dinero.
 const puedeCobrar = computed(() => {
@@ -339,19 +341,72 @@ const totales = computed(() => {
   return { pendiente, deudores, pendienteQuiosco, pendienteRecarga }
 })
 
-// Filtro por origen de la deuda: la tabla es única, el badge distingue.
-const filtroOrigen = ref('todas')
-const opcionesOrigen = [
-  { label: 'Todas', value: 'todas' },
-  { label: 'Quiosco', value: 'quiosco' },
-  { label: 'Recargas', value: 'recarga' }
+// El origen, el cliente, el producto y el teléfono viven en el botón Filtrar de
+// BaseTable: cada pestaña tiene su propio estado (son tablas distintas).
+/** Día en curso del calendario local (no UTC). */
+function calendarioDeHoy() {
+  const h = new Date()
+  return new CalendarDate(h.getFullYear(), h.getMonth() + 1, h.getDate())
+}
+
+// Arrancan en hoy: lo que se revisa es lo del día. Limpiar la fecha muestra
+// todo; en Deudas además está "Ver todas" porque las pendientes viejas no
+// deben quedar escondidas detrás de un día sin movimiento.
+const diaDeudas = ref(calendarioDeHoy())
+const diaSaldadas = ref(calendarioDeHoy())
+const verTodasDeudas = ref(false)
+const diaDeudasISO = computed(() => (diaDeudas.value ? String(diaDeudas.value) : ''))
+const diaSaldadasISO = computed(() => (diaSaldadas.value ? String(diaSaldadas.value) : ''))
+
+// Elegir una fecha es pedir ese día: apaga "Ver todas" sola.
+watch(diaDeudas, () => {
+  verTodasDeudas.value = false
+})
+
+// El origen lo aplica ya BaseTable con los filtros del popover.
+const deudasMostradas = computed(() => {
+  const dia = diaDeudasISO.value
+  if (verTodasDeudas.value || !dia) return deudas.value
+  return deudas.value.filter(d => aDia(d.creadoEn) === dia)
+})
+
+// Saldadas: el día que interesa es en el que quedó saldada (`actualizadoEn` se
+// toca al registrar el cobro), no el de creación de la deuda.
+const pagadasMostradas = computed(() => {
+  const dia = diaSaldadasISO.value
+  if (!dia) return pagadas.value
+  return pagadas.value.filter(p => aDia(p.actualizadoEn ?? p.creadoEn) === dia)
+})
+
+const textoVacioDeudas = computed(() =>
+  verTodasDeudas.value || !diaDeudasISO.value
+    ? 'Sin deudas pendientes'
+    : `Sin deudas pendientes el ${fmtDate(diaDeudasISO.value)}`
+)
+
+const textoVacioSaldadas = computed(() =>
+  diaSaldadasISO.value
+    ? `Sin deudas saldadas el ${fmtDate(diaSaldadasISO.value)}`
+    : 'Sin deudas saldadas'
+)
+
+// Filtros del botón de BaseTable, todos en el mismo popover. El select de
+// origen es `clearable`: vacío = todas las fuentes. `items` es un array, así
+// que el producto se busca con `get`.
+const camposFiltro = [
+  {
+    key: 'origen',
+    label: 'Origen',
+    type: 'select',
+    options: [
+      { label: 'Quiosco', value: 'quiosco' },
+      { label: 'Recargas', value: 'recarga' }
+    ]
+  },
+  { key: 'nombreCliente', label: 'Cliente' },
+  { key: 'producto', label: 'Producto', get: d => (d.items ?? []).map(i => i.nombreProducto).join(' ') },
+  { key: 'telefonoDestino', label: 'Teléfono' }
 ]
-const deudasFiltradas = computed(() => filtroOrigen.value === 'todas'
-  ? deudas.value
-  : deudas.value.filter(d => d.origen === filtroOrigen.value))
-const pagadasFiltradas = computed(() => filtroOrigen.value === 'todas'
-  ? pagadas.value
-  : pagadas.value.filter(d => d.origen === filtroOrigen.value))
 
 function etiquetaTipoRecarga(t) {
   if (t === 'saldo') return 'Saldo'
@@ -388,7 +443,9 @@ function aDeudaRecarga(r, nombrePorCliente) {
 function formatearFecha(v) {
   if (!v) return '—'
   try {
-    return new Date(v).toLocaleDateString('es-MX')
+    // `fmtDate` trata bien el 'YYYY-MM-DD' suelto (lo ancla a mediodía); con
+    // `new Date('2026-11-11')` JS lo lee como UTC y en Cuba salía el día antes.
+    return fmtDate(v)
   } catch {
     return String(v)
   }
@@ -421,11 +478,15 @@ async function recargar() {
     const recPend = delPuesto.filter(r => r.estadoPago !== 'pagada').map(r => aDeudaRecarga(r, nombrePorCliente))
     const recSald = delPuesto.filter(r => r.estadoPago === 'pagada').map(r => aDeudaRecarga(r, nombrePorCliente))
     const porFecha = (a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0)
+    // Las saldadas se ordenan por el día en que se cobraron: es la fecha que
+    // muestra la columna y la que filtra el selector.
+    const porFechaSaldada = (a, b) =>
+      new Date(b.actualizadoEn ?? b.creadoEn ?? 0) - new Date(a.actualizadoEn ?? a.creadoEn ?? 0)
 
     const quioscoPend = cuentasQuiosco.filter(c => c.estado !== 'pagada').map(aDeudaQuiosco)
     const quioscoSald = cuentasQuiosco.filter(c => c.estado === 'pagada').map(aDeudaQuiosco)
     deudas.value = [...quioscoPend, ...recPend].sort(porFecha)
-    pagadas.value = [...quioscoSald, ...recSald].sort(porFecha)
+    pagadas.value = [...quioscoSald, ...recSald].sort(porFechaSaldada)
     clientes.value = listaClientes
   } catch (err) {
     toast.add({ title: 'Error', description: err?.message, color: 'error' })

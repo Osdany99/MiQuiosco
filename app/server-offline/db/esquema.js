@@ -81,16 +81,25 @@ export async function columnasDeTabla(conn, tabla) {
 }
 
 export async function crearTablasFaltantes(conn, sql) {
+  // Devuelve los fallos reales: con IF NOT EXISTS un error aquí no significa
+  // "ya existía", significa que la tabla no se pudo crear (SQL no soportado por
+  // ese SQLite, disco, permisos...). Antes se tragaba en silencio y la app
+  // seguía como si la tabla estuviera, para romper después con "no such table"
+  // al consultarla (caso real: cola de voz en un teléfono).
+  const fallos = []
   for (const sentencia of separarSentencias(sql)) {
     const esCreate = /^CREATE\s+TABLE\s+/.test(sentencia)
     if (!esCreate) continue
     const declaracion = sentencia.replace(/^CREATE\s+TABLE\s+/, 'CREATE TABLE IF NOT EXISTS ')
     try {
       await conn.run(declaracion, [])
-    } catch {
-      // la tabla ya existe: mejor esfuerzo
+    } catch (err) {
+      const mensaje = String(err?.message ?? err)
+      if (/already exists/i.test(mensaje)) continue
+      fallos.push({ sql: declaracion.slice(0, 120), error: mensaje })
     }
   }
+  return fallos
 }
 
 export function formatearDefault(valor) {
@@ -155,6 +164,29 @@ function ddlDeTabla(tabla, defs) {
     return `  ${d.name} ${d.sqlType}${notNull}${defaultSql}`
   })
   return `CREATE TABLE ${tabla} (\n${cols.join(',\n')}\n)`
+}
+
+/**
+ * Crea una tabla a partir del schema Drizzle, sin depender de los ficheros SQL.
+ *
+ * Red de seguridad para cuando el journal no trae una tabla que el código ya
+ * usa: pasa si el dev server cacheó el `import.meta.glob` antes de que existiera
+ * el `.sql` nuevo (el glob no se re-ejecuta hasta reiniciar `pnpm dev`). Sin
+ * esto, el síntoma es un `no such table` en el teléfono que no se explica.
+ *
+ * No replica CHECK ni índices (el journal sí); es una tabla funcional, no
+ * idéntica. Devuelve `true` si la creó.
+ */
+export async function crearTablaDesdeDefs(conn, tabla, columnDefs) {
+  const defs = columnDefs?.[tabla]
+  if (!defs?.length) return false
+  if (await tablaExiste(conn, tabla)) return false
+  try {
+    await conn.run(ddlDeTabla(tabla, defs), [])
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

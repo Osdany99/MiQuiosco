@@ -3,7 +3,8 @@ import jwt from 'jsonwebtoken'
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
 import { db } from '../database/client'
-import { usuarios } from '../database/schema'
+import { puestos, usuarios } from '../database/schema'
+import { leerDispositivoId } from './dispositivo'
 import type { Rol } from '#shared/types'
 
 /**
@@ -18,6 +19,8 @@ export interface AuthContext {
     puestoId: string
   }
   scope: ('sync')[]
+  /** Identidad del APK que hace la petición (header x-dispositivo-id). */
+  dispositivoId: string | null
 }
 
 /**
@@ -28,6 +31,13 @@ interface JwtPayload {
   rol: Rol
   scope: ('sync')[]
   expiraEn: number
+  /** Dispositivo que pidió el token. Opcional: tokens previos no lo traen. */
+  dispositivoId?: string
+  /**
+   * Versión del usuario al emitir el token. Un reset de PIN la incrementa y
+   * deja fuera los tokens antiguos. Opcional: los tokens previos no la traen.
+   */
+  tokenVersion?: number
 }
 
 const JWT_EXPIRATION_SYNC_SEC = 60 * 60 * 24
@@ -56,7 +66,6 @@ export function signToken(
   )
   return { token, expiraEn }
 }
-
 export function verifyToken(token: string): JwtPayload | null {
   if (tokenBlacklist.has(token)) return null
 
@@ -101,6 +110,17 @@ export async function requireAuth(
     })
   }
 
+  // Binding dispositivo↔token: si el JWT se emitió para un dispositivo y la
+  // petición trae OTRO, se rechaza. Los tokens antiguos (sin claim) y las
+  // peticiones sin header (web) siguen pasando.
+  const dispositivoId = leerDispositivoId(event)
+  if (payload.dispositivoId && dispositivoId && payload.dispositivoId !== dispositivoId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El token pertenece a otro dispositivo.'
+    })
+  }
+
   verificarVersionMinima(event)
 
   const result = await db
@@ -109,9 +129,12 @@ export async function requireAuth(
       nombre: usuarios.nombre,
       rol: usuarios.rol,
       puestoId: usuarios.puestoId,
-      activo: usuarios.activo
+      activo: usuarios.activo,
+      tokenVersion: usuarios.tokenVersion,
+      puestoActivo: puestos.activo
     })
     .from(usuarios)
+    .innerJoin(puestos, eq(puestos.id, usuarios.puestoId))
     .where(eq(usuarios.id, payload.sub))
     .limit(1)
 
@@ -123,6 +146,23 @@ export async function requireAuth(
     })
   }
 
+  // Desactivar un puesto corta el acceso de todos sus equipos sin tener que
+  // tocar usuario por usuario.
+  if (!usuario.puestoActivo) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El puesto está desactivado. Contacta al administrador.'
+    })
+  }
+
+  // Reset de PIN → los tokens emitidos antes quedan invalidados al instante.
+  if (payload.tokenVersion != null && payload.tokenVersion !== usuario.tokenVersion) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'Sesión invalidada. Vuelve a iniciar sesión.'
+    })
+  }
+
   return {
     usuario: {
       id: usuario.id,
@@ -130,7 +170,8 @@ export async function requireAuth(
       rol: usuario.rol,
       puestoId: usuario.puestoId
     },
-    scope: payload.scope
+    scope: payload.scope,
+    dispositivoId
   }
 }
 
@@ -145,6 +186,37 @@ export async function requireRole(
       statusMessage: `Acceso restringido a roles: ${rolesPermitidos.join(', ')}.`
     })
   }
+  return auth
+}
+
+/**
+ * Guard del panel: exige rol `super_admin` Y que su puesto sea el central y
+ * esté activo. Así, aunque alguien manipule el rol en la BD, no obtiene acceso
+ * si no pertenece al puesto de administración.
+ */
+export async function requireSuperAdmin(event: H3Event): Promise<AuthContext> {
+  const auth = await requireAuth(event, 'sync')
+
+  if (auth.usuario.rol !== 'super_admin') {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Acceso restringido al super administrador.'
+    })
+  }
+
+  const [puesto] = await db
+    .select({ central: puestos.central, activo: puestos.activo })
+    .from(puestos)
+    .where(eq(puestos.id, auth.usuario.puestoId))
+    .limit(1)
+
+  if (!puesto?.central || !puesto.activo) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'El super administrador debe pertenecer a un puesto central activo.'
+    })
+  }
+
   return auth
 }
 

@@ -9,7 +9,6 @@ import { createProductoMut, updateProductoMut } from '../../shared/mutations/pro
 import { useDb } from './db/client'
 import { hashPin, requireJefe } from './utils/auth.js'
 import { TABLES } from '../../shared/tables.js'
-import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
 import { fusionClienteSchema } from '../../shared/schemas/fusionCliente.js'
 import { planificarFusion } from '../../shared/clientes.js'
 
@@ -52,7 +51,7 @@ async function fusionarClientesOffline(payload, auth) {
     if (elegidos.length !== ids.length) {
       throw new Error('Alguno de los clientes ya no existe o ya fue fusionado.')
     }
-    if (elegidos.some(c => c.id === CLIENTE_SIN_CLIENTE_ID_FIJO)) {
+    if (elegidos.some(c => c.esCentinela)) {
       throw new Error('El cliente "Sin cliente" no se puede fusionar.')
     }
 
@@ -278,6 +277,16 @@ const OFFLINE_CONFIGS = [
   // puestoScoped.
   {
     config: { tabla: 'sms_etecsa', defaults: { estado: 'pendiente' } },
+    overrides: { requireRole: 'jefe' }
+  },
+  // Acciones dictadas por voz pendientes de revisión. También locales: la
+  // venta se sincroniza recién cuando el jefe la confirma y se aplica.
+  {
+    config: {
+      tabla: 'acciones_pendientes_voz',
+      puestoScoped: true,
+      defaults: { estado: 'pendiente', tipo: 'venta', tipoVenta: 'directa', origen: 'app', cantidad: 1 }
+    },
     overrides: { requireRole: 'jefe' }
   }
 ]

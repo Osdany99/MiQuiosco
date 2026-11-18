@@ -3,11 +3,38 @@ import { Capacitor } from '@capacitor/core'
 import { getApiBaseUrl, setApiBaseUrl, serverAlcanzable } from '../utils/api'
 import { contactosEstado, contactosPedirPermiso } from '../utils/contactos'
 import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaBd } from '../utils/backupBd'
+import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
+import { IDIOMAS_FLOTA, MOTORES_FLOTA } from '#shared/voz/config'
+import { useVozServicio } from '../composables/useVozServicio'
 
 const toast = useToast()
 const conexion = useModoConexion()
+const tts = useTts()
+const voz = useVoiceCommand()
+const vozConfig = useVozConfig()
+const servicioVoz = useVozServicio()
+const aliasVoz = useVozAlias()
+const inventarioAlias = useInventario()
+const aliasAbierto = ref(false)
+const productosAlias = ref([])
+
+/** Nombres de producto para la lista de alias (se cargan al abrir). */
+const nombreProductoAlias = productoId =>
+  productosAlias.value.find(p => (p.productoId ?? p.id) === productoId)?.nombre ?? 'Producto'
+
+async function cargarAlias() {
+  await aliasVoz.cargar().catch(() => {})
+  if (!productosAlias.value.length) {
+    productosAlias.value = (await inventarioAlias.cargarSaldos().catch(() => [])) ?? []
+  }
+}
+
+watch(aliasAbierto, (abierto) => {
+  if (abierto) void cargarAlias()
+})
 const update = useAppUpdate()
 const auth = useAuth()
+const { validarSincronizacion, hayRed } = useSync()
 // --- Permisos de recarga (solo Android) ---
 // Configuración es el ÚNICO sitio donde se piden. No hay asistente al arrancar:
 // la app no interrumpe a quien solo usa el quiosco, y quien sí quiere recargas
@@ -25,6 +52,7 @@ const sinCandado = computed(() => !sms.estado.value.restringido)
 const permisoRecibir = computed(() => !!sms.estado.value.permisoRecibir)
 const notificacionesOk = computed(() => !!sms.estado.value.notificaciones)
 const permisoContactos = computed(() => !!contactos.value.permiso)
+const permisoMicrofono = computed(() => !!voz.permisoMicrofono.value)
 
 const permisosListos = computed(() => {
   return sinCandado.value && permisoRecibir.value && notificacionesOk.value
@@ -58,6 +86,12 @@ const listaPermisos = computed(() => {
       ok: permisoContactos.value,
       texto: 'Contactos del teléfono (opcional)',
       accion: 'Conceder'
+    },
+    {
+      clave: 'microfono',
+      ok: permisoMicrofono.value,
+      texto: 'Reconocimiento de voz (micrófono)',
+      accion: 'Conceder'
     }
   ]
 })
@@ -66,7 +100,8 @@ const ACCIONES_PERMISOS = {
   restringidos: () => sms.abrirAjustesPermisos('restringidos'),
   sms: () => sms.pedirPermiso(),
   notificaciones: () => sms.pedirPermisoNotificaciones(),
-  contactos: () => pedirPermisoContactos()
+  contactos: () => pedirPermisoContactos(),
+  microfono: () => voz.pedirPermisoMicrofono()
 }
 
 /** Pide READ_CONTACTS y vuelve a pintar la lista con el estado real. */
@@ -87,6 +122,7 @@ async function pedirPermisoContactos() {
 async function refrescarPermisos() {
   await sms.refrescarEstado()
   contactos.value = await contactosEstado()
+  await voz.check()
 }
 
 async function ejecutarPermiso(clave) {
@@ -124,6 +160,13 @@ onMounted(() => {
   if (!esNativo.value) return
   refrescarPermisos()
   document.addEventListener('visibilitychange', alVolverDeAjustes)
+})
+onMounted(() => {
+  void voz.check()
+  void voz.refrescarTraza()
+  void voz.sincronizarDiagNativo()
+  void servicioVoz.refrescar()
+  void vozConfig.cargar().then(() => vozConfig.refrescar()).catch(() => {})
 })
 
 onUnmounted(() => {
@@ -245,6 +288,7 @@ const restaurando = ref(false)
 const dialogoRestaurar = ref(false)
 const copiaElegida = ref(null)
 const errorRestaurar = ref('')
+const validandoSync = ref(false)
 
 async function prepararRestauracion() {
   if (eligiendoCopia.value || restaurando.value) return
@@ -290,6 +334,137 @@ async function confirmarRestauracion() {
     dialogoRestaurar.value = false
   } finally {
     restaurando.value = false
+  }
+}
+
+async function validarSincronizacionManual() {
+  if (validandoSync.value) return
+  validandoSync.value = true
+  try {
+    const ok = await validarSincronizacion(false)
+    toast.add({
+      title: ok ? 'Sincronización validada' : 'Validación con incidencias',
+      description: ok
+        ? 'La base local quedó reconciliada con el servidor.'
+        : 'Revisa el log de sync; se reintentará automáticamente.',
+      color: ok ? 'success' : 'warning'
+    })
+  } catch (err) {
+    toast.add({
+      title: 'Error',
+      description: err?.message || 'No se pudo validar la sincronización.',
+      color: 'error'
+    })
+  } finally {
+    validandoSync.value = false
+  }
+}
+
+const ttsActivo = computed({
+  get: () => tts.habilitado.value,
+  set: (value) => { void tts.setHabilitado(value) }
+})
+// Motor, idioma, traza y frases de prueba son herramientas de soporte: el jefe
+// no necesita verlas y un cambio accidental puede romper el reconocimiento.
+const esSuperAdmin = computed(() => auth.usuarioActual.value?.rol === 'super_admin')
+const avanzadoAbierto = ref(false)
+const flotaMotor = computed(() =>
+  MOTORES_FLOTA.find(o => o.id === vozConfig.config.value.motor)?.label
+  ?? vozConfig.config.value.motor
+)
+const flotaIdioma = computed(() =>
+  IDIOMAS_FLOTA.find(o => o.id === vozConfig.config.value.idioma)?.label
+  ?? vozConfig.config.value.idioma
+)
+
+async function descargarConfigVoz() {
+  await vozConfig.refrescar()
+  await vozConfig.aplicarAhora().catch(() => {})
+  toast.add({
+    title: 'Configuración de voz',
+    description: vozConfig.error.value
+      ? vozConfig.error.value
+      : `Aplicada la versión ${vozConfig.version.value || 'local'}.`,
+    color: vozConfig.error.value ? 'warning' : 'success'
+  })
+}
+const telemetriaValor = ref(telemetriaActivaSync())
+const telemetriaActivaComputed = computed({
+  get: () => telemetriaValor.value,
+  set: (value) => {
+    telemetriaValor.value = value
+    void fijarTelemetria(value)
+  }
+})
+
+const itemsMotorVoz = computed(() =>
+  (voz.opcionesMotor || []).map(opcion => ({ label: opcion.label, value: opcion.id }))
+)
+const itemsIdiomaVoz = computed(() =>
+  (voz.opcionesIdioma || []).map(opcion => ({ label: opcion.label, value: opcion.id }))
+)
+const modoActualTexto = computed(() => voz.modoActual?.value === 'offline' ? 'offline' : 'online')
+const avisoConexion = computed(() => {
+  if (voz.hayInternet.value === null) return 'Comprobando conexión…'
+  if (voz.hayInternet.value === true) return ''
+  const pref = voz.preferenciaMotor.value
+  if (pref === 'google') return 'Sin conexión: el modo “solo online” no puede reconocer.'
+  if (pref === 'google-offline' || pref === 'vosk') return 'Sin conexión: este modo trabaja offline.'
+  return 'Sin conexión: usará el modo offline.'
+})
+
+// En Android nativo, SpeechRecognizer funciona offline con paquetes de idioma
+// instalados localmente.
+const probandoTts = ref(false)
+const itemsVocesTts = computed(() =>
+  (tts.voces.value || []).map((v) => {
+    const partes = [v.displayName || v.name || v.lang || '(sin nombre)']
+    if (v.offline === true) partes.push('· offline')
+    return { label: partes.join(' '), value: v.voiceURI }
+  })
+)
+
+async function probarTts() {
+  if (probandoTts.value) return
+  probandoTts.value = true
+  try {
+    await tts.speak('Hola, esta es la voz de MiQuiosco.')
+    toast.add({ title: 'Voz de prueba reproducida', color: 'success' })
+  } catch (e) {
+    toast.add({ title: 'No se pudo reproducir la voz', description: e?.message, color: 'error' })
+  } finally {
+    probandoTts.value = false
+  }
+}
+
+/** Limpia la traza y marca el inicio de una ronda (online u offline). */
+async function prepararRonda() {
+  await voz.iniciarTraza({ modo: conexion.modo.value, red: hayRed.value })
+  toast.add({
+    title: hayRed.value ? 'Ronda ONLINE preparada' : 'Ronda OFFLINE preparada',
+    description: 'La traza se graba siempre. Prueba ahora las frases de la lista.',
+    color: 'success'
+  })
+}
+
+async function copiarTraza() {
+  // Recupera lo que el plugin guardó por su cuenta y lo persistido antes de copiar.
+  await voz.sincronizarDiagNativo()
+  await voz.refrescarTraza()
+  const texto = voz.textoTraza.value
+  if (!texto) {
+    toast.add({ title: 'Todavía no hay registros', color: 'warning' })
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(texto)
+    toast.add({ title: 'Registro copiado', color: 'success' })
+  } catch {
+    toast.add({
+      title: 'No se pudo copiar',
+      description: 'Mantén pulsado el texto y elige Copiar.',
+      color: 'warning'
+    })
   }
 }
 
@@ -534,6 +709,16 @@ async function whOlvidarEste() {
           Restaurar desde un archivo
         </UButton>
 
+        <UButton
+          :loading="validandoSync"
+          icon="i-lucide-refresh-cw"
+          variant="soft"
+          color="primary"
+          @click="validarSincronizacionManual"
+        >
+          Validar sincronización con el servidor
+        </UButton>
+
         <UAlert
           v-if="resultadoCopia"
           color="success"
@@ -707,14 +892,14 @@ async function whOlvidarEste() {
       </div>
     </UCard>
 
-    <!-- Permisos del módulo de Recargas. Es el único sitio donde se piden:
+    <!-- Permisos del dispositivo. Es el único sitio donde se piden:
          no hay asistente al arrancar. Cada fila dice si algo falta y ofrece
          el botón que lo resuelve. -->
     <UCard v-if="esNativo">
       <div class="space-y-3">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-sm font-medium">
-            Permisos de recarga
+            Permisos del dispositivo
           </h2>
           <UButton
             icon="i-lucide-refresh-cw"
@@ -759,6 +944,16 @@ async function whOlvidarEste() {
           </li>
         </ul>
 
+        <p class="text-xs text-muted">
+          Motor de voz (STT): {{ voz.disponible.value ? 'Disponible' : 'No disponible' }}
+          <span v-if="voz.esNativo.value" class="text-muted">· En el dispositivo: {{ voz.onDeviceStt.value ? 'Sí' : 'No' }}</span>
+        </p>
+        <p v-if="esNativo" class="text-xs text-muted">
+          Motor TTS: {{ tts.disponible.value ? 'Disponible' : 'No disponible' }}
+          <span v-if="tts.nativoEngine.value">· {{ tts.nativoEngine.value }}</span>
+          · {{ (tts.voces.value || []).length }} voces detectadas
+        </p>
+
         <p
           v-if="permisosListos"
           class="text-xs text-muted"
@@ -791,6 +986,332 @@ async function whOlvidarEste() {
           />
           <span>Modo: {{ conexion.modo.value === 'online' ? 'Online' : 'Local' }}</span>
         </div>
+      </div>
+    </UCard>
+
+    <UCard>
+      <div class="space-y-3">
+        <div>
+          <h2 class="text-sm font-medium">
+            Voz
+          </h2>
+          <p class="text-sm text-muted">
+            Cómo habla el dispositivo y cómo se confirma una venta dictada.
+          </p>
+          <UButton
+            to="/ayuda/voz"
+            variant="soft"
+            color="neutral"
+            icon="i-lucide-mic"
+            label="¿Qué puedo decir? Ver los comandos"
+            class="mt-3 w-full sm:w-auto"
+          />
+        </div>
+
+        <USwitch
+          v-model="ttsActivo"
+          color="primary"
+          :disabled="!tts.disponible.value"
+          description="Lee lo que va a hacer y pide un “sí” antes de aplicarlo. Apagado, todo se confirma con el botón (las acciones sin formulario siempre preguntan)."
+        >
+          Confirmación por voz
+        </USwitch>
+
+        <p v-if="!tts.disponible.value" class="text-xs text-warning">
+          Este dispositivo no tiene voz de respuesta instalada.
+        </p>
+
+        <div class="space-y-1 border-t border-default pt-3">
+          <p class="text-sm">
+            Con la confirmación por voz activa, la asistente dice lo que va a hacer y
+            espera un “sí” (6 segundos) antes de aplicarlo.
+          </p>
+          <p v-if="!ttsActivo" class="text-xs text-warning">
+            Apagada: la venta y los comandos con formulario se confirman con el botón.
+            Las acciones sin formulario (mover un producto) siempre preguntan por voz.
+          </p>
+        </div>
+
+        <!-- Voz de respuesta (TTS): SOLO afecta a cómo la app HABLA. -->
+        <div class="space-y-2 border-t border-default pt-3">
+          <h3 class="text-sm font-medium">
+            Voz de respuesta
+          </h3>
+          <USelect
+            :items="itemsVocesTts"
+            :model-value="tts.vozUri.value"
+            :disabled="!tts.disponible.value || tts.cargandoVoces.value || !itemsVocesTts.length"
+            :placeholder="tts.cargandoVoces.value ? 'Cargando voces…' : (itemsVocesTts.length ? 'Seleccionar voz' : 'Sin voces disponibles')"
+            class="w-full"
+            @update:model-value="(value) => { void tts.setVoz(value) }"
+          />
+          <p v-if="!tts.cargandoVoces.value && !itemsVocesTts.length" class="text-xs text-warning">
+            No hay voces instaladas. Instala español en el dispositivo.
+          </p>
+          <div class="flex items-center gap-2">
+            <UButton
+              color="primary"
+              variant="soft"
+              size="sm"
+              icon="i-lucide-volume-2"
+              :loading="probandoTts"
+              :disabled="!tts.disponible.value || probandoTts"
+              @click="probarTts"
+            >
+              Probar voz
+            </UButton>
+            <span class="text-xs text-muted">
+              Reproduce una frase corta con la voz seleccionada.
+            </span>
+          </div>
+        </div>
+
+        <!-- Escucha con la app cerrada (solo Android). -->
+        <div
+          v-if="servicioVoz.esNativo && auth.esJefe"
+          class="space-y-2 border-t border-default pt-3"
+        >
+          <h3 class="text-sm font-medium">
+            Con la app cerrada
+          </h3>
+          <p class="text-xs text-muted">
+            El interruptor de escucha está en
+            <NuxtLink to="/pendientes" class="underline">Por revisar (voz)</NuxtLink>.
+            Al dictar se muestra la onda del dock con lo que se va entendiendo.
+          </p>
+        </div>
+
+        <!-- Alias de producto aprendidos: el jefe los enseña y los borra. -->
+        <UCollapsible v-if="auth.esJefe.value" v-model:open="aliasAbierto" class="border-t border-default pt-3">
+          <UButton
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-tags"
+            :label="`Alias de productos (${aliasVoz.lista.value.length})`"
+          />
+          <template #content>
+            <div class="space-y-2 pt-2">
+              <p class="text-xs text-muted">
+                Se aprenden cuando eliges un producto del menú o lo asignas en
+                Por revisar. Solo mejoran el reconocimiento: nunca venden solos.
+              </p>
+              <p v-if="!aliasVoz.lista.value.length" class="text-xs text-muted">
+                Todavía no hay alias.
+              </p>
+              <ul v-else class="divide-y divide-default rounded-lg border border-default">
+                <li
+                  v-for="a in aliasVoz.lista.value"
+                  :key="a.id"
+                  class="flex items-center justify-between gap-2 px-3 py-2"
+                >
+                  <span class="text-sm min-w-0 truncate">
+                    «{{ a.texto }}» → {{ nombreProductoAlias(a.productoId) }}
+                  </span>
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="error"
+                    icon="i-lucide-trash-2"
+                    label="Borrar"
+                    @click="aliasVoz.deshacer(a.id)"
+                  />
+                </li>
+              </ul>
+            </div>
+          </template>
+        </UCollapsible>
+
+        <!-- Herramientas de soporte: solo super_admin. -->
+        <UCollapsible v-if="esSuperAdmin" v-model:open="avanzadoAbierto" class="border-t border-default pt-3">
+          <UButton
+            variant="ghost"
+            size="sm"
+            :icon="avanzadoAbierto ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            label="Avanzado (soporte)"
+          />
+          <template #content>
+            <div class="space-y-3 pt-2">
+              <div class="space-y-2 rounded-lg border border-default p-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <h3 class="text-sm font-medium">
+                    Configuración de flota
+                  </h3>
+                  <UBadge color="neutral" variant="soft" size="sm">
+                    {{ vozConfig.version.value ? `v${vozConfig.version.value}` : 'Sin sincronizar' }}
+                  </UBadge>
+                </div>
+                <p class="text-xs text-muted">
+                  Palabra clave: «{{ vozConfig.config.value.wake }}» ·
+                  {{ flotaMotor }} · {{ flotaIdioma }} ·
+                  retención {{ vozConfig.config.value.retencionDias }} días.
+                </p>
+                <p class="text-xs text-muted">
+                  Los cambios manuales de motor o idioma en este equipo se
+                  respetan hasta el próximo cambio de flota o del propio equipo.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                  <UButton
+                    size="sm"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-refresh-cw"
+                    :loading="vozConfig.cargando.value"
+                    @click="descargarConfigVoz"
+                  >
+                    Descargar y aplicar
+                  </UButton>
+                  <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-settings-2"
+                    to="/admin/voz-configuracion"
+                  >
+                    Editar flota
+                  </UButton>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <h3 class="text-sm font-medium">
+                  Motor de reconocimiento
+                </h3>
+                <p class="text-xs text-muted">
+                  Cada modo hace un solo intento: online no cae a offline y
+                  offline no cae a online.
+                </p>
+                <USelect
+                  :items="itemsMotorVoz"
+                  :model-value="voz.preferenciaMotor.value"
+                  class="w-full"
+                  @update:model-value="(value) => { void voz.guardarPreferenciaMotor(value) }"
+                />
+                <p class="text-xs text-muted">
+                  Motor actual: {{ voz.nombreMotor.value ?? '—' }} · {{ modoActualTexto }}
+                </p>
+                <p v-if="avisoConexion" class="text-xs text-warning">
+                  {{ avisoConexion }}
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <h3 class="text-sm font-medium">
+                  Idioma del reconocimiento
+                </h3>
+                <USelect
+                  :items="itemsIdiomaVoz"
+                  :model-value="voz.preferenciaIdioma.value"
+                  class="w-full"
+                  @update:model-value="(value) => { void voz.guardarPreferenciaIdioma(value) }"
+                />
+                <p class="text-xs text-muted">
+                  Sistema: {{ voz.idiomaSistema.value }} · Usando: {{ voz.idiomaEtiqueta.value }}
+                </p>
+              </div>
+
+              <div class="space-y-1">
+                <h3 class="text-sm font-medium">
+                  Estado del reconocimiento
+                </h3>
+                <p class="text-xs text-muted">
+                  Motor:
+                  {{ voz.motorStt.value || (voz.esNativo.value ? 'No detectado' : 'Navegador') }}
+                  <span v-if="voz.esNativo.value">· En el dispositivo: {{ voz.onDeviceStt.value ? 'Sí' : 'No' }}</span>
+                  <span v-if="voz.esNativo.value">· Servicios: {{ voz.serviciosStt.value.length }}</span>
+                </p>
+              </div>
+
+              <USwitch
+                v-model="telemetriaActivaComputed"
+                color="primary"
+                description="Envía plantillas enmascaradas al panel /admin/voz para mejorar el léxico."
+              >
+                Enviar al administrador las frases no entendidas
+              </USwitch>
+
+              <!-- Diagnóstico local: se copia a mano, nunca se envía al servidor. -->
+              <div class="space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-medium">
+                    Diagnóstico de voz
+                  </h3>
+                  <UBadge color="success" variant="soft" size="sm">
+                    Grabando siempre
+                  </UBadge>
+                </div>
+                <p class="text-xs text-muted">
+                  La traza se graba sola. Pulsa <strong>Preparar ronda</strong> antes
+                  de cada tanda, prueba las frases y luego <strong>Copiar</strong>. Es local.
+                </p>
+
+                <div class="flex flex-wrap items-center gap-2">
+                  <UButton
+                    size="sm"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-circle-dot"
+                    @click="prepararRonda"
+                  >
+                    Preparar ronda
+                  </UButton>
+                  <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-copy"
+                    @click="copiarTraza"
+                  >
+                    Copiar
+                  </UButton>
+                  <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-lucide-trash-2"
+                    :disabled="!voz.traza.value.length"
+                    @click="voz.limpiarTraza()"
+                  >
+                    Limpiar
+                  </UButton>
+                  <span class="text-xs text-muted">
+                    {{ voz.traza.value.length }} líneas
+                  </span>
+                </div>
+
+                <p v-if="voz.ultimoEvento.value" class="text-xs text-muted">
+                  Último: {{ voz.ultimoEvento.value.evento }}
+                </p>
+
+                <p v-if="voz.traza.value.length" class="text-xs text-muted">
+                  {{ voz.textoResumenTraza.value }}
+                </p>
+
+                <pre
+                  v-if="voz.traza.value.length"
+                  class="max-h-64 overflow-auto rounded-lg border border-default bg-elevated/50 p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap break-words"
+                >{{ voz.textoTraza.value }}</pre>
+                <p v-else class="text-xs text-muted">
+                  Sin registros todavía.
+                </p>
+
+                <div class="rounded-lg border border-default p-2">
+                  <p class="text-xs font-medium">
+                    Frases de prueba
+                  </p>
+                  <ol class="list-decimal pl-5 text-xs text-muted">
+                    <li>«vende dos refrescos»</li>
+                    <li>«vende cinco panes del almacén»</li>
+                    <li>«cuánto hay de maní»</li>
+                    <li>«cuánto cuesta el refresco»</li>
+                    <li>«repite»</li>
+                    <li>«abre cuadre»</li>
+                    <li>«hola» (control: no es un comando)</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </template>
+        </UCollapsible>
       </div>
     </UCard>
   </div>

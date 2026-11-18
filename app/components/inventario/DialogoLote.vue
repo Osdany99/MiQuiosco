@@ -34,6 +34,13 @@
           size="sm"
           label="Anulado"
         />
+        <UBadge
+          v-if="loteInfo.estadoLote && loteInfo.estadoLote !== 'normal'"
+          color="neutral"
+          variant="soft"
+          size="sm"
+          :label="loteInfo.estadoLote"
+        />
       </div>
 
       <p

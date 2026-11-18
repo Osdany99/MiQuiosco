@@ -62,6 +62,7 @@ export async function getPendingDeletes() {
 // rechazó para poder compararla con la fila actual.
 // ---------------------------------------------------------------------------
 const PREF_SYNC_RECHAZOS = 'sync_rechazos'
+const PREF_SYNC_CONFLICTOS = 'sync_conflictos'
 let _syncRechazosCache = null
 
 async function loadSyncRechazos() {
@@ -126,6 +127,67 @@ export async function limpiarSyncRechazos(tabla, ids) {
     }
   }
   if (cambiado) await saveSyncRechazos({ ...mapa })
+}
+
+async function loadSyncConflictos() {
+  const stored = await Preferences.get({ key: PREF_SYNC_CONFLICTOS })
+  try {
+    return stored.value ? JSON.parse(stored.value) : {}
+  } catch {
+    return {}
+  }
+}
+
+async function saveSyncConflictos(mapa) {
+  await Preferences.set({ key: PREF_SYNC_CONFLICTOS, value: JSON.stringify(mapa) })
+}
+
+export async function registrarSyncConflictos(conflictos) {
+  if (!conflictos?.length) return 0
+  const mapa = { ...(await loadSyncConflictos()) }
+  const momento = Date.now()
+  for (const c of conflictos) {
+    if (!c?.tabla || !c?.id) continue
+    // Solo se guarda metadata (hashes + timestamps), nunca el valor completo de
+    // la fila: sirve de auditoría y no duplica datos del negocio ya persistidos.
+    mapa[`${c.tabla}:${c.id}`] = {
+      tabla: c.tabla,
+      id: c.id,
+      servidorHash: c.servidorHash ?? null,
+      clienteHash: c.clienteHash ?? null,
+      registradoEn: momento
+    }
+  }
+  await saveSyncConflictos(mapa)
+  return Object.keys(mapa).length
+}
+
+export async function getSyncConflictos() {
+  return await loadSyncConflictos()
+}
+
+export async function limpiarSyncConflictos(tabla, ids) {
+  if (!ids?.length) return
+  const mapa = await loadSyncConflictos()
+  let cambiado = false
+  for (const id of ids) {
+    const clave = `${tabla}:${id}`
+    if (mapa[clave]) {
+      delete mapa[clave]
+      cambiado = true
+    }
+  }
+  if (cambiado) await saveSyncConflictos({ ...mapa })
+}
+
+export async function descartarSyncRechazo(tabla, id) {
+  if (!tabla || !id) return
+  const mapa = await loadSyncRechazos()
+  const clave = `${tabla}:${id}`
+  if (mapa[clave]) {
+    delete mapa[clave]
+    await saveSyncRechazos({ ...mapa })
+  }
 }
 
 const ahora = () => Date.now()

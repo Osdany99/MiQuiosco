@@ -4,6 +4,7 @@ import { Preferences } from '@capacitor/preferences'
 import { $api, esErrorDeRed } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
 import { login as loginOfflineApi } from '../server-offline/api/auth/login'
+import { useDb } from '../server-offline/db/client'
 
 /**
  * Dos contextos de autenticación, completamente aislados:
@@ -84,6 +85,8 @@ const PREF_WEBAUTHN_CRED_ID = 'webauthn_credential_id'
 const MAX_INTENTOS_BIOMETRICOS = 3
 const MSG_CREDENCIALES_INVALIDAS = 'Credenciales inválidas.'
 
+let _authSingleton = null
+
 export function useAuth() {
   const config = useRuntimeConfig()
   const sesionLocal = useState('auth.sesionLocal', () => null)
@@ -131,7 +134,32 @@ export function useAuth() {
           method: 'POST',
           body: { nombre_usuario: nombreUsuario, pin }
         })
+        // Cuenta de administracion: mismo endpoint, scope separado.
+        if (response?.usuario?.rol === 'super_admin') {
+          if (esNativo()) {
+            throw new Error('Esta cuenta es de administracion. Usa el panel web.')
+          }
+          const { useAdminAuth } = await import('./useAdminAuth.js')
+          const admin = useAdminAuth()
+          await admin.registrarDesdeRespuesta(response)
+          intentosBiometricosFallidos.value = 0
+          return response
+        }
+
         await procesarRespuestaLogin(response)
+
+        try {
+          const { usePermisos } = await import('./usePermisos.js')
+          const perms = usePermisos()
+          if (response.puesto) await perms.guardarDesdePuesto(response.puesto)
+        } catch {}
+        try {
+          const { useSync } = await import('./useSync.js')
+          const sync = useSync()
+          setTimeout(() => {
+            sync.sincronizarAuto({ motivo: 'login', silencioso: true }).catch(() => {})
+          }, 0)
+        } catch {}
         intentosBiometricosFallidos.value = 0
         return response
       } catch (err) {
@@ -157,17 +185,66 @@ export function useAuth() {
     }
   }
 
+  /**
+   * Crea o actualiza la fila local de `puestos` con los datos del login.
+   *
+   * El dispositivo ya no lleva un puesto sembrado: lo descubre al entrar. Sin
+   * esta fila, el modo offline no puede filtrar por puesto. En una instalación
+   * nueva es también la señal de que hay que hacer el pull completo.
+   */
+  async function guardarPuestoLocal(puesto, puestoId) {
+    const id = puesto?.id ?? puestoId
+    if (!id) throw new Error('El servidor no devolvió el puesto del usuario.')
+
+    const db = useDb()
+    const existente = await db.getById('puestos', id)
+    if (existente) {
+      await db.update('puestos', id, {
+        nombre: puesto?.nombre ?? existente.nombre,
+        activo: puesto?.activo !== false
+      })
+      return
+    }
+
+    await db.insert('puestos', {
+      id,
+      nombre: puesto?.nombre ?? 'Puesto',
+      activo: puesto?.activo !== false,
+      creadoEn: Date.now()
+    })
+  }
+
   async function procesarRespuestaLogin(response) {
     if (!response.usuario) {
       throw new Error('Respuesta del servidor sin datos de usuario.')
     }
-    usuarioActual.value = response.usuario
 
     // Sin token no hay sesion: el servidor solo emite JWT para el jefe y el
     // login offline tambien rechaza al trabajador (decision de producto).
     if (!response.token) {
       throw new Error('Respuesta del servidor sin token.')
     }
+
+    // La cuenta de administración no opera el negocio: su panel es la web.
+    // Evita que un super admin quede dentro del APK con vistas de jefe.
+    if (response.usuario.rol === 'super_admin') {
+      throw new Error('Esta cuenta es de administración. Usa el panel web.')
+    }
+
+    // Primer uso en este dispositivo = el usuario todavía no existe en la base
+    // local. Solo entonces se exige red y se espera el pull completo.
+    let primerUso = false
+    if (import.meta.client && Capacitor.isNativePlatform()) {
+      try {
+        const local = await useDb().getUsuarioPorNombreLocal(response.usuario.nombre)
+        primerUso = !local
+      } catch {
+        // Si no se puede consultar, se comporta como login normal.
+        primerUso = false
+      }
+    }
+
+    usuarioActual.value = response.usuario
 
     const ahora = Date.now()
 
@@ -188,15 +265,36 @@ export function useAuth() {
     })
     sesionLocal.value = sesion
 
-    // Hidratar caché local con datos del servidor (pinHash incluido)
-    // No bloqueante — si falla (sin red, etc.), el login igual es exitoso.
-    // Llamamos directamente: procesarRespuestaLogin se invoca desde login() que está en setup context.
+    if (import.meta.client && Capacitor.isNativePlatform()) {
+      try {
+        await guardarPuestoLocal(response.puesto, response.usuario.puestoId)
+      } catch {
+        if (primerUso) {
+          await invalidarSesionLocal()
+          throw new Error('No se pudo preparar la base local del puesto. Revisa tu conexión e inténtalo de nuevo.')
+        }
+      }
+    }
+
+    // Hidratar caché local con datos del servidor (pinHash incluido).
+    // Primer uso: se ESPERA el pull completo antes de dejar entrar, porque el
+    // APK arranca sin datos y el modo local no tendría nada que mostrar. Los
+    // logins siguientes lo lanzan en segundo plano.
     if (import.meta.client) {
       try {
         const { pullServidor } = useSync()
-        pullServidor({ silent: true }).catch(() => {})
-      } catch {
-        // noop
+        const esPrimerUsoBloqueante = Capacitor.isNativePlatform() && primerUso
+        if (esPrimerUsoBloqueante) {
+          const ok = await pullServidor({ silent: true })
+          if (!ok) {
+            await invalidarSesionLocal()
+            throw new Error('No se pudieron descargar los datos del puesto. Revisa tu conexión e inténtalo de nuevo.')
+          }
+        } else {
+          pullServidor({ silent: true }).catch(() => {})
+        }
+      } catch (err) {
+        if (Capacitor.isNativePlatform() && primerUso) throw err
       }
     }
   }
@@ -212,6 +310,9 @@ export function useAuth() {
       }
       if (resultado.motivo === 'cliente_no_puede_loguearse' || resultado.motivo === 'solo_jefe') {
         throw new Error('Solo el jefe puede iniciar sesión.')
+      }
+      if (resultado.motivo === 'usuario_no_existe') {
+        throw new Error('Este dispositivo aún no está activado. Conéctate a internet e inicia sesión por primera vez.')
       }
       throw new Error('Credenciales inválidas.')
     }
@@ -460,6 +561,18 @@ export function useAuth() {
         body: { nombre_usuario: nombreUsuario, respuesta: attResp }
       })
       await procesarRespuestaLogin(response)
+      try {
+        const { usePermisos } = await import('./usePermisos.js')
+        if (response.puesto) await usePermisos().guardarDesdePuesto(response.puesto)
+      } catch {}
+      try {
+        const { usePermisos } = await import('./usePermisos.js')
+        if (response.puesto) await usePermisos().guardarDesdePuesto(response.puesto)
+      } catch {}
+      try {
+        const { useSync } = await import('./useSync.js')
+        useSync().sincronizarAuto({ motivo: 'login', silencioso: true }).catch(() => {})
+      } catch {}
       intentosBiometricosFallidos.value = 0
       return { ok: true, response }
     } finally {
@@ -531,7 +644,7 @@ export function useAuth() {
     }
   }
 
-  return {
+  const api = {
     sesionLocal: readonly(sesionLocal),
     jwtSync: readonly(jwtSync),
     usuarioActual: readonly(usuarioActual),
@@ -559,4 +672,10 @@ export function useAuth() {
     borrarWebauthn,
     olvidarEsteNavegadorWebauthn
   }
+  if (import.meta.client) _authSingleton = api
+  return api
+}
+
+export function getAuthInstance() {
+  return _authSingleton
 }

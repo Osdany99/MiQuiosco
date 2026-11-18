@@ -1,0 +1,2 @@
+ALTER TABLE "voz_config" ADD COLUMN "capturar_aciertos" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "voz_config" ADD COLUMN "retencion_aciertos_dias" integer DEFAULT 7 NOT NULL;

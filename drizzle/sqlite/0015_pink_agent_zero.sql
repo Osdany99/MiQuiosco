@@ -1,0 +1,1 @@
+ALTER TABLE `cuadre_items` ADD `lote_id` text;

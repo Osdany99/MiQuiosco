@@ -6,8 +6,8 @@
  * es POR NÚMERO. El número canónico (10 dígitos) es la clave con la que se
  * empareja cada recarga que entra, por eso se gestiona aquí y no suelta.
  */
+import { Capacitor } from '@capacitor/core'
 import { clientes as config } from '../../shared/tables'
-import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../shared/constants'
 import { normalizarTelefono } from '../utils/parseEtecsaSms'
 import { normalizarNombre } from '#shared/clientes'
 import {
@@ -52,7 +52,7 @@ const filterFields = [
 const dialogo = ref(false)
 const editando = ref(null)
 const guardando = ref(false)
-const form = ref({ id: null, nombre: '', notas: '', activo: true })
+const form = ref({ id: null, nombre: '', notas: '', activo: true, esCentinela: false })
 const formErrores = ref({})
 const telefonosForm = ref([])
 const nuevoTelefono = ref('')
@@ -62,6 +62,11 @@ const contactos = ref([])
 const cargandoContactos = ref(false)
 const permisoContactos = ref(false)
 const restringido = ref(false)
+
+// Importar la agenda es del dispositivo. Se pregunta a Capacitor y no a
+// `contactosEstado().disponible`, que llega async (y en web siempre false):
+// así el botón y el aviso no parpadean en cada carga.
+const esNativo = Capacitor.isNativePlatform()
 
 const importando = ref(false)
 const progreso = ref(null)
@@ -78,7 +83,7 @@ function telefonosDe(clienteId) {
 
 async function abrirNuevo() {
   editando.value = null
-  form.value = { id: null, nombre: '', notas: '', activo: true }
+  form.value = { id: null, nombre: '', notas: '', activo: true, esCentinela: false }
   formErrores.value = {}
   telefonosForm.value = []
   nuevoTelefono.value = ''
@@ -87,7 +92,7 @@ async function abrirNuevo() {
 
 async function abrirEditar(cliente) {
   editando.value = cliente
-  form.value = { id: cliente.id, nombre: cliente.nombre ?? '', notas: cliente.notas ?? '', activo: cliente.activo !== false }
+  form.value = { id: cliente.id, nombre: cliente.nombre ?? '', notas: cliente.notas ?? '', activo: cliente.activo !== false, esCentinela: !!cliente.esCentinela }
   formErrores.value = {}
   telefonosForm.value = telefonosDe(cliente.id).map(t => ({
     id: t.id,
@@ -175,7 +180,7 @@ const similaresForm = computed(() => {
  * saca del selector de transferencias (ver cargarClientes). El ensure-on-use
  * lo reviviría, pero mejor que no haya forma de romperlo.
  */
-const esCentinela = computed(() => form.value.id === CLIENTE_SIN_CLIENTE_ID_FIJO)
+const esCentinela = computed(() => !!form.value.esCentinela)
 
 async function guardar() {
   const nombre = form.value.nombre.trim()
@@ -274,6 +279,7 @@ async function pedirPermisoContactos() {
 }
 
 async function abrirImportar() {
+  if (!esNativo) return
   if (!await leerPermiso()) {
     pedirPermisoContactos()
     return
@@ -429,6 +435,7 @@ onMounted(() => {
         @click="dialogoFusionar = true"
       />
       <UButton
+        v-if="esNativo"
         icon="i-lucide-contact-round"
         variant="outline"
         label="Importar contactos"
@@ -447,7 +454,7 @@ onMounted(() => {
     />
 
     <UAlert
-      v-else-if="!permisoContactos"
+      v-else-if="esNativo && !permisoContactos"
       color="neutral"
       variant="soft"
       icon="i-lucide-contact-round"

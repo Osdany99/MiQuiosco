@@ -1,8 +1,9 @@
 import { and, eq, lt } from 'drizzle-orm'
 import type { H3Event } from 'h3'
 import { db } from '../database/client'
-import { usuarios, webauthnChallenges } from '../database/schema'
+import { puestos, usuarios, webauthnChallenges } from '../database/schema'
 import { signToken, verifyPin } from './auth'
+import { leerDispositivoId, registrarAccesoDispositivo } from './dispositivo'
 import type { Rol } from '#shared/types'
 
 export const WEBAUTHN_CHALLENGE_MINUTOS = 5
@@ -31,6 +32,7 @@ export interface UsuarioWebauthn {
   puestoId: string
   pinHash: string
   activo: boolean
+  tokenVersion: number
 }
 
 export async function buscarUsuarioPorNombre(nombre: string): Promise<UsuarioWebauthn | null> {
@@ -41,7 +43,8 @@ export async function buscarUsuarioPorNombre(nombre: string): Promise<UsuarioWeb
       rol: usuarios.rol,
       puestoId: usuarios.puestoId,
       pinHash: usuarios.pinHash,
-      activo: usuarios.activo
+      activo: usuarios.activo,
+      tokenVersion: usuarios.tokenVersion
     })
     .from(usuarios)
     .where(eq(usuarios.nombre, nombre))
@@ -117,11 +120,38 @@ export async function emitirRespuestaLogin(event: H3Event, usuario: UsuarioWebau
       puestoId: usuario.puestoId
     }
   }
+  // Mismo contrato que /api/auth/login: el puesto viaja para que el APK pueda
+  // crear su fila local y hacer el pull completo.
+  const [puesto] = await db
+    .select({ id: puestos.id, nombre: puestos.nombre, activo: puestos.activo })
+    .from(puestos)
+    .where(eq(puestos.id, usuario.puestoId))
+    .limit(1)
   if (usuario.rol === 'trabajador') {
     const config = useRuntimeConfig(event)
     const horasExp = Number(config.public.sessionExpirationTrabajadorHoras) || 24
-    return { ...baseResponse, expiraEn: Date.now() + horasExp * 60 * 60 * 1000 }
+    return { ...baseResponse, puesto, expiraEn: Date.now() + horasExp * 60 * 60 * 1000 }
   }
-  const { token, expiraEn } = signToken({ sub: usuario.id, rol: usuario.rol as Rol, scope: ['sync'] })
-  return { token, expiraEn: expiraEn * 1000, ...baseResponse }
+
+  // Mismo aprovisionamiento que el login con PIN: el primer acceso de la APK
+  // crea la fila de `dispositivos` y deja la traza de acceso.
+  const dispositivoId = leerDispositivoId(event)
+  try {
+    await registrarAccesoDispositivo(event, {
+      puestoId: usuario.puestoId,
+      usuarioId: usuario.id,
+      tipo: 'login'
+    })
+  } catch (err) {
+    console.error('[webauthn] no se pudo registrar el acceso del dispositivo:', err)
+  }
+
+  const { token, expiraEn } = signToken({
+    sub: usuario.id,
+    rol: usuario.rol as Rol,
+    scope: ['sync'],
+    tokenVersion: usuario.tokenVersion,
+    ...(dispositivoId ? { dispositivoId } : {})
+  })
+  return { token, expiraEn: expiraEn * 1000, puesto, ...baseResponse }
 }

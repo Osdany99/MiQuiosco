@@ -22,6 +22,14 @@
         />
       </div>
 
+      <InventarioLotesPicker
+        v-if="lotes.length"
+        :lotes="lotes"
+        :cantidad="Number(form.cantidad) || 0"
+        :producto-nombre="nombreProducto"
+        @update:consumo="onConsumo"
+      />
+
       <UFormField label="Cantidad">
         <BaseInputNumber v-model="form.cantidad" :step="1" :min="1" />
       </UFormField>
@@ -37,7 +45,9 @@
 
 <script setup>
 const props = defineProps({
-  productoId: { type: String, default: null }
+  productoId: { type: String, default: null },
+  /** Voz (Fase N): cantidad dictada para el traspaso. */
+  prefill: { type: Object, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -46,39 +56,59 @@ const inv = useInventario()
 const toast = useToast()
 
 const nombreProducto = ref('')
-const saldosMap = ref(new Map())
+const lotes = ref([])
 const guardando = ref(false)
+const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
+function onConsumo(plan) {
+  if (plan) consumoPlan.value = plan
+}
+const form = ref({ cantidad: 0, loteId: null })
 
-const form = ref({ cantidad: 0 })
+const opcionesLote = computed(() =>
+  lotes.value.map(l => ({
+    id: l.id,
+    label: `${l.fechaEntrada} · ${Number(l.precioUnitario || 0).toFixed(2)} · disp ${l.saldo}${l.estadoLote && l.estadoLote !== 'normal' ? ` · ${l.estadoLote}` : ''}`
+  }))
+)
 
-const disponible = computed(() => saldosMap.value.get(props.productoId)?.almacen ?? 0)
-const superaDisponible = computed(() => Number(form.value.cantidad) > disponible.value)
+const loteSeleccionado = computed(() =>
+  (lotes.value ?? []).find(l => l.id === form.value.loteId) ?? lotes.value?.[0] ?? null
+)
+
+const disponible = computed(() => (consumoPlan.value.consumido ?? 0))
+const superaDisponible = computed(() => consumoPlan.value.faltante > 0)
 
 const valida = computed(() =>
   Boolean(props.productoId)
   && Number(form.value.cantidad) >= 1
   && !superaDisponible.value
+  && (lotes.value.length === 0 || consumoPlan.value.lineas.length > 0)
 )
 
 watch(isOpen, async (open) => {
   if (!open) return
-  form.value = { cantidad: 0 }
-  const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
+  const cantidadDicha = Math.max(1, Math.trunc(Number(props.prefill?.cantidad) || 1))
+  form.value = { cantidad: cantidadDicha, loteId: null }
+  const [prods, ls] = await Promise.all([inv.cargarProductos(), inv.lotesConStock(props.productoId, 'almacen')])
   nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
-  saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
+  lotes.value = ls ?? []
+  form.value.loteId = lotes.value[0]?.id ?? null
 })
 
 async function confirmar() {
+  const planLineas = (consumoPlan.value?.lineas || []).filter(l => Number(l?.cantidad) > 0)
+  const fallback = [{ loteId: form.value.loteId ?? lotes.value[0]?.id ?? null, cantidad: Math.trunc(Number(form.value.cantidad) || 0) }]
+  const lineas = (planLineas.length ? planLineas : fallback).map(l => ({
+    productoId: props.productoId,
+    cantidad: Math.trunc(Number(l.cantidad) || 0),
+    loteId: l.loteId ?? form.value.loteId ?? lotes.value[0]?.id ?? null
+  }))
   guardando.value = true
   try {
     await inv.registrarTraspaso({
-      // El traspaso se fecha solo: hoy es el día en que se repone.
       fecha: hoyLocal(),
       notas: null,
-      lineas: [{
-        productoId: props.productoId,
-        cantidad: Math.trunc(Number(form.value.cantidad))
-      }]
+      lineas
     })
     toast.add({ title: 'Traspaso listo', description: 'El quiosco quedó repuesto.', color: 'success' })
     isOpen.value = false
@@ -89,4 +119,7 @@ async function confirmar() {
     guardando.value = false
   }
 }
+
+// La confirmación hablada pulsa este mismo botón.
+defineExpose({ confirmar })
 </script>

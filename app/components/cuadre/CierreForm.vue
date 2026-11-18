@@ -15,7 +15,7 @@
         />
       </UFormField>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div v-if="perms.puedeAccion('cuadre', 'pago_trabajador')" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <UFormField label="Pago al trabajador">
           <BaseInputNumber
             v-model="pagoTrabajador"
@@ -63,6 +63,7 @@ const {
   trabajadorTurnoId, pagoTrabajador, notasCuadre,
   marcarPagoManual
 } = useCuadre()
+const perms = usePermisos()
 
 const repo = useRepo(usuarioConfig)
 const trabajadores = ref([])

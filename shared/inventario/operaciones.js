@@ -68,7 +68,9 @@ export function lotesConSaldo(lotes, movimientos, productoId, ubicacion) {
       precioUnitario: Number(l.precioUnitario) || 0,
       saldo: porLote.get(l.id) ?? 0,
       fechaEntrada: l.fechaEntrada,
-      creadoEn: l.creadoEn
+      creadoEn: l.creadoEn,
+      cantidadInicial: l.cantidadInicial,
+      estadoLote: l.estadoLote ?? 'normal'
     }))
     .filter(l => l.saldo > 0)
     .sort(compararLotes)
@@ -175,12 +177,17 @@ export function construirTraspaso({ lineas, lotesPorProducto, meta }) {
     let pendiente = Math.trunc(Number(linea.cantidad) || 0)
     if (pendiente <= 0) continue
     const disponibles = lotesPorProducto.get(linea.productoId) ?? []
-    const total = disponibles.reduce((s, l) => s + l.saldo, 0)
+    // Si la línea indica un lote concreto, solo se consume de ese lote; si no,
+    // se conserva el consumo FIFO por antigüedad.
+    const candidatos = linea.loteId
+      ? disponibles.filter(l => l.id === linea.loteId)
+      : disponibles
+    const total = candidatos.reduce((s, l) => s + l.saldo, 0)
     if (total < pendiente) {
       faltantes.push({ productoId: linea.productoId, pedido: pendiente, disponible: total })
       continue
     }
-    for (const lote of disponibles) {
+    for (const lote of candidatos) {
       if (pendiente <= 0) break
       const toma = Math.min(lote.saldo, pendiente)
       movimientos.push({
@@ -223,42 +230,73 @@ export function construirVentaCuadre({ lineas, lotesPorProducto, cuadreId, meta 
     const cant = Math.trunc(Number(l.cantidad) || 0)
     if (cant <= 0) continue
     if (!agrupadas.has(l.productoId)) agrupadas.set(l.productoId, [])
-    agrupadas.get(l.productoId).push({ lineaId: l.id, productoId: l.productoId, cantidad: cant })
+    agrupadas.get(l.productoId).push({
+      lineaId: l.id,
+      productoId: l.productoId,
+      cantidad: cant,
+      loteId: l.loteId ?? null,
+      // Las líneas llegan en orden de secuencia; conservarla por si los repos
+      // entregan el array desordenado.
+      secuencia: Number(l.secuencia ?? 0)
+    })
   }
 
   let costoTotal = 0
   const faltantes = []
 
   for (const [productoId, filas] of agrupadas) {
-    const disponibles = (lotesPorProducto.get(productoId) ?? []).map(l => ({
+    const filasOrdenadas = [...filas].sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
+    const baseLotes = (lotesPorProducto.get(productoId) ?? []).map(l => ({
       id: l.id,
       precioUnitario: l.precioUnitario,
       saldoDisponible: l.saldo
     }))
-    const { repartos, faltantes: falt, costoTotal: costo } = consumirFIFO(disponibles, filas)
-    costoTotal = redondear2(costoTotal + costo)
-    for (const f of falt) faltantes.push(f)
-    for (const r of repartos) {
-      movimientos.push({
-        id: generarId(),
-        puestoId: meta.puestoId,
-        productoId,
-        loteId: r.loteId,
-        cuadreId,
-        lineaCuadreId: r.lineaId,
-        traspasoId: null,
-        tipo: 'venta',
-        cantidad: r.cantidad,
-        deltaAlmacen: 0,
-        deltaQuiosco: -r.cantidad,
-        precioUnitario: r.precioUnitario,
-        importe: r.importe,
-        motivo: 'venta_cuadre',
-        nota: null,
-        usuarioId: meta.usuarioId ?? null,
-        anulado: false,
-        creadoEn: ahora
-      })
+    // Saldo compartido que se va reduciendo conforme se consumen las líneas.
+    const saldosActuales = new Map(baseLotes.map(l => [l.id, Math.max(0, Math.trunc(l.saldoDisponible))]))
+
+    for (const fila of filasOrdenadas) {
+      const lotesDisponibles = (fila.loteId
+        ? baseLotes.filter(l => l.id === fila.loteId)
+        : baseLotes
+      ).map(l => ({
+        id: l.id,
+        precioUnitario: l.precioUnitario,
+        saldoDisponible: saldosActuales.get(l.id) ?? 0
+      }))
+
+      const { repartos, faltantes: falt, costoTotal: costo } = consumirFIFO(
+        lotesDisponibles,
+        [{ lineaId: fila.lineaId, productoId: fila.productoId, cantidad: fila.cantidad }]
+      )
+      costoTotal = redondear2(costoTotal + costo)
+      for (const f of falt) faltantes.push(f)
+      for (const r of repartos) {
+        movimientos.push({
+          id: generarId(),
+          puestoId: meta.puestoId,
+          productoId,
+          loteId: r.loteId,
+          cuadreId,
+          lineaCuadreId: r.lineaId,
+          traspasoId: null,
+          tipo: 'venta',
+          cantidad: r.cantidad,
+          deltaAlmacen: 0,
+          deltaQuiosco: -r.cantidad,
+          precioUnitario: r.precioUnitario,
+          importe: r.importe,
+          motivo: 'venta_cuadre',
+          nota: null,
+          usuarioId: meta.usuarioId ?? null,
+          anulado: false,
+          creadoEn: ahora
+        })
+      }
+      // reducir saldos consumidos
+      for (const r of repartos) {
+        const actual = saldosActuales.get(r.loteId) ?? 0
+        saldosActuales.set(r.loteId, Math.max(0, actual - Math.trunc(Number(r.cantidad) || 0)))
+      }
     }
   }
 
@@ -312,7 +350,13 @@ export function construirVentaDirecta({
     const cant = Math.trunc(Number(l.cantidad) || 0)
     const precioPedido = Number(l.precioVentaUsado) || 0
 
-    const disponibles = (lotesPorProducto.get(l.productoId) ?? []).map(x => ({
+    const lotesDelProducto = lotesPorProducto.get(l.productoId) ?? []
+    // Si la línea declara un lote concreto, solo se consume de ese lote;
+    // si no, se mantiene el FIFO por antigüedad.
+    const candidatos = l.loteId
+      ? lotesDelProducto.filter(x => x.id === l.loteId)
+      : lotesDelProducto
+    const disponibles = candidatos.map(x => ({
       id: x.id,
       precioUnitario: x.precioUnitario,
       saldoDisponible: x.saldo
@@ -534,15 +578,19 @@ export function auditarAnulacionesCuadre(movimientos = []) {
  * Para merma en almacén se usa lotesOrdenados del almacén; para merma en
  * quiosco o devolución, los del quiosco.
  */
-export function construirAjuste({ productoId, tipo, ubicacion, cantidad, motivo, nota, lotesOrdenados, meta }) {
+export function construirAjuste({ productoId, tipo, ubicacion, cantidad, motivo, nota, loteId, lotesOrdenados, meta }) {
   const ahora = meta.ahora ?? Date.now()
   let pendiente = Math.trunc(Number(cantidad) || 0)
   const movimientos = []
-  const total = (lotesOrdenados ?? []).reduce((s, l) => s + l.saldo, 0)
+  // Lote elegido a mano: si viene, solo se toma de ese lote; si no, FIFO.
+  const disponibles = loteId
+    ? (lotesOrdenados ?? []).filter(l => l.id === loteId)
+    : (lotesOrdenados ?? [])
+  const total = disponibles.reduce((s, l) => s + l.saldo, 0)
   if (total < pendiente) {
     return { movimientos, faltante: { productoId, pedido: pendiente, disponible: total } }
   }
-  for (const lote of lotesOrdenados) {
+  for (const lote of disponibles) {
     if (pendiente <= 0) break
     const toma = Math.min(lote.saldo, pendiente)
     const esDevolucion = tipo === 'devolucion'

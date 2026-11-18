@@ -6,6 +6,18 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
 
+    /**
+     * ¿La app está en primer plano? El widget lo consulta para no abrir una
+     * segunda escucha: si la app está visible, el dictado lo lleva el dock.
+     */
+    public static volatile boolean visible = false;
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        visible = hasFocus;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         // Plugins propios de la app (instalador de APK, lector de SMS, contactos,
@@ -17,6 +29,13 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SmsReaderPlugin.class);
         registerPlugin(ContactosPlugin.class);
         registerPlugin(DbBackupPlugin.class);
+        registerPlugin(VoiceRecognitionNativePlugin.class);
+        registerPlugin(TtsNativePlugin.class);
+        // Servicio en primer plano para dictar con la app cerrada.
+        registerPlugin(VozServicioPlugin.class);
+        // Motor de voz offline empaquetado (Vosk). Se usa cuando no hay
+        // acceso a Internet real.
+        registerPlugin(VoskVoicePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

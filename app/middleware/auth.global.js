@@ -1,4 +1,8 @@
 export default defineNuxtRouteMiddleware(async (to) => {
+  // El panel /admin es web y tiene su propio login y guard (`super-admin`):
+  // la sesión del APK no aplica ahí.
+  if (to.path === '/admin' || to.path.startsWith('/admin/')) return
+
   const publicRoutes = ['/login', '/descargar']
   if (publicRoutes.includes(to.path)) return
 

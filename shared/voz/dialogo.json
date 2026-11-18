@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "prompt": "¿Qué puedo hacer por ti?",
+  "verbosVenta": [
+    "vende", "vendeme", "vender", "vendes", "venta", "registra", "registrame",
+    "anota", "anotame", "saca", "sacame", "despacha", "factura"
+  ],
+  "articulos": ["de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas", "lo", "le", "me"],
+  "numeros": {
+    "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11,
+    "doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciseis": 16,
+    "diecisiete": 17, "dieciocho": 18, "diecinueve": 19, "veinte": 20,
+    "treinta": 30, "cuarenta": 40, "cincuenta": 50, "sesenta": 60,
+    "setenta": 70, "ochenta": 80, "noventa": 90,
+    "doscientos": 200, "doscientas": 200, "trescientos": 300, "trescientas": 300,
+    "cuatrocientos": 400, "cuatrocientas": 400, "quinientos": 500, "quinientas": 500,
+    "seiscientos": 600, "seiscientas": 600, "setecientos": 700, "setecientas": 700,
+    "ochocientos": 800, "ochocientas": 800, "novecientos": 900, "novecientas": 900,
+    "mil": 1000,
+    "docena": 12
+  },
+  "ubicaciones": {
+    "almacen": "almacen",
+    "deposito": "almacen",
+    "quiosco": "quiosco",
+    "kiosco": "quiosco"
+  },
+  "afirmaciones": [
+    "si", "claro", "dale", "confirmo", "confirmado", "correcto", "exacto",
+    "ok", "vale", "anotala", "anotelo"
+  ],
+  "negaciones": [
+    "no", "cancela", "cancelar", "cancelo", "nada", "espera", "dejalo", "dejala"
+  ],
+  "tiempos": { "comando": 8000, "eleccion": 8000, "confirmacion": 6000 },
+  "maxCandidatos": 3,
+  "umbralParecido": 0.55,
+  "frases": {
+    "faltaProducto": "No encontré {producto}.",
+    "parecidos": "Los más parecidos: {opciones}",
+    "elegir": "¿{opciones}?",
+    "confirmar": "{cantidad} de {producto} del {lugar}, {importe} pesos. ¿Confirmo?",
+    "confirmarFiado": "Voy a fiar {cantidad} unidades de {producto} a {cliente} por {importe} pesos. ¿Confirmo?",
+    "anotado": "Anotado para revisar",
+    "anotadoFiado": "Fiado anotado para revisar",
+    "clienteNoEncontrado": "No encontré a {cliente} en la lista de clientes.",
+    "clienteAmbiguo": "Hay varios clientes parecidos: {clientes}. Di el nombre completo.",
+    "confirmarCobro": "Cobro {importe} pesos a {cliente}. {resto} ¿Confirmo?",
+    "cobroResto": "Le quedan {restante} pesos.",
+    "cobroSaldada": "Queda saldada.",
+    "cobrado": "Cobrado. Le quedan {restante} pesos.",
+    "cobradoTotal": "Cobrado. Queda saldada.",
+    "cobroExcedido": "{cliente} debe {saldo} pesos. No cobré nada.",
+    "clienteSinDeuda": "No encontré deudas pendientes de {cliente}.",
+    "cancelado": "Cancelado",
+    "noAnotada": "No la anoté.",
+    "sinStock": "No hay stock de {producto}: {quiosco} en quiosco y {almacen} en almacén. No la anoté.",
+    "sinStockAqui": "En {ubicacion} no hay; en {otra} quedan {cantidad}. No la anoté.",
+    "reservado": "Sólo quedan {libres} libres de {producto}: {apartadas} están apartadas por ventas por revisar. No la anoté.",
+    "noSeVende": "Ese producto no se vende suelto.",
+    "unoPorVez": "De uno en uno, por favor.",
+    "noTeEntendi": "No te entendí. Di ayuda para ver lo que puedo hacer, o prueba: vende dos panes.",
+    "ayuda": "Puedo vender, fiar, cobrar y consultar. Di, por ejemplo: vende dos panes.",
+    "nadaQueRepetir": "No tengo nada que repetir todavía."
+  }
+}

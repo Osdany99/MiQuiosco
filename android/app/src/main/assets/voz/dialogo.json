@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "prompt": "¿Qué puedo hacer por ti?",
+  "verbosVenta": [
+    "vende",
+    "vendeme",
+    "vender",
+    "vendes",
+    "venta",
+    "registra",
+    "registrame",
+    "anota",
+    "anotame",
+    "saca",
+    "sacame",
+    "despacha",
+    "factura"
+  ],
+  "articulos": [
+    "de",
+    "del",
+    "la",
+    "el",
+    "los",
+    "las",
+    "un",
+    "una",
+    "unos",
+    "unas",
+    "lo",
+    "le",
+    "me"
+  ],
+  "numeros": {
+    "un": 1,
+    "uno": 1,
+    "una": 1,
+    "dos": 2,
+    "tres": 3,
+    "cuatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "siete": 7,
+    "ocho": 8,
+    "nueve": 9,
+    "diez": 10,
+    "once": 11,
+    "doce": 12,
+    "trece": 13,
+    "catorce": 14,
+    "quince": 15,
+    "dieciseis": 16,
+    "diecisiete": 17,
+    "dieciocho": 18,
+    "diecinueve": 19,
+    "veinte": 20,
+    "treinta": 30,
+    "cuarenta": 40,
+    "cincuenta": 50,
+    "sesenta": 60,
+    "setenta": 70,
+    "ochenta": 80,
+    "noventa": 90,
+    "doscientos": 200,
+    "doscientas": 200,
+    "trescientos": 300,
+    "trescientas": 300,
+    "cuatrocientos": 400,
+    "cuatrocientas": 400,
+    "quinientos": 500,
+    "quinientas": 500,
+    "seiscientos": 600,
+    "seiscientas": 600,
+    "setecientos": 700,
+    "setecientas": 700,
+    "ochocientos": 800,
+    "ochocientas": 800,
+    "novecientos": 900,
+    "novecientas": 900,
+    "mil": 1000,
+    "docena": 12
+  },
+  "ubicaciones": {
+    "almacen": "almacen",
+    "deposito": "almacen",
+    "quiosco": "quiosco",
+    "kiosco": "quiosco"
+  },
+  "afirmaciones": [
+    "si",
+    "claro",
+    "dale",
+    "confirmo",
+    "confirmado",
+    "correcto",
+    "exacto",
+    "ok",
+    "vale",
+    "anotala",
+    "anotelo"
+  ],
+  "negaciones": [
+    "no",
+    "cancela",
+    "cancelar",
+    "cancelo",
+    "nada",
+    "espera",
+    "dejalo",
+    "dejala"
+  ],
+  "tiempos": {
+    "comando": 8000,
+    "eleccion": 8000,
+    "confirmacion": 6000
+  },
+  "maxCandidatos": 3,
+  "umbralParecido": 0.55,
+  "frases": {
+    "faltaProducto": "No encontré {producto}.",
+    "parecidos": "Los más parecidos: {opciones}",
+    "elegir": "¿{opciones}?",
+    "confirmar": "{cantidad} de {producto} del {lugar}, {importe} pesos. ¿Confirmo?",
+    "confirmarFiado": "Voy a fiar {cantidad} unidades de {producto} a {cliente} por {importe} pesos. ¿Confirmo?",
+    "anotado": "Anotado para revisar",
+    "anotadoFiado": "Fiado anotado para revisar",
+    "clienteNoEncontrado": "No encontré a {cliente} en la lista de clientes.",
+    "clienteAmbiguo": "Hay varios clientes parecidos: {clientes}. Di el nombre completo.",
+    "confirmarCobro": "Cobro {importe} pesos a {cliente}. {resto} ¿Confirmo?",
+    "cobroResto": "Le quedan {restante} pesos.",
+    "cobroSaldada": "Queda saldada.",
+    "cobrado": "Cobrado. Le quedan {restante} pesos.",
+    "cobradoTotal": "Cobrado. Queda saldada.",
+    "cobroExcedido": "{cliente} debe {saldo} pesos. No cobré nada.",
+    "clienteSinDeuda": "No encontré deudas pendientes de {cliente}.",
+    "cancelado": "Cancelado",
+    "noAnotada": "No la anoté.",
+    "sinStock": "No hay stock de {producto}: {quiosco} en quiosco y {almacen} en almacén. No la anoté.",
+    "sinStockAqui": "En {ubicacion} no hay; en {otra} quedan {cantidad}. No la anoté.",
+    "reservado": "Sólo quedan {libres} libres de {producto}: {apartadas} están apartadas por ventas por revisar. No la anoté.",
+    "noSeVende": "Ese producto no se vende suelto.",
+    "unoPorVez": "De uno en uno, por favor.",
+    "noTeEntendi": "No te entendí. Di ayuda para ver lo que puedo hacer, o prueba: vende dos panes.",
+    "ayuda": "Puedo vender, fiar, cobrar y consultar. Di, por ejemplo: vende dos panes.",
+    "nadaQueRepetir": "No tengo nada que repetir todavía."
+  },
+  "ayuda": {
+    "grupos": [
+      {
+        "id": "vender",
+        "palabras": [
+          "vender",
+          "venta",
+          "ventas",
+          "vende",
+          "vendo",
+          "vendeme"
+        ],
+        "texto": "Para vender, di por ejemplo «vende dos panes». Te leo lo que entendí y espero tu sí. Si no hay stock, no anoto nada.",
+        "ejemplo": "vende dos panes"
+      },
+      {
+        "id": "fiar",
+        "palabras": [
+          "fiar",
+          "fia",
+          "fiado",
+          "fiados",
+          "fiame",
+          "fiarle"
+        ],
+        "texto": "Para fiar, di por ejemplo «fía dos panes a Juan». Queda como deuda del cliente en el cuadre. Si hay dos clientes con nombre parecido, te pregunto cuál.",
+        "ejemplo": "fía dos panes a Juan"
+      },
+      {
+        "id": "cobrar",
+        "palabras": [
+          "cobrar",
+          "cobra",
+          "cobro",
+          "cobros",
+          "cobre",
+          "abonar",
+          "abono",
+          "pagar",
+          "pago"
+        ],
+        "texto": "Para cobrar, di por ejemplo «cobra 200 a Juan». Te digo cuánto le queda debiendo y espero tu sí. Si no tiene deuda, no anoto nada.",
+        "ejemplo": "cobra 200 a Juan"
+      },
+      {
+        "id": "consultar",
+        "palabras": [
+          "consultar",
+          "consulta",
+          "consultas",
+          "cuanto",
+          "cuanta",
+          "cuantos",
+          "cuantas",
+          "stock",
+          "precio",
+          "dia",
+          "caja",
+          "ganancia",
+          "deben"
+        ],
+        "texto": "Pregunta normal, por ejemplo «cuánto hay de pan». Te contesto con el dato y no anoto nada. También «cuánto me deben», «cuánto gané hoy» y «cómo está la caja».",
+        "ejemplo": "cuánto hay de pan"
+      },
+      {
+        "id": "preparar",
+        "palabras": [
+          "entrada",
+          "entradas",
+          "entraron",
+          "precio",
+          "cambiar",
+          "cambia",
+          "cambios",
+          "traspaso",
+          "pasa",
+          "merma",
+          "ajuste",
+          "producto",
+          "cliente",
+          "mover"
+        ],
+        "texto": "Puedo dejar listo un formulario, por ejemplo «entraron 20 panes a 10 pesos». Tú revisas y confirmas en la pantalla. También valen cambios de precio, traspasos, mermas, productos nuevos y clientes.",
+        "ejemplo": "entraron 20 panes a 10 pesos"
+      },
+      {
+        "id": "cuadre",
+        "palabras": [
+          "deuda",
+          "deudas",
+          "anotar",
+          "transferencia",
+          "transfiere",
+          "cuadre"
+        ],
+        "texto": "En el cuadre, di por ejemplo «anota que Juan debe 500». Espero tu sí antes de anotarlo. También «abre el cuadre» y «cierra el cuadre».",
+        "ejemplo": "anota que Juan debe 500"
+      },
+      {
+        "id": "sistema",
+        "palabras": [
+          "basico",
+          "empezar",
+          "funciona",
+          "uso",
+          "usar"
+        ],
+        "texto": "Primero di la palabra clave y luego lo que quieres, por ejemplo «oye nova, vende dos panes». Antes de anotar te leo lo que entendí y espero un sí. «No» cancela y «repite» lo vuelve a decir.",
+        "ejemplo": "oye nova, vende dos panes"
+      }
+    ],
+    "menus": {
+      "jefe": {
+        "intro": "Te ayudo con ventas, fiados, cobros, consultas, cambios de precio y deudas.",
+        "pregunta": "¿De qué quieres ejemplos?"
+      },
+      "cerrada": {
+        "intro": "Te ayudo con ventas, fiados, cobros y consultas.",
+        "pregunta": "¿De qué quieres ejemplos?"
+      },
+      "trabajador": {
+        "intro": "Te ayudo con fiados y deudas.",
+        "pregunta": "¿De qué quieres ejemplos?"
+      }
+    },
+    "disponibles": {
+      "jefe": [
+        "vender",
+        "fiar",
+        "cobrar",
+        "consultar",
+        "preparar",
+        "cuadre",
+        "sistema"
+      ],
+      "cerrada": [
+        "vender",
+        "fiar",
+        "cobrar",
+        "consultar",
+        "sistema"
+      ],
+      "trabajador": [
+        "fiar",
+        "cuadre",
+        "sistema"
+      ]
+    },
+    "todo": {
+      "jefe": "Un ejemplo de cada cosa. «vende dos panes». «fía dos panes a Juan». «cobra 200 a Juan». «cuánto hay de pan». «entraron 20 panes a 10 pesos».",
+      "cerrada": "Un ejemplo de cada cosa. «vende dos panes». «fía dos panes a Juan». «cobra 200 a Juan». «cuánto hay de pan»."
+    }
+  }
+}

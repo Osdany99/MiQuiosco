@@ -8,6 +8,7 @@ import { comoMovimiento } from '../../../utils/inventario'
 const lineaSchema = z.object({
   id: z.string().uuid(),
   productoId: z.string().uuid(),
+  loteId: z.string().uuid().nullable().optional(),
   precioVentaUsado: z.number().min(0),
   cantidad: z.number().min(0),
   subtotal: z.number().min(0),
@@ -64,6 +65,7 @@ export default defineEventHandler(async (event) => {
       if (prev) {
         const cambia = Number(prev.cantidad) !== Number(l.cantidad)
           || Number(prev.precioVentaUsado) !== Number(l.precioVentaUsado)
+          || (prev.loteId ?? null) !== (l.loteId ?? null)
           || prev.tipoLinea !== l.tipoLinea
           || (prev.nota ?? null) !== (l.nota ?? null)
           || (prev.esExtra ?? false) !== l.esExtra
@@ -73,6 +75,7 @@ export default defineEventHandler(async (event) => {
             precioVentaUsado: l.precioVentaUsado,
             cantidad: l.cantidad,
             subtotal: l.subtotal,
+            loteId: l.loteId ?? null,
             tipoLinea: l.tipoLinea,
             nota: l.nota ?? null,
             esExtra: l.esExtra,
@@ -87,6 +90,7 @@ export default defineEventHandler(async (event) => {
           precioVentaUsado: l.precioVentaUsado,
           cantidad: l.cantidad,
           subtotal: l.subtotal,
+          loteId: l.loteId ?? null,
           tipoLinea: l.tipoLinea,
           nota: l.nota ?? null,
           esExtra: l.esExtra,
@@ -102,7 +106,7 @@ export default defineEventHandler(async (event) => {
     const lineasVenta = datos.lineas
       .filter(l => Number(l.cantidad) > 0)
       .sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
-      .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad }))
+      .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad, loteId: l.loteId ?? null, secuencia: Number(l.secuencia ?? 0) }))
     const ids = [...new Set(lineasVenta.map(l => l.productoId))]
 
     let movimientos: Awaited<ReturnType<typeof construirVentaCuadre>>['movimientos'] = []

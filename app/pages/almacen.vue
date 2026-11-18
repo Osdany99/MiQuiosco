@@ -60,6 +60,15 @@
             </div>
           </div>
         </template>
+        <template #almacen-cell="{ row }">
+          <button
+            type="button"
+            class="font-mono text-primary hover:underline"
+            @click="abrirDesgloseStock(row.original, 'almacen')"
+          >
+            {{ row.original.almacen }}
+          </button>
+        </template>
         <template #estado-cell="{ row }">
           <UBadge :color="colorEstado(row.original)" variant="soft">
             {{ textoEstado(row.original) }}
@@ -73,7 +82,7 @@
         </template>
         <template #acciones-cell="{ row }">
           <div class="flex gap-1 justify-end">
-            <UTooltip text="Traspasar al quiosco" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'traspaso')" text="Traspasar al quiosco" :delay-duration="0">
               <UButton
                 icon="i-lucide-arrow-right-left"
                 size="xs"
@@ -82,7 +91,7 @@
                 @click="abrirTraspasoDe(row.original.productoId)"
               />
             </UTooltip>
-            <UTooltip text="Merma" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'ajuste')" text="Merma" :delay-duration="0">
               <UButton
                 icon="i-lucide-wrench"
                 size="xs"
@@ -91,7 +100,7 @@
                 @click="abrirAjuste(row.original.productoId)"
               />
             </UTooltip>
-            <UTooltip text="Añadir lote (entrada)" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'entrada')" text="Añadir lote (entrada)" :delay-duration="0">
               <UButton
                 icon="i-lucide-package-plus"
                 size="xs"
@@ -100,7 +109,7 @@
                 @click="abrirEntradaDe(row.original.productoId)"
               />
             </UTooltip>
-            <UTooltip text="Ver lotes" :delay-duration="0">
+            <UTooltip v-if="perms.puedeAccion('almacen', 'ver_lotes')" text="Ver lotes" :delay-duration="0">
               <UButton
                 icon="i-lucide-package"
                 size="xs"
@@ -115,7 +124,7 @@
               :open="menuVentaId === row.original.productoId"
               @update:open="(v) => { if (!v) menuVentaId = null }"
             >
-              <UTooltip text="Vender" :delay-duration="0">
+              <UTooltip v-if="perms.puedeAccion('almacen', 'vender')" text="Vender" :delay-duration="0">
                 <UButton
                   icon="i-lucide-receipt"
                   size="xs"
@@ -128,6 +137,7 @@
               <template #content>
                 <div class="p-1 min-w-44">
                   <UButton
+                    v-if="perms.puedeVenta('contado')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -137,6 +147,7 @@
                     @click="vender(row.original, 'venta')"
                   />
                   <UButton
+                    v-if="perms.puedeVenta('fiado')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -147,6 +158,7 @@
                   />
                   <USeparator class="my-1" />
                   <UButton
+                    v-if="perms.puedeVenta('casa')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -156,6 +168,7 @@
                     @click="vender(row.original, 'casa')"
                   />
                   <UButton
+                    v-if="perms.puedeVenta('familiar')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -165,6 +178,7 @@
                     @click="vender(row.original, 'familiar')"
                   />
                   <UButton
+                    v-if="perms.puedeVenta('regalo')"
                     block
                     variant="ghost"
                     color="neutral"
@@ -182,8 +196,16 @@
     </template>
 
     <template v-else>
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <div class="flex flex-wrap items-center gap-2">
+      <BaseTable
+        :data="lotesHistorialFiltrados"
+        :columns="columnsHistorial"
+        empty-state="Sin entradas registradas"
+        :show-edit="false"
+        :show-delete="false"
+        :disable-filters="true"
+        :show-reset="false"
+      >
+        <template #toolbar-leading>
           <UInput
             v-model="busquedaHistorial"
             icon="i-lucide-search"
@@ -196,18 +218,8 @@
             class="w-40"
           />
           <USwitch v-model="incluirAnulados" label="Incluir anulados" />
-        </div>
-        <TableToolbar
-          v-model:visible-headers="visibleHeadersHistorial"
-          :column-headers="columnHeadersHistorial"
-        />
-      </div>
+        </template>
 
-      <UTable
-        :data="lotesHistorialFiltrados"
-        :columns="visibleColumnsHistorial"
-        empty="Sin entradas registradas"
-      >
         <template #nombreProducto-cell="{ row }">
           <div class="min-w-0">
             <div class="font-medium truncate">
@@ -263,7 +275,7 @@
             </UTooltip>
           </div>
         </template>
-      </UTable>
+      </BaseTable>
     </template>
 
     <InventarioDialogoEntrada v-model="showEntrada" :producto-id="productoEntrada" @guardado="recargar" />
@@ -286,8 +298,44 @@
       :producto="productoVenta"
       ubicacion="almacen"
       :modo="modoVenta"
+
       @guardado="recargar"
     />
+
+    <InventarioDialogoDesgloseStock
+      v-model="showDesgloseStock"
+      :producto-id="desgloseProductoId"
+      ubicacion="almacen"
+      :nombre-producto="desgloseNombre"
+      :stock-total="desgloseStockTotal"
+    />
+
+    <BaseDialog
+      v-model="showEstadoHistorico"
+      title="Cambiar estado del lote"
+      description="Clasifica el estado de este lote (defectuoso, liquidación, etc)."
+      confirm-text="Guardar estado"
+      :loading="guardandoEstadoHistorico"
+      :disabled-guardar="!cambiaEstadoHistorico"
+      @confirm="confirmarCambioEstadoHistorico"
+      @cancel="showEstadoHistorico = false"
+    >
+      <div v-if="loteEstadoHistorico" class="space-y-3 text-sm">
+        <div class="flex items-center justify-between rounded-md bg-elevated/50 px-3 py-2">
+          <span>{{ loteEstadoHistorico.nombreProducto }}</span>
+          <span class="font-mono text-xs text-muted">{{ loteEstadoHistorico.fechaEntrada }}</span>
+        </div>
+        <UFormField label="Estado">
+          <USelectMenu
+            v-model="nuevoEstadoHistorico"
+            :items="estadosLoteHistorico"
+            value-key="id"
+            label-key="nombre"
+            class="w-full"
+          />
+        </UFormField>
+      </div>
+    </BaseDialog>
   </BaseHeaderPage>
 </template>
 
@@ -299,7 +347,7 @@ definePageMeta({
 const {
   cargando, filas, lotesHistorialFiltrados,
   visibleHeaders, columnHeaders, visibleColumns,
-  visibleHeadersHistorial, columnHeadersHistorial, visibleColumnsHistorial,
+  columnsHistorial,
   busquedaHistorial, filtroHistorial, incluirAnulados,
   colorEstado, textoEstado, abrirAjuste, abrirLotes, abrirCorreccion, abrirDetalleLote,
   recargar, sinMovimientos, hayProductos,
@@ -307,6 +355,27 @@ const {
   showCorreccion, loteCorreccion, showDetalleLote, loteDetalle,
   abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
+
+const perms = usePermisos()
+const inv = useInventario()
+const toast = useToast()
+
+const showEstadoHistorico = ref(false)
+const loteEstadoHistorico = ref(null)
+const nuevoEstadoHistorico = ref('normal')
+const guardandoEstadoHistorico = ref(false)
+
+const estadosLoteHistorico = [
+  { id: 'normal', nombre: 'Normal' },
+  { id: 'liquidacion', nombre: 'Liquidación' },
+  { id: 'defectuoso', nombre: 'Defectuoso' },
+  { id: 'vencimiento_proximo', nombre: 'Vencimiento próximo' }
+]
+
+const cambiaEstadoHistorico = computed(() => {
+  if (!loteEstadoHistorico.value) return false
+  return nuevoEstadoHistorico.value !== (loteEstadoHistorico.value.estadoLote ?? 'normal')
+})
 
 const tab = ref('stock')
 const tabs = [
@@ -325,6 +394,18 @@ const showTraspaso = ref(false)
 const productoEntrada = ref(null)
 const productoTraspaso = ref(null)
 
+const showDesgloseStock = ref(false)
+const desgloseProductoId = ref(null)
+const desgloseNombre = ref('')
+const desgloseStockTotal = ref(0)
+
+function abrirDesgloseStock(row, ubicacion) {
+  desgloseProductoId.value = row.productoId
+  desgloseNombre.value = row.nombre
+  desgloseStockTotal.value = ubicacion === 'quiosco' ? row.quiosco : row.almacen
+  showDesgloseStock.value = true
+}
+
 // Solo un popover de venta abierto a la vez: guarda el id del producto cuyo
 // menú está visible (null = ninguno).
 const menuVentaId = ref(null)
@@ -342,5 +423,26 @@ function abrirEntradaDe(productoId) {
 function abrirTraspasoDe(productoId) {
   productoTraspaso.value = productoId
   showTraspaso.value = true
+}
+
+function abrirCambioEstadoHistorico(lote) {
+  loteEstadoHistorico.value = lote
+  nuevoEstadoHistorico.value = (lote?.estadoLote ?? 'normal')
+  showEstadoHistorico.value = true
+}
+
+async function confirmarCambioEstadoHistorico() {
+  if (!loteEstadoHistorico.value || !cambiaEstadoHistorico.value) return
+  guardandoEstadoHistorico.value = true
+  try {
+    await inv.cambiarEstadoLote(loteEstadoHistorico.value.id, nuevoEstadoHistorico.value)
+    toast.add({ title: 'Estado de lote actualizado', color: 'success' })
+    showEstadoHistorico.value = false
+    await recargar()
+  } catch (e) {
+    toast.add({ title: 'No se pudo actualizar el estado', description: e?.message, color: 'error' })
+  } finally {
+    guardandoEstadoHistorico.value = false
+  }
 }
 </script>

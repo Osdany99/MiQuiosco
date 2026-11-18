@@ -68,7 +68,9 @@
 
 <script setup>
 const props = defineProps({
-  productoId: { type: String, default: null }
+  productoId: { type: String, default: null },
+  /** Voz (Fase K): cantidad y costo dictados. `precioUnitario` null = último. */
+  prefill: { type: Object, default: null }
 })
 const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
@@ -147,9 +149,17 @@ watch(isOpen, async (open) => {
     fechaEntrada: hoyLocal(),
     proveedorId: null,
     // Se precarga el último precio pagado: es lo que el jefe quiere confirmar en
-    // la mayoría de las compras.
+    // la mayoría de las compras. Si la voz dictó cantidad y costo (Fase K),
+    // mandan los valores dictados; el costo solo se sustituye si se dijo.
     cantidad: 0,
     precioUnitario: ultimoPrecio.value.get(props.productoId) ?? 0
+  }
+  if (props.prefill) {
+    form.value.cantidad = Math.max(1, Math.trunc(Number(props.prefill.cantidad) || 0))
+    const precioDicho = Number(props.prefill.precioUnitario)
+    if (Number.isFinite(precioDicho) && precioDicho > 0) {
+      form.value.precioUnitario = precioDicho
+    }
   }
   proveedoresItems.value = (provs ?? []).filter(p => p.activo !== false)
 })
@@ -178,4 +188,7 @@ async function confirmar() {
     guardando.value = false
   }
 }
+
+// La confirmación hablada pulsa este mismo botón.
+defineExpose({ confirmar })
 </script>

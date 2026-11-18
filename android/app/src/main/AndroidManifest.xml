@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Visibilidad de paquetes (Android 11+): sin esto el sistema puede
+         ocultar el servicio de reconocimiento de voz a la app. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- `queryIntentServices` usa la acción ACTION_RECOGNIZE_SPEECH; sin
+             declararla, `servicios` salía en 0 aunque hubiera motor. -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -23,7 +36,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-        </activity>
+            <!-- Shortcut de comandos por voz / deep-linking. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="miqiosco" android:host="voice" />
+            </intent-filter>
+
+        <!-- Atajos de comandos por voz / deep-linking. -->
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
+
+    </activity>
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -51,6 +77,49 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".VoiceWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/voice_widget_info" />
+        </receiver>
+
+        <!-- Escucha «oye nova» con la app cerrada. Solo escribe la
+             transcripción en files/voz/inbox y avisa con voz; no toca la base.
+             El tipo `microphone` es obligatorio desde Android 14. -->
+        <service
+            android:name=".VozEscuchaService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false" />
+
+        <!-- Tras reiniciar, rearma la escucha en pausa (el micrófono se abre al
+             minimizar la app: Android 14 no deja abrirlo desde el arranque). -->
+        <receiver
+            android:name=".VozBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- La onda del dock cuando se dicta con la app cerrada. Se abre con un
+             full-screen intent (única vía sancionada desde segundo plano) y solo
+             si el jefe la activó. -->
+        <activity
+            android:name=".VozDialogoActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
     </application>
 
     <!-- Permissions -->
@@ -82,7 +151,34 @@
          Es opcional: sin el, la vista de Clientes funciona igual pero sin
          importar. Es "dangerous" y, como la app es sideloaded, hay que haber
          levantado antes el candado de "ajustes restringidos". -->
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- STT nativo para el spike de Fase 0. Solo peligroso en Android 11+ segun implementacion. -->
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Servicio en primer plano que escucha «oye nova» con la app
+         cerrada. El permiso de micrófono del servicio está arriba; estos son
+         los del ciclo de vida del servicio (Android 9+ para FOREGROUND_SERVICE
+         y Android 14+ para el tipo microphone). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- La CPU debe seguir despierta mientras escucha en el bolsillo; el lock
+         se libera al pausar o detener el servicio. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Rearmar la escucha tras reiniciar el teléfono (VozBootReceiver).
+         Sin esto, apagar el móvil de noche dejaba el servicio apagado. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- El diálogo "no optimizar batería" se pide desde /pendientes. HyperOS y
+         EMUI matan el servicio en minutos si la app sigue optimizada. Es un
+         permiso normal, sin runtime: solo habilita el intent de Ajustes. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Onda del dock con la app cerrada. Android no deja abrir una actividad
+         desde segundo plano; el full-screen intent es la vía sancionada (y en
+         Android 14+ el usuario tiene que concederla en Ajustes). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+<uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!-- Copia de seguridad de la base local en Descargas.
          Desde Android 10 (API 29) la escritura pasa por MediaStore y NO necesita

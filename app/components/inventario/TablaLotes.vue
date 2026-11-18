@@ -35,20 +35,72 @@
         {{ nombreProveedor(row.original) }}
       </template>
       <template #acciones-cell="{ row }">
-        <UButton
-          v-if="!row.original.anulado"
-          icon="i-lucide-pencil"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          title="Corregir cantidad o precio"
-          @click="abrirCorreccion(row.original)"
-        />
+        <div class="flex items-center justify-end gap-1">
+          <UButton
+            v-if="!row.original.anulado"
+            icon="i-lucide-flag"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            title="Cambiar estado del lote"
+            @click="abrirEstado(row.original)"
+          />
+          <UButton
+            icon="i-lucide-eye"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            title="Ver detalle del lote"
+            @click="abrirDetalle(row.original)"
+          />
+          <UButton
+            v-if="!row.original.anulado"
+            icon="i-lucide-pencil"
+            size="xs"
+            color="neutral"
+            variant="ghost"
+            title="Corregir cantidad o precio"
+            @click="abrirCorreccion(row.original)"
+          />
+        </div>
       </template>
     </UTable>
   </BaseDialog>
 
   <InventarioDialogoCorreccionLote v-model="showCorreccion" :lote="corrigiendo" @guardado="alGuardar" />
+  <InventarioDialogoLote v-model="showDetalleLote" :lote="loteDetalle" />
+
+  <BaseDialog
+    v-model="showEstado"
+    :title="`Estado del lote${loteEstado ? ' · ' + (loteEstado.nombreProducto ?? '—') : ''}`"
+    description="Clasifica la calidad del lote. Un lote defectuoso/vencimiento/etc se venderá por su precio de compra."
+    confirm-text="Guardar estado"
+    :loading="guardandoEstado"
+    :disabled-guardar="!cambiaEstado"
+    @confirm="confirmarEstado"
+    @cancel="showEstado = false"
+  >
+    <div v-if="loteEstado" class="space-y-3 text-sm">
+      <div class="flex items-center justify-between rounded-md bg-elevated/50 px-3 py-2 text-sm">
+        <span class="text-muted">Entrada: {{ loteEstado.fechaEntrada }}</span>
+        <UBadge
+          size="sm"
+          variant="soft"
+          color="neutral"
+          :label="nuevoEstado === 'liquidacion' ? 'Liquidación' : nuevoEstado === 'defectuoso' ? 'Defectuoso' : nuevoEstado === 'vencimiento_proximo' ? 'Vencimiento próximo' : 'Normal'"
+        />
+      </div>
+      <UFormField label="Estado">
+        <USelectMenu
+          v-model="nuevoEstado"
+          :items="estadosLote"
+          value-key="id"
+          label-key="nombre"
+          class="w-full"
+        />
+      </UFormField>
+    </div>
+  </BaseDialog>
 </template>
 
 <script setup>
@@ -61,11 +113,30 @@ const isOpen = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['guardado'])
 
 const inv = useInventario()
+const toast = useToast()
 
 const lotes = ref([])
 const cargando = ref(false)
 const showCorreccion = ref(false)
 const corrigiendo = ref(null)
+const showDetalleLote = ref(false)
+const loteDetalle = ref(null)
+const showEstado = ref(false)
+const loteEstado = ref(null)
+const nuevoEstado = ref('normal')
+const guardandoEstado = ref(false)
+
+const estadosLote = [
+  { id: 'normal', nombre: 'Normal' },
+  { id: 'liquidacion', nombre: 'Liquidación' },
+  { id: 'defectuoso', nombre: 'Defectuoso' },
+  { id: 'vencimiento_proximo', nombre: 'Vencimiento próximo' }
+]
+
+const cambiaEstado = computed(() => {
+  if (!loteEstado.value) return false
+  return nuevoEstado.value !== (loteEstado.value.estadoLote ?? 'normal')
+})
 
 const columns = [
   { accessorKey: 'fechaEntrada', header: 'Entrada' },
@@ -129,6 +200,33 @@ async function recargar() {
 function abrirCorreccion(lote) {
   corrigiendo.value = lote
   showCorreccion.value = true
+}
+
+function abrirDetalle(lote) {
+  loteDetalle.value = lote
+  showDetalleLote.value = true
+}
+
+function abrirEstado(lote) {
+  loteEstado.value = lote
+  nuevoEstado.value = (lote?.estadoLote ?? 'normal')
+  showEstado.value = true
+}
+
+async function confirmarEstado() {
+  if (!loteEstado.value || !cambiaEstado.value) return
+  guardandoEstado.value = true
+  try {
+    await inv.cambiarEstadoLote(loteEstado.value.id, nuevoEstado.value)
+    toast.add({ title: 'Estado de lote actualizado', color: 'success' })
+    showEstado.value = false
+    await recargar()
+    emit('guardado')
+  } catch (e) {
+    toast.add({ title: 'No se pudo actualizar el estado', description: e?.message, color: 'error' })
+  } finally {
+    guardandoEstado.value = false
+  }
 }
 
 async function alGuardar() {

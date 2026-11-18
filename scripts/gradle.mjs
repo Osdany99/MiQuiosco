@@ -54,6 +54,15 @@ if (tareas.length === 0) {
   process.exit(1)
 }
 
+// El diálogo de voz (textos, verbos, números, tiempos) se comparte con el
+// servicio nativo: se copia antes de compilar para que el APK no hable distinto
+// que la app. Todo build de APK pasa por aquí.
+try {
+  await import('./copiar-voz.mjs')
+} catch (err) {
+  console.warn(`Aviso: no se pudo copiar el diálogo de voz (${err.message}).`)
+}
+
 // En Windows un .bat no se puede lanzar sin shell, así que hay pasar por cmd.
 // Se arma un único comando con comillas porque el path del proyecto puede
 // tener espacios ("Mis proyectos"), y se pasa como string — no como array de

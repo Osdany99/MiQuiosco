@@ -11,11 +11,18 @@ import { Capacitor } from '@capacitor/core'
 import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs, deriveTimestampCols } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
-import { tablaExiste, crearTablasFaltantes, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
+import { tablaExiste, crearTablasFaltantes, crearTablaDesdeDefs, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
+import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../../shared/constants'
 
 const DB_NAME = 'miquiosco'
+
+// El usuario por defecto (jefe / PIN 1234) solo se siembra en desarrollo.
+// En producción el APK nace vacío y se aprovisiona con el primer login ONLINE:
+// el servidor devuelve el puesto y se hace un pull completo. Con varios puestos
+// un jefe sembrado localmente pertenecería al puesto equivocado.
+const SEMBRAR_DEMO = import.meta.dev
 
 let dbConnection = null
 let dbConnectionPromise = null
@@ -125,7 +132,7 @@ async function abrirConexionNativa() {
   const conn = await sqliteConnection.createConnection(DB_NAME, false, 'no-encryption', 1, false)
   await conn.open()
   await initializeSchema(conn)
-  await sembrarJefeLocal(conn)
+  if (SEMBRAR_DEMO) await sembrarJefeLocal(conn)
   return conn
 }
 
@@ -155,7 +162,7 @@ async function getConnection() {
       inMemoryDbPromise = (async () => {
         inMemoryDb = new InMemoryDb()
         initializeSchemaMemory(inMemoryDb)
-        await sembrarJefeLocal(inMemoryDb)
+        if (SEMBRAR_DEMO) await sembrarJefeLocal(inMemoryDb)
       })().catch((error) => {
         inMemoryDbPromise = null
         throw error
@@ -217,6 +224,21 @@ const COLUMNAS_OBSOLETAS = {
   sms_etecsa: ['procesado']
 }
 
+/**
+ * Rellenos de datos para instalaciones existentes. Se ejecutan DESPUÉS de
+ * `añadirColumnasFaltantes` (la columna tiene que existir ya) y son
+ * idempotentes, así que pueden correr en cada arranque.
+ */
+const BACKFILLS = [
+  // El cliente centinela ("Sin cliente") se reconocía por su ID fijo; ahora
+  // se reconoce por bandera. Sin este relleno, `useClientes` no lo vería como
+  // centinela y crearía un segundo "Sin cliente" al abrir la app.
+  {
+    sql: 'UPDATE clientes SET es_centinela = 1 WHERE id = ?',
+    params: [CLIENTE_SIN_CLIENTE_ID_FIJO]
+  }
+]
+
 async function marcarMigracion(conn, name) {
   await conn.run('INSERT OR REPLACE INTO _migrations (name, aplicada_en) VALUES (?, ?)', [name, Date.now()])
 }
@@ -243,11 +265,27 @@ async function aplicarMigracionesLegacy(conn) {
 }
 
 /**
+ * Rellenos de datos idempotentes para instalaciones existentes (ver BACKFILLS).
+ * Se ejecutan después de añadir columnas: si la columna aún no existe, el
+ * catch evita romper el arranque.
+ */
+async function aplicarBackfills(conn) {
+  for (const b of BACKFILLS) {
+    try {
+      await conn.run(b.sql, b.params)
+    } catch {
+      // mejor esfuerzo: la tabla o la columna pueden no existir todavía
+    }
+  }
+}
+
+/**
  * Reconciliación idempotente de una instalación existente contra el schema actual:
  * - Crea tablas que faltan (CREATE TABLE IF NOT EXISTS).
  * - Añade columnas que faltan en tablas existentes (ALTER TABLE ADD COLUMN).
+ * - Rellena datos derivados de columnas nuevas (BACKFILLS).
  * - Crea índices que faltan (CREATE [UNIQUE] INDEX IF NOT EXISTS).
- * Nunca borra ni modifica filas: los datos de la instalación se preservan.
+ * Nunca borra filas: los datos de la instalación se preservan.
  * La lógica pura vive en ./esquema para poder testearla en node.
  */
 async function initializeSchema(conn) {
@@ -269,6 +307,7 @@ async function initializeSchema(conn) {
   await marcarMigracion(conn, NOMBRE_BASELINE)
   await crearTablasFaltantes(conn, BASELINE_SQL)
   await añadirColumnasFaltantes(conn, COLUMN_DEFS)
+  await aplicarBackfills(conn)
   // Antes de crear índices: quitar columnas puede reconstruir la tabla.
   for (const [tabla, obsoletas] of Object.entries(COLUMNAS_OBSOLETAS)) {
     await eliminarColumnasObsoletas(conn, tabla, COLUMN_DEFS, obsoletas)
@@ -283,9 +322,70 @@ function initializeSchemaMemory(mem) {
     'cuentas_fiado', 'cuentas_fiado_items', 'pagos_fiado',
     'transferencias', 'transferencia_items', 'ajustes',
     'proveedores', 'lotes', 'traspasos', 'movimientos_inventario',
-    'ventas_directas', 'ventas_directas_items'
+    'ventas_directas', 'ventas_directas_items',
+    'acciones_pendientes_voz'
   ]
   for (const t of tables) mem.ensureTable(t, '')
+}
+
+// =====================================================================
+// Red de seguridad contra "no such table"
+// =====================================================================
+
+// Tablas ya verificadas en esta sesión: comprobar sqlite_master en cada
+// consulta costaría un viaje al puente nativo por operación.
+const tablasAseguradas = new Set()
+
+/**
+ * Recrea una tabla que el código usa pero la base no tiene.
+ *
+ * POR QUÉ EXISTE
+ * `initializeSchema` crea las tablas que faltan leyendo el journal de Drizzle.
+ * Ese journal se carga con `import.meta.glob`, que Vite resuelve al arrancar el
+ * dev server: si el `.sql` de una tabla nueva se añade con `pnpm dev` ya
+ * corriendo, el glob NO lo ve hasta reiniciar, y la app queda con una tabla
+ * fantasma que sólo falla al usarla ("no such table", sin pistas).
+ *
+ * Por eso, si una consulta falla así, se reintenta una vez tras recrear la
+ * tabla: primero con el journal y, si tampoco está ahí, con el schema Drizzle.
+ */
+async function asegurarTabla(conn, tabla) {
+  if (conn instanceof InMemoryDb) return false
+  if (tablasAseguradas.has(tabla)) return false
+  if (await tablaExiste(conn, tabla)) {
+    tablasAseguradas.add(tabla)
+    return false
+  }
+
+  const fallos = await crearTablasFaltantes(conn, BASELINE_SQL)
+  await crearIndicesFaltantes(conn, BASELINE_SQL)
+  if (await tablaExiste(conn, tabla)) {
+    tablasAseguradas.add(tabla)
+    return true
+  }
+
+  if (await crearTablaDesdeDefs(conn, tabla, COLUMN_DEFS)) {
+    tablasAseguradas.add(tabla)
+    console.warn(`[db] Tabla ${tabla} creada desde el schema (el journal no la traía).`)
+    return true
+  }
+
+  const detalle = fallos.map(f => f.error).slice(0, 2).join(' · ')
+  throw new Error(
+    `La tabla ${tabla} no existe y no se pudo crear${detalle ? `: ${detalle}` : '.'}`
+  )
+}
+
+/** Ejecuta una operación y, si falla por tabla ausente, la recrea y reintenta. */
+async function conReparacion(tabla, fn) {
+  try {
+    return await fn()
+  } catch (err) {
+    if (!/no such table/i.test(String(err?.message ?? err))) throw err
+    const conn = await getConnection()
+    await asegurarTabla(conn, tabla)
+    return fn()
+  }
 }
 
 // =====================================================================
@@ -477,6 +577,46 @@ export function useDb() {
     return marcados
   }
 
+  /**
+   * Marca TODAS las filas de una tabla como no sincronizadas.
+   *
+   * Se usa en "validar sincronización": tras importar una BD reparada (o por
+   * petición manual) el dispositivo fuerza un re-push completo y deja que el
+   * servidor decida INSERT/UPDATE/conflicto por id. Un solo UPDATE por tabla.
+   */
+  async function marcarTodosNoSincronizados(tabla) {
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      conn.update(tabla, () => true, { sincronizado: 0 })
+      return
+    }
+    await runEscritura(conn, `UPDATE ${tabla} SET sincronizado = 0`, [])
+  }
+
+  /**
+   * Deja solo las `maximo` filas más recientes de una tabla.
+   *
+   * Lo usa `sync_log`, que es un ring buffer de diagnóstico: guardar trazas sin
+   * límite llenaría el teléfono. Se hace en SQL (no leyendo las 500 filas al
+   * puente nativo) salvo en el fallback en memoria.
+   */
+  async function recortarTabla(tabla, maximo) {
+    const limite = Math.max(0, Number(maximo) || 0)
+    const conn = await getConnection()
+    if (conn instanceof InMemoryDb) {
+      const filas = [...conn.all(tabla)].sort((a, b) => (a.creado_en ?? 0) - (b.creado_en ?? 0))
+      const sobran = Math.max(0, filas.length - limite)
+      for (let i = 0; i < sobran; i++) conn.remove(tabla, filas[i].id)
+      return sobran
+    }
+    await runEscritura(
+      conn,
+      `DELETE FROM ${tabla} WHERE id NOT IN (SELECT id FROM ${tabla} ORDER BY creado_en DESC LIMIT ?)`,
+      [limite]
+    )
+    return 0
+  }
+
   async function resetLocalDatabase() {
     const conn = await getConnection()
     const tableNames = [...deriveTableNames(schemaSqlite), '_migrations']
@@ -491,6 +631,11 @@ export function useDb() {
     inMemoryDbPromise = null
     dbConnection = null
     dbConnectionPromise = null
+    tablasAseguradas.clear()
+    try {
+      const { Preferences } = await import('@capacitor/preferences')
+      await Preferences.remove({ key: 'permisos_puesto' })
+    } catch {}
   }
 
   /**
@@ -576,25 +721,31 @@ export function useDb() {
     }, ops)
   }
 
-  return {
+  // Las operaciones genéricas pasan por `conReparacion`: si la tabla no existe
+  // (journal cacheado por el dev server, migración perdida), se crea y se
+  // reintenta en vez de devolver "no such table" a la UI.
+  const api = {
     getUsuarioPorNombreLocal,
     getProductosActivos,
     getCuadrePorFecha,
     getItemsDeCuadre,
     findHistorialVigente,
     findHistorialAbiertos,
-    insert,
-    update,
-    remove,
-    queryAll,
-    getById,
-    contarPendientes,
+    insert: (tabla, datos) => conReparacion(tabla, () => insert(tabla, datos)),
+    update: (tabla, id, cambios) => conReparacion(tabla, () => update(tabla, id, cambios)),
+    remove: (tabla, id) => conReparacion(tabla, () => remove(tabla, id)),
+    queryAll: tabla => conReparacion(tabla, () => queryAll(tabla)),
+    getById: (tabla, id) => conReparacion(tabla, () => getById(tabla, id)),
+    contarPendientes: tabla => conReparacion(tabla, () => contarPendientes(tabla)),
     marcarSincronizados,
+    marcarTodosNoSincronizados,
+    recortarTabla,
     resetLocalDatabase,
     cerrarParaCopia,
     reabrirTrasCopia,
     transaction
   }
+  return api
 }
 
 // Para uso interno por seed y tests
