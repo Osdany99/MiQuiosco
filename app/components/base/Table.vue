@@ -8,8 +8,7 @@
           :filter-fields="filterFields"
           :disable-filters="disableFilters"
           :show-reset="showReset"
-          @reload="reload"
-          @refresh="refrescarTabla"
+          @reset="restablecer"
         >
           <slot name="toolbar-leading" />
         </TableToolbarLeft>
@@ -181,8 +180,17 @@ const props = defineProps({
   initialFilters: { type: Object, default: () => ({}) }
 })
 
-const emit = defineEmits(['edit', 'delete', 'reload', 'details'])
+const emit = defineEmits(['edit', 'delete', 'reload', 'details', 'reset'])
 const form = defineModel({ type: Object })
+
+/**
+ * ¿La página atiende `reset` y limpia sus propios filtros? Se mira el vnode
+ * porque `reset` está declarado en `emits` y por eso no aparece en `$attrs`.
+ */
+const instancia = getCurrentInstance()
+const paginaLimpiaFiltros = computed(
+  () => typeof instancia?.vnode.props?.onReset === 'function'
+)
 
 const slots = useSlots()
 
@@ -378,18 +386,20 @@ const visibleHeaders = ref(
   props.columns.filter(c => c.visible !== false).map(c => c.header)
 )
 
-function reload() {
+/**
+ * Restablecer: columnas por defecto, página 1 y datos frescos.
+ *
+ * Se avisa a la página (`reset`) para que limpie sus propios filtros. Si la
+ * página escucha ese evento, son esos cambios los que disparan su carga (sus
+ * `watch`): mandarle también `reload` pediría la misma lista dos veces.
+ */
+function restablecer() {
+  emit('reset')
   visibleHeaders.value = props.columns.filter(c => c.visible !== false).map(c => c.header)
   internalPage.value = 1
   if (repoTable) repoTable.page.value = 1
   refresh()
-  emit('reload')
-}
-
-/** Refresco puro: recarga sin tocar filtros, página ni columnas visibles. */
-function refrescarTabla() {
-  refresh()
-  emit('reload')
+  if (!paginaLimpiaFiltros.value) emit('reload')
 }
 
 watch(columnHeaders, (newHeaders, oldHeaders) => {

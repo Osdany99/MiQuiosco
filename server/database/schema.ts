@@ -1106,6 +1106,16 @@ export const dispositivos = pgTable(
     android: text('android'),
     /** versionCode de la APK, tal cual llega en `x-app-version-code`. */
     appVersion: text('app_version'),
+    /**
+     * Motor de voz con el que el aparato está escuchando de verdad
+     * (`vosk` | `sistema`). Lo reporta en cada sync: así el panel puede ver un
+     * fallback («preferido Vosk, usando sistema») sin adivinar.
+     */
+    vozMotor: text('voz_motor'),
+    /** ¿Tiene el modelo Vosk extraído y listo? Lo reporta el APK. */
+    vozVosk: boolean('voz_vosk'),
+    /** ¿Hay reconocedor del sistema disponible? Lo reporta el APK. */
+    vozStt: boolean('voz_stt'),
     ultimaConexionEn: timestamp('ultima_conexion_en', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1444,6 +1454,32 @@ export const vozConfig = pgTable('voz_config', {
 
 export type VozConfig = typeof vozConfig.$inferSelect
 export type NuevaVozConfig = typeof vozConfig.$inferInsert
+
+/**
+ * Overrides de la voz por equipo.
+ *
+ * La fila de `voz_config` es el valor por defecto de la flota; aquí cada aparato
+ * puede pisar `motor`, `idioma` o la palabra clave. Un campo en `null` hereda de
+ * la flota, así que vaciarlo devuelve al default sin borrar la fila.
+ *
+ * Solo la lee el servidor al resolver `GET /api/voz/config` (y el panel de super
+ * admin). No es una tabla de sync: no viaja como dato de negocio offline.
+ */
+export const vozConfigDispositivo = pgTable('voz_config_dispositivo', {
+  dispositivoId: uuid('dispositivo_id')
+    .primaryKey()
+    .references(() => dispositivos.id, { onDelete: 'cascade' }),
+  motor: text('motor'),
+  idioma: text('idioma'),
+  wake: text('wake'),
+  /** Sube solo con cambios de ESTE equipo (la de flota es `voz_config.version`). */
+  version: integer('version').notNull().default(1),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPor: uuid('actualizado_por').references(() => usuarios.id)
+})
+
+export type VozConfigDispositivo = typeof vozConfigDispositivo.$inferSelect
+export type NuevaVozConfigDispositivo = typeof vozConfigDispositivo.$inferInsert
 
 export type Rol = 'jefe' | 'trabajador' | 'cliente'
 export type EstadoCuadre = 'abierto' | 'cerrado'

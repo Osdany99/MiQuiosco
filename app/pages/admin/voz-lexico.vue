@@ -18,7 +18,7 @@ const route = useRoute()
 const nueva = ref({ categoria: 'venta_fuerte', valor: '', nota: '' })
 /** Plantilla de referencia que llega desde «Usar plantilla» (/admin/voz). */
 const plantillaRef = ref('')
-const prueba = ref({ categoria: 'venta_fuerte', valor: '', plantillas: '' })
+const prueba = ref({ categoria: 'venta_fuerte', valor: '', activo: true, plantillas: '' })
 const resultadoPrueba = ref(null)
 
 const CAMPO = {
@@ -89,7 +89,11 @@ const lexicoEfectivo = computed(() => {
 
 function probar() {
   try {
-    const entrada = { categoria: prueba.value.categoria, valor: prueba.value.valor, activo: true }
+    const entrada = {
+      categoria: prueba.value.categoria,
+      valor: prueba.value.valor.trim(),
+      activo: prueba.value.activo !== false
+    }
     const plantillas = prueba.value.plantillas.split('\n').map(x => x.trim()).filter(Boolean)
     resultadoPrueba.value = evaluarCambio(lexicoEfectivo.value, entrada, {
       frasesDoradas: FRASES_DORADAS,
@@ -98,6 +102,31 @@ function probar() {
   } catch (e) {
     toast.add({ title: 'Voz', description: e?.message || 'Error al probar.', color: 'error' })
   }
+}
+
+/** Etiquetas legibles de los campos que se movieron entre dos lecturas. */
+const ETIQUETAS_CAMPO = {
+  comando: 'comando',
+  cantidad: 'cantidad',
+  producto: 'producto',
+  cliente: 'cliente',
+  ubicacion: 'ubicación'
+}
+
+/** Por qué una prueba sin cambios no muestra nada. */
+const MOTIVOS_PRUEBA = {
+  sin_entrada: 'Escribe una palabra para probar.',
+  formato: 'La palabra solo admite minúsculas sin tildes (2 a 24 letras).',
+  palabra_reservada: 'Esa palabra está reservada para el intérprete (números, artículos, ubicaciones…).',
+  conflicto_categoria: 'Esa palabra nueva ya vive en otro flujo: retírala allí o elige otra.',
+  ya_existe: 'La palabra ya está activa en esa categoría: probarla no cambia nada.',
+  no_esta_activa: 'La palabra no está activa en esa categoría: no hay nada que retirar.',
+  sin_plantillas: 'Escribe al menos una plantilla con la palabra para ver qué cambia.',
+  ninguna_plantilla_la_usa: 'Ninguna plantilla contiene esa palabra: añádela para que la prueba mida algo.'
+}
+
+function motivoPrueba(motivo) {
+  return MOTIVOS_PRUEBA[motivo] || motivo
 }
 
 const ETIQUETAS_CATEGORIA = {
@@ -220,10 +249,6 @@ onMounted(() => {
     leading-icon="i-lucide-book"
     :show-button="false"
   >
-    <template #trailing>
-      <span class="text-sm text-muted">{{ filas.length }} palabras</span>
-    </template>
-
     <div class="flex flex-col gap-2 md:flex-row md:items-end">
       <USelect v-model="nueva.categoria" :items="categorias" class="w-56" />
       <UInput v-model="nueva.valor" placeholder="palabra" class="w-48" />
@@ -249,7 +274,6 @@ onMounted(() => {
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
-      :pagination="false"
       empty-state="Sin entradas."
       @reload="cargar"
     >
@@ -310,17 +334,56 @@ onMounted(() => {
       <div class="flex flex-col gap-2 md:flex-row md:items-end">
         <USelect v-model="prueba.categoria" :items="categorias" class="w-56" />
         <UInput v-model="prueba.valor" placeholder="palabra" class="w-48" />
-        <UTextarea v-model="prueba.plantillas" placeholder="plantillas (una por línea)" class="w-64" />
+        <USwitch
+          v-model="prueba.activo"
+          :label="prueba.activo ? 'Añadir' : 'Retirar'"
+        />
+        <UTextarea
+          v-model="prueba.plantillas"
+          placeholder="plantillas (una por línea). Ej.: liquida <n> <producto> a <cliente>"
+          class="w-64"
+        />
         <UButton @click="probar">
           Probar
         </UButton>
       </div>
-      <div v-if="resultadoPrueba">
+      <div v-if="resultadoPrueba" class="space-y-1 text-sm">
+        <p class="text-xs text-muted">
+          Simula {{ prueba.activo ? 'añadir' : 'retirar' }} «{{ prueba.valor }}» en
+          {{ ETIQUETAS_CATEGORIA[prueba.categoria] || prueba.categoria }} sobre
+          {{ FRASES_DORADAS.length }} frases de referencia.
+        </p>
+        <UAlert
+          v-if="resultadoPrueba.motivo"
+          color="info"
+          variant="soft"
+          icon="i-lucide-info"
+          :title="motivoPrueba(resultadoPrueba.motivo)"
+        />
         <p>Regresiones: {{ resultadoPrueba.regresiones.length }}</p>
-        <p>Cambios en plantillas: {{ resultadoPrueba.cambios.length }}</p>
         <ul v-if="resultadoPrueba.regresiones.length">
-          <li v-for="(r, i) in resultadoPrueba.regresiones" :key="i" class="text-error text-xs">
+          <li
+            v-for="(r, i) in resultadoPrueba.regresiones"
+            :key="`r-${i}`"
+            class="text-error text-xs"
+          >
             {{ r.frase }}: {{ r.antes }} → {{ r.despues }}
+            <span v-if="r.campos.length" class="text-muted">
+              ({{ r.campos.map(c => ETIQUETAS_CAMPO[c] || c).join(', ') }})
+            </span>
+          </li>
+        </ul>
+        <p>Cambios en plantillas: {{ resultadoPrueba.cambios.length }}</p>
+        <ul v-if="resultadoPrueba.cambios.length">
+          <li
+            v-for="(c, i) in resultadoPrueba.cambios"
+            :key="`c-${i}`"
+            class="text-primary text-xs"
+          >
+            {{ c.plantilla }}: {{ c.antes }} → {{ c.despues }}
+            <span v-if="c.campos.length" class="text-muted">
+              ({{ c.campos.map(x => ETIQUETAS_CAMPO[x] || x).join(', ') }})
+            </span>
           </li>
         </ul>
       </div>

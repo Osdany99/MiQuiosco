@@ -18,18 +18,17 @@ public final class RepeticionVoz {
     private static final String REPETIR =
         "^(repite|repitelo|repetir|repite eso|otra vez|que dijiste|como dijiste)$";
 
-    /** Frases que piden la ayuda hablada del servicio. */
-    private static final String AYUDA =
-        "^(ayuda|que puedes hacer|que sabes hacer|comandos|que comandos|como te uso|para que sirves)$";
-
     /** ¿La frase pide repetir la última respuesta? */
     public static boolean pideRepetir(String texto) {
         return IntencionVenta.normalizarFrase(texto).matches(REPETIR);
     }
 
-    /** ¿La frase pide ayuda? */
+    /**
+     * ¿La frase pide ayuda? El disparador y los temas viven en `AyudaVoz`: aquí
+     * solo se conserva la firma que ya usaba el servicio.
+     */
     public static boolean pideAyuda(String texto) {
-        return IntencionVenta.normalizarFrase(texto).matches(AYUDA);
+        return AyudaVoz.pideAyuda(texto, null);
     }
 
     /**

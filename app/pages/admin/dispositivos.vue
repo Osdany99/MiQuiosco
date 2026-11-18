@@ -1,4 +1,12 @@
 <script setup>
+import {
+  IDIOMAS_FLOTA,
+  MOTORES_FLOTA,
+  etiquetaIdioma,
+  etiquetaMotor,
+  motorParaServicio
+} from '#shared/voz/config'
+
 definePageMeta({
   layout: 'admin',
   middleware: ['super-admin']
@@ -18,7 +26,6 @@ const filtros = ref({
 })
 
 const filas = ref([])
-const totalRegistros = ref(0)
 const cargando = ref(false)
 const errorCarga = ref(null)
 
@@ -38,6 +45,7 @@ const opcionesPuesto = computed(() => [
 const columnas = [
   { accessorKey: 'nombre', header: 'Dispositivo' },
   { accessorKey: 'puestoNombre', header: 'Puesto' },
+  { accessorKey: 'voz', header: 'Voz' },
   { accessorKey: 'usuarios', header: 'Usuarios' },
   { accessorKey: 'ultimaConexionEn', header: 'Última conexión' },
   { accessorKey: 'ultimaSyncOkEn', header: 'Última sync' },
@@ -57,7 +65,6 @@ async function cargar() {
       limit: 300
     })
     filas.value = resultado.dispositivos
-    totalRegistros.value = resultado.total
   } catch (err) {
     errorCarga.value = err.message
   } finally {
@@ -82,6 +89,11 @@ onMounted(() => {
 watch(() => [filtros.value.puestoId, filtros.value.estado], cargar)
 watchDebounced(() => filtros.value.q, cargar, { debounce: 400 })
 
+/** «Restablecer» de la tabla: vuelve a los filtros de entrada. */
+function reiniciarFiltros() {
+  filtros.value = { puestoId: 'todos', estado: 'todos', q: '' }
+}
+
 // --- Detalle y accesos ---
 const dialogoDetalle = ref(false)
 const detalle = ref(null)
@@ -99,6 +111,8 @@ const columnasAccesos = [
 async function abrirDetalle(dispositivo) {
   detalle.value = { ...dispositivo, accesos: [] }
   errorDetalle.value = null
+  errorVoz.value = null
+  voz.value = null
   dialogoDetalle.value = true
   cargandoDetalle.value = true
   try {
@@ -108,11 +122,142 @@ async function abrirDetalle(dispositivo) {
   } finally {
     cargandoDetalle.value = false
   }
+  // La voz va por su propio endpoint: si falla, el resto del detalle sigue.
+  await cargarVoz(dispositivo.id)
 }
 
 function etiquetaAcceso(tipo) {
   const etiquetas = { activacion: 'Activación', login: 'Inicio', logout: 'Cierre' }
   return etiquetas[tipo] ?? tipo
+}
+
+// --- Voz del equipo ---
+// La flota es el valor por defecto; aquí se ve qué pisa este aparato. Un campo
+// en «heredar» viaja como null y el servidor resuelve con la flota.
+const voz = ref(null)
+const errorVoz = ref(null)
+const guardandoVoz = ref(false)
+const formVoz = ref({ motor: 'heredar', idioma: 'heredar', wake: '' })
+
+const opcionesMotorVoz = computed(() => {
+  // Si el equipo reportó que no puede correr un motor, se ofrece deshabilitado
+  // (`null` = todavía no reportó nada: no se bloquea nada).
+  const sinVosk = detalle.value?.vozVosk === false
+  const sinStt = detalle.value?.vozStt === false
+  return [
+    {
+      label: `Heredar de la flota (${etiquetaMotor(voz.value?.flota?.motor)})`,
+      value: 'heredar'
+    },
+    ...MOTORES_FLOTA.map(opcion => ({
+      label: opcion.label,
+      value: opcion.id,
+      disabled: (opcion.id === 'vosk' && sinVosk) || (opcion.id === 'google' && sinStt)
+    }))
+  ]
+})
+
+const opcionesIdiomaVoz = computed(() => [
+  {
+    label: `Heredar de la flota (${etiquetaIdioma(voz.value?.flota?.idioma)})`,
+    value: 'heredar'
+  },
+  ...IDIOMAS_FLOTA.map(opcion => ({ label: opcion.label, value: opcion.id }))
+])
+
+/** Motor con el que el equipo dice estar escuchando, en palabras del panel. */
+const motorReportado = computed(() => {
+  const reportado = detalle.value?.vozMotor
+  if (!reportado) return null
+  return reportado === 'vosk' ? 'Vosk' : 'Reconocedor del sistema'
+})
+
+/** Aviso cuando la preferencia no es lo que el aparato está usando de verdad. */
+const avisoMotor = computed(() => {
+  const reportado = detalle.value?.vozMotor
+  const efectiva = voz.value?.efectiva
+  if (!reportado || !efectiva) return null
+  const esperado = motorParaServicio(efectiva.motor)
+  if (esperado === reportado) return null
+  return `Este equipo tiene configurado ${etiquetaMotor(efectiva.motor)}, pero está escuchando con ${motorReportado.value}. Suele ser el fallback: el motor preferido no arrancó.`
+})
+
+/** Qué le falta al equipo para poder usar cada motor. */
+const capacidadesMotor = computed(() => {
+  const partes = []
+  if (detalle.value?.vozVosk === false) partes.push('no tiene el modelo Vosk instalado')
+  if (detalle.value?.vozStt === false) partes.push('no tiene reconocedor del sistema')
+  return partes.length ? `Este equipo ${partes.join(' y ')}.` : null
+})
+
+async function cargarVoz(id) {
+  errorVoz.value = null
+  try {
+    const respuesta = await api.obtenerVozDispositivo(id)
+    voz.value = respuesta
+    formVoz.value = {
+      motor: respuesta?.override?.motor ?? 'heredar',
+      idioma: respuesta?.override?.idioma ?? 'heredar',
+      wake: respuesta?.override?.wake ?? ''
+    }
+  } catch (err) {
+    errorVoz.value = err.message
+  }
+}
+
+function datosVozForm() {
+  return {
+    motor: formVoz.value.motor === 'heredar' ? null : formVoz.value.motor,
+    idioma: formVoz.value.idioma === 'heredar' ? null : formVoz.value.idioma,
+    wake: formVoz.value.wake.trim() || null
+  }
+}
+
+async function guardarVoz() {
+  if (guardandoVoz.value || !detalle.value) return
+  errorVoz.value = null
+  guardandoVoz.value = true
+  try {
+    const respuesta = await api.guardarVozDispositivo(detalle.value.id, datosVozForm())
+    toast.add({
+      title: 'Voz del equipo',
+      description: respuesta?.efectiva?.origen === 'dispositivo'
+        ? 'Guardado: este equipo usa su propia configuración.'
+        : 'Guardado: este equipo vuelve a la flota.',
+      color: 'success',
+      icon: 'i-lucide-check'
+    })
+    await cargarVoz(detalle.value.id)
+    await cargar()
+  } catch (err) {
+    errorVoz.value = err.message
+  } finally {
+    guardandoVoz.value = false
+  }
+}
+
+async function aplicarVozPuesto() {
+  if (guardandoVoz.value || !detalle.value?.puestoId) return
+  errorVoz.value = null
+  guardandoVoz.value = true
+  try {
+    const respuesta = await api.guardarVozPuesto({
+      puestoId: detalle.value.puestoId,
+      ...datosVozForm()
+    })
+    toast.add({
+      title: 'Voz del puesto',
+      description: `Aplicado a ${respuesta?.aplicados ?? 0} equipo(s) de ${detalle.value.puestoNombre || 'el puesto'}.`,
+      color: 'success',
+      icon: 'i-lucide-check'
+    })
+    await cargar()
+    await cargarVoz(detalle.value.id)
+  } catch (err) {
+    errorVoz.value = err.message
+  } finally {
+    guardandoVoz.value = false
+  }
 }
 
 // --- Renombrar ---
@@ -193,10 +338,6 @@ async function confirmarRevocar() {
     leading-icon="i-lucide-smartphone"
     :show-button="false"
   >
-    <template #trailing>
-      <span class="text-sm text-muted">{{ totalRegistros }} equipos</span>
-    </template>
-
     <UAlert
       v-if="errorCarga"
       color="error"
@@ -211,7 +352,9 @@ async function confirmarRevocar() {
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
+      :disable-filters="true"
       empty-state="No hay dispositivos que coincidan"
+      @reset="reiniciarFiltros"
       @reload="cargar"
     >
       <template #toolbar-leading>
@@ -249,6 +392,18 @@ async function confirmarRevocar() {
 
       <template #puestoNombre-cell="{ row }">
         {{ row.original.puestoNombre || '—' }}
+      </template>
+
+      <template #voz-cell="{ row }">
+        <UBadge
+          :color="row.original.voz?.origen === 'dispositivo' ? 'primary' : 'neutral'"
+          :variant="row.original.voz?.origen === 'dispositivo' ? 'soft' : 'outline'"
+          size="sm"
+          :label="etiquetaMotor(row.original.voz?.motor)"
+        />
+        <p v-if="row.original.vozMotor" class="mt-1 text-xs text-muted">
+          reportó {{ row.original.vozMotor === 'vosk' ? 'Vosk' : 'sistema' }}
+        </p>
       </template>
 
       <template #usuarios-cell="{ row }">
@@ -400,6 +555,84 @@ async function confirmarRevocar() {
             </dd>
           </div>
         </dl>
+
+        <section class="space-y-3 rounded-xl border border-default p-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="font-semibold">
+              Voz de este equipo
+            </h3>
+            <UBadge
+              v-if="voz?.efectiva"
+              :color="voz.efectiva.origen === 'dispositivo' ? 'primary' : 'neutral'"
+              :variant="voz.efectiva.origen === 'dispositivo' ? 'soft' : 'outline'"
+              size="sm"
+              :label="voz.efectiva.origen === 'dispositivo' ? 'Configuración propia' : 'Hereda de la flota'"
+            />
+          </div>
+
+          <UAlert
+            v-if="errorVoz"
+            color="error"
+            variant="soft"
+            icon="i-lucide-alert-circle"
+            :title="errorVoz"
+          />
+          <UAlert
+            v-if="avisoMotor"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-triangle-alert"
+            title="El motor configurado no es el que está usando"
+            :description="avisoMotor"
+          />
+
+          <div class="grid gap-3 sm:grid-cols-2">
+            <UFormField label="Motor de reconocimiento" :hint="`En uso: ${motorReportado || 'sin dato'}`">
+              <USelect v-model="formVoz.motor" :items="opcionesMotorVoz" class="w-full" />
+              <p v-if="capacidadesMotor" class="mt-1 text-xs text-muted">
+                {{ capacidadesMotor }}
+              </p>
+            </UFormField>
+            <UFormField label="Idioma">
+              <USelect v-model="formVoz.idioma" :items="opcionesIdiomaVoz" class="w-full" />
+            </UFormField>
+            <UFormField
+              label="Palabra clave"
+              :hint="`Flota: «${voz?.flota?.wake || '—'}»`"
+              class="sm:col-span-2"
+            >
+              <UInput
+                v-model="formVoz.wake"
+                placeholder="Vacío = la de la flota"
+                :maxlength="40"
+                class="w-full"
+              />
+            </UFormField>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <UButton
+              label="Guardar"
+              icon="i-lucide-check"
+              size="sm"
+              :loading="guardandoVoz"
+              @click="guardarVoz"
+            />
+            <UButton
+              label="Aplicar a todo el puesto"
+              icon="i-lucide-users"
+              size="sm"
+              color="neutral"
+              variant="soft"
+              :disabled="!detalle.puestoId"
+              :loading="guardandoVoz"
+              @click="aplicarVozPuesto"
+            />
+            <span class="text-xs text-muted">
+              Se aplica en el próximo sync (o al instante si el equipo está abierto).
+            </span>
+          </div>
+        </section>
 
         <div>
           <h3 class="mb-2 font-semibold">

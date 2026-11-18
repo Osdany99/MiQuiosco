@@ -14,6 +14,7 @@
  * abrir un formulario prellenado es la capa de UI.
  */
 import { LEXICO_BASE } from './lexico.js'
+import { esPeticionDeAyuda, temaDeAyuda } from './ayuda.js'
 import { esConsultaDia, esConsultaGanancia } from './dia.js'
 import { esConsultaCaja } from './caja.js'
 import { resolverFechaDictada } from './fechas.js'
@@ -758,7 +759,10 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   if (/^(repite|repitelo|repetir|otra vez|que dijiste|como dijiste)\b/.test(texto)) {
     return { comando: 'repetir', confianza: 0.9, reasons: ['repetir'] }
   }
-  if (/^(ayuda|que puedes hacer|que sabes hacer|comandos|que comandos|como te uso)\b/.test(texto)) {
+  // Ayuda en capas: la frase pide un tema («ayuda cobro») o el menú entero.
+  // Si detrás del disparador viene un comando de verdad («ayuda a vender dos
+  // panes»), no es ayuda: la venta sigue su curso normal.
+  if (esPeticionDeAyuda(texto)) {
     return { comando: 'ayuda', confianza: 0.9, reasons: ['ayuda'] }
   }
 
@@ -1397,7 +1401,8 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   }
   if (comando === 'consulta_caja') return {}
   if (comando === 'venta_fiada') return extraerFiadoSlots(transcript, lexico)
-  if (comando === 'repetir' || comando === 'ayuda') return {}
+  if (comando === 'repetir') return {}
+  if (comando === 'ayuda') return { tema: temaDeAyuda(transcript) }
   if (comando !== 'venta_directa') return {}
 
   const principal = extraerBase(transcript, false, lexico)

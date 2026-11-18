@@ -9,6 +9,7 @@ import {
   usuarios
 } from '../database/schema'
 import { hashPin } from './auth'
+import { leerVozConfigFlota, overridesPorDispositivo, resolverVoz } from './vozConfig'
 
 /**
  * server/utils/admin.ts — lógica del panel de super administración (Fase 4).
@@ -511,6 +512,7 @@ export async function listarDispositivosAdmin(filtros: FiltrosDispositivosAdmin)
       modelo: dispositivos.modelo,
       android: dispositivos.android,
       appVersion: dispositivos.appVersion,
+      vozMotor: dispositivos.vozMotor,
       ultimaConexionEn: dispositivos.ultimaConexionEn,
       ultimaSyncOkEn: dispositivos.ultimaSyncOkEn,
       pendientes: dispositivos.pendientes,
@@ -530,11 +532,27 @@ export async function listarDispositivosAdmin(filtros: FiltrosDispositivosAdmin)
     filas.map(fila => fila.id)
   )
 
+  // La voz efectiva de cada fila: flota + override del equipo. Una sola
+  // consulta extra para toda la página.
+  const [flota, overrides] = await Promise.all([
+    leerVozConfigFlota(),
+    overridesPorDispositivo(filas.map(fila => fila.id))
+  ])
+
   return {
-    dispositivos: filas.map(fila => ({
-      ...fila,
-      usuarios: usuariosPorDispositivo.get(fila.id) ?? []
-    })),
+    dispositivos: filas.map((fila) => {
+      const efectiva = resolverVoz(flota, overrides.get(fila.id) ?? null)
+      return {
+        ...fila,
+        voz: {
+          motor: efectiva.motor,
+          idioma: efectiva.idioma,
+          wake: efectiva.wake,
+          origen: efectiva.origen
+        },
+        usuarios: usuariosPorDispositivo.get(fila.id) ?? []
+      }
+    }),
     total: totalRow?.total ?? 0,
     limit,
     offset
@@ -591,6 +609,9 @@ export async function obtenerDispositivoAdmin(id: string) {
       modelo: dispositivos.modelo,
       android: dispositivos.android,
       appVersion: dispositivos.appVersion,
+      vozMotor: dispositivos.vozMotor,
+      vozVosk: dispositivos.vozVosk,
+      vozStt: dispositivos.vozStt,
       ultimaConexionEn: dispositivos.ultimaConexionEn,
       ultimaSyncOkEn: dispositivos.ultimaSyncOkEn,
       pendientes: dispositivos.pendientes,

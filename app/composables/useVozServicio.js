@@ -34,6 +34,10 @@ const onda = ref(true)
 const pantallaCompleta = ref(true)
 /** Motor con el que está escuchando ahora mismo: 'sistema' | 'vosk' | ''. */
 const motorActual = ref('')
+/** ¿El modelo Vosk está extraído y listo en este aparato? */
+const voskListo = ref(false)
+/** ¿Hay reconocedor del sistema (Google) disponible? */
+const sttSistema = ref(false)
 const cambiando = ref(false)
 const error = ref(null)
 let cargada = false
@@ -47,9 +51,11 @@ function aplicarEstado(r) {
   permiso.value = Boolean(r.permiso)
   if (r.notificaciones != null) notificaciones.value = Boolean(r.notificaciones)
   if (r.exentoBateria != null) exentoBateria.value = Boolean(r.exentoBateria)
-  if (r.onda != null) onda.value = true
+  if (r.onda != null) onda.value = Boolean(r.onda)
   if (r.pantallaCompleta != null) pantallaCompleta.value = Boolean(r.pantallaCompleta)
   if (r.motor != null) motorActual.value = String(r.motor)
+  if (r.vosk != null) voskListo.value = Boolean(r.vosk)
+  if (r.stt != null) sttSistema.value = Boolean(r.stt)
 }
 
 function esNativo() {
@@ -280,6 +286,8 @@ export function useVozServicio() {
     onda,
     pantallaCompleta,
     motorActual,
+    voskListo,
+    sttSistema,
     cambiando,
     error,
     habilitado,

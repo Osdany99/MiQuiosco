@@ -2,7 +2,7 @@ import { watch } from 'vue'
 import { useVoiceCommand } from './useVoiceCommand'
 import { clasificarRespuesta } from '../utils/voice/confirmacion'
 import { extraerCorreccion } from '../utils/voice/correccion'
-import { esEcoDePrompt, ecoPalabraSuelta } from '../utils/voice/eco'
+import { esEcoDePrompt, respuestaTrasEco } from '../utils/voice/eco'
 
 /**
  * useConfirmacionVoz — espera única para las confirmaciones habladas.
@@ -15,15 +15,12 @@ import { esEcoDePrompt, ecoPalabraSuelta } from '../utils/voice/eco'
  *
  * `prompt`: TODO lo que dijo el TTS (la lectura completa, no solo la pregunta).
  * Es la única forma de detectar el eco: si el micrófono devuelve el final del
- * anuncio, se ignora y se sigue esperando.
+ * anuncio, se ignora y se sigue esperando. Si el anuncio y la respuesta llegan
+ * pegados («diga sí para confirmar sí»), se responde con lo que sobra.
  *
- * `ventanaMs`: durante los primeros milisegundos tras el anuncio, una palabra
- * suelta que ya estaba en el prompt («sí», «confirmar») se trata como eco. Sin
- * esto, oír solo el «sí» del anuncio confirmaba la venta sola.
- *
- * `desdeMs`: instante en que terminó el anuncio. La ventana de eco se mide
- * desde ahí y no desde la llamada: entre una cosa y otra está el arranque del
- * micrófono, y contar desde la llamada dejaba fuera un «sí» legítimo.
+ * `desdeMs`: instante en que terminó el anuncio. Se conserva por compatibilidad
+ * con quien llama; la espera ya no descarta respuestas cortas por llegar
+ * pronto: un «sí» dicho al terminar el anuncio es la respuesta esperada.
  *
  * Singleton: solo puede haber una conversación de confirmación a la vez.
  */
@@ -33,14 +30,14 @@ let abortarActual = null
 function _create() {
   const voice = useVoiceCommand()
 
-  function esperar({ timeoutMs = 6000, prompt = '', ventanaMs = 700, desdeMs = null } = {}) {
+  function esperar({ timeoutMs = 6000, prompt = '', desdeMs = null } = {}) {
     return new Promise((resolve) => {
       let resuelto = false
       let timer = null
       let detener = null
       let cancelar = null
       let escuchoAlgunaVez = false
-      const inicioEco = Number.isFinite(desdeMs) ? desdeMs : Date.now()
+      void desdeMs
 
       const terminar = (resultado, cantidad = null) => {
         if (resuelto) return
@@ -55,29 +52,57 @@ function _create() {
         resolve({ resultado, cantidad })
       }
 
+      /** Texto a analizar: el dictado limpio de eco. `''` si solo se oyó el anuncio. */
+      const limpiar = (crudo) => {
+        const t = String(crudo ?? '').trim()
+        if (!t) return ''
+        return respuestaTrasEco(t, prompt) || t
+      }
+
       const revisar = () => {
         const estado = voice.estado.value
         if (estado === 'listening') escuchoAlgunaVez = true
 
-        const texto = String(voice.transcript?.value || voice.transcriptParcial?.value || '')
-        // Antes de clasificar: el TTS puede haber entrado por el micrófono.
-        if (texto && esEcoDePrompt(texto, prompt)) return
+        const texto = String(voice.transcript?.value || voice.transcriptParcial?.value || '').trim()
 
-        // Una corrección («no, eran tres») gana al «no»: cambia la cantidad en
-        // vez de cancelar la venta. Solo cuenta aquí, durante la confirmación.
-        const correccion = extraerCorreccion(texto)
-        if (correccion) return terminar('corregir', correccion.cantidad)
+        // Alternativas del motor con confianza suficiente. Solo se usan como
+        // respaldo si la transcripción principal no da una respuesta clara.
+        const alternativas = Array.isArray(voice.alternativas?.value)
+          ? voice.alternativas.value
+              .filter(a => !a?.confianza || Number(a.confianza) >= 0.5)
+              .slice(0, 3)
+              .map(a => String(a?.texto ?? a?.text ?? ''))
+          : []
 
-        const clase = clasificarRespuesta(texto)
-        const reciente = Date.now() - inicioEco < ventanaMs
-        // Al principio de la escucha, algo que el propio anuncio decía no es
-        // una respuesta del jefe (típico: solo se oyó el «sí» final).
-        if (reciente && clase !== 'vacio' && texto && ecoPalabraSuelta(texto, prompt)) return
+        // La transcripción principal manda. Las alternativas solo se miran si
+        // la principal no da una respuesta clara: un «sí» espurio del N-best no
+        // puede confirmar la venta por su cuenta.
+        const principal = limpiar(texto)
+        if (principal && !esEcoDePrompt(principal, prompt)) {
+          // Una corrección («no, eran tres») gana al «no»: cambia la cantidad
+          // en vez de cancelar la venta. Solo cuenta durante la confirmación.
+          const correccion = extraerCorreccion(principal)
+          if (correccion) return terminar('corregir', correccion.cantidad)
 
-        if (clase === 'negado') return terminar('negado')
-        if (clase === 'afirmado') return terminar('afirmado')
+          const clase = clasificarRespuesta(principal)
+          if (clase === 'negado') return terminar('negado')
+          if (clase === 'afirmado') return terminar('afirmado')
+        }
+
+        // El motor puede acertar en una alternativa y fallar en la principal
+        // («se» en vez de «sí»). Sin corrección: cambiar cantidades a partir de
+        // una hipótesis es demasiado arriesgado.
+        for (const alternativa of alternativas) {
+          const candidato = limpiar(alternativa)
+          if (!candidato || esEcoDePrompt(candidato, prompt)) continue
+          const clase = clasificarRespuesta(candidato)
+          if (clase === 'negado') return terminar('negado')
+          if (clase === 'afirmado') return terminar('afirmado')
+        }
+
         if (estado === 'error') return terminar('error')
-        // La escucha terminó sin respuesta reconocible. Solo cuenta si antes
+        // La escucha terminó sin una respuesta reconocible: no se espera al
+        // tope de 6 s, que dejaría al jefe hablando solo. Solo cuenta si antes
         // llegó a escuchar: al arrancar, el motor pasa por 'ready'/idle.
         if (escuchoAlgunaVez && estado === 'ready') return terminar('timeout')
       }

@@ -1,4 +1,5 @@
 import { Preferences } from '@capacitor/preferences'
+import { Capacitor } from '@capacitor/core'
 import { Network } from '@capacitor/network'
 import { $api } from '../utils/api'
 import { API_ROUTES } from '../utils/api-paths'
@@ -12,6 +13,7 @@ import { subirEventosVozPendientes } from '../utils/vozEventos'
 import { subirAciertosVozPendientes } from '../utils/vozAciertos'
 import { useVozLexico } from './useVozLexico'
 import { useVozConfig } from './useVozConfig'
+import { useVozServicio } from './useVozServicio'
 import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 import { getAuthInstance } from './useAuth.js'
@@ -657,21 +659,43 @@ function _create() {
   }
 
   /**
-   * Latido al servidor (`POST /api/sync/estado`): pendientes locales y si la
-   * última sync completa terminó bien. Alimenta el panel de dispositivos.
+   * Lo que el equipo sabe de su propia voz, para que el panel vea el motor
+   * efectivo y qué puede correr. En web no hay servicio: no se manda nada.
+   */
+  async function vozReportada() {
+    try {
+      if (!Capacitor.isNativePlatform()) return {}
+      const voz = useVozServicio()
+      await voz.refrescar().catch(() => {})
+      return {
+        ...(voz.motorActual.value ? { vozMotor: voz.motorActual.value } : {}),
+        vozVosk: Boolean(voz.voskListo.value),
+        vozStt: Boolean(voz.sttSistema.value)
+      }
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * Latido al servidor (`POST /api/sync/estado`): pendientes locales, si la
+   * última sync completa terminó bien y qué motor de voz está usando. Alimenta
+   * el panel de dispositivos.
    *
    * Es telemetría: el llamador la envuelve en `.catch()` y nunca bloquea la UI.
    */
   async function reportarEstadoSync(syncOk) {
     if (!auth.jwtSync.value || !hayRed.value) return
     const info = infoDispositivo()
+    const voz = await vozReportada()
     await fetch(API_ROUTES.syncEstado, {
       method: 'POST',
       body: {
         pendientes: pendientesCount.value,
         syncOk: syncOk === true,
         modelo: info.modelo,
-        android: info.android
+        android: info.android,
+        ...voz
       },
       timeoutMs: 15000
     })

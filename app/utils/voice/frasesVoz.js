@@ -59,11 +59,13 @@ export function formatearImporte(importe) {
   return Number.isInteger(monto) ? String(monto) : monto.toFixed(2).replace('.', ',')
 }
 
-/** Frase del read-back antes de vender. `importe` es opcional. */
-export function fraseVenta({ cantidad, nombre, lugar, importe = null }) {
+/** Frase del read-back antes de vender. `importe` y `cliente` son opcionales. */
+export function fraseVenta({ cantidad, nombre, lugar, importe = null, cliente = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
   if (n < 1) return `Confirma la venta del ${lugar}.`
-  const base = `Voy a vender ${describirCantidad(n, nombre)} del ${lugar}`
+  const quien = String(cliente ?? '').trim()
+  const destino = quien ? ` del ${lugar} a ${quien}` : ` del ${lugar}`
+  const base = `Voy a vender ${describirCantidad(n, nombre)}${destino}`
   const monto = formatearImporte(importe)
   return monto ? `${base} por ${monto} pesos.` : `${base}.`
 }
@@ -221,8 +223,8 @@ export function fraseTransferencia({ cliente, monto }) {
   return `Voy a registrar una transferencia de ${importe} pesos de ${quien}. ${FRASE_CONFIRMAR}`
 }
 
-/** Ayuda hablada: qué sabe hacer el asistente. */
-export const FRASE_AYUDA = 'Puedo vender, fiar, cobrar, consultar stock, precios, deudas y las ventas del día, y prellenar entradas, precios, traspasos, mermas y productos. Prueba: vende dos panes; fía dos panes a Juan; cobra 200 a Juan; entraron 20 panes a 10 pesos.'
+/** Aviso de que el micrófono ya está escuchando (mismo texto que con la app cerrada). */
+export const FRASE_PROMPT = '¿Qué puedo hacer por ti?'
 
 /** No hay respuesta previa que repetir. */
 export const FRASE_NADA_QUE_REPETIR = 'No tengo nada que repetir todavía.'

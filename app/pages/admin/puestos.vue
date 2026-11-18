@@ -22,6 +22,12 @@ const errorCarga = ref(null)
 const busqueda = ref('')
 const filtroEstado = ref('todos')
 
+/** «Restablecer» de la tabla: vuelve a los filtros de entrada. */
+function reiniciarFiltros() {
+  busqueda.value = ''
+  filtroEstado.value = 'todos'
+}
+
 const estados = [
   { label: 'Todos', value: 'todos' },
   { label: 'Activos', value: 'activos' },
@@ -349,7 +355,9 @@ async function guardarPin() {
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
+      :disable-filters="true"
       empty-state="No hay puestos que coincidan"
+      @reset="reiniciarFiltros"
       @reload="cargar"
     >
       <template #toolbar-leading>

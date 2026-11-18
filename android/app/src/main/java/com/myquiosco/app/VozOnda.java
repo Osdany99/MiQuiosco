@@ -3,11 +3,14 @@ package com.myquiosco.app;
 import android.content.Context;
 
 /**
- * VozOnda - puente entre el servicio y la ventana de la onda.
+ * VozOnda - puente entre el servicio y las dos ondas.
  *
  * El servicio corre sin UI; al dictar se abre `VozDialogoActivity` sobre el
  * bloqueo y este puente le pasa el nivel del micrófono y lo que se va
  * entendiendo. La onda ya no es opcional: se muestra siempre que se dicta.
+ *
+ * Lo leen la ventana (`VozOndaView`) y el widget (`WidgetVoz`), que dibuja la
+ * misma onda desde el servicio.
  */
 public final class VozOnda {
 

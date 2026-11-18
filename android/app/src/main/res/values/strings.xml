@@ -10,5 +10,8 @@
     <string name="shortcut_voice_almacen_long">Vender por voz en almacén</string>
     <string name="widget_voz_titulo">Dictar venta</string>
     <string name="widget_voz_subtitulo">Almacén</string>
+    <string name="widget_voz_escuchando">Te escucho…</string>
+    <string name="widget_voz_hablando">Hablando…</string>
+    <string name="widget_voz_procesando">Procesando…</string>
     <string name="widget_voz_descripcion">Dicta una venta al almacén sin abrir la app</string>
 </resources>

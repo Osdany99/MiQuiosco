@@ -192,7 +192,10 @@ export function pendienteDesdeAccion(accion, entrada) {
   if (accion.tipo === 'fiar') {
     const fila = accion.fila ?? {}
     const cantidad = entero(accion.cantidad ?? accion.slots?.cantidad)
-    const precioUnitario = monto(fila.precioVentaActual)
+    // El precio dictado («fía 2 panes a Juan a 15») manda sobre el del catálogo.
+    const precioUnitario = accion.slots?.precioUnitario != null
+      ? monto(accion.slots.precioUnitario)
+      : monto(fila.precioVentaActual)
     return {
       ...comun,
       tipo: 'deuda',

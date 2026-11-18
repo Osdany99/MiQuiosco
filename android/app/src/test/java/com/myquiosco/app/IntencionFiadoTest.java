@@ -4,15 +4,42 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Test;
 
 /**
- * IntencionFiado — lectura de «fía dos panes a Juan» con la app cerrada.
+ * IntencionFiado - lectura de «fía dos panes a Juan» con la app cerrada.
  * Paridad con `extraerFiadoSlots` (shared/voz/gramatica.js).
  */
 public class IntencionFiadoTest {
 
     private final IntencionFiado lector = new IntencionFiado(IntencionVenta.porDefecto());
+
+    @Test
+    public void elLexicoDelPanelCambiaLosVerbosDeFiado() throws Exception {
+        IntencionFiado conLexico = new IntencionFiado(IntencionVenta.porDefecto());
+        JSONObject lexico = new JSONObject();
+        lexico.put("fiadoVerbo", new JSONArray(java.util.Arrays.asList("presta")));
+        conLexico.aplicarLexico(lexico);
+
+        assertEquals(IntencionFiado.Tipo.FIADO, conLexico.leer("presta dos panes a juan").tipo);
+        // «fia» ya no está en la lista efectiva.
+        assertEquals(IntencionFiado.Tipo.NO_FIADO, conLexico.leer("fia dos panes a juan").tipo);
+    }
+
+    @Test
+    public void unaPalabraRetiradaDeVentaNoArmaUnFiado() throws Exception {
+        IntencionFiado conLexico = new IntencionFiado(IntencionVenta.porDefecto());
+        JSONObject lexico = new JSONObject();
+        JSONObject retirada = new JSONObject();
+        retirada.put("categoria", "venta_fuerte");
+        retirada.put("valor", "saca");
+        lexico.put("retiradas", new JSONArray(java.util.Arrays.asList(retirada)));
+        conLexico.aplicarLexico(lexico);
+
+        assertEquals(IntencionFiado.Tipo.NO_FIADO, conLexico.leer("saca fiado dos panes a juan").tipo);
+    }
 
     @Test
     public void reconoceElVerboDeFiar() {

@@ -13,5 +13,14 @@ export const syncEstadoSchema = z.object({
   /** true si el último ciclo de sync terminó completo (push + pull). */
   syncOk: z.boolean().optional(),
   modelo: z.string().trim().max(80).nullish(),
-  android: z.string().trim().max(40).nullish()
+  android: z.string().trim().max(40).nullish(),
+  /**
+   * Motor de voz con el que está escuchando de verdad. Sirve para que el panel
+   * vea un fallback («preferido Vosk, usando sistema») sin adivinarlo.
+   */
+  vozMotor: z.enum(['vosk', 'sistema', 'google']).nullish(),
+  /** El modelo Vosk está extraído y listo en este aparato. */
+  vozVosk: z.boolean().nullish(),
+  /** El aparato tiene reconocedor del sistema disponible. */
+  vozStt: z.boolean().nullish()
 })

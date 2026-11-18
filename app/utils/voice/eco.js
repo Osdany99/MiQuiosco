@@ -62,3 +62,26 @@ export function ecoPalabraSuelta(texto, prompt) {
   if (!dicho.size) return false
   return oido.every(palabra => dicho.has(palabra))
 }
+
+/**
+ * Quita del texto las palabras que ya estaban en el anuncio y devuelve lo que
+ * sobra, en orden. Sirve para el caso real en el que el micrófono captura el
+ * final del TTS y, pegado, el «sí» del jefe: `diga sí para confirmar sí` deja
+ * `si` como respuesta. Se compara por apariciones (multiconjunto), así una
+ * palabra repetida por el jefe no se consume con la del anuncio.
+ */
+export function respuestaTrasEco(texto, prompt) {
+  const oido = normalizar(texto).split(' ').filter(Boolean)
+  if (!oido.length) return ''
+  const restantes = new Map()
+  for (const palabra of normalizar(prompt).split(' ').filter(Boolean)) {
+    restantes.set(palabra, (restantes.get(palabra) || 0) + 1)
+  }
+  const resto = []
+  for (const palabra of oido) {
+    const quedan = restantes.get(palabra) || 0
+    if (quedan > 0) restantes.set(palabra, quedan - 1)
+    else resto.push(palabra)
+  }
+  return resto.join(' ')
+}

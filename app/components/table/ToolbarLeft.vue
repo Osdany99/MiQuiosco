@@ -1,19 +1,11 @@
 <template>
   <div class="flex items-center gap-2">
-    <UTooltip text="Actualizar" :delay-duration="0">
-      <UButton
-        icon="i-lucide-refresh-cw"
-        variant="ghost"
-        size="sm"
-        @click="emit('refresh')"
-      />
-    </UTooltip>
-    <UTooltip v-if="showReset" text="Restablecer" :delay-duration="0">
+    <UTooltip v-if="showReset" text="Restablecer filtros, página y columnas" :delay-duration="0">
       <UButton
         icon="i-lucide-rotate-ccw"
         variant="ghost"
         size="sm"
-        @click="limpiarYReload"
+        @click="restablecer"
       />
     </UTooltip>
     <slot />
@@ -103,7 +95,7 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({}) }
 })
 
-const emit = defineEmits(['update:modelValue', 'reload', 'refresh'])
+const emit = defineEmits(['update:modelValue', 'reset'])
 
 const resolvedFilterFields = computed(() => {
   if (props.disableFilters) return []
@@ -167,9 +159,9 @@ function aplicarLimpiar() {
   open.value = false
 }
 
-function limpiarYReload() {
+function restablecer() {
   Object.keys(draft).forEach(k => (draft[k] = ''))
   emit('update:modelValue', {})
-  emit('reload')
+  emit('reset')
 }
 </script>

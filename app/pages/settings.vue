@@ -364,10 +364,6 @@ const ttsActivo = computed({
   get: () => tts.habilitado.value,
   set: (value) => { void tts.setHabilitado(value) }
 })
-const saludoActivo = computed({
-  get: () => tts.greetingEnabled.value,
-  set: (value) => { void tts.setGreetingEnabled(value) }
-})
 // Motor, idioma, traza y frases de prueba son herramientas de soporte: el jefe
 // no necesita verlas y un cambio accidental puede romper el reconocimiento.
 const esSuperAdmin = computed(() => auth.usuarioActual.value?.rol === 'super_admin')
@@ -1002,6 +998,14 @@ async function whOlvidarEste() {
           <p class="text-sm text-muted">
             Cómo habla el dispositivo y cómo se confirma una venta dictada.
           </p>
+          <UButton
+            to="/ayuda/voz"
+            variant="soft"
+            color="neutral"
+            icon="i-lucide-mic"
+            label="¿Qué puedo decir? Ver los comandos"
+            class="mt-3 w-full sm:w-auto"
+          />
         </div>
 
         <USwitch
@@ -1016,15 +1020,6 @@ async function whOlvidarEste() {
         <p v-if="!tts.disponible.value" class="text-xs text-warning">
           Este dispositivo no tiene voz de respuesta instalada.
         </p>
-
-        <USwitch
-          v-model="saludoActivo"
-          color="neutral"
-          :disabled="!tts.disponible.value || !ttsActivo"
-          description="Dice “Hola, ¿qué puedo hacer por ti hoy?” antes de empezar a escucharte."
-        >
-          Leer saludo al dictar
-        </USwitch>
 
         <div class="space-y-1 border-t border-default pt-3">
           <p class="text-sm">
@@ -1152,7 +1147,7 @@ async function whOlvidarEste() {
                 </p>
                 <p class="text-xs text-muted">
                   Los cambios manuales de motor o idioma en este equipo se
-                  respetan hasta el próximo cambio de flota.
+                  respetan hasta el próximo cambio de flota o del propio equipo.
                 </p>
                 <div class="flex flex-wrap gap-2">
                   <UButton

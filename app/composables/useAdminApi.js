@@ -147,6 +147,23 @@ export function useAdminApi() {
     return pedir('/api/voz/config', { method: 'PUT', body: datos })
   }
 
+  function obtenerVozDispositivo(id) {
+    return pedir(`/api/admin/dispositivos/${id}/voz`)
+  }
+
+  function guardarVozDispositivo(id, datos) {
+    return pedir(`/api/admin/dispositivos/${id}/voz`, { method: 'PATCH', body: datos })
+  }
+
+  function guardarVozPuesto(datos) {
+    return pedir('/api/admin/dispositivos/voz-puesto', { method: 'PATCH', body: datos })
+  }
+
+  async function listarDispositivosConVozPropia() {
+    const respuesta = await pedir('/api/admin/voz/dispositivos')
+    return respuesta?.overrides ?? []
+  }
+
   return {
     resumen,
     listarPuestos,
@@ -170,6 +187,10 @@ export function useAdminApi() {
     crearEntradaLexicoVoz,
     actualizarEntradaLexicoVoz,
     obtenerConfigVoz,
-    guardarConfigVoz
+    guardarConfigVoz,
+    obtenerVozDispositivo,
+    guardarVozDispositivo,
+    guardarVozPuesto,
+    listarDispositivosConVozPropia
   }
 }

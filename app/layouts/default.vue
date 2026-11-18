@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { registrarProof, reintentarProofs } from '../utils/voice/proofs'
 import { useConfirmacionVoz } from '../composables/useConfirmacionVoz'
 import { FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
+import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 
 const auth = useAuth()
 const perms = usePermisos()
@@ -154,8 +155,19 @@ async function esperarReadBack() {
  * y los comandos asistidos: el antieco y el reset son los mismos.
  */
 async function escucharRespuesta(nombreProducto) {
-  // Sin espera previa: el arranque del motor (300–1200 ms) hace de margen
-  // antieco y así un «sí» dicho en cuanto termina el anuncio no cae en el vacío.
+  // Si el micrófono ya estaba abierto (dictado concurrente), se cierra: un
+  // transcript de otro comando no puede leerse como «sí».
+  if (voiceRaw.estado.value === 'listening') {
+    try {
+      await voiceRaw.stopListening()
+    } catch {
+      /* ya estaba cerrando */
+    }
+  }
+  // El `onDone` del TTS no garantiza que el audio ya salió del altavoz: este
+  // margen evita abrir el micrófono con la cola del anuncio aún sonando (era
+  // parte del motivo de que el «sí» se perdiera).
+  await new Promise(resolve => setTimeout(resolve, MS_MARGEN_ANTIECO))
   const finAnuncio = Date.now()
   // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
   // diálogo y la confirmación podría leerlo como respuesta.
@@ -319,7 +331,9 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
       cantidad: prefill?.cantidad ?? null,
       ubicacion: prefill?.ubicacion ?? null,
       modo: prefill?.modo ?? null,
-      confianza: Number(voiceRaw.confidence?.value) || 0,
+      // Confianza del dictado, no del «sí»: `voiceRaw` se reinició durante la
+      // confirmación y por eso aquí siempre llegaba 0.
+      confianza: Number(vozActiva.value.confianzaDictado?.value) || 0,
       outcome: resultado === 'afirmado'
         ? 'auto-confirmado'
         : (resultado === 'negado' ? 'cancelado' : 'abandonado')
@@ -569,6 +583,7 @@ const links = computed(() => {
               : undefined
           }]
         : []),
+      { label: 'Comandos de voz', icon: 'i-lucide-mic', to: '/ayuda/voz' },
       { label: 'Productos', icon: 'i-lucide-package', to: '/productos', vista: 'productos' },
       ...(MOSTRAR_PROVEEDOR
         ? [{ label: 'Proveedores', icon: 'i-lucide-truck', to: '/proveedores', vista: 'proveedores' }]
@@ -588,6 +603,11 @@ const links = computed(() => {
         label: 'Cuadre del día',
         icon: 'i-lucide-clipboard-check',
         to: '/cuadre'
+      },
+      {
+        label: 'Comandos de voz',
+        icon: 'i-lucide-mic',
+        to: '/ayuda/voz'
       }
     )
   }

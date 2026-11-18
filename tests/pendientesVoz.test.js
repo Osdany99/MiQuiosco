@@ -165,6 +165,27 @@ describe('snapshot para el servicio nativo', () => {
     assert.equal(pan.pendienteQuiosco, 0)
   })
 
+  it('lleva el léxico administrable para la app cerrada', () => {
+    const snap = construirSnapshot({
+      puestoId: 'puesto-1',
+      filas: [],
+      acciones: [],
+      lexico: {
+        ventaFuerte: ['vende', 'liquida'],
+        fiadoVerbo: ['fia'],
+        fiadoVentaVerbo: ['vende'],
+        cobroVerbo: ['cobra'],
+        cobroMarca: ['pago'],
+        retiradas: [{ categoria: 'venta_fuerte', valor: 'saca' }]
+      },
+      ahora: AHORA
+    })
+    assert.deepEqual(snap.lexico.ventaFuerte, ['vende', 'liquida'])
+    assert.deepEqual(snap.lexico.retiradas, [{ categoria: 'venta_fuerte', valor: 'saca' }])
+    // Sin léxico no se inventa una sección vacía que el servicio malinterprete.
+    assert.equal(construirSnapshot({ filas: [], ahora: AHORA }).lexico, null)
+  })
+
   it('resume solo las ventas de hoy no anuladas', () => {
     const snap = construirSnapshot({
       filas: [],

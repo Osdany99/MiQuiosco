@@ -31,7 +31,7 @@ import { cabecerasDePrueba } from '../app/utils/voice/auditoria.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
 import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
 import { formatearPrecio } from '../app/utils/voice/respuestasVoz.js'
-import { MS_MARGEN_ANTIECO, esEcoDePrompt, ecoPalabraSuelta } from '../app/utils/voice/eco.js'
+import { MS_MARGEN_ANTIECO, esEcoDePrompt, ecoPalabraSuelta, respuestaTrasEco } from '../app/utils/voice/eco.js'
 import { extraerCorreccion } from '../app/utils/voice/correccion.js'
 
 describe('voz: normalización y números', () => {
@@ -113,9 +113,10 @@ describe('voz: precio, repetir y ayuda', () => {
     assert.equal(resolverComando('cuanto cuesta').comando, 'desconocido')
   })
 
-  it('repetir y ayuda no llevan slots', () => {
+  it('repetir no lleva slots y la ayuda solo lleva el tema', () => {
     assert.deepEqual(interpretar('repite').slots, {})
-    assert.deepEqual(interpretar('que puedes hacer').slots, {})
+    assert.deepEqual(interpretar('que puedes hacer').slots, { tema: null })
+    assert.deepEqual(interpretar('ayuda cobro').slots, { tema: 'cobrar' })
   })
 
   it('formatea precio vigente y stock, respetando la ubicación pedida', () => {
@@ -841,6 +842,17 @@ describe('voz: clasificación de respuesta hablada', () => {
     assert.equal(clasificarRespuesta('sí pero no'), 'otro')
     assert.equal(clasificarRespuesta('mañana'), 'otro')
   })
+
+  it('tolera el relleno habitual del STT', () => {
+    assert.equal(clasificarRespuesta('sí señor'), 'afirmado')
+    assert.equal(clasificarRespuesta('sí, está bien'), 'afirmado')
+    assert.equal(clasificarRespuesta('dale pues'), 'afirmado')
+    assert.equal(clasificarRespuesta('por supuesto'), 'afirmado')
+    assert.equal(clasificarRespuesta('no señor'), 'negado')
+    assert.equal(clasificarRespuesta('no, así no'), 'negado')
+    assert.equal(clasificarRespuesta('esperate'), 'negado')
+    assert.equal(clasificarRespuesta('no, sí'), 'otro')
+  })
 })
 
 describe('voz: cabeceras de auditoría', () => {
@@ -859,6 +871,13 @@ describe('voz: frases habladas (concordancia)', () => {
     assert.equal(fraseVenta({ cantidad: 1, nombre: 'Pan', lugar: 'quiosco' }), 'Voy a vender un Pan del quiosco.')
     assert.equal(fraseVenta({ cantidad: 1, nombre: 'Cerveza', lugar: 'quiosco' }), 'Voy a vender una Cerveza del quiosco.')
     assert.equal(fraseVenta({ cantidad: 1, nombre: 'Leche', lugar: 'almacén' }), 'Voy a vender una Leche del almacén.')
+  })
+
+  it('nombra al cliente cuando la venta lo lleva', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'almacén', importe: 20, cliente: 'Juan' }),
+      'Voy a vender 2 unidades de Pan del almacén a Juan por 20 pesos.'
+    )
   })
 
   it('varias unidades no dependen de pluralizar el nombre', () => {
@@ -951,5 +970,15 @@ describe('voz: antieco del TTS', () => {
     assert.equal(ecoPalabraSuelta('sí, confirma', PROMPT), false)
     assert.equal(ecoPalabraSuelta('dale', PROMPT), false)
     assert.equal(ecoPalabraSuelta('', PROMPT), false)
+  })
+
+  it('rescata la respuesta dicha pegada al anuncio', () => {
+    // El motor devuelve el final del TTS y, a continuación, el «sí» del jefe.
+    assert.equal(respuestaTrasEco('diga sí para confirmar sí', PROMPT), 'si')
+    assert.equal(respuestaTrasEco('diga sí para confirmar no', PROMPT), 'no')
+    // Una respuesta corta no se recorta: es justo lo que se espera.
+    assert.equal(respuestaTrasEco('sí', PROMPT), '')
+    // Solo eco: no queda nada que leer como respuesta.
+    assert.equal(respuestaTrasEco('diga sí para confirmar', PROMPT), '')
   })
 })

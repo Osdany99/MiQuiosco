@@ -53,6 +53,10 @@ export interface DatosDispositivo {
   android?: string | null
   appVersion?: string | null
   pendientes?: number
+  /** Motor de voz efectivo que reporta el equipo (`vosk` | `sistema`). */
+  vozMotor?: string | null
+  vozVosk?: boolean | null
+  vozStt?: boolean | null
 }
 
 export interface AccesoDispositivo {

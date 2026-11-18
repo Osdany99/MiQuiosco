@@ -97,6 +97,9 @@ public class VozServicioPlugin extends Plugin {
         r.put("notificaciones", puedeNotificar());
         r.put("disponible", SpeechRecognizer.isRecognitionAvailable(getContext())
             || VoskModelo.extraido(getContext()));
+        // Separados: el panel quiere saber qué motor puede correr cada equipo.
+        r.put("stt", SpeechRecognizer.isRecognitionAvailable(getContext()));
+        r.put("vosk", VoskModelo.extraido(getContext()));
         r.put("exentoBateria", exentoBateria());
         // Onda del dock con la app cerrada.
         r.put("onda", VozOnda.activa(getContext()));

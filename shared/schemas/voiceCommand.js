@@ -270,7 +270,9 @@ export const voiceCommandSchema = z.discriminatedUnion('comando', [
     comando: z.literal('ayuda'),
     transcript: z.string().default(''),
     confidence: z.number().min(0).max(1).default(0),
-    slots: z.object({}).default({})
+    // `tema`: grupo del catálogo (`shared/voz/ayuda.js`), o los comodines
+    // `todo`/`mas`. Nulo = dar el menú y preguntar de qué.
+    slots: z.object({ tema: z.string().max(20).nullable().default(null) }).default({})
   }),
   z.object({
     comando: z.literal('desconocido'),

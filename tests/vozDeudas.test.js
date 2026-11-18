@@ -223,7 +223,8 @@ describe('voz: deudas en el snapshot (app cerrada)', () => {
       clientes: CLIENTES
     })
     assert.equal(snap.version, SNAPSHOT_VERSION)
-    assert.equal(SNAPSHOT_VERSION, 4)
+    // v5 añade el léxico administrable que lee el servicio con la app cerrada.
+    assert.equal(SNAPSHOT_VERSION, 5)
     assert.equal(snap.deudas.total, 360)
     assert.equal(snap.deudas.cantidad, 3)
     assert.equal(snap.deudas.clientes[0].nombre, 'Juan Pérez')

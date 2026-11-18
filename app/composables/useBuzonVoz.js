@@ -57,6 +57,19 @@ export function useBuzonVoz() {
       .catch(() => {})
   }
 
+  /** Cuántos dictados siguen en el buzón después de un drenaje. */
+  async function contarEntradasRestantes() {
+    try {
+      const listado = await Filesystem.readdir({ path: DIRECTORIO, directory: Directory.Data })
+      return (listado?.files ?? [])
+        .map(f => (typeof f === 'string' ? f : f?.name))
+        .filter(n => typeof n === 'string' && n.endsWith('.json'))
+        .length
+    } catch {
+      return 0
+    }
+  }
+
   /**
    * Interpreta una entrada y guarda la acción pendiente.
    * @returns {'creada'|'duplicada'|'ignorada'|'invalida'}
@@ -136,9 +149,11 @@ export function useBuzonVoz() {
       }
 
       // Las reservas ya están en las acciones importadas (y el snapshot que
-      // escribe el layout las descuenta como pendientes). Si algo falló, se
-      // conservan para que el servicio siga sin prometer ese stock.
-      if (!resultado.errores) {
+      // escribe el layout las descuenta como pendientes). Solo se borran si no
+      // quedó nada en el buzón: con más dictados que el tope por drenaje, sus
+      // reservas siguen valiendo para que el servicio no prometa ese stock.
+      const quedan = await contarEntradasRestantes()
+      if (!resultado.errores && !quedan) {
         await Filesystem.deleteFile({ path: RUTA_RESERVAS, directory: Directory.Data })
           .catch(() => {})
       }

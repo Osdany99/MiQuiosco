@@ -40,7 +40,8 @@ import { formatearDia, formatearGanancia, resumirDia } from '#shared/voz/dia'
 import { rangoDeIso } from '#shared/voz/fechas'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseAjuste, fraseProductoAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, fraseDeudaDinero, fraseTransferencia, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseAjuste, fraseProductoAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, fraseDeudaDinero, fraseTransferencia, FRASE_CONFIRMAR, FRASE_NADA_QUE_REPETIR, FRASE_PROMPT } from '../utils/voice/frasesVoz'
+import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { resolverAjuste, resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
@@ -54,7 +55,18 @@ import { useVoiceZeroTouch } from './useVoiceZeroTouch'
 import { useVozDisparo } from './useVozDisparo'
 import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
-import { evaluarTrabajador, FRASE_TRABAJADOR } from '#shared/voz/trabajador'
+import { evaluarTrabajador } from '#shared/voz/trabajador'
+import {
+  gruposDisponibles,
+  gruposDelMenu,
+  introDeAyuda,
+  preguntaDeAyuda,
+  sugerenciaDeAyuda,
+  textoDeGrupo,
+  todoDeAyuda,
+  temaDeAyuda
+} from '#shared/voz/ayuda'
+import { registrarProof } from '../utils/voice/proofs'
 
 const MODO_POR_TIPO = {
   directa: 'venta',
@@ -62,6 +74,9 @@ const MODO_POR_TIPO = {
   familiar: 'familiar',
   regalo: 'regalo'
 }
+
+/** Ventana para responder «¿de qué quieres ejemplos?» tras el menú de ayuda. */
+const MS_ESCUCHA_AYUDA = 6000
 
 function esNativo() {
   try {
@@ -118,6 +133,8 @@ function _create(ubicacion) {
    * guarda ventas ni la confirmación, para no repetir una venta por error.
    */
   const ultimaRespuestaVoz = ref('')
+  /** Último grupo de ayuda explicado: «más» continúa por el siguiente. */
+  const ultimoTemaAyuda = ref(null)
   // Promesa del TTS de lectura (read-back).
   const readBackPromise = ref(null)
   /** Texto EXACTO que se habló. La confirmación lo usa como prompt anti-eco. */
@@ -132,7 +149,12 @@ function _create(ubicacion) {
   let ultimoDictado = ''
   /** Comando interpretado y confianza del STT del último dictado. */
   let ultimoComando = ''
-  let ultimaConfianza = 0
+  /**
+   * Confianza del dictado que abrió el flujo. Vive en un ref porque el STT
+   * global se reinicia antes y después de la confirmación hablada: leerlo al
+   * final daba siempre 0 en la auditoría de confirmaciones.
+   */
+  const confianzaDictado = ref(0)
   /**
    * Acción que no tiene formulario (mover producto). El layout la lee, la habla y
    * pide el «sí» SIEMPRE, sin mirar el switch de confirmación.
@@ -224,7 +246,8 @@ function _create(ubicacion) {
       tipoVenta: slots?.tipoVenta || 'directa',
       precioVentaUsado: slots?.precioUnitario == null ? null : Number(slots.precioUnitario),
       clienteHint: slots?.clienteHint || null,
-      clienteId: slots?.clienteId || null
+      clienteId: slots?.clienteId || null,
+      clienteNombre: slots?.clienteNombre || null
     }
     modo.value = modoVenta
     producto.value = fila
@@ -278,6 +301,7 @@ function _create(ubicacion) {
       precioVentaUsado: null,
       clienteHint: null,
       clienteId: null,
+      clienteNombre: null,
       lineas
     }
     modo.value = 'venta'
@@ -329,7 +353,13 @@ function _create(ubicacion) {
       const precio = prefill.value?.precioVentaUsado == null
         ? Number(filaActual?.precioVentaActual ?? 0)
         : Number(prefill.value.precioVentaUsado)
-      let texto = fraseVenta({ cantidad: cant, nombre, lugar, importe: precio * cant })
+      let texto = fraseVenta({
+        cantidad: cant,
+        nombre,
+        lugar,
+        importe: precio * cant,
+        cliente: prefill.value?.clienteNombre || prefill.value?.clienteHint || null
+      })
       // Una sola locución: anuncio + petición de confirmación, sin hueco entre ambas.
       readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value) && modo.value === 'venta' && tts.habilitado.value
       if (readBackIncluyeConfirmacion.value) texto = `${texto} ${FRASE_CONFIRMAR}`
@@ -452,6 +482,9 @@ function _create(ubicacion) {
           const similares = clientesSimilares(slots.clienteHint, listaClientes, { umbral: 0.7 })
           if (similares.length) {
             slots.clienteId = similares[0].cliente.id
+            // El nombre resuelto se lee en el read-back: el jefe oye a quién
+            // se le está anotando la venta, no solo lo que dictó.
+            slots.clienteNombre = similares[0].cliente.nombre
           }
         }
       } catch {
@@ -1357,13 +1390,24 @@ function _create(ubicacion) {
 
   /** Habla el prompt, abre el micrófono y espera sí/no (o una corrección). */
   async function escucharRespuestaVoz(prompt) {
+    // Si quedó una escucha abierta (doble toque, comando anterior), se cierra
+    // antes de confirmar: leer un transcript ajeno confirmaría la venta sola.
+    if (voice.estado.value === 'listening') {
+      try {
+        await voice.stopListening()
+      } catch {
+        /* ya estaba cerrando */
+      }
+    }
     try {
       await tts.speak(prompt)
     } catch {
       /* noop */
     }
-    // Sin espera previa: el arranque del motor ya hace de margen antieco, y así
-    // un «sí» dicho en cuanto termina el anuncio no se pierde.
+    // El `onDone` del TTS no garantiza que el audio ya salió del altavoz: este
+    // margen evita que el reconocedor abra el micrófono con la cola del anuncio
+    // aún sonando (era parte del motivo de que el «sí» se perdiera).
+    await new Promise(resolve => setTimeout(resolve, MS_MARGEN_ANTIECO))
     const finAnuncio = Date.now()
     voice.reset()
     const escucha = voice.startListening({
@@ -1698,6 +1742,27 @@ function _create(ubicacion) {
   }
 
   /**
+   * Auditoría de una confirmación hablada de fiado, cobro, deuda de dinero o
+   * transferencia. La venta la registra el layout, que es quien corre su
+   * confirmación. `comando` no se guarda en la tabla (sí `modo`), pero viaja en
+   * el proof para la cola local y el diagnóstico.
+   */
+  function registrarConfirmacionVoz({ comando, modo, producto = null, cantidad = null, ubicacion = null, resultado }) {
+    void registrarProof({
+      comando,
+      productoId: producto?.productoId ?? producto?.id ?? null,
+      productoNombre: producto?.nombre ?? null,
+      cantidad: Number(cantidad) > 0 ? Math.trunc(Number(cantidad)) : null,
+      ubicacion: ubicacion === 'almacen' || ubicacion === 'quiosco' ? ubicacion : null,
+      modo,
+      confianza: confianzaDictado.value,
+      outcome: resultado === 'afirmado'
+        ? 'auto-confirmado'
+        : (resultado === 'negado' ? 'cancelado' : 'abandonado')
+    }, { token: auth.jwtSync.value }).catch(() => {})
+  }
+
+  /**
    * Confirma y registra un fiado. La deuda se crea directa (fuera de cuadre),
    * igual que desde `/deudas`: descuenta stock y congela el costo.
    */
@@ -1759,6 +1824,15 @@ function _create(ubicacion) {
       readBackTexto.value = frase
       correcciones++
     }
+
+    registrarConfirmacionVoz({
+      comando: 'venta_fiada',
+      modo: 'fiado',
+      producto: fila,
+      cantidad,
+      ubicacion: ubi,
+      resultado
+    })
 
     if (resultado !== 'afirmado') {
       estado.value = 'idle'
@@ -1871,6 +1945,12 @@ function _create(ubicacion) {
       readBackTexto.value = frase
       correcciones++
     }
+
+    registrarConfirmacionVoz({
+      comando: 'cobro_deuda',
+      modo: 'cobro',
+      resultado
+    })
 
     if (resultado !== 'afirmado') {
       estado.value = 'idle'
@@ -1986,6 +2066,12 @@ function _create(ubicacion) {
       correcciones++
     }
 
+    registrarConfirmacionVoz({
+      comando: 'deuda_dinero',
+      modo: 'deuda_dinero',
+      resultado
+    })
+
     if (resultado !== 'afirmado') {
       estado.value = 'idle'
       const mensaje = resultado === 'negado'
@@ -2086,6 +2172,12 @@ function _create(ubicacion) {
       correcciones++
     }
 
+    registrarConfirmacionVoz({
+      comando: 'transferencia_cuadre',
+      modo: 'transferencia_cuadre',
+      resultado
+    })
+
     if (resultado !== 'afirmado') {
       estado.value = 'idle'
       const mensaje = resultado === 'negado'
@@ -2142,25 +2234,198 @@ function _create(ubicacion) {
     if (estado.value !== 'idle') estado.value = 'idle'
   }
 
-  /** Ayuda hablada: qué puede hacer el asistente. */
-  async function responderAyuda() {
-    // El trabajador solo puede fiar, anotar deudas de dinero y transferencias:
-    // leerle la ayuda del jefe le ofrecería comandos que se van a rechazar.
-    const texto = auth.esTrabajador.value ? FRASE_TRABAJADOR : FRASE_AYUDA
+  /**
+   * Ayuda en capas. Primero el mapa (una frase) y la pregunta; solo después el
+   * grupo pedido, con dos frases y un ejemplo. Una lista de trece comandos no
+   * la retiene nadie, y el menú convierte la ayuda en algo que se consulta.
+   *
+   * @param {string|null} tema Grupo del catálogo, o `todo`/`mas`.
+   */
+  async function responderAyuda(tema = null) {
+    const gen = generacion
+    const grupos = gruposDisponibles({ esTrabajador: auth.esTrabajador.value })
+    const menu = gruposDelMenu(grupos)
+    const pedido = tema && tema !== 'todo' && tema !== 'mas'
+      ? grupos.find(g => g.id === tema)
+      : null
+
+    if (pedido) return hablarGrupoAyuda(pedido)
+
+    if (tema === 'todo') return hablarTodoDeAyuda(grupos)
+
+    if (tema === 'mas') {
+      // «Más» continúa por el grupo siguiente al último explicado.
+      const indice = menu.findIndex(g => g.id === ultimoTemaAyuda.value)
+      const siguiente = menu[(indice + 1) % Math.max(1, menu.length)]
+      return hablarGrupoAyuda(siguiente ?? null)
+    }
+
+    const intro = introDeAyuda(grupos)
+    const pregunta = preguntaDeAyuda(grupos)
+    const texto = `${tema ? 'Eso no lo puedo hacer aquí. ' : ''}${intro} ${pregunta}`.trim()
+    ultimaRespuestaVoz.value = texto
     toast.add({
-      title: 'Voz',
-      description: auth.esTrabajador.value
-        ? 'En el cuadre: fiar, anotar deudas de dinero y transferencias.'
-        : 'Vender, consultar stock y precios, y abrir pantallas.',
+      title: '¿Qué puedo decir?',
+      description: texto,
       color: 'success',
-      duration: 8000
+      duration: 9000,
+      // El detalle de cada tarea vive en la pantalla: la voz da el mapa.
+      actions: [{ label: 'Ver todos', icon: 'i-lucide-list', onClick: () => navigateTo('/ayuda/voz') }]
     })
     try {
       await tts.speak(texto)
     } catch {
       /* noop */
     }
+    if (gen !== generacion) return
+    // Con un solo grupo disponible no hay nada que preguntar.
+    if (!pregunta) {
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+
+    const oido = await escucharTemaAyuda()
+    if (gen !== generacion) return
+    if (!oido.texto) {
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+    // Decir «no» o «cancela» cierra la ayuda sin sermonear.
+    if (/^(?:no|cancela|cancelar|cancelo|nada|dejalo|dejala|olvidalo|olvidala)$/.test(normalizar(oido.texto))) {
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+
+    const elegido = temaDeAyuda(oido.texto, grupos)
+    if (elegido === 'todo') return hablarTodoDeAyuda(grupos)
+    if (elegido === 'mas') return responderAyuda('mas')
+    const grupo = grupos.find(g => g.id === elegido)
+    if (grupo) return hablarGrupoAyuda(grupo)
+
+    // No nombró un tema. Si lo que dijo es un comando, se atiende en vez de
+    // regañar: «ayuda» y luego «vende dos panes» es un uso normal.
+    const interpretado = interpretar(oido.texto, vozLexico.lexico.value)
+    if (interpretado.comando && interpretado.comando !== 'desconocido' && interpretado.comando !== 'ayuda') {
+      const accion = await resolver(oido.texto, {
+        sttConfidence: oido.confianza,
+        alternativas: oido.alternativas
+      })
+      if (gen !== generacion) return
+      return ejecutar(accion, { gen })
+    }
+
+    const aviso = 'No te entendí. Di «ayuda» otra vez si quieres el menú.'
+    ultimaRespuestaVoz.value = aviso
+    try {
+      await tts.speak(aviso)
+    } catch {
+      /* noop */
+    }
     if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /** Habla un grupo de la ayuda y cierra: no encadena otra pregunta. */
+  async function hablarGrupoAyuda(grupo) {
+    if (!grupo) {
+      if (estado.value !== 'idle') estado.value = 'idle'
+      return
+    }
+    const ejemplo = await ejemploRealDe(grupo)
+    const texto = textoDeGrupo(grupo, ejemplo)
+    ultimoTemaAyuda.value = grupo.id
+    ultimaRespuestaVoz.value = texto
+    toast.add({ title: '¿Qué puedo decir?', description: texto, color: 'success', duration: 9000 })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /** «Ayuda de todo»: un ejemplo por grupo, sin detalles. */
+  async function hablarTodoDeAyuda(grupos) {
+    const texto = todoDeAyuda(grupos)
+    ultimaRespuestaVoz.value = texto
+    toast.add({ title: '¿Qué puedo decir?', description: texto, color: 'success', duration: 12000 })
+    try {
+      await tts.speak(texto)
+    } catch {
+      /* noop */
+    }
+    if (estado.value !== 'idle') estado.value = 'idle'
+  }
+
+  /**
+   * Ejemplo con un producto real del catálogo: «vende dos Coca-Cola» enseña más
+   * que «vende dos panes». Nunca usa nombres de clientes: la ayuda se dice en
+   * voz alta delante de quien esté en el mostrador.
+   */
+  async function ejemploRealDe(grupo) {
+    if (grupo?.id !== 'vender' && grupo?.id !== 'fiar') return null
+    try {
+      const catalogo = await catalogoDe('quiosco')
+      const fila = (catalogo ?? []).find(f =>
+        f?.nombre
+        && f?.seVende !== false
+        && Number(f?.quiosco) > 1
+        && !/\b(regalo|familiar|casa)\b/i.test(String(f.nombre))
+      )
+      if (!fila?.nombre) return null
+      const nombre = String(fila.nombre).trim().slice(0, 30)
+      return grupo.id === 'vender' ? `vende dos ${nombre}` : `fía dos ${nombre} a Juan`
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Escucha la respuesta al menú de ayuda. Es una ventana corta sin «sí/no»:
+   * se cierra sola a los 6 s y no deja el micrófono abierto.
+   */
+  async function escucharTemaAyuda() {
+    if (voice.estado.value === 'listening') {
+      try {
+        await voice.stopListening()
+      } catch {
+        /* ya estaba cerrando */
+      }
+    }
+    // El mismo margen antieco de la confirmación: el TTS no garantiza que el
+    // audio ya salió del altavoz cuando su promesa termina.
+    await new Promise(resolve => setTimeout(resolve, MS_MARGEN_ANTIECO))
+    voice.reset()
+    const escucha = voice.startListening({
+      contexto: { modo: conexion.modo.value, red: hayRed.value }
+    }).catch(() => {})
+    await voice.esperandoMicro({ timeoutMs: 2500 })
+    let tope = null
+    const limite = new Promise((resolve) => {
+      tope = setTimeout(resolve, MS_ESCUCHA_AYUDA)
+    })
+    const vencio = await Promise.race([
+      escucha.then(() => false),
+      limite.then(() => true)
+    ])
+    if (tope) clearTimeout(tope)
+    if (vencio) {
+      // Se envía lo oído hasta ahora, no se descarta (`false` = sin abandonar).
+      try {
+        await voice.stopListening(false)
+      } catch {
+        /* el motor ya había terminado */
+      }
+      await escucha
+    }
+    const texto = String(voice.transcript.value || voice.transcriptParcial.value || '').trim()
+    // Confianza y N-best ANTES de resetear: si lo que dijo era un comando,
+    // el fallback lo resuelve con la misma señal que un dictado normal.
+    const confianza = Number(voice.confidence.value) || 0
+    const alternativas = Array.isArray(voice.alternativas.value)
+      ? voice.alternativas.value.map(a => ({ ...a }))
+      : []
+    voice.reset()
+    return { texto, confianza, alternativas }
   }
 
   /**
@@ -2361,6 +2626,18 @@ function _create(ubicacion) {
   }
 
   /**
+   * Pista concreta cuando la frase no se entiende. Antes se contestaba
+   * «todavía no sé hacer eso», que deja al jefe sin saber qué decir; ahora se
+   * propone la tarea más probable y, si no hay ninguna, se manda a la ayuda.
+   */
+  function mensajeNoEntendido(texto) {
+    const sugerencia = sugerenciaDeAyuda(texto)
+    return sugerencia
+      ? `No te entendí. ${sugerencia.mensaje}`
+      : 'No te entendí. Di «ayuda» y te digo qué puedo hacer.'
+  }
+
+  /**
    * Convierte un texto dictado en una ACCIÓN. Sin efectos: no habla, no navega,
    * no abre diálogos ni escribe. `ejecutar()` aplica la acción.
    *
@@ -2381,18 +2658,18 @@ function _create(ubicacion) {
     })
     const validacion = voiceCommandSchema.safeParse(interpretado)
     if (!validacion.success) {
-      return { tipo: 'error', mensaje: 'No te entendí. Prueba: "vende 5 panes".', texto: textoElegido }
+      return { tipo: 'error', mensaje: mensajeNoEntendido(textoElegido), texto: textoElegido }
     }
 
     const { comando, slots } = validacion.data
     ultimoComando = comando
-    ultimaConfianza = Number(sttConfidence) || 0
+    confianzaDictado.value = Number(sttConfidence) || 0
     if (comando === 'desconocido') {
       const motivo = interpretado?.reasons?.[0] || 'sin_comando'
       return {
         tipo: 'error',
         motivo,
-        mensaje: 'Todavía no sé hacer eso. Prueba: "vende 5 panes".',
+        mensaje: mensajeNoEntendido(textoElegido),
         texto: textoElegido,
         auditar: motivo !== 'sin_texto'
           ? { comando: 'desconocido', motivo, confianza: Number(interpretado?.confidence) || 0 }
@@ -2522,7 +2799,7 @@ function _create(ubicacion) {
         resultado: accion.tipo,
         detalle: detalleDeAccion(accion),
         texto: ultimoDictado || null,
-        confianza: ultimaConfianza
+        confianza: confianzaDictado.value
       })
     }
 
@@ -2532,6 +2809,11 @@ function _create(ubicacion) {
       case 'aviso':
         estado.value = 'idle'
         toast.add({ title: 'Voz', description: accion.mensaje, color: 'warning' })
+        try {
+          await tts.speak(accion.mensaje)
+        } catch {
+          /* noop */
+        }
         return
       case 'ambiguo':
         pendiente.value = {
@@ -2545,11 +2827,6 @@ function _create(ubicacion) {
         estado.value = 'ambiguo'
         return
       case 'stock':
-        try {
-          await tts.speak(accion.mensaje)
-        } catch {
-          /* noop */
-        }
         throw new Error(accion.mensaje)
       case 'consultar_stock':
         return responderStock(accion.fila, accion.slots)
@@ -2566,7 +2843,7 @@ function _create(ubicacion) {
       case 'repetir':
         return repetirUltimaRespuesta()
       case 'ayuda':
-        return responderAyuda()
+        return responderAyuda(accion.tema ?? null)
       case 'venta':
         // Siempre el formulario; la confirmación hablada la maneja el layout.
         return prepararVenta(accion.fila, accion.slots, accion.destino.ubicacion)
@@ -2635,7 +2912,7 @@ function _create(ubicacion) {
     return ejecutar(accion, { gen })
   }
 
-  async function venderPorVoz() {
+  async function venderPorVoz(opciones = {}) {
     if (!disponible.value) {
       if (motivoNoDisponible.value) {
         toast.add({ title: 'Voz', description: motivoNoDisponible.value, color: 'warning' })
@@ -2647,10 +2924,14 @@ function _create(ubicacion) {
 
     limpiar()
     const gen = ++generacion
-    if (tts.greetingEnabled?.value) {
+    // El widget (y el atajo) no tienen palabra de activación: quien dispara el
+    // dictado decide si anuncia algo (`anuncio`, p. ej. «¿Qué puedo hacer por
+    // ti?») para que el jefe sepa que el micrófono ya está escuchando.
+    const anuncio = opciones.anuncio || null
+    if (anuncio) {
       estado.value = 'preparando'
       try {
-        await tts.speak('Hola, ¿qué puedo hacer por ti hoy?')
+        await tts.speak(anuncio)
       } catch {
         /* noop */
       }
@@ -2690,6 +2971,13 @@ function _create(ubicacion) {
       ultimoError.value = mensaje
       estado.value = 'error'
       toast.add({ title: 'Voz', description: mensaje, color: 'error' })
+      // Si no se entendió el comando, se dice: callar dejaba al jefe sin saber
+      // si el micrófono lo escuchó.
+      try {
+        await tts.speak(mensaje)
+      } catch {
+        /* noop */
+      }
       programarLimpiezaError()
     }
   }
@@ -2893,7 +3181,7 @@ function _create(ubicacion) {
         }
         return
       }
-      if (evaluacion.accion === 'disparar') void venderPorVoz()
+      if (evaluacion.accion === 'disparar') void venderPorVoz({ anuncio: FRASE_PROMPT })
     },
     { immediate: true }
   )
@@ -2922,7 +3210,7 @@ function _create(ubicacion) {
         }
         return
       }
-      if (evaluacion.accion === 'disparar') void venderPorVoz()
+      if (evaluacion.accion === 'disparar') void venderPorVoz({ anuncio: FRASE_PROMPT })
     },
     { immediate: true }
   )
@@ -2934,6 +3222,7 @@ function _create(ubicacion) {
     micVisible,
     motivoNoDisponible,
     ultimoError,
+    confianzaDictado,
     accionSinFormulario,
     transcriptParcial,
     candidatos,

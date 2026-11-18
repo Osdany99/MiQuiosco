@@ -6,11 +6,9 @@ const TtsNative = registerPlugin('TtsNative')
 
 const PREF_TTS = 'voice.tts.enabled'
 const PREF_TTS_VOICE = 'voice.tts.voiceUri'
-const PREF_GREETING = 'voice.greeting.enabled'
 
 function _useTts() {
   const habilitado = ref(true)
-  const greetingEnabled = ref(false)
   // Estado para animar la onda mientras la app habla.
   const hablando = ref(false)
   const pulsoHabla = ref(0)
@@ -64,12 +62,6 @@ function _useTts() {
       const { value } = await Preferences.get({ key: PREF_TTS_VOICE })
       if (value) vozUri.value = value
     } catch {}
-    try {
-      const { value } = await Preferences.get({ key: PREF_GREETING })
-      greetingEnabled.value = value === 'true'
-    } catch {
-      greetingEnabled.value = false
-    }
     // Inicializar el motor nativo en Android.
     if (esNativo.value) {
       await checkNativo()
@@ -239,15 +231,6 @@ function _useTts() {
     } catch {}
   }
 
-  async function setGreetingEnabled(value) {
-    greetingEnabled.value = Boolean(value)
-    try {
-      await Preferences.set({ key: PREF_GREETING, value: String(greetingEnabled.value) })
-    } catch {
-      /* noop */
-    }
-  }
-
   function vozActual() {
     return voces.value.find(v => v.voiceURI === vozUri.value) || null
   }
@@ -405,7 +388,6 @@ function _useTts() {
   return {
     habilitado,
     disponible,
-    greetingEnabled,
     voces,
     vozUri,
     cargandoVoces,
@@ -418,7 +400,6 @@ function _useTts() {
     cargarVoces,
     refrescarVoces,
     setHabilitado,
-    setGreetingEnabled,
     setVoz,
     speak
   }

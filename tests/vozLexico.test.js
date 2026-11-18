@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { LEXICO_BASE, crearLexico } from '../shared/voz/lexico.js'
 import { resolverComando } from '../shared/voz/gramatica.js'
 import { validarEntrada } from '../shared/schemas/vozLexico.js'
+import { evaluarCambio } from '../shared/voz/evaluarCambio.js'
+import { FRASES_DORADAS } from '../shared/voz/frasesDoradas.js'
 
 const sinSaca = crearLexico(LEXICO_BASE, [
   { categoria: 'venta_fuerte', valor: 'saca', activo: false }
@@ -138,5 +140,91 @@ describe('voz: léxico — familias de verbos', () => {
     )
     // Sin ubicación no se inventa un traspaso: sigue retirada de venta.
     assert.equal(resolverComando('saca 2 panes', lexico).comando, 'desconocido')
+  })
+})
+
+describe('voz: léxico — probar entrada (simulador)', () => {
+  it('añadir un verbo nuevo se ve como cambio en las plantillas', () => {
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_fuerte', valor: 'liquida' }, {
+      frasesDoradas: FRASES_DORADAS,
+      plantillas: ['liquida pan']
+    })
+    assert.equal(r.regresiones.length, 0)
+    assert.equal(r.cambios.length, 1)
+    assert.equal(r.cambios[0].antes, 'desconocido')
+    assert.equal(r.cambios[0].despues, 'venta_directa')
+    assert.ok(r.cambios[0].campos.includes('comando'))
+    assert.equal(r.motivo, null)
+  })
+
+  it('una palabra que ya existe no cambia nada y lo explica', () => {
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_fuerte', valor: 'vende' }, {
+      frasesDoradas: FRASES_DORADAS,
+      plantillas: ['vende dos panes']
+    })
+    assert.deepEqual(r.cambios, [])
+    assert.equal(r.motivo, 'ya_existe')
+  })
+
+  it('sin plantillas lo dice en vez de devolver ceros mudos', () => {
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_fuerte', valor: 'liquida' }, {
+      frasesDoradas: FRASES_DORADAS
+    })
+    assert.equal(r.motivo, 'sin_plantillas')
+  })
+
+  it('avisa cuando ninguna plantilla usa la palabra', () => {
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_fuerte', valor: 'liquida' }, {
+      frasesDoradas: FRASES_DORADAS,
+      plantillas: ['vende dos panes']
+    })
+    assert.equal(r.motivo, 'ninguna_plantilla_la_usa')
+  })
+
+  it('rechaza palabras reservadas con un motivo legible', () => {
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_fuerte', valor: 'almacen' }, {
+      frasesDoradas: FRASES_DORADAS,
+      plantillas: ['almacen dos panes']
+    })
+    assert.equal(r.motivo, 'palabra_reservada')
+  })
+
+  it('detecta el conflicto de una palabra nueva que vive en otro flujo', () => {
+    // «sirveme» ya se añadió a venta débil: intentar ponerlo en traspaso es el
+    // mismo 409 que devuelve el servidor, y el panel debe explicarlo antes.
+    const conSinonimo = crearLexico(LEXICO_BASE, [
+      { categoria: 'venta_debil', valor: 'sirveme' }
+    ])
+    const r = evaluarCambio(conSinonimo, { categoria: 'traspaso_verbo', valor: 'sirveme' }, {
+      frasesDoradas: FRASES_DORADAS,
+      plantillas: ['sirveme dos panes']
+    })
+    assert.equal(r.motivo, 'conflicto_categoria')
+  })
+
+  it('simula retirar una palabra y reporta la regresión', () => {
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_fuerte', valor: 'vende', activo: false }, {
+      frasesDoradas: FRASES_DORADAS
+    })
+    const frase = r.regresiones.find(x => x.frase === 'vende cinco panes')
+    assert.ok(frase)
+    assert.equal(frase.antes, 'venta_directa')
+    assert.equal(frase.despues, 'desconocido')
+    assert.ok(frase.campos.includes('comando'))
+    assert.equal(r.motivo, null)
+  })
+
+  it('detecta cambios de slots aunque el comando sea el mismo', () => {
+    // «sirveme» sin léxico se lee como producto; al añadirlo a venta débil el
+    // comando sigue siendo venta_directa, pero el producto ya no lo incluye.
+    const r = evaluarCambio(LEXICO_BASE, { categoria: 'venta_debil', valor: 'sirveme' }, {
+      frasesDoradas: FRASES_DORADAS,
+      plantillas: ['sirveme dos panes']
+    })
+    assert.equal(r.cambios.length, 1)
+    assert.equal(r.cambios[0].antes, 'venta_directa')
+    assert.equal(r.cambios[0].despues, 'venta_directa')
+    assert.ok(r.cambios[0].campos.includes('producto'))
+    assert.equal(r.cambios[0].campos.includes('comando'), false)
   })
 })

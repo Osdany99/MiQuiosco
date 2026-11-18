@@ -80,10 +80,23 @@ public final class IntencionCobro {
      *               Puede ser null: entonces solo se entienden dígitos.
      */
     public static Intencion leer(String texto, IntencionVenta lector) {
+        return leer(texto, lector, null);
+    }
+
+    /**
+     * @param lexico léxico administrable del snapshot (verbos de cobro y marcas
+     *               de cobro en medio de la frase). Puede ser null: se usan las
+     *               listas de `dialogo.json`.
+     */
+    public static Intencion leer(String texto, IntencionVenta lector, JSONObject lexico) {
         String plano = IntencionVenta.normalizarFrase(texto);
         if (plano.isEmpty()) return new Intencion(Tipo.NO_COBRO, "", 0, true, "efectivo");
         String[] tokens = plano.split(" ");
         String formaPago = Arrays.asList(tokens).contains("transferencia") ? "transferencia" : "efectivo";
+        Set<String> verbos = listaDe(lexico, "cobroVerbo");
+        if (verbos.isEmpty()) verbos = VERBOS;
+        Set<String> verbosEnMedio = listaDe(lexico, "cobroMarca");
+        if (verbosEnMedio.isEmpty()) verbosEnMedio = VERBOS_EN_MEDIO;
 
         // «cuánto pagó Juan» es una consulta, no un cobro.
         if ("cuanto".equals(tokens[0]) || "cuanta".equals(tokens[0])
@@ -96,10 +109,10 @@ public final class IntencionCobro {
         int inicioMonto;
         String[] clienteTokens;
 
-        if (!VERBOS.contains(verbo)) {
+        if (!verbos.contains(verbo)) {
             int idx = -1;
             for (int i = 0; i < tokens.length; i++) {
-                if (VERBOS_EN_MEDIO.contains(tokens[i])) { idx = i; break; }
+                if (verbosEnMedio.contains(tokens[i])) { idx = i; break; }
             }
             if (idx <= 0) return new Intencion(Tipo.NO_COBRO, "", 0, true, formaPago);
             // «juan me pago 200»
@@ -185,6 +198,19 @@ public final class IntencionCobro {
 
     private static boolean esMoneda(String t) {
         return "pesos".equals(t) || "peso".equals(t);
+    }
+
+    /** Lista del léxico ya normalizada; vacía si no viene o está vacía. */
+    private static Set<String> listaDe(JSONObject lexico, String clave) {
+        Set<String> salida = new HashSet<>();
+        if (lexico == null) return salida;
+        JSONArray lista = lexico.optJSONArray(clave);
+        if (lista == null) return salida;
+        for (int i = 0; i < lista.length(); i++) {
+            String valor = lista.optString(i, "");
+            if (!valor.isEmpty()) salida.add(IntencionVenta.normalizar(valor));
+        }
+        return salida;
     }
 
     private static Double numero(String token, IntencionVenta lector) {

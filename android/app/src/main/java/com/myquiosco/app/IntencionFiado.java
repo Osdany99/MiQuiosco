@@ -1,5 +1,8 @@
 package com.myquiosco.app;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -55,8 +58,47 @@ public final class IntencionFiado {
 
     private final IntencionVenta lector;
 
+    /** Listas efectivas: arrancan con las de `dialogo.json` y el snapshot las pisa. */
+    private final Set<String> verbosFiado = new HashSet<>(VERBOS_FIADO);
+    private final Set<String> verbosVentaFiado = new HashSet<>(VERBOS_VENTA_FIADO);
+    /** Palabras que el panel retiró de venta: no deben armar un fiado. */
+    private final Set<String> retiradasVenta = new HashSet<>();
+
     public IntencionFiado(IntencionVenta lector) {
         this.lector = lector == null ? IntencionVenta.porDefecto() : lector;
+    }
+
+    /**
+     * Aplica el léxico administrable del snapshot: verbos de fiado, verbos de
+     * venta que aceptan «fiado» y las palabras retiradas de venta.
+     */
+    public void aplicarLexico(JSONObject lexico) {
+        if (lexico == null) return;
+
+        Set<String> fiado = new HashSet<>();
+        IntencionVenta.leerValores(fiado, lexico.optJSONArray("fiadoVerbo"));
+        if (!fiado.isEmpty()) {
+            verbosFiado.clear();
+            verbosFiado.addAll(fiado);
+        }
+
+        Set<String> venta = new HashSet<>();
+        IntencionVenta.leerValores(venta, lexico.optJSONArray("fiadoVentaVerbo"));
+        if (!venta.isEmpty()) {
+            verbosVentaFiado.clear();
+            verbosVentaFiado.addAll(venta);
+        }
+
+        retiradasVenta.clear();
+        JSONArray retiradas = lexico.optJSONArray("retiradas");
+        if (retiradas == null) return;
+        for (int i = 0; i < retiradas.length(); i++) {
+            JSONObject r = retiradas.optJSONObject(i);
+            if (r == null) continue;
+            if (!r.optString("categoria", "").startsWith("venta_")) continue;
+            String valor = IntencionVenta.normalizar(r.optString("valor", ""));
+            if (!valor.isEmpty()) retiradasVenta.add(valor);
+        }
     }
 
     /** ¿La frase manda fiar? («cuánto tengo fiado» no lo es). */
@@ -71,12 +113,12 @@ public final class IntencionFiado {
 
     public Intencion leer(String texto) {
         String plano = IntencionVenta.normalizarFrase(texto);
-        if (!esFiado(plano)) return new Intencion(Tipo.NO_FIADO, plano, "", 0, null, "");
+        if (!esFiadoConLexico(plano)) return new Intencion(Tipo.NO_FIADO, plano, "", 0, null, "");
         if (plano.isEmpty()) return new Intencion(Tipo.NO_FIADO, plano, "", 0, null, "");
 
         String[] tokens = plano.split(" ");
         int inicio = 0;
-        if (VERBOS_FIADO.contains(tokens[0])) {
+        if (verbosFiado.contains(tokens[0])) {
             inicio = 1;
         } else {
             while (inicio < tokens.length && !"fiado".equals(tokens[inicio])) inicio++;
@@ -116,6 +158,19 @@ public final class IntencionFiado {
             return new Intencion(Tipo.SIN_CLIENTE, plano, nombre, cantidad, ubicacion, "");
         }
         return new Intencion(Tipo.FIADO, plano, nombre, cantidad, ubicacion, cliente);
+    }
+
+    /** ¿La frase manda fiar con el léxico efectivo (panel + valores base)? */
+    private boolean esFiadoConLexico(String plano) {
+        if (plano.isEmpty()) return false;
+        String[] tokens = plano.split(" ");
+        if (tokens.length == 0) return false;
+        if (verbosFiado.contains(tokens[0])) return true;
+        // Una palabra retirada de venta no debe armar un fiado por la puerta de
+        // atrás («saca fiado 2 panes»).
+        if (retiradasVenta.contains(tokens[0])) return false;
+        boolean verboVenta = verbosVentaFiado.contains(tokens[0]);
+        return verboVenta && Arrays.asList(tokens).contains("fiado");
     }
 
     public static String normalizar(String valor) {

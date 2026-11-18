@@ -20,6 +20,18 @@ public class IntencionCobroTest {
     }
 
     @Test
+    public void elLexicoDelPanelCambiaLosVerbosDeCobro() throws Exception {
+        JSONObject lexico = new JSONObject();
+        lexico.put("cobroVerbo", new JSONArray(java.util.Arrays.asList("cancela")));
+
+        assertEquals(IntencionCobro.Tipo.COBRO,
+            IntencionCobro.leer("cancela 200 a yunior", venta, lexico).tipo);
+        // «cobra» ya no es verbo de cobro en el léxico efectivo.
+        assertEquals(IntencionCobro.Tipo.NO_COBRO,
+            IntencionCobro.leer("cobra 200 a yunior", venta, lexico).tipo);
+    }
+
+    @Test
     public void reconoceCobros() {
         assertTrue(IntencionCobro.esCobro("cobra 200 a yunior"));
         assertTrue(IntencionCobro.esCobro("cobra la deuda de maria"));

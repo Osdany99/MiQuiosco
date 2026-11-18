@@ -6,6 +6,8 @@ import {
   VOZ_RETENCION_ACIERTOS_MIN,
   VOZ_RETENCION_MAX,
   VOZ_RETENCION_MIN,
+  etiquetaIdioma,
+  etiquetaMotor,
   normalizarVozConfig
 } from '#shared/voz/config'
 import { vozConfigSchema } from '#shared/schemas/vozConfig'
@@ -108,13 +110,44 @@ async function depurar() {
   }
 }
 
-onMounted(cargar)
+// --- Equipos con configuración propia ---
+// Con qué motor escucha cada equipo se decide por aparato (ver
+// /admin/dispositivos). Aquí solo se listan los que no usan la flota.
+const overrides = ref([])
+const cargandoOverrides = ref(false)
+const errorOverrides = ref(null)
+
+const columnasOverrides = [
+  { accessorKey: 'dispositivoNombre', header: 'Equipo' },
+  { accessorKey: 'puestoNombre', header: 'Puesto' },
+  { accessorKey: 'motor', header: 'Motor' },
+  { accessorKey: 'idioma', header: 'Idioma' },
+  { accessorKey: 'wake', header: 'Palabra clave' },
+  { accessorKey: 'actualizadoEn', header: 'Actualizado' }
+]
+
+async function cargarOverrides() {
+  cargandoOverrides.value = true
+  errorOverrides.value = null
+  try {
+    overrides.value = await api.listarDispositivosConVozPropia()
+  } catch (e) {
+    errorOverrides.value = e?.message || 'No se pudieron cargar los equipos con voz propia.'
+  } finally {
+    cargandoOverrides.value = false
+  }
+}
+
+onMounted(() => {
+  cargar()
+  cargarOverrides()
+})
 </script>
 
 <template>
   <BaseHeaderPage
     title="Configuración de voz"
-    description="Palabra clave, motor, idioma y retención que aplican todos los equipos"
+    description="Valores por defecto de la flota: palabra clave, motor, idioma y retención. Cada equipo puede pisar motor, idioma y palabra clave."
     leading-icon="i-lucide-settings-2"
     :show-button="false"
   >
@@ -288,8 +321,77 @@ onMounted(cargar)
       variant="soft"
       icon="i-lucide-info"
       title="Cómo llega a los equipos"
-      description="Cada equipo descarga esta configuración al sincronizar y guarda una copia para trabajar sin red. Un cambio manual en Ajustes → Avanzado se respeta hasta el próximo cambio de flota."
+      description="Cada equipo descarga su configuración al sincronizar y guarda una copia para trabajar sin red. Un cambio manual en Ajustes → Avanzado se respeta hasta el próximo cambio de flota o del equipo."
     />
+
+    <UCard>
+      <template #header>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <UIcon name="i-lucide-smartphone" class="size-5 text-primary" />
+            <h2 class="font-semibold">
+              Equipos con configuración propia
+            </h2>
+          </div>
+          <UButton
+            icon="i-lucide-refresh-cw"
+            variant="ghost"
+            size="xs"
+            label="Recargar"
+            :loading="cargandoOverrides"
+            @click="cargarOverrides"
+          />
+        </div>
+      </template>
+
+      <UAlert
+        v-if="errorOverrides"
+        color="error"
+        variant="soft"
+        icon="i-lucide-alert-circle"
+        :title="errorOverrides"
+      />
+
+      <UTable
+        v-else
+        :data="overrides"
+        :columns="columnasOverrides"
+        :loading="cargandoOverrides"
+        empty="Todos los equipos usan estos valores"
+      >
+        <template #dispositivoNombre-cell="{ row }">
+          <NuxtLink
+            :to="{ path: '/admin/dispositivos', query: { puestoId: row.original.puestoId } }"
+            class="font-medium text-primary hover:underline"
+          >
+            {{ row.original.dispositivoNombre || 'Equipo sin nombre' }}
+          </NuxtLink>
+          <p class="text-xs text-muted">
+            {{ row.original.modelo || 'Modelo desconocido' }}
+          </p>
+        </template>
+        <template #puestoNombre-cell="{ row }">
+          {{ row.original.puestoNombre || '—' }}
+        </template>
+        <template #motor-cell="{ row }">
+          {{ row.original.motor ? etiquetaMotor(row.original.motor) : 'Flota' }}
+        </template>
+        <template #idioma-cell="{ row }">
+          {{ row.original.idioma ? etiquetaIdioma(row.original.idioma) : 'Flota' }}
+        </template>
+        <template #wake-cell="{ row }">
+          {{ row.original.wake ? `«${row.original.wake}»` : 'Flota' }}
+        </template>
+        <template #actualizadoEn-cell="{ row }">
+          <span class="text-sm">{{ fmtFechaHora(row.original.actualizadoEn) }}</span>
+        </template>
+      </UTable>
+
+      <p class="mt-3 text-xs text-muted">
+        Se editan en Dispositivos → detalle → «Voz de este equipo», o de una vez
+        para todo un puesto desde ahí mismo.
+      </p>
+    </UCard>
 
     <BaseDialog
       v-model="confirmarDepurar"

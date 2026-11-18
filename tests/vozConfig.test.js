@@ -7,13 +7,17 @@ import {
   VOZ_CONFIG_DEFECTO,
   VOZ_RETENCION_DEFECTO,
   esWakeValido,
+  etiquetaIdioma,
+  etiquetaMotor,
   idiomaParaApp,
   motorParaApp,
   motorParaServicio,
   normalizarVozConfig,
-  normalizarWake
+  normalizarVozOverride,
+  normalizarWake,
+  overrideVacio
 } from '../shared/voz/config.js'
-import { vozConfigSchema } from '../shared/schemas/vozConfig.js'
+import { vozConfigDispositivoSchema, vozConfigSchema } from '../shared/schemas/vozConfig.js'
 
 describe('voz: configuración de flota', () => {
   it('normaliza la palabra clave', () => {
@@ -93,5 +97,39 @@ describe('voz: configuración de flota', () => {
     assert.equal(vozConfigSchema.safeParse({ ...base, retencionDias: 1 }).success, false)
     assert.equal(vozConfigSchema.safeParse({ ...base, retencionDias: 400 }).success, false)
     assert.equal(vozConfigSchema.safeParse({ ...base, retencionDias: 30.5 }).success, false)
+  })
+})
+
+describe('voz: override por equipo', () => {
+  it('normaliza el override y deja en null lo inválido (hereda)', () => {
+    assert.deepEqual(normalizarVozOverride({}), { motor: null, idioma: null, wake: null, version: 0 })
+    assert.equal(normalizarVozOverride({ motor: 'vosk' }).motor, 'vosk')
+    assert.equal(normalizarVozOverride({ motor: 'inventado' }).motor, null)
+    assert.equal(normalizarVozOverride({ idioma: 'fr-FR' }).idioma, null)
+    assert.equal(normalizarVozOverride({ wake: 'nova' }).wake, null)
+    assert.equal(normalizarVozOverride({ wake: 'Oye  Quiosco' }).wake, 'oye quiosco')
+  })
+
+  it('sabe cuándo una fila de override sobra', () => {
+    assert.equal(overrideVacio(null), true)
+    assert.equal(overrideVacio({ motor: null, idioma: null, wake: null }), true)
+    assert.equal(overrideVacio({ motor: 'vosk' }), false)
+    assert.equal(overrideVacio({ wake: 'oye quiosco' }), false)
+  })
+
+  it('etiqueta motores e idiomas para el panel', () => {
+    assert.equal(etiquetaMotor('vosk'), 'Vosk')
+    assert.equal(etiquetaMotor('auto'), 'Automático (recomendado)')
+    assert.equal(etiquetaMotor(null), '—')
+    assert.equal(etiquetaIdioma('es-US'), 'Español (EE.UU.)')
+  })
+
+  it('acepta null para heredar y rechaza un override mal formado', () => {
+    assert.equal(
+      vozConfigDispositivoSchema.safeParse({ motor: 'vosk', idioma: null, wake: null }).success,
+      true
+    )
+    assert.equal(vozConfigDispositivoSchema.safeParse({ motor: 'otro' }).success, false)
+    assert.equal(vozConfigDispositivoSchema.safeParse({ wake: 'nova' }).success, false)
   })
 })

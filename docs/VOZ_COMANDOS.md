@@ -237,8 +237,25 @@ Con la app abierta el intérprete reconoce además:
   Solo el jefe; un trabajador oye que no tiene permiso.
 - **Repite**: «repite», «repítelo», «otra vez», «qué dijiste» → vuelve a decir
   la última respuesta de stock, precio o deuda. Nunca repite una venta.
-- **Ayuda**: «qué puedes hacer», «ayuda», «qué sabes hacer» → lee qué sabe hacer
-  y da un ejemplo.
+- **Ayuda en capas**: «ayuda» (o «qué puedes hacer», «comandos», «cómo te uso»)
+  dice en una frase qué sabe hacer y pregunta de qué se quiere el detalle:
+  «Te ayudo con ventas, fiados, cobros, consultas, cambios de precio y deudas.
+  ¿De qué quieres ejemplos?». El tema se responde sin repetir la palabra clave
+  («cobrar», «de fiar», «cambiar precio», «de todo», «más»). Cada grupo se
+  explica en dos frases con un ejemplo. «Cómo te uso» explica el modelo
+  (palabra clave, confirmación, «no» y «repite»), no la lista.
+
+  El catálogo vive en **`shared/voz/ayuda.js`** y es la única fuente: de ahí
+  salen la voz de la app abierta, la pantalla **«¿Qué puedo decir?»**
+  (`/ayuda/voz`) y el JSON que usa el servicio con la app cerrada
+  (`scripts/copiar-voz.mjs` inyecta `ayudaParaNativo()` en
+  `assets/voz/dialogo.json`). Un test de node y uno de JUnit fallan si el APK y
+  la app dicen cosas distintas.
+
+  La ayuda filtra por contexto: el trabajador solo oye fiar, deudas y lo
+  básico; con la app cerrada no se ofrecen entradas ni cambios de precio. Y solo
+  se dispara si detrás no viene un comando real: «ayuda a vender dos panes» es
+  una venta.
 
 Los cinco funcionan también **con la app cerrada**, desde el snapshot: el
 servicio responde stock, precio, deudas y resumen del día, recuerda la última
@@ -475,7 +492,11 @@ abierta**, pero el resultado va a la cola de revisión, nunca a la base:
    como **Fiado** en la revisión. No crea la deuda por su cuenta.
 5. **«Repite»** («repítelo», «otra vez», «qué dijiste») → vuelve a decir la
    última frase que habló el servicio; si aún no ha dicho nada, «No tengo nada
-   que repetir todavía». **«Ayuda»** lee qué sabe hacer con la app cerrada.
+   que repetir todavía». **«Ayuda»** da el mismo menú en capas que la app
+   abierta, pero filtrado: con la app cerrada solo ofrece vender, fiar, cobrar
+   y consultar. «Ayuda cobrar», «ayuda de todo» y «más» se atienden sin repetir
+   la palabra clave; si se pide un tema que necesita la app (entradas, deudas),
+   lo dice en vez de explicarlo y fallar después.
 6. Todo lo demás (charla del mostrador, frases sin verbo de venta) se ignora en
    silencio.
 
@@ -522,6 +543,18 @@ Con la app cerrada hay dos formas de ver que el teléfono te está oyendo:
    con la app cerrada**. Al decir «oye nova» aparece la misma onda del
    dock (tres senos que se mueven con tu voz) con el texto parcial y la
    pregunta del diálogo. Se cierra sola al terminar o al tocarla.
+3. **Onda en el widget** (si está puesto): la tarjeta «Dictar venta» de la
+   pantalla de inicio pinta la misma onda detrás del texto mientras se dicta y
+   muestra el parcial en el subtítulo. No gasta nada en reposo: solo se dibuja
+   mientras el micrófono trae voz.
+
+La onda del widget no es una animación de vistas: un widget no puede animar
+vistas propias (`RemoteViews` solo infla layouts y vistas del framework, y las
+corre el launcher, no la app). Lo que sí se puede es cambiarle la imagen, así
+que `WidgetVoz` dibuja frames con `OndaDibujo` (~7 fps, a media resolución) y
+los empuja con `partiallyUpdateAppWidget`. El servicio solo lo enciende con un
+dictado en curso (no con la escucha de «oye nova», que dura todo el día) y un
+watchdog lo apaga si los avisos de progreso dejan de llegar.
 
 La onda se abre con un **full-screen intent**: Android no permite lanzar
 ventanas desde segundo plano por otra vía. Consecuencias reales:
@@ -574,8 +607,10 @@ Detalles de diseño:
 
 ### Motor de reconocimiento (con y sin internet)
 
-El motor lo fija la **configuración de flota** (`/admin/voz-configuracion`), no
-un selector por equipo. Los valores y su significado son únicos:
+El motor lo fija la **configuración de voz**: el valor de flota
+(`/admin/voz-configuracion`) y, si el equipo tiene uno propio, el suyo
+(`/admin/dispositivos` → detalle → «Voz de este equipo»). Los valores y su
+significado son únicos:
 
 | Motor de flota | App abierta | App cerrada |
 |---|---|---|
@@ -710,7 +745,33 @@ aplican todos los equipos:
   sin copia, los valores por defecto. El servicio nativo también persiste
   wake/idioma/motor y los lee si el sistema lo reinicia.
 - Un cambio manual en **Ajustes → Avanzado** (solo `super_admin`) se respeta
-  hasta el próximo cambio de flota.
+  hasta el próximo cambio de flota **o del propio equipo**.
+
+### Por equipo: `voz_config_dispositivo`
+
+El motor depende del aparato (RAM, modelo Vosk descargado, si tiene
+`SpeechRecognizer`), así que cada equipo puede pisar **motor, idioma y palabra
+clave**. Lo que **no** se puede pisar por equipo: retención y captura de
+diagnóstico (son política y deben ser consistentes en el panel).
+
+- Tabla `voz_config_dispositivo` (una fila por equipo, `onDelete: cascade`).
+  Un campo en `NULL` **hereda de la flota**; todo en `NULL` la vuelve a heredar
+  entera (la fila se vacía pero se conserva: es la marca de versión que hace que
+  el aparato reaplique).
+- `GET /api/voz/config` resuelve flota + override con el `x-dispositivo-id` y
+  devuelve además `origen` (`flota` | `dispositivo`), `versionFlota` y
+  `versionDispositivo`. La `version` que viaja es `flota * 10000 + equipo`, para
+  que el APK ya instalado siga comparando un solo número.
+- `PATCH /api/admin/dispositivos/:id/voz` cambia el override de un equipo;
+  `PATCH /api/admin/dispositivos/voz-puesto` lo aplica a **todos** los equipos de
+  un puesto (o lo limpia). Un equipo que se agregue al puesto después hereda la
+  flota: se vuelve a aplicar en dos toques.
+- El cambio se aplica en el próximo sync del equipo y, si está abierto, en
+  caliente por `ACTION_CONFIGURAR` del servicio nativo.
+- **Telemetría**: el APK reporta en `POST /api/sync/estado` el motor con el que
+  está escuchando (`vozMotor`) y si tiene Vosk (`vozVosk`) y STT del sistema
+  (`vozStt`). El panel deshabilita lo imposible y avisa cuando la preferencia no
+  es lo que el aparato está usando (fallback).
 - **Retención**: la tarea `voz:retencion` usa `retencionDias` para los fallos y
   `retencionAciertosDias` para los aciertos; el botón **Depurar ahora** del panel
   aplica la misma política. Se conservan los eventos con 3+ intentos y las

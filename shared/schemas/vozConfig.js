@@ -54,3 +54,30 @@ export const vozConfigSchema = z.object({
     )
     .default(7)
 }).strict()
+
+/**
+ * Override de voz de un equipo (panel `/admin/dispositivos`).
+ *
+ * `null` = hereda de la flota. Se pueden pisar motor, idioma y palabra clave;
+ * la retención y la captura de diagnóstico son política de flota y no entran
+ * aquí a propósito.
+ */
+export const vozConfigDispositivoSchema = z
+  .object({
+    motor: z.enum(MOTORES_VOZ).nullish(),
+    idioma: z.enum(IDIOMAS_VOZ_FLOTA).nullish(),
+    wake: z
+      .string()
+      .trim()
+      .min(3, 'La palabra clave es demasiado corta.')
+      .max(40, 'La palabra clave es demasiado larga.')
+      .transform(normalizarWake)
+      .refine(esWakeValido, 'La palabra clave necesita al menos dos palabras y solo letras.')
+      .nullish()
+  })
+  .strict()
+
+/** Mismo override aplicado de una vez a todos los equipos de un puesto. */
+export const vozConfigPuestoSchema = vozConfigDispositivoSchema.extend({
+  puestoId: z.string().uuid('Puesto inválido.')
+})

@@ -18,29 +18,36 @@ import android.widget.RemoteViews;
  * - Con la app abierta el dictado lo lleva el dock, así que el toque abre la
  *   app en modo voz (no se abren dos micrófonos a la vez).
  *
- * El widget no puede animar sus vistas (RemoteViews): la animación vive en la
- * ventana de la onda, que es donde tiene sentido.
+ * La tarjeta y los toques se arman acá; la onda de fondo la empuja `WidgetVoz`
+ * desde el servicio (RemoteViews no anima vistas propias, pero sí cambia
+ * imágenes).
  */
 public class VoiceWidgetProvider extends AppWidgetProvider {
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
-        for (int appWidgetId : appWidgetIds) {
-            RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_voice);
-            PendingIntent pi = crearIntento(context);
-
-            // Toda la tarjeta es el botón: un solo control, un solo toque.
-            views.setOnClickPendingIntent(R.id.widgetVozRaiz, pi);
-            views.setOnClickPendingIntent(R.id.widgetVozIcono, pi);
-            views.setOnClickPendingIntent(R.id.widgetVozTextos, pi);
-            views.setOnClickPendingIntent(R.id.widgetVozTitulo, pi);
-            views.setOnClickPendingIntent(R.id.widgetVozSubtitulo, pi);
-
-            appWidgetManager.updateAppWidget(appWidgetId, views);
-        }
+        // En reposo y con los toques recién puestos: la onda aparece cuando se
+        // dicta y la pinta el servicio. `forzar` porque el launcher pudo haber
+        // vaciado el widget al reactivarlo.
+        WidgetVoz.reposo(context, true);
     }
 
-    private PendingIntent crearIntento(Context context) {
+    /** Tarjeta completa con el toque único que la abre. */
+    static RemoteViews vistas(Context context) {
+        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_voice);
+        PendingIntent pi = crearIntento(context);
+
+        // Toda la tarjeta es el botón: un solo control, un solo toque.
+        views.setOnClickPendingIntent(R.id.widgetVozRaiz, pi);
+        views.setOnClickPendingIntent(R.id.widgetVozFila, pi);
+        views.setOnClickPendingIntent(R.id.widgetVozIcono, pi);
+        views.setOnClickPendingIntent(R.id.widgetVozTextos, pi);
+        views.setOnClickPendingIntent(R.id.widgetVozTitulo, pi);
+        views.setOnClickPendingIntent(R.id.widgetVozSubtitulo, pi);
+        return views;
+    }
+
+    private static PendingIntent crearIntento(Context context) {
         if (MainActivity.visible) {
             // `t` (epoch ms) hace única cada actualización: con una URL fija
             // Android reutilizaba el PendingIntent y el segundo toque podía

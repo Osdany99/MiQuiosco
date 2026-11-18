@@ -15,12 +15,19 @@ const AFIRMATIVAS = new Set([
   'si claro',
   'si senor',
   'si senora',
+  'si dale',
+  'si esta bien',
+  'si asi es',
+  'si correcto',
+  'si exacto',
   'claro',
   'claro que si',
+  'por supuesto',
   'vale',
   'ok',
   'okay',
   'dale',
+  'dale pues',
   'adelante',
   'correcto',
   'confirmo',
@@ -30,26 +37,45 @@ const AFIRMATIVAS = new Set([
   'asi es',
   'de acuerdo',
   'perfecto',
-  'listo'
+  'listo',
+  'anotala',
+  'anotelo'
 ])
 
 const NEGATIVAS = new Set([
   'no',
   'no por favor',
   'no gracias',
+  'no senor',
+  'no senora',
+  'no asi',
+  'no asi no',
   'mejor no',
   'asi no',
+  'negativo',
   'cancela',
+  'cancela eso',
   'cancelar',
   'espera',
+  'esperate',
   'detente',
   'para',
-  'nada'
+  'nada',
+  'dejalo',
+  'dejala'
 ])
 
 // Palabras que pueden acompañar a un "sí"/"no" sin cambiar el sentido.
-const RELLENO_SI = new Set(['por', 'favor', 'claro', 'senor', 'senora', 'gracias', 'pues', 'que', 'si'])
-const RELLENO_NO = new Set(['por', 'favor', 'gracias', 'espera', 'mejor', 'asi', 'nada', 'cancela', 'cancelar', 'detente', 'para', 'no'])
+const RELLENO_SI = new Set([
+  'por', 'favor', 'claro', 'senor', 'senora', 'gracias', 'pues', 'que', 'si',
+  'dale', 'esta', 'bien', 'todo', 'correcto', 'exacto', 'asi', 'es', 'eso',
+  'perfecto', 'listo', 'adelante', 'supuesto'
+])
+const RELLENO_NO = new Set([
+  'por', 'favor', 'gracias', 'espera', 'esperate', 'mejor', 'asi', 'nada',
+  'cancela', 'cancelar', 'detente', 'para', 'no', 'senor', 'senora', 'dejalo',
+  'dejala', 'eso', 'negativo'
+])
 
 function tokens(texto) {
   const salida = []
@@ -62,18 +88,45 @@ function tokens(texto) {
   return salida
 }
 
+/** Primeras palabras que abren una afirmación ("sí, claro"; "dale, pues"). */
+const INICIO_SI = new Set([
+  'si', 'claro', 'vale', 'ok', 'okay', 'dale', 'correcto', 'exacto', 'confirmo',
+  'confirmar', 'adelante', 'perfecto', 'listo', 'anotala', 'anotelo'
+])
+
+/**
+ * Primeras palabras que abren una negación. «mejor» solo niega al inicio
+ * («mejor no»): en medio de la frase no decide nada.
+ */
+const INICIO_NO = new Set([
+  'no', 'cancela', 'cancelar', 'espera', 'esperate', 'detente', 'para', 'nada',
+  'negativo', 'dejalo', 'dejala'
+])
+
+/**
+ * Afirmación tolerante al STT: la primera palabra es un «sí» y el resto es
+ * relleno conocido. "sí señor", "sí, está bien" y "dale, pues" confirman; "sí
+ * pero no" no (el «pero» rompe la regla, igual que antes).
+ */
 export function esAfirmacion(texto) {
   const t = tokens(texto)
   if (!t.length) return false
   if (AFIRMATIVAS.has(t.join(' '))) return true
-  return t[0] === 'si' && t.slice(1).every(x => RELLENO_SI.has(x))
+  const arranque = t[0] === 'por' && t[1] === 'supuesto' ? 'por supuesto' : t[0]
+  if (!INICIO_SI.has(arranque)) return false
+  const resto = arranque === 'por supuesto' ? t.slice(2) : t.slice(1)
+  return resto.every(x => RELLENO_SI.has(x))
 }
 
 export function esNegacion(texto) {
   const t = tokens(texto)
   if (!t.length) return false
   if (NEGATIVAS.has(t.join(' '))) return true
-  return t[0] === 'no' && t.slice(1).every(x => RELLENO_NO.has(x))
+  if (t[0] === 'mejor') {
+    return t.slice(1).every(x => RELLENO_NO.has(x) || x === 'no')
+  }
+  if (!INICIO_NO.has(t[0])) return false
+  return t.slice(1).every(x => RELLENO_NO.has(x))
 }
 
 /**

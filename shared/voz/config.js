@@ -144,6 +144,51 @@ export function idiomaParaApp(idioma) {
 }
 
 /**
+ * Override de voz de un equipo: `null` en un campo significa «hereda de la
+ * flota». Es lo que el super_admin edita por dispositivo desde el panel.
+ */
+export const VOZ_OVERRIDE_DEFECTO = Object.freeze({
+  motor: null,
+  idioma: null,
+  wake: null,
+  version: 0
+})
+
+/** Etiqueta legible de un motor de flota (`auto` → «Automático (recomendado)»). */
+export function etiquetaMotor(motor) {
+  return MOTORES_FLOTA.find(o => o.id === motor)?.label ?? motor ?? '—'
+}
+
+/** Etiqueta legible de un idioma de flota. */
+export function etiquetaIdioma(idioma) {
+  return IDIOMAS_FLOTA.find(o => o.id === idioma)?.label ?? idioma ?? '—'
+}
+
+/**
+ * Normaliza el override de un equipo. Nunca lanza: lo inválido queda en `null`
+ * (heredado). Solo motor, idioma y palabra clave se pueden pisar por equipo; la
+ * retención y la captura de diagnóstico son política de flota.
+ */
+export function normalizarVozOverride(raw) {
+  const datos = raw && typeof raw === 'object' ? raw : {}
+  const motor = MOTORES_VOZ.includes(datos.motor) ? datos.motor : null
+  const idioma = IDIOMAS_VOZ_FLOTA.includes(datos.idioma) ? datos.idioma : null
+  const wake = esWakeValido(datos.wake) ? normalizarWake(datos.wake) : null
+  return {
+    motor,
+    idioma,
+    wake,
+    version: Math.max(0, numeroEntero(datos.version, 0))
+  }
+}
+
+/** ¿El override pisa algo? Si no, la fila sobra (equivale a heredar todo). */
+export function overrideVacio(override) {
+  const o = normalizarVozOverride(override)
+  return o.motor === null && o.idioma === null && o.wake === null
+}
+
+/**
  * Motor efectivo en el servicio con la app cerrada. Vive aquí para que la
  * regla esté documentada en un solo sitio (el nativo la replica con los mismos
  * valores: `sistema` o `vosk`).

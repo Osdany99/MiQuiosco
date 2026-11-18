@@ -9,14 +9,17 @@ import {
 import { entradasLexicoBase } from '#shared/voz/lexico'
 
 export default defineEventHandler(async (event) => {
-  await requireSuperAdmin(event)
+  const auth = await requireSuperAdmin(event)
   const body = await readBody(event).catch(() => ({}))
   const parsed = lexicoEntradaSchema.safeParse(body ?? {})
   if (!parsed.success) {
     throw createError({ statusCode: 400, statusMessage: 'Payload inválido.', data: parsed.error.flatten() })
   }
 
-  const creadoPor = null
+  const creadoPor = auth.usuario?.id ?? null
+  const nota = typeof body?.nota === 'string'
+    ? body.nota.trim().slice(0, 120) || null
+    : null
   const dbActivos = await db.select().from(vozLexico).where(eq(vozLexico.activo, true))
   const efectivo = entradasLexicoBase().concat(
     dbActivos.map(r => ({
@@ -42,7 +45,7 @@ export default defineEventHandler(async (event) => {
     activo: parsed.data.activo ?? true,
     version,
     creadoPor,
-    nota: typeof body?.nota === 'string' ? body.nota : null
+    nota
   }
 
   const [row] = await db

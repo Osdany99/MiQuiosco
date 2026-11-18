@@ -126,7 +126,7 @@ public class VozEscuchaService extends Service {
     // El servicio decide y conversa igual que el dock, pero en vez de tocar la
     // base escribe la venta ya confirmada en `files/voz/inbox`.
 
-    private enum Estado { REPOSO, ESPERANDO_COMANDO, ESPERANDO_ELECCION, ESPERANDO_CONFIRMACION }
+    private enum Estado { REPOSO, ESPERANDO_COMANDO, ESPERANDO_ELECCION, ESPERANDO_CONFIRMACION, ESPERANDO_AYUDA }
 
     private volatile Estado estado = Estado.REPOSO;
     private JSONObject dialogo = new JSONObject();
@@ -162,6 +162,12 @@ public class VozEscuchaService extends Service {
     private String textoDictado = "";
     private float textoDictadoConfianza = 0f;
     private JSONObject snapshotActual = null;
+    /** Léxico administrable del último snapshot (`null` = listas por defecto). */
+    private JSONObject lexicoVigente = null;
+    /** Último grupo de ayuda explicado: «más» continúa por el siguiente. */
+    private String ultimoTemaAyuda = null;
+    /** Tipo de venta del dictado en curso: directa, casa, familiar o regalo. */
+    private String tipoVentaDictada = "directa";
 
     /** Lo último que dijo el TTS; sirve para no transcribir su propio eco. */
     private String ultimaFrase = "";
@@ -376,11 +382,20 @@ public class VozEscuchaService extends Service {
         }
         pausado = false;
         // El widget abre la escucha sin frase de activación: la primera frase
-        // que se oiga ya es el comando.
+        // que se oiga ya es el comando. Se anuncia el mismo prompt que con «oye
+        // nova» para que el jefe sepa que el micrófono ya está escuchando.
         if (intent != null && intent.getBooleanExtra(EXTRA_DIRECTO, false)) {
             directoPendiente = true;
+            // Si el jefe pulsa el widget y no dicta, la próxima frase del
+            // mostrador no puede convertirse en comando minutos después.
+            programarCaducidadDirecto(30000L);
             actualizarNotificacion("Dictando venta al almacén");
-            mostrarOnda("Escuchando…");
+            String prompt = dialogo.optString("prompt", "¿Qué puedo hacer por ti?");
+            if (prompt == null || prompt.isEmpty()) prompt = "¿Qué puedo hacer por ti?";
+            mostrarOnda(prompt);
+            comenzarEscucha();
+            hablar(prompt, this::continuarEscucha);
+            return START_STICKY;
         }
         comenzarEscucha();
         return START_STICKY;
@@ -591,6 +606,10 @@ public class VozEscuchaService extends Service {
 
         String texto = parcial == null ? "" : parcial.trim();
         VozOnda.publicar(nivel, texto, VozOnda.MODO_ESCUCHANDO);
+        // La onda del widget la pinta el servicio, y solo con un dictado en
+        // curso: la escucha de «oye nova» dura todo el día y no debe animar.
+        if (estado == Estado.REPOSO) WidgetVoz.detener(this);
+        else WidgetVoz.seguir(this);
 
         // Durante la confirmación manda el texto del diálogo, no el parcial.
         if (estado == Estado.ESPERANDO_CONFIRMACION || estado == Estado.ESPERANDO_ELECCION) return;
@@ -800,6 +819,7 @@ public class VozEscuchaService extends Service {
         pararVosk();
         liberarWakelock();
         ocultarOnda();
+        WidgetVoz.detener(this);
     }
 
     // ── Escucha offline (Vosk) ────────────────────────────────────────────
@@ -952,6 +972,11 @@ public class VozEscuchaService extends Service {
         String comando = quitarFraseDeActivacion(limpio);
         boolean traeFrase = comando != null;
         String contenido = (traeFrase ? comando : limpio).trim();
+        // Venía de «oye nova», del widget o de un «¿qué puedo hacer?»: si no se
+        // entiende, hay que decirlo en vez de quedarse callado. La charla del
+        // mostrador (sin invocación) sigue ignorándose.
+        boolean invocado = traeFrase || directoPendiente || estado == Estado.ESPERANDO_COMANDO
+            || estado == Estado.ESPERANDO_AYUDA;
 
         // Volver a decir la frase reinicia el diálogo: sirve para salir de un
         // menú o de una confirmación sin tener que acertar la palabra.
@@ -968,21 +993,25 @@ public class VozEscuchaService extends Service {
                 resolverEleccion(contenido);
                 return;
             case ESPERANDO_COMANDO:
-                procesarComando(contenido, confianza);
+                procesarComando(contenido, confianza, invocado);
+                return;
+            case ESPERANDO_AYUDA:
+                resolverTemaAyuda(contenido);
                 return;
             default:
                 break;
         }
 
         if (traeFrase) {
-            procesarComando(contenido, confianza);
+            procesarComando(contenido, confianza, invocado);
             return;
         }
         // Dictado desde el widget: no hay frase de activación que esperar, la
         // primera frase oída ya es el comando.
         if (directoPendiente) {
             directoPendiente = false;
-            procesarComando(contenido, confianza);
+            handler.removeCallbacks(caducidadDirecto);
+            procesarComando(contenido, confianza, invocado);
             return;
         }
         // Charla del mostrador que no empieza con la frase: se ignora (antes se
@@ -992,6 +1021,14 @@ public class VozEscuchaService extends Service {
 
     /** La frase de activación sola: preguntar qué quiere y escuchar. */
     private void empezarDialogo() {
+        // Reiniciar el diálogo también descarta un dictado directo y cualquier
+        // estado de fiado/cobro que hubiera quedado a medias.
+        directoPendiente = false;
+        handler.removeCallbacks(caducidadDirecto);
+        clientePendiente = null;
+        cobroPendiente = null;
+        productoPendiente = null;
+        candidatosPendientes.clear();
         estado = Estado.ESPERANDO_COMANDO;
         programarCaducidad(Estado.ESPERANDO_COMANDO, tiempo("comando", 8000));
         String prompt = dialogo.optString("prompt", "¿Qué puedo hacer por ti?");
@@ -1008,10 +1045,26 @@ public class VozEscuchaService extends Service {
         Estado esperado = estadoEnEspera;
         if (esperado == null || estado != esperado) return;
         estado = Estado.REPOSO;
-        if (esperado != Estado.ESPERANDO_COMANDO) {
+        // La ayuda y el «¿qué puedo hacer?» se apagan en silencio: nadie pidió
+        // que se anotara nada, así que no hay nada que lamentar.
+        if (esperado != Estado.ESPERANDO_COMANDO && esperado != Estado.ESPERANDO_AYUDA) {
             hablar(frase("noAnotada"), this::continuarEscucha);
         }
     };
+
+    /** El dictado del widget caduca si nadie habla: no puede quedar armado para siempre. */
+    private final Runnable caducidadDirecto = () -> {
+        if (!directoPendiente) return;
+        directoPendiente = false;
+        if (estado == Estado.REPOSO) programarCierreOnda();
+    };
+
+    /** Arma (o cancela, con `ms <= 0`) el vencimiento del dictado directo. */
+    private void programarCaducidadDirecto(long ms) {
+        handler.removeCallbacks(caducidadDirecto);
+        if (ms <= 0) return;
+        handler.postDelayed(caducidadDirecto, ms);
+    }
 
     private void programarCaducidad(Estado esperado, long ms) {
         handler.removeCallbacks(caducidad);
@@ -1023,11 +1076,24 @@ public class VozEscuchaService extends Service {
      * El comando dictado: consulta, o venta con su decisión de stock.
      * Lo que no es ninguna de las dos cosas se ignora en silencio.
      */
-    private void procesarComando(String texto, float confianza) {
+    private void procesarComando(String texto, float confianza, boolean invocado) {
         estado = Estado.REPOSO;
         handler.removeCallbacks(caducidad);
+        // Un comando nuevo no hereda nada de un diálogo anterior a medias: si
+        // no, «vende 2 panes» tras un fiado abandonado se confirmaba como fiado
+        // con el cliente viejo.
+        handler.removeCallbacks(caducidadDirecto);
+        clientePendiente = null;
+        cobroPendiente = null;
+        productoPendiente = null;
+        candidatosPendientes.clear();
+        // El léxico administrable vive en la foto: se relee en cada comando para
+        // que un cambio del panel aplique también con la app cerrada (la app
+        // reescribe el snapshot al abrirse).
+        snapshotActual = leerSnapshot();
         if (texto == null || texto.length() < 2) {
-            continuarEscucha();
+            if (invocado) hablar(frase("noTeEntendi"), this::continuarEscucha);
+            else continuarEscucha();
             return;
         }
 
@@ -1038,14 +1104,14 @@ public class VozEscuchaService extends Service {
             hablar(ultima != null ? ultima : frase("nadaQueRepetir"), this::continuarEscucha);
             return;
         }
-        if (RepeticionVoz.pideAyuda(texto)) {
-            hablar(frase("ayuda"), this::continuarEscucha);
+        if (AyudaVoz.pideAyuda(texto, dialogo.optJSONObject("ayuda"))) {
+            empezarAyuda(texto);
             return;
         }
 
         // 0) Cobro de deuda: va antes de las consultas porque «cobra la deuda de
         // Juan» también contiene «deuda» y, sin esto, se respondería como consulta.
-        IntencionCobro.Intencion cobroLeido = IntencionCobro.leer(texto, intencion);
+        IntencionCobro.Intencion cobroLeido = IntencionCobro.leer(texto, intencion, lexicoVigente);
         if (cobroLeido.tipo == IntencionCobro.Tipo.COBRO
             || cobroLeido.tipo == IntencionCobro.Tipo.SIN_CLIENTE) {
             procesarCobro(cobroLeido, texto, confianza);
@@ -1070,7 +1136,10 @@ public class VozEscuchaService extends Service {
         // 3) ¿Es una venta? Sin verbo de venta no se toca nada.
         IntencionVenta.Intencion leida = intencion.leer(texto);
         if (leida.tipo == IntencionVenta.Tipo.NO_VENTA) {
-            continuarEscucha();
+            // Se le habló al jefe (palabra clave o widget): callar lo dejaba sin
+            // saber si el micrófono lo había escuchado.
+            if (invocado) hablar(frase("noTeEntendi"), this::continuarEscucha);
+            else continuarEscucha();
             return;
         }
 
@@ -1082,6 +1151,8 @@ public class VozEscuchaService extends Service {
 
         cantidadDictada = Math.max(1, leida.cantidad);
         ubicacionDictada = "almacen".equals(leida.ubicacion) ? "almacen" : "quiosco";
+        // Casa/familiar/regalo cambian el precio al aplicar la venta en la app.
+        tipoVentaDictada = leida.tipoVenta;
 
         if (leida.varios) {
             hablar(frase("unoPorVez"), this::continuarEscucha);
@@ -1110,6 +1181,103 @@ public class VozEscuchaService extends Service {
         }
 
         decidirVenta(candidatos.get(0).producto, cantidadDictada, ubicacionDictada);
+    }
+
+    /**
+     * Ayuda en capas con la app cerrada: el mapa y la pregunta, y después el
+     * grupo pedido. El menú deja el estado en ESPERANDO_AYUDA para que la
+     * respuesta se atienda sin repetir «oye nova».
+     */
+    private void empezarAyuda(String texto) {
+        JSONObject ayuda = dialogo.optJSONObject("ayuda");
+        if (ayuda == null) {
+            // APK viejo sin catálogo: la frase corta de siempre.
+            hablar(frase("ayuda"), this::continuarEscucha);
+            return;
+        }
+
+        String tema = AyudaVoz.tema(texto, ayuda);
+        JSONObject grupo = resolverGrupoAyuda(ayuda, tema);
+        if (grupo != null) {
+            hablarGrupoAyuda(grupo);
+            return;
+        }
+        if ("todo".equals(tema)) {
+            hablarTodoAyuda(ayuda);
+            return;
+        }
+        // Pidió algo que con la app cerrada no existe: se dice en vez de
+        // explicarlo y fallar después.
+        boolean fueraDeAlcance = tema != null && !"mas".equals(tema);
+        hablarMenuAyuda(ayuda, fueraDeAlcance ? "Eso necesita la app abierta." : "");
+    }
+
+    /** Grupo pedido y disponible con la app cerrada; `null` si no toca. */
+    private JSONObject resolverGrupoAyuda(JSONObject ayuda, String tema) {
+        JSONObject grupo = "mas".equals(tema)
+            ? AyudaVoz.siguiente(ayuda, ultimoTemaAyuda)
+            : AyudaVoz.grupo(ayuda, tema);
+        if (grupo == null) return null;
+        return AyudaVoz.disponible(ayuda, "cerrada", grupo.optString("id", "")) ? grupo : null;
+    }
+
+    private void hablarGrupoAyuda(JSONObject grupo) {
+        ultimoTemaAyuda = grupo.optString("id", null);
+        hablar(grupo.optString("texto", frase("ayuda")), this::continuarEscucha);
+    }
+
+    private void hablarTodoAyuda(JSONObject ayuda) {
+        String todos = AyudaVoz.todo(ayuda);
+        hablar(todos == null ? frase("ayuda") : todos, this::continuarEscucha);
+    }
+
+    /** Capa 1: lo que sabe hacer y la pregunta. Después escucha el tema. */
+    private void hablarMenuAyuda(JSONObject ayuda, String aviso) {
+        JSONObject menus = ayuda.optJSONObject("menus");
+        JSONObject cerrada = menus == null ? null : menus.optJSONObject("cerrada");
+        String intro = cerrada == null ? "" : cerrada.optString("intro", "").trim();
+        String pregunta = cerrada == null ? "" : cerrada.optString("pregunta", "").trim();
+        String saludo = ((aviso == null ? "" : aviso) + " " + intro + " " + pregunta).trim();
+        if (saludo.isEmpty()) saludo = frase("ayuda");
+
+        estado = Estado.ESPERANDO_AYUDA;
+        mostrarOnda(saludo);
+        hablar(saludo, () -> {
+            // La ventana del tema cuenta desde que termina el anuncio, igual
+            // que el «sí» de una venta.
+            programarCaducidad(Estado.ESPERANDO_AYUDA, tiempo("comando", 8000));
+            continuarEscucha();
+        });
+    }
+
+    /**
+     * Respuesta al menú de ayuda. Si nombró un tema se explica; si dijo un
+     * comando se atiende («ayuda» y luego «vende dos panes» es normal); si no
+     * se entendió, `procesarComando` lo dice en voz alta.
+     */
+    private void resolverTemaAyuda(String texto) {
+        handler.removeCallbacks(caducidad);
+        estado = Estado.REPOSO;
+        JSONObject ayuda = dialogo.optJSONObject("ayuda");
+        if (ayuda == null) {
+            procesarComando(texto, 0.9f, true);
+            return;
+        }
+        String tema = AyudaVoz.tema(texto, ayuda);
+        JSONObject grupo = resolverGrupoAyuda(ayuda, tema);
+        if (grupo != null) {
+            hablarGrupoAyuda(grupo);
+            return;
+        }
+        if ("todo".equals(tema)) {
+            hablarTodoAyuda(ayuda);
+            return;
+        }
+        if (tema != null && !"mas".equals(tema)) {
+            hablarMenuAyuda(ayuda, "Eso necesita la app abierta.");
+            return;
+        }
+        procesarComando(texto, 0.9f, true);
     }
 
     /**
@@ -1156,6 +1324,8 @@ public class VozEscuchaService extends Service {
 
         cantidadDictada = Math.max(1, leida.cantidad);
         ubicacionDictada = "quiosco".equals(leida.ubicacion) ? "quiosco" : "almacen";
+        // Un fiado siempre es venta directa (no hay precio de casa/regalo).
+        tipoVentaDictada = "directa";
         clientePendiente = parecidos.get(0);
 
         List<Candidato> candidatos = buscarCandidatos(productos, leida.producto, maxCandidatos);
@@ -1317,6 +1487,10 @@ public class VozEscuchaService extends Service {
         }
 
         if (elegido == null) {
+            // Sin elección no queda nada a medias: el cliente del fiado que
+            // abrió el menú no debe reaparecer en el próximo comando.
+            candidatosPendientes.clear();
+            clientePendiente = null;
             hablar(frase("noAnotada"), this::continuarEscucha);
             return;
         }
@@ -1619,14 +1793,24 @@ public class VozEscuchaService extends Service {
 
     private JSONObject leerSnapshot() {
         File f = new File(getFilesDir(), "voz/snapshot.json");
-        if (!f.exists()) return null;
+        if (!f.exists()) {
+            lexicoVigente = null;
+            return null;
+        }
         try (FileInputStream in = new FileInputStream(f)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            return new JSONObject(new String(out.toByteArray(), StandardCharsets.UTF_8));
+            JSONObject snap = new JSONObject(new String(out.toByteArray(), StandardCharsets.UTF_8));
+            // El panel de superadmin manda: los verbos administrables llegan en
+            // la foto y sustituyen las listas fijas de `dialogo.json`.
+            lexicoVigente = snap.optJSONObject("lexico");
+            intencion.aplicarLexico(lexicoVigente);
+            intencionFiado.aplicarLexico(lexicoVigente);
+            return snap;
         } catch (Exception e) {
+            lexicoVigente = null;
             return null;
         }
     }
@@ -1680,7 +1864,8 @@ public class VozEscuchaService extends Service {
             || frase.contains("stock")
             || frase.contains("queda")
             || frase.contains("quedan")
-            || frase.contains("hay");
+            // «hay que vender dos panes» no es una consulta de stock.
+            || (frase.contains("hay") && !frase.contains("hay que"));
 
         if (!pideResumen && !pidePrecio && !pideStock && !pideGanancia) return null;
 
@@ -1735,8 +1920,11 @@ public class VozEscuchaService extends Service {
             return "No encontré ese producto en la lista";
         }
         String nombre = producto.optString("nombre", "ese producto");
+        // Un stock de hace días no es el de ahora: se dice en la respuesta en
+        // vez de dar una cifra que parece recién contada.
+        String antiguedad = antiguedadSnapshot(snap);
         if (pidePrecio) {
-            return nombre + " cuesta " + formatearNumero(producto.optDouble("precio", 0)) + " pesos";
+            return nombre + " cuesta " + formatearNumero(producto.optDouble("precio", 0)) + " pesos" + antiguedad;
         }
         // Con dictados sin revisar el stock no es fiable: dos frases seguidas
         // podrían estar prometiendo las mismas unidades. Se dice la verdad en
@@ -1752,7 +1940,17 @@ public class VozEscuchaService extends Service {
         if (producto.has("precio")) {
             resp += ". A " + formatearNumero(producto.optDouble("precio", 0)) + " pesos";
         }
-        return resp;
+        return resp + antiguedad;
+    }
+
+    /** " El dato es de hace N días." si la foto tiene más de un día. */
+    private static String antiguedadSnapshot(JSONObject snap) {
+        long generado = snap == null ? 0 : snap.optLong("generadoEn", 0);
+        if (generado <= 0) return "";
+        long horas = (System.currentTimeMillis() - generado) / (60L * 60L * 1000L);
+        if (horas < 24) return "";
+        long dias = horas / 24;
+        return " El dato es de hace " + dias + (dias == 1 ? " día." : " días.");
     }
 
     /** Dictados que el servicio dejó en el buzón y la app aún no ha recogido. */
@@ -1907,12 +2105,19 @@ public class VozEscuchaService extends Service {
             continuarEscucha();
             return;
         }
-        boolean ok = true;
+        int escritos = 0;
         for (IntencionCobro.Pago pago : cobro.pagos) {
-            if (!anotarCobro(cobro.cliente, pago, cobro.formaPago)) ok = false;
+            if (anotarCobro(cobro.cliente, pago, cobro.formaPago)) escritos++;
         }
-        if (!ok) {
+        if (escritos == 0) {
             hablar(frase("noAnotada"), this::continuarEscucha);
+            return;
+        }
+        // Un cobro repartido en varias deudas puede quedar a medias: decir
+        // «no la anoté» con pagos ya escritos era mentir al jefe.
+        if (escritos < cobro.pagos.size()) {
+            hablar("Anoté " + escritos + " de " + cobro.pagos.size()
+                + " pagos. El resto no se pudo anotar.", this::continuarEscucha);
             return;
         }
         if (cobro.restante > 0) {
@@ -1943,7 +2148,8 @@ public class VozEscuchaService extends Service {
             o.put("precioUnitario", precio);
             o.put("importe", importe);
             o.put("ubicacion", "almacen".equals(ubicacion) ? "almacen" : "quiosco");
-            o.put("tipoVenta", "directa");
+            o.put("tipoVenta", "casa".equals(tipoVentaDictada) || "familiar".equals(tipoVentaDictada)
+                || "regalo".equals(tipoVentaDictada) ? tipoVentaDictada : "directa");
             if (cliente != null) {
                 // Fiado: la app creará una deuda directa, no una venta.
                 o.put("tipo", "deuda");
@@ -2119,6 +2325,9 @@ public class VozEscuchaService extends Service {
         // Se guarda para distinguir el eco del TTS de una respuesta real.
         ultimaFrase = frase == null ? "" : frase;
         VozOnda.publicar(0.4f, ultimaFrase, VozOnda.MODO_HABLANDO);
+        // Si el dictado arranca con la voz del TTS (antes de que hable el
+        // jefe), la onda del widget ya tiene que estar viva.
+        WidgetVoz.seguir(this);
         // El micrófono se silencia mientras habla: si no, el reconocedor
         // transcribe el propio aviso y lo anota como si fuera una venta.
         ttsHablando = true;

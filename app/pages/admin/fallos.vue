@@ -18,7 +18,6 @@ const filtros = ref({
 })
 
 const filas = ref([])
-const totalRegistros = ref(0)
 const cargando = ref(false)
 const errorCarga = ref(null)
 const puestos = ref([])
@@ -80,7 +79,6 @@ async function cargar() {
       limit: 200
     })
     filas.value = resultado.fallos
-    totalRegistros.value = resultado.total
   } catch (err) {
     errorCarga.value = err.message
   } finally {
@@ -102,6 +100,11 @@ onMounted(() => {
 })
 
 watch(filtros, cargar, { deep: true })
+
+/** «Restablecer» de la tabla: vuelve a los filtros de entrada. */
+function reiniciarFiltros() {
+  filtros.value = { puestoId: 'todos', estado: 'abierto', tipo: 'todos', tabla: 'todos' }
+}
 
 // --- Detalle y resolución ---
 const dialogoDetalle = ref(false)
@@ -155,10 +158,6 @@ async function cambiarEstado() {
     leading-icon="i-lucide-triangle-alert"
     :show-button="false"
   >
-    <template #trailing>
-      <span class="text-sm text-muted">{{ totalRegistros }} fallos</span>
-    </template>
-
     <UAlert
       v-if="errorCarga"
       color="error"
@@ -173,7 +172,9 @@ async function cambiarEstado() {
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
+      :disable-filters="true"
       empty-state="No hay fallos que coincidan"
+      @reset="reiniciarFiltros"
       @reload="cargar"
     >
       <template #toolbar-leading>

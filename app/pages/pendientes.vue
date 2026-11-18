@@ -114,7 +114,8 @@ function estaVencida(accion) {
 }
 
 function puedeRegistrar(accion) {
-  return puedeAplicar(accion) && !estaVencida(accion)
+  // `puedeAplicar` ya incluye la caducidad: repetirla aquí era redundante.
+  return puedeAplicar(accion)
 }
 
 /** Toast común + refresco del stock y del snapshot que lee el servicio. */

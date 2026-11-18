@@ -7,6 +7,7 @@ import { useAccionesPendientes } from './useAccionesPendientes'
 import { useLocalRepo } from './useLocalRepo'
 import { useModoConexion } from './useModoConexion'
 import { useRemoteRepo } from './useRemoteRepo'
+import { useVozLexico } from './useVozLexico'
 import { construirSnapshot, inicioDelDia } from '../utils/voice/snapshot'
 import { resumirDia } from '#shared/voz/dia'
 
@@ -26,6 +27,7 @@ export function useVozSnapshot() {
   const inv = useInventario()
   const acciones = useAccionesPendientes()
   const conexion = useModoConexion()
+  const vozLexico = useVozLexico()
   const ventasRepo = computed(() => (
     conexion.modo.value === 'online'
       ? useRemoteRepo(TABLES.ventas_directas)
@@ -67,6 +69,7 @@ export function useVozSnapshot() {
       ventas: ventas ?? [],
       cuentas: cuentas ?? [],
       clientes: clientes ?? [],
+      lexico: vozLexico.lexico.value,
       ahora
     })
   }
@@ -124,17 +127,35 @@ export function useVozSnapshot() {
    * inventario entero.
    */
   async function resumenDelDia(ahora = Date.now()) {
-    const [ventas] = await Promise.all([
+    const [ventas, dictados] = await Promise.all([
       ventasRepo.value
         .readAll({ query: { desde: new Date(inicioDelDia(ahora)).toISOString() } })
-        .catch(() => [])
+        .catch(() => []),
+      // Lo dictado con la app cerrada aún no está en la cola: el servicio lo
+      // cuenta para no mentir y aquí se hace igual.
+      contarDictadosEnBuzon()
     ])
     await acciones.cargar().catch(() => {})
     return resumirDia({
       ventas: ventas ?? [],
       acciones: acciones.pendientes.value,
+      dictados,
       ahora
     })
+  }
+
+  /** Dictados del servicio que todavía no ha recogido la app. */
+  async function contarDictadosEnBuzon() {
+    if (!Capacitor.isNativePlatform()) return 0
+    try {
+      const listado = await Filesystem.readdir({ path: 'voz/inbox', directory: Directory.Data })
+      return (listado?.files ?? [])
+        .map(f => (typeof f === 'string' ? f : f?.name))
+        .filter(n => typeof n === 'string' && n.endsWith('.json'))
+        .length
+    } catch {
+      return 0
+    }
   }
 
   return { actualizar, leer, construir, resumenDelDia }

@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Test;
 
 /**
@@ -14,6 +16,32 @@ import org.junit.Test;
 public class IntencionVentaTest {
 
     private final IntencionVenta lector = IntencionVenta.porDefecto();
+
+    @Test
+    public void reconoceElTipoDeVenta() {
+        assertEquals("regalo", lector.leer("vende dos panes de regalo").tipoVenta);
+        assertEquals("familiar", lector.leer("vende un refresco familiar").tipoVenta);
+        assertEquals("casa", lector.leer("vende tres panes para la casa").tipoVenta);
+        assertEquals("directa", lector.leer("vende dos panes").tipoVenta);
+        // El tipo no se queda pegado al nombre del producto.
+        assertEquals("panes", lector.leer("vende dos panes de regalo").producto);
+        assertEquals("panes", lector.leer("vende tres panes para la casa").producto);
+    }
+
+    @Test
+    public void elLexicoDelPanelSustituyeLosVerbos() throws Exception {
+        IntencionVenta conLexico = IntencionVenta.porDefecto();
+        // Antes del léxico, «liquida» no se entiende.
+        assertEquals(IntencionVenta.Tipo.NO_VENTA, conLexico.leer("liquida dos panes").tipo);
+
+        JSONObject lexico = new JSONObject();
+        lexico.put("ventaFuerte", new JSONArray(java.util.Arrays.asList("liquida")));
+        conLexico.aplicarLexico(lexico);
+
+        assertEquals(IntencionVenta.Tipo.VENTA, conLexico.leer("liquida dos panes").tipo);
+        // La lista del panel es la efectiva: «vende» quedó fuera.
+        assertEquals(IntencionVenta.Tipo.NO_VENTA, conLexico.leer("vende dos panes").tipo);
+    }
 
     @Test
     public void leeVerboCantidadYProducto() {

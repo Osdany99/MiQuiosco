@@ -1,5 +1,6 @@
 package com.myquiosco.app;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.text.Normalizer;
@@ -43,14 +44,21 @@ public final class IntencionVenta {
         public final String ubicacion;
         /** "dos panes y un refresco": se atiende de uno en uno. */
         public final boolean varios;
+        /** "directa" | "casa" | "familiar" | "regalo" (precio distinto en la app). */
+        public final String tipoVenta;
 
         Intencion(Tipo tipo, String texto, String producto, int cantidad, String ubicacion, boolean varios) {
+            this(tipo, texto, producto, cantidad, ubicacion, varios, "directa");
+        }
+
+        Intencion(Tipo tipo, String texto, String producto, int cantidad, String ubicacion, boolean varios, String tipoVenta) {
             this.tipo = tipo;
             this.texto = texto;
             this.producto = producto;
             this.cantidad = cantidad;
             this.ubicacion = ubicacion;
             this.varios = varios;
+            this.tipoVenta = tipoVenta == null ? "directa" : tipoVenta;
         }
     }
 
@@ -128,6 +136,28 @@ public final class IntencionVenta {
     }
 
     /**
+     * Sustituye los verbos de venta por los del léxico administrable (llegan
+     * dentro del snapshot). Una lista vacía conserva la de `dialogo.json`.
+     */
+    public void aplicarLexico(JSONObject lexico) {
+        if (lexico == null) return;
+        Set<String> nuevos = new HashSet<>();
+        leerValores(nuevos, lexico.optJSONArray("ventaFuerte"));
+        if (nuevos.isEmpty()) return;
+        verbos.clear();
+        verbos.addAll(nuevos);
+    }
+
+    /** Lee una lista de palabras del léxico ya normalizadas (sin espacios). */
+    static void leerValores(Set<String> destino, JSONArray lista) {
+        if (lista == null) return;
+        for (int i = 0; i < lista.length(); i++) {
+            String valor = lista.optString(i, "");
+            if (!valor.isEmpty()) destino.add(normalizar(valor));
+        }
+    }
+
+    /**
      * Lee la frase. Devuelve `NO_VENTA` si no hay verbo de venta: eso es lo que
      * evita anotar cualquier cosa que se diga cerca del teléfono.
      */
@@ -150,6 +180,8 @@ public final class IntencionVenta {
         // Una venta dictada sale del almacén salvo que se diga el quiosco.
         String ubicacion = "almacen";
         boolean varios = false;
+        // Tipo de venta: casa/familiar/regalo cambian el precio en la app.
+        String tipoVenta = "directa";
         List<String> producto = new ArrayList<>();
 
         for (int i = indiceVerbo + 1; i < tokens.length; i++) {
@@ -166,6 +198,22 @@ public final class IntencionVenta {
                 varios = true;
                 continue;
             }
+            // «de regalo», «familiar», «para la casa»: se quitan del producto y
+            // se conservan como tipo. La preposición que los acompaña sobra.
+            if ("regalo".equals(token) || "familiar".equals(token) || "casa".equals(token)) {
+                tipoVenta = token;
+                for (int k = 0; k < 2 && !producto.isEmpty(); k++) {
+                    String previo = producto.get(producto.size() - 1);
+                    if ("de".equals(previo) || "para".equals(previo) || "como".equals(previo)
+                        || "en".equals(previo) || "la".equals(previo)) {
+                        producto.remove(producto.size() - 1);
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if ("normal".equals(token)) continue;
             String ubic = ubicaciones.get(token);
             if (ubic != null) {
                 ubicacion = ubic;
@@ -184,9 +232,9 @@ public final class IntencionVenta {
         }
         String nombre = String.join(" ", producto).trim();
         if (nombre.isEmpty()) {
-            return new Intencion(Tipo.SIN_PRODUCTO, plano, "", cantidad > 0 ? cantidad : 1, ubicacion, varios);
+            return new Intencion(Tipo.SIN_PRODUCTO, plano, "", cantidad > 0 ? cantidad : 1, ubicacion, varios, tipoVenta);
         }
-        return new Intencion(Tipo.VENTA, plano, nombre, cantidad > 0 ? cantidad : 1, ubicacion, varios);
+        return new Intencion(Tipo.VENTA, plano, nombre, cantidad > 0 ? cantidad : 1, ubicacion, varios, tipoVenta);
     }
 
     /** Número escrito en dígitos o en palabras ("2", "dos", "docena"). */

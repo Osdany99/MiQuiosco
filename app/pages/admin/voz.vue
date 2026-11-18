@@ -315,6 +315,19 @@ onMounted(() => {
   if (vista.value === 'confirmaciones') void cargarConfirmaciones()
 })
 watch(filtroEstado, cargar)
+
+/** «Restablecer» de la tabla: vuelve a los filtros de entrada de cada pestaña. */
+function reiniciarFiltrosEventos() {
+  filtroEstado.value = 'abierto'
+}
+
+function reiniciarFiltrosAciertos() {
+  filtroComando.value = 'todos'
+  filtroVentana.value = '7d'
+  // Solo si había texto: asignar '' sobre '' no cambia nada y el `watch`
+  // debounced (350 ms) pediría la lista otra vez sin motivo.
+  if (busquedaTexto.value) busquedaTexto.value = ''
+}
 </script>
 
 <template>
@@ -324,14 +337,6 @@ watch(filtroEstado, cargar)
     leading-icon="i-lucide-mic"
     :show-button="false"
   >
-    <template #trailing>
-      <span class="text-sm text-muted">
-        <template v-if="vista === 'fallos'">{{ filas.length }} eventos</template>
-        <template v-else-if="vista === 'aciertos'">{{ aciertos.length }} aciertos</template>
-        <template v-else>{{ confirmaciones.length }} confirmaciones</template>
-      </span>
-    </template>
-
     <UTabs v-model="vista" :items="itemsVista" class="mb-4 w-full sm:w-96" />
 
     <!-- ------------------------------ Fallos ------------------------------ -->
@@ -366,7 +371,9 @@ watch(filtroEstado, cargar)
         :loading-prop="cargando"
         :show-edit="false"
         :show-delete="false"
+        :disable-filters="true"
         empty-state="No hay eventos de voz que coincidan"
+        @reset="reiniciarFiltrosEventos"
         @reload="cargar"
       >
         <template #toolbar-leading>
@@ -493,7 +500,9 @@ watch(filtroEstado, cargar)
         :loading-prop="cargandoAciertos"
         :show-edit="false"
         :show-delete="false"
+        :disable-filters="true"
         empty-state="No hay aciertos que coincidan"
+        @reset="reiniciarFiltrosAciertos"
         @reload="cargarAciertos"
       >
         <template #toolbar-leading>

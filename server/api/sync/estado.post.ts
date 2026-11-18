@@ -38,13 +38,22 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { pendientes, syncOk, modelo, android } = parsed.data
+  const { pendientes, syncOk, modelo, android, vozMotor, vozVosk, vozStt } = parsed.data
+
+  // Solo se pisan los campos que el equipo reportó: un APK viejo no manda voz
+  // y no debe borrar lo último que se supo de él.
+  const voz = {
+    ...(vozMotor !== undefined ? { vozMotor: vozMotor ?? null } : {}),
+    ...(vozVosk !== undefined ? { vozVosk: vozVosk ?? null } : {}),
+    ...(vozStt !== undefined ? { vozStt: vozStt ?? null } : {})
+  }
 
   const dispositivoId = await actualizarEstadoDispositivo(event, auth.usuario.puestoId, {
     ...(pendientes != null ? { pendientes } : {}),
     syncOk: syncOk === true,
     modelo: modelo ?? null,
-    android: android ?? null
+    android: android ?? null,
+    ...voz
   })
 
   return { ok: true, dispositivo: !!dispositivoId, revocado: false }

@@ -1,54 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Widget de voz: un solo botón que abre el dictado directo al almacén, con la
-  app cerrada y sin decir «oye nova». La animación vive en la ventana de la
-  onda (VozDialogoActivity): un widget no puede animar sus vistas.
+  app cerrada y sin decir «oye nova».
+
+  La onda de fondo la pinta el servicio en un Bitmap y la empuja unas 7 veces
+  por segundo (`WidgetVoz`): RemoteViews no deja animar vistas propias, pero sí
+  cambiar la imagen del widget. En reposo la onda está `gone` y queda el
+  micrófono estático.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widgetVozRaiz"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_voz_fondo"
     android:clickable="true"
     android:focusable="true"
-    android:foreground="@drawable/widget_voz_ripple"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:paddingHorizontal="14dp"
-    android:paddingVertical="10dp">
+    android:foreground="@drawable/widget_voz_ripple">
 
     <ImageView
-        android:id="@+id/widgetVozIcono"
-        android:layout_width="30dp"
-        android:layout_height="30dp"
-        android:contentDescription="@string/widget_voz_descripcion"
-        android:src="@drawable/ic_widget_mic" />
+        android:id="@+id/widgetVozOnda"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:visibility="gone" />
 
     <LinearLayout
-        android:id="@+id/widgetVozTextos"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:id="@+id/widgetVozFila"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="10dp">
 
-        <TextView
-            android:id="@+id/widgetVozTitulo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:text="@string/widget_voz_titulo"
-            android:textColor="#FFFFFFFF"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+        <ImageView
+            android:id="@+id/widgetVozIcono"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:contentDescription="@string/widget_voz_descripcion"
+            android:src="@drawable/ic_widget_mic" />
 
-        <TextView
-            android:id="@+id/widgetVozSubtitulo"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/widgetVozTextos"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:text="@string/widget_voz_subtitulo"
-            android:textColor="#A6FFFFFF"
-            android:textSize="11sp" />
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widgetVozTitulo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/widget_voz_titulo"
+                android:textColor="#FFFFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widgetVozSubtitulo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/widget_voz_subtitulo"
+                android:textColor="#A6FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

@@ -12,7 +12,31 @@ import { proyectarStock } from './pendientes.js'
 import { resumirDeudas } from '../../../shared/voz/deudas.js'
 import { inicioDelDia, resumirDia } from '../../../shared/voz/dia.js'
 
-export const SNAPSHOT_VERSION = 4
+export const SNAPSHOT_VERSION = 5
+
+/**
+ * Léxico efectivo que necesita el servicio con la app cerrada. Solo los verbos
+ * y marcas que el panel de superadmin puede cambiar: el resto de la gramática
+ * (números, artículos, posiciones) sigue fija en el código nativo.
+ */
+function lexicoParaServicio(lexico) {
+  if (!lexico || typeof lexico !== 'object') return null
+  const lista = campo => (Array.isArray(lexico[campo])
+    ? lexico[campo].map(String).filter(Boolean)
+    : [])
+  return {
+    ventaFuerte: lista('ventaFuerte'),
+    fiadoVerbo: lista('fiadoVerbo'),
+    fiadoVentaVerbo: lista('fiadoVentaVerbo'),
+    cobroVerbo: lista('cobroVerbo'),
+    cobroMarca: lista('cobroMarca'),
+    retiradas: Array.isArray(lexico.retiradas)
+      ? lexico.retiradas
+          .filter(r => r?.categoria && r?.valor)
+          .map(r => ({ categoria: String(r.categoria), valor: String(r.valor) }))
+      : []
+  }
+}
 
 // El resumen del día se calcula en `shared/voz/dia.js`: la app abierta y el
 // servicio nativo tienen que decir exactamente lo mismo.
@@ -36,6 +60,7 @@ function numero(valor) {
  * @param {Array} opciones.ventas Ventas directas (para el resumen del día).
  * @param {Array} opciones.cuentas Cuentas fiado (para las consultas de deuda).
  * @param {Array} opciones.clientes Clientes del puesto (nombres de las deudas).
+ * @param {object|null} opciones.lexico Léxico efectivo del panel (verbos).
  * @param {number} opciones.ahora
  */
 export function construirSnapshot({
@@ -45,6 +70,7 @@ export function construirSnapshot({
   ventas = [],
   cuentas = [],
   clientes = [],
+  lexico = null,
   ahora = Date.now()
 } = {}) {
   const proyectadas = proyectarStock(filas, acciones)
@@ -93,6 +119,9 @@ export function construirSnapshot({
     productos,
     deudas,
     clientes: clientesVoz,
+    // Solo las palabras administrables: el servicio nativo las aplica a su
+    // vocabulario en vez de usar la lista fija de `dialogo.json`.
+    lexico: lexicoParaServicio(lexico),
     resumen: {
       ventasHoy: dia.ventasHoy,
       importeHoy: redondear2(dia.importeHoy),

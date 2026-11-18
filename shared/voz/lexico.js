@@ -71,7 +71,7 @@ export const LEXICO_BASE = Object.freeze({
   cuadreCerrar: ['cierra', 'cerrar', 'cierralo', 'cierre']
 })
 
-const CATEGORIA_A_CAMPO = {
+export const CATEGORIA_A_CAMPO = {
   venta_fuerte: 'ventaFuerte',
   venta_debil: 'ventaDebil',
   fiado_verbo: 'fiadoVerbo',

@@ -139,6 +139,20 @@ describe('buzón de voz: acción pendiente', () => {
     assert.equal(doc.motivo, 'interpretacion_dudosa')
   })
 
+  it('el fiado respeta el precio dictado sobre el del catálogo', () => {
+    const doc = pendienteDesdeAccion({
+      tipo: 'fiar',
+      fila: FILA,
+      destino: { ubicacion: 'almacen' },
+      cantidad: 3,
+      cliente: { id: 'c1' },
+      slots: { cantidad: 3, precioUnitario: 15 }
+    }, entrada)
+    assert.equal(doc.tipo, 'deuda')
+    assert.equal(doc.precioUnitario, 15)
+    assert.equal(doc.importe, 45)
+  })
+
   it('un producto no encontrado conserva el dictado sin producto', () => {
     const doc = pendienteDesdeAccion({
       tipo: 'error',
