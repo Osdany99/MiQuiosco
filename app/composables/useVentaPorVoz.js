@@ -38,7 +38,7 @@ import { rangoDeIso } from '#shared/voz/fechas'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
 import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, FRASE_CONFIRMAR, FRASE_AYUDA, FRASE_NADA_QUE_REPETIR } from '../utils/voice/frasesVoz'
-import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
+
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
 import { resolverCambioPrecio, resolverEntradaInventario, resolverTraspaso } from '../utils/voice/resolverAsistido'
 import { agruparPorProducto, segmentarVentaMultiple } from '#shared/voz/multi'
@@ -1186,14 +1186,19 @@ function _create(ubicacion) {
     } catch {
       /* noop */
     }
-    await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+    // Sin espera previa: el arranque del motor ya hace de margen antieco, y así
+    // un «sí» dicho en cuanto termina el anuncio no se pierde.
+    const finAnuncio = Date.now()
     voice.reset()
     const escucha = voice.startListening({
       contexto: { modo: conexion.modo.value, red: hayRed.value }
     }).catch(() => {})
+    // La ventana de los 6 s cuenta desde que el micrófono escucha de verdad.
+    await voice.esperandoMicro({ timeoutMs: 2500 })
     const respuesta = await confirmacion.esperar({
       timeoutMs: zeroTouch.timeoutMs.value,
-      prompt
+      prompt,
+      desdeMs: finAnuncio
     })
     try {
       await voice.stopListening()

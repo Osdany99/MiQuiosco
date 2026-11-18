@@ -3,7 +3,6 @@ import { Capacitor } from '@capacitor/core'
 import { registrarProof, reintentarProofs } from '../utils/voice/proofs'
 import { useConfirmacionVoz } from '../composables/useConfirmacionVoz'
 import { FRASE_CONFIRMAR } from '../utils/voice/frasesVoz'
-import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 
 const auth = useAuth()
 const perms = usePermisos()
@@ -155,8 +154,9 @@ async function esperarReadBack() {
  * y los comandos asistidos: el antieco y el reset son los mismos.
  */
 async function escucharRespuesta(nombreProducto) {
-  // Margen para que el eco final de la voz no entre al micrófono.
-  await new Promise(r => setTimeout(r, MS_MARGEN_ANTIECO))
+  // Sin espera previa: el arranque del motor (300–1200 ms) hace de margen
+  // antieco y así un «sí» dicho en cuanto termina el anuncio no cae en el vacío.
+  const finAnuncio = Date.now()
   // Sin reset, `voice.transcript` todavía tiene el comando que abrió el
   // diálogo y la confirmación podría leerlo como respuesta.
   voiceRaw.reset()
@@ -165,11 +165,15 @@ async function escucharRespuesta(nombreProducto) {
   const escucha = voiceRaw.startListening({
     contexto: { modo: conexion.modo.value, red: voiceRaw.hayInternet.value }
   }).catch(() => {})
+  // La ventana de los 6 s cuenta desde que el micrófono escucha de verdad, no
+  // desde que se le pidió abrirse.
+  await voiceRaw.esperandoMicro({ timeoutMs: 2500 })
   const respuesta = await confirmacion.esperar({
     timeoutMs: zeroTouch.timeoutMs.value,
     // El prompt es TODO lo que se habló: con solo la pregunta corta no se
     // detectaba el eco de la lectura y un «sí» oído del propio TTS confirmaba.
-    prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR
+    prompt: vozActiva.value.readBackTexto?.value || FRASE_CONFIRMAR,
+    desdeMs: finAnuncio
   })
   try {
     voiceRaw.registrar('voz.confirmar', {

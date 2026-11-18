@@ -17,9 +17,13 @@ import { esEcoDePrompt, ecoPalabraSuelta } from '../utils/voice/eco'
  * Es la única forma de detectar el eco: si el micrófono devuelve el final del
  * anuncio, se ignora y se sigue esperando.
  *
- * `ventanaMs`: durante los primeros milisegundos tras abrir el micrófono, una
- * palabra suelta que ya estaba en el prompt («sí», «confirmar») se trata como
- * eco. Sin esto, oír solo el «sí» del anuncio confirmaba la venta sola.
+ * `ventanaMs`: durante los primeros milisegundos tras el anuncio, una palabra
+ * suelta que ya estaba en el prompt («sí», «confirmar») se trata como eco. Sin
+ * esto, oír solo el «sí» del anuncio confirmaba la venta sola.
+ *
+ * `desdeMs`: instante en que terminó el anuncio. La ventana de eco se mide
+ * desde ahí y no desde la llamada: entre una cosa y otra está el arranque del
+ * micrófono, y contar desde la llamada dejaba fuera un «sí» legítimo.
  *
  * Singleton: solo puede haber una conversación de confirmación a la vez.
  */
@@ -29,14 +33,14 @@ let abortarActual = null
 function _create() {
   const voice = useVoiceCommand()
 
-  function esperar({ timeoutMs = 6000, prompt = '', ventanaMs = 700 } = {}) {
+  function esperar({ timeoutMs = 6000, prompt = '', ventanaMs = 700, desdeMs = null } = {}) {
     return new Promise((resolve) => {
       let resuelto = false
       let timer = null
       let detener = null
       let cancelar = null
       let escuchoAlgunaVez = false
-      const inicio = Date.now()
+      const inicioEco = Number.isFinite(desdeMs) ? desdeMs : Date.now()
 
       const terminar = (resultado, cantidad = null) => {
         if (resuelto) return
@@ -65,7 +69,7 @@ function _create() {
         if (correccion) return terminar('corregir', correccion.cantidad)
 
         const clase = clasificarRespuesta(texto)
-        const reciente = Date.now() - inicio < ventanaMs
+        const reciente = Date.now() - inicioEco < ventanaMs
         // Al principio de la escucha, algo que el propio anuncio decía no es
         // una respuesta del jefe (típico: solo se oyó el «sí» final).
         if (reciente && clase !== 'vacio' && texto && ecoPalabraSuelta(texto, prompt)) return

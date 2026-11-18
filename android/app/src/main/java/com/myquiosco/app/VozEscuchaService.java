@@ -1381,7 +1381,10 @@ public class VozEscuchaService extends Service {
         String nombre = producto.optString("nombre", "ese producto");
 
         estado = Estado.ESPERANDO_CONFIRMACION;
-        programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000));
+        // Tope de seguridad: si el TTS no avisa del final, el estado no se
+        // queda colgado. La ventana real de 6 s se arma al terminar el anuncio
+        // (`continuarEscucha`), para que el «sí» cuente desde que se escucha.
+        programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000) + 20000);
         if (clientePendiente != null) {
             hablar(frase("confirmarFiado",
                 "cantidad", String.valueOf(cantidad),
@@ -1500,6 +1503,11 @@ public class VozEscuchaService extends Service {
      */
     private void continuarEscucha() {
         programarCierreOnda();
+        // La ventana del «sí» empieza cuando el anuncio termina: programarla
+        // antes del `hablar` se comía 2–3 s de locución y el «sí» llegaba tarde.
+        if (estado == Estado.ESPERANDO_CONFIRMACION) {
+            programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000));
+        }
         if (hiloVosk != null && hiloVosk.isAlive()) return;
         programarReinicio(MS_ANTIECO);
     }
@@ -1843,7 +1851,8 @@ public class VozEscuchaService extends Service {
         cobroPendiente = cobro;
 
         estado = Estado.ESPERANDO_CONFIRMACION;
-        programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000));
+        // Igual que en `proponerConfirmacion`: tope hasta que acabe el anuncio.
+        programarCaducidad(Estado.ESPERANDO_CONFIRMACION, tiempo("confirmacion", 6000) + 20000);
         String resto = cobro.restante > 0
             ? frase("cobroResto", "restante", formatearNumero(cobro.restante))
             : frase("cobroSaldada");

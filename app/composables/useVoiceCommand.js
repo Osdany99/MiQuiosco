@@ -987,6 +987,40 @@ function _useVoiceCommand() {
     cancelarIntento = null
   }
 
+  /**
+   * Resuelve cuando el micrófono captura de verdad (`ready`).
+   *
+   * La confirmación hablada espera esto ANTES de abrir su ventana de 6 s: si la
+   * ventana arranca al llamar a `startListening`, corre durante el arranque del
+   * motor (300–1200 ms) y el «sí» dicho nada más terminar el anuncio se pierde.
+   *
+   * Devuelve `false` si la escucha no llega a estar lista (error o cierre).
+   */
+  function esperandoMicro({ timeoutMs = 2500 } = {}) {
+    if (microListo.value) return Promise.resolve(true)
+    return new Promise((resolve) => {
+      let resuelto = false
+      let detenerListo = null
+      let detenerEstado = null
+      let tope = null
+      const terminar = (valor) => {
+        if (resuelto) return
+        resuelto = true
+        if (tope) clearTimeout(tope)
+        detenerListo?.()
+        detenerEstado?.()
+        resolve(valor)
+      }
+      detenerListo = watch(microListo, (listo) => {
+        if (listo) terminar(true)
+      })
+      detenerEstado = watch(estado, (valor) => {
+        if (valor !== 'listening') terminar(false)
+      })
+      tope = setTimeout(() => terminar(false), timeoutMs)
+    })
+  }
+
   async function stopListening(abandon = true) {
     auth.registrarActividad()
     detenerRelojes()
@@ -1101,6 +1135,7 @@ function _useVoiceCommand() {
     disponible,
     isListening,
     startListening,
+    esperandoMicro,
     stopListening,
     reset,
     // Diagnóstico local
