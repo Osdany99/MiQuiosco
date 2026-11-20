@@ -27,6 +27,27 @@ const {
   borrar: borrarModeloVoz,
   cancelar: cancelarModeloVoz
 } = useVozModelo()
+
+// Bundle web: actualización de la app sin instalar APK. Se desestructura para
+// que la plantilla vea los refs ya desenvueltos (mismo motivo que `vozModelo`).
+const {
+  estado: estadoWeb,
+  progreso: progresoWeb,
+  error: errorWeb,
+  enEjecucion: webEnEjecucion,
+  persistida: webPersistida,
+  embebida: webEmbebida,
+  versionEnUso: webVersionEnUso,
+  descargando: webDescargando,
+  pendienteReinicio: webReinicioPendiente,
+  intentos: webIntentos,
+  proximoIntento: webProximoIntento,
+  refrescar: webRefrescar,
+  descargarAhora: webDescargarAhora,
+  aplicarAhora: webAplicarAhora,
+  volverAApk: webVolverAApk,
+  cancelar: webCancelar
+} = useWebBundle()
 const aliasVoz = useVozAlias()
 const inventarioAlias = useInventario()
 const aliasAbierto = ref(false)
@@ -181,6 +202,7 @@ onMounted(() => {
   void voz.sincronizarDiagNativo()
   void servicioVoz.refrescar()
   void refrescarModeloVoz()
+  void webRefrescar()
   void vozConfig.cargar().then(() => vozConfig.refrescar()).catch(() => {})
 })
 
@@ -452,6 +474,66 @@ async function borrarModeloVozDelEquipo() {
     title: 'Modelo de voz borrado',
     description: 'Se volverá a descargar cuando haga falta.',
     color: 'neutral'
+  })
+}
+
+/** Texto de la fase de descarga del bundle web. */
+const webFaseTexto = computed(() => {
+  const fase = progresoWeb.value.fase
+  if (fase === 'descargando') return 'Descargando'
+  if (fase === 'verificando') return 'Verificando'
+  if (fase === 'instalando') return 'Instalando'
+  return 'Preparando'
+})
+
+const webProximoTexto = computed(() => {
+  const t = webProximoIntento.value
+  if (!t) return ''
+  const minutos = Math.ceil(Math.max(0, t - Date.now()) / 60000)
+  return minutos <= 0 ? 'Se reintentará al volver a la app.' : `Próximo intento en ~${minutos} min.`
+})
+
+const webEstadoTexto = computed(() => {
+  if (estadoWeb.value === 'descargando') return 'Descargando…'
+  if (estadoWeb.value === 'listo') return 'Lista para aplicar al reiniciar'
+  if (estadoWeb.value === 'apk-primero') return 'Requiere actualizar la APK'
+  if (estadoWeb.value === 'error') return 'No se pudo actualizar'
+  if (estadoWeb.value === 'sin-manifiesto') return 'Sin conexión'
+  return 'Al día'
+})
+
+async function webBuscarActualizacion() {
+  const ok = await webDescargarAhora()
+  toast.add(ok
+    ? {
+        title: 'Actualización descargada',
+        description: 'Se aplicará la próxima vez que abras la app.',
+        color: 'success'
+      }
+    : {
+        title: 'Sin actualización',
+        description: errorWeb.value ?? 'Ya tienes la última versión o no hay conexión.',
+        color: errorWeb.value ? 'error' : 'neutral'
+      })
+}
+
+async function webAplicarAlReiniciar() {
+  const ok = await webAplicarAhora()
+  if (!ok) {
+    toast.add({
+      title: 'No se pudo aplicar',
+      description: errorWeb.value ?? 'Inténtalo de nuevo.',
+      color: 'error'
+    })
+  }
+}
+
+async function webVolverAlaApk() {
+  const ok = await webVolverAApk()
+  toast.add({
+    title: ok ? 'Vuelto a la versión de la APK' : 'No se pudo volver',
+    description: ok ? 'La app se reinició con el bundle de fábrica.' : (errorWeb.value ?? ''),
+    color: ok ? 'success' : 'error'
   })
 }
 
@@ -738,6 +820,107 @@ async function whOlvidarEste() {
         >
           Comprobar actualizaciones
         </UButton>
+      </div>
+    </UCard>
+
+    <!-- Bundle web: parches de la interfaz y la lógica sin reinstalar la APK
+         (~1 MB frente a ~19 MB). Se aplica al siguiente arranque, no en mitad
+         de una venta; si no arranca, el watchdog nativo vuelve al de la APK. -->
+    <UCard v-if="esNativo && auth.esJefe">
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-medium">
+              Actualización de la app
+            </h2>
+            <p class="text-sm text-muted">
+              Versión web en uso: {{ webVersionEnUso }}
+              <span v-if="webEnEjecucion === webEmbebida" class="text-xs">
+                (incluida en la APK {{ webEmbebida }})
+              </span>
+            </p>
+          </div>
+          <UBadge
+            :color="webReinicioPendiente ? 'warning' : (estadoWeb === 'error' ? 'error' : 'neutral')"
+            variant="soft"
+            size="sm"
+          >
+            {{ webEstadoTexto }}
+          </UBadge>
+        </div>
+
+        <p class="text-xs text-muted">
+          Cambios de pantallas y lógica se descargan aparte (~1 MB) y se aplican
+          al abrir la app. Los cambios nativos siguen necesitando la APK.
+        </p>
+
+        <div v-if="webDescargando" class="space-y-1">
+          <UProgress :model-value="progresoWeb.pct" size="sm" />
+          <p class="text-xs text-muted">
+            {{ webFaseTexto }} · {{ progresoWeb.pct }}%
+            <span v-if="progresoWeb.total">
+              ({{ formatearBytes(progresoWeb.bytes) }} de {{ formatearBytes(progresoWeb.total) }})
+            </span>
+          </p>
+        </div>
+
+        <UAlert
+          v-if="webReinicioPendiente"
+          color="warning"
+          variant="soft"
+          icon="i-lucide-refresh-cw"
+          title="Versión lista para aplicar"
+          :description="`La versión ${webPersistida} se aplicará al reiniciar la app.`"
+        />
+
+        <p v-if="errorWeb" class="text-xs text-error">
+          {{ errorWeb }}
+        </p>
+        <p v-else-if="webIntentos > 0 && !webDescargando" class="text-xs text-muted">
+          {{ webIntentos }} intento(s) fallido(s). {{ webProximoTexto }}
+        </p>
+
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            v-if="!webDescargando"
+            size="sm"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-cloud-download"
+            @click="webBuscarActualizacion"
+          >
+            Buscar actualización
+          </UButton>
+          <UButton
+            v-if="webDescargando"
+            size="sm"
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-x"
+            @click="webCancelar"
+          >
+            Cancelar
+          </UButton>
+          <UButton
+            v-if="webReinicioPendiente"
+            size="sm"
+            color="primary"
+            icon="i-lucide-rotate-cw"
+            @click="webAplicarAlReiniciar"
+          >
+            Reiniciar ahora
+          </UButton>
+          <UButton
+            v-if="webEnEjecucion > webEmbebida"
+            size="sm"
+            color="error"
+            variant="ghost"
+            icon="i-lucide-undo-2"
+            @click="webVolverAlaApk"
+          >
+            Volver a la versión de la APK
+          </UButton>
+        </div>
       </div>
     </UCard>
 

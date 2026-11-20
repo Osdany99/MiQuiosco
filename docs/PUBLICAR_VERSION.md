@@ -132,7 +132,7 @@ mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
 > `.github/workflows/release-apk.yml` para que los siguientes releases no lo
 > pisen).
 
-## Caso B — Solo web/servidor (sin APK nueva)
+## Caso B — Solo servidor (sin tocar la app)
 
 1. `pnpm lint && pnpm test && pnpm typecheck`.
 2. Si hay cambio **destructivo** de esquema → **Caso C** primero.
@@ -141,6 +141,10 @@ mal puesto), firma ausente en el APK o manifiesto que no refleja la versión.
 4. Si el cambio rompe APKs ya instaladas → subir `APP_MIN_VERSION_CODE` en
    Vercel y redeploy (sin necesidad de APK nueva).
 5. La web se actualiza sola al recargar.
+
+Esto sirve para endpoints, tareas y BD. Si el cambio es de **interfaz o lógica
+del cliente** (lo habitual), los equipos no lo ven hasta publicar un tag: el
+tag genera el bundle web que se descarga por OTA. Ver «Bundle web» al final.
 
 ## Caso C — Cambio destructivo de esquema de BD (manual)
 
@@ -345,3 +349,53 @@ como asset independiente y cada equipo lo descarga una sola vez.
 - `.env`: `APP_VOSK_URL`, `APP_VOSK_SHA256` y `APP_VOSK_BYTES` apuntando al
   asset (o a un `npx serve` local del ZIP).
 - O ensayar el camino sin red con *Importar archivo* desde el propio teléfono.
+
+## Bundle web — actualizar la app sin instalar la APK
+
+El bundle web (HTML/JS/CSS de Nuxt) pesa **~1 MB comprimido** (3 MB al
+descomprimir) y cambia casi siempre; el código nativo (Java, `libvosk.so`,
+permisos) pesa ~16 MB y cambia poco. Desde la v2.4 el workflow publica el bundle
+aparte y cada equipo lo descarga solo cuando hay algo nuevo.
+
+**Qué se publica en cada tag**
+
+- `miquiosco-vX.Y.N.apk` — APK firmada (equipos nuevos o reinstalaciones).
+- `web-v<versionCode>.zip` — el mismo `.output/public` comprimido. `version` es
+  el `versionCode` del tag (misma escala que la APK).
+- `sync-vercel` calcula `sha256`/tamaño de ambos y los publica como
+  `APP_VOSK_*` y `APP_WEB_*`; después verifica `/api/app-version` en producción.
+
+**Cómo llega al equipo**
+
+1. Al arrancar (y al volver a la app o recuperar red) se consulta el manifiesto.
+2. `shared/web/bundle.js` decide: si `web.version` es mayor que la que corre, se
+   descarga en segundo plano (reanudable + sha256). Con `apkMinima` mayor que la
+   APK instalada, se ignora y se ofrece la APK.
+3. Se activa **al siguiente arranque**, no en mitad de una venta. En Ajustes →
+   *Actualización de la app* hay un botón «Reiniciar ahora».
+4. Si el bundle no arranca, el watchdog nativo (`WebBundle.arrancar`) cuenta los
+   arranques y a los 3 vuelve al bundle de la APK y marca esa versión como
+   fallida (no se reintenta).
+
+**`WEB_APK_MINIMA` (el único número que se mantiene a mano)**
+
+Está en `.github/workflows/release-apk.yml` (`env:` de `sync-vercel`). Es el
+`versionCode` del APK más viejo compatible con el bundle. Súbelo **solo** cuando
+el bundle estrene algo nativo (un plugin nuevo, un permiso, un método de
+`VoskModelo`…). Los equipos por debajo de ese número se quedan con su bundle y
+reciben el aviso de actualizar la APK.
+
+**Volver atrás**
+
+- Un bundle concreto: republicar el manifiesto apuntando al `web-v<anterior>.zip`
+  que ya está en su release (solo cambian `APP_WEB_*`), o.
+- En el equipo: Ajustes → *Actualización de la app* → **Volver a la versión de
+  la APK** (recarga con el bundle de fábrica).
+
+**Límites (importante)**
+
+- No cambia nada nativo: permisos, `AndroidManifest`, plugins y `.so` siguen
+  necesitando una APK.
+- Las migraciones del **sqlite local** deben ser **aditivas**, igual que en
+  Postgres: un rollback de bundle no revierte el esquema del teléfono.
+- No son deltas: es ~1 MB de ZIP, no un parche binario de pocos KB.

@@ -6,6 +6,14 @@ const conexion = useModoConexion()
 conexion.cargar()
 
 const update = useAppUpdate()
+// Bundle web: se comprueba aquí y no en el layout porque también debe llegar
+// antes de iniciar sesión (un bundle nuevo puede arreglar el propio login).
+const webBundle = useWebBundle()
+const { hayRed } = useSync()
+
+watch(hayRed, (conectado) => {
+  if (conectado) void webBundle.quizasActualizar().catch(() => {})
+})
 
 // El diálogo debe seguir abierto mientras la entrega interna avanza: si solo
 // mirara 'opcional', se cerraría en cuanto entregar() pasara a 'descargando'
@@ -55,10 +63,18 @@ onMounted(async () => {
   await update.limpiarDescargaPrevia().catch(() => {})
   await update.comprobar().catch(() => {})
 
+  // Primero se confirma que este arranque cargó (watchdog del bundle web) y
+  // después se mira si hay versión nueva, sin esperar al login.
+  void webBundle.listo()
+    .then(() => webBundle.quizasActualizar())
+    .catch(() => {})
+
   // Al volver a la app tras el instalador del sistema hay que reconsultar el
   // manifiesto: la versionCode solo cambia si el usuario aceptó la instalación.
   App.addListener('appStateChange', ({ isActive }) => {
-    if (isActive && update.estado.value === 'instalando') {
+    if (!isActive) return
+    void webBundle.quizasActualizar().catch(() => {})
+    if (update.estado.value === 'instalando') {
       update.refrescar().catch(() => {})
     }
   }).catch(() => {})

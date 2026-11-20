@@ -93,10 +93,16 @@ export function useAppUpdate() {
     }
   }
 
-  function resolverEstado(instalada, manifiesto) {
+  /**
+   * `efectiva` es la versión del bundle web en uso: con OTA, la app puede estar
+   * al día aunque el versionCode de la APK sea menor. La **obligatoria** sigue
+   * mirando la APK, porque es la que manda para lo nativo.
+   */
+  function resolverEstado(instalada, manifiesto, efectiva = instalada) {
     if (instalada == null) return 'actualizada'
     if (instalada < (manifiesto.minVersionCode ?? 0)) return 'obligatoria'
-    if (instalada < (manifiesto.latestVersionCode ?? instalada)) return 'opcional'
+    const enUso = Math.max(Number(instalada) || 0, Number(efectiva) || 0)
+    if (enUso < (manifiesto.latestVersionCode ?? instalada)) return 'opcional'
     return 'actualizada'
   }
 
@@ -124,7 +130,14 @@ export function useAppUpdate() {
       versionInstaladaNombre.value = await getAppVersionNombre()
       const manifiesto = await $api(API_ROUTES.appVersion)
       info.value = manifiesto
-      const nuevo = resolverEstado(instalada, manifiesto)
+      // El bundle web puede estar ya en la versión publicada: entonces el
+      // aviso de "instala la APK" sobra y se evita bajar 19 MB para nada.
+      const bundle = useWebBundle()
+      await bundle.refrescar().catch(() => {})
+      // Si el bundle ya está descargado (aunque se aplique al reiniciar), la
+      // app quedará al día sin instalar nada: no se ofrece la APK.
+      const enUso = Math.max(bundle.versionEnUso.value || 0, bundle.persistida.value || 0)
+      const nuevo = resolverEstado(instalada, manifiesto, enUso)
       if (nuevo === 'opcional' && (await leerPospuesta()) === manifiesto.latestVersionCode) {
         estado.value = 'actualizada'
       } else {

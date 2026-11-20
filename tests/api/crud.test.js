@@ -36,6 +36,13 @@ describe('GET /api/app-version (manifiesto publico)', () => {
     assert.equal(typeof r.body.vozModelo.sha256, 'string')
     assert.equal(typeof r.body.vozModelo.bytes, 'number')
     assert.equal(typeof r.body.vozModelo.version, 'string')
+    // Bundle web (actualización sin APK): mismo contrato.
+    assert.equal(typeof r.body.web, 'object')
+    assert.equal(typeof r.body.web.version, 'number')
+    assert.equal(typeof r.body.web.apkMinima, 'number')
+    assert.equal(typeof r.body.web.url, 'string')
+    assert.equal(typeof r.body.web.sha256, 'string')
+    assert.equal(typeof r.body.web.bytes, 'number')
   })
 })
 

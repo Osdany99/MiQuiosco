@@ -3,8 +3,8 @@ import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 
 import { motorParaServicio } from '#shared/voz/config'
-import { $api, getApiBaseUrl } from '../utils/api'
-import { API_ROUTES } from '../utils/api-paths'
+import { getApiBaseUrl } from '../utils/api'
+import { leerManifiesto } from '../utils/manifiesto'
 import {
   estadoModelo,
   descargarModelo,
@@ -39,7 +39,6 @@ const PREF_INTENTOS = 'voz.modelo.intentos'
 const PREF_PROXIMO = 'voz.modelo.proximo'
 
 const ESPERAS_MIN = [1, 5, 15, 60]
-const MANIFIESTO_TTL_MS = 5 * 60 * 1000
 
 /** 'desconocido' | 'listo' | 'pendiente' | 'descargando' | 'preparando' | 'error' */
 const estado = ref('desconocido')
@@ -51,7 +50,6 @@ const proximoIntento = ref(0)
 
 let enCurso = null
 let soltarProgreso = null
-let manifiestoCache = { at: 0, valor: null }
 
 function esNativo() {
   try {
@@ -111,20 +109,6 @@ async function absolutizarUrl(url) {
   return `${base.replace(/\/+$/, '')}/${String(url).replace(/^\/+/, '')}`
 }
 
-/**
- * Manifiesto de versiones con caché corta: el arranque, el sync y Ajustes
- * preguntan por el modelo y no tiene sentido pedirlo tres veces seguidas.
- */
-async function leerManifiesto({ forzar = false } = {}) {
-  if (!forzar && manifiestoCache.valor && Date.now() - manifiestoCache.at < MANIFIESTO_TTL_MS) {
-    return manifiestoCache.valor
-  }
-  const respuesta = await $api(API_ROUTES.appVersion)
-  const modelo = respuesta?.vozModelo ?? {}
-  manifiestoCache = { at: Date.now(), valor: modelo }
-  return modelo
-}
-
 /** Traduce las fases nativas a los estados que pinta la UI. */
 function aplicarProgreso(p) {
   const fase = String(p?.fase ?? '')
@@ -175,7 +159,7 @@ async function descargar() {
       // modelo, así que no consume reintentos ni pinta un error al usuario.
       let remoto
       try {
-        remoto = await leerManifiesto({ forzar: true })
+        remoto = (await leerManifiesto({ forzar: true }))?.vozModelo ?? {}
       } catch {
         estado.value = 'pendiente'
         return false
@@ -270,7 +254,7 @@ async function quizasAprovisionar({ forzar = false } = {}) {
     // vieja (sin versión anotada) se adopta sin volver a descargar 38 MB.
     let remoto = null
     try {
-      remoto = await leerManifiesto()
+      remoto = (await leerManifiesto())?.vozModelo ?? {}
     } catch {
       return true
     }

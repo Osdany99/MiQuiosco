@@ -157,6 +157,27 @@ jobs:
           NUXT_PUBLIC_SYNC_SERVER_URL: ${{ secrets.SYNC_SERVER_URL }}
         run: pnpm build
 
+      # Bundle web (OTA): el mismo HTML/JS/CSS que va dentro de la APK, pero
+      # empaquetado aparte para que un cambio de pantalla o de lógica no obligue
+      # a instalar 19 MB. Se publica junto al APK en el mismo release.
+      - name: Empaquetar el bundle web
+        shell: bash
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          WEB_ZIP="web-v${VERSION_CODE}.zip"
+          ( cd .output/public && zip -q -r "../../${WEB_ZIP}" . )
+          ls -la "${WEB_ZIP}"
+          if ! unzip -l "${WEB_ZIP}" | grep -qE " (\./)?index\.html$"; then
+            echo "::error::El bundle web no lleva index.html en la raíz; el plugin lo rechazaría."
+            exit 1
+          fi
+          # Un APK viejo dentro de public/apk engordaría el OTA sin motivo.
+          if unzip -l "${WEB_ZIP}" | grep -qE "apk/.*\.apk$"; then
+            echo "::error::El bundle web incluye un APK en apk/. Bórralo de public/apk/."
+            exit 1
+          fi
+
       - name: Capacitor sync
         run: pnpm cap:sync
 
@@ -230,7 +251,9 @@ jobs:
       - name: Publicar GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          files: ${{ steps.version.outputs.apk_name }}
+          files: |
+            ${{ steps.version.outputs.apk_name }}
+            web-v${{ steps.version.outputs.version_code }}.zip
           generate_release_notes: true
           body: |
             APK firmada de producción generada automáticamente desde el tag `${{ github.ref_name }}`.
@@ -247,6 +270,12 @@ jobs:
   sync-vercel:
     needs: [build-release]
     runs-on: ubuntu-latest
+    env:
+      # versionCode del APK más viejo compatible con el bundle web. Súbelo SOLO
+      # cuando el bundle estrene algo nativo (plugin, permiso, cambio en Java):
+      # los equipos por debajo se quedan con su bundle hasta instalar la APK.
+      # Con `auto`/`voz` en Fase A, el primero compatible es 21 (v2.4.21).
+      WEB_APK_MINIMA: '21'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -276,6 +305,15 @@ jobs:
           VOZ_SHA="$(sha256sum "${RUNNER_TEMP}/vosk-es.zip" | cut -d' ' -f1)"
           VOZ_BYTES="$(stat -c%s "${RUNNER_TEMP}/vosk-es.zip")"
           echo "Modelo Vosk: ${VOZ_BYTES} bytes, sha256 ${VOZ_SHA}"
+          # Bundle web de este release (misma APK, pero descargable aparte).
+          WEB_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/web-v${VERSION_CODE}.zip"
+          curl -sSfL -o "${RUNNER_TEMP}/web-v${VERSION_CODE}.zip" "${WEB_URL}" || {
+            echo "::error::No se pudo descargar el bundle web de ${WEB_URL}. Revisa que build-release lo haya publicado."
+            exit 1
+          }
+          WEB_SHA="$(sha256sum "${RUNNER_TEMP}/web-v${VERSION_CODE}.zip" | cut -d' ' -f1)"
+          WEB_BYTES="$(stat -c%s "${RUNNER_TEMP}/web-v${VERSION_CODE}.zip")"
+          echo "Bundle web: v${VERSION_CODE}, ${WEB_BYTES} bytes, sha256 ${WEB_SHA}, apkMinima ${WEB_APK_MINIMA}"
           {
             echo "version_name=${VERSION_NAME}"
             echo "version_code=${VERSION_CODE}"
@@ -283,6 +321,9 @@ jobs:
             echo "voz_url=${VOZ_URL}"
             echo "voz_sha=${VOZ_SHA}"
             echo "voz_bytes=${VOZ_BYTES}"
+            echo "web_url=${WEB_URL}"
+            echo "web_sha=${WEB_SHA}"
+            echo "web_bytes=${WEB_BYTES}"
             echo "changelog<<EOF_CHANGELOG"
             printf '%s\n' "${CHANGELOG}"
             echo "EOF_CHANGELOG"
@@ -298,6 +339,9 @@ jobs:
           VOZ_URL: ${{ steps.meta.outputs.voz_url }}
           VOZ_SHA: ${{ steps.meta.outputs.voz_sha }}
           VOZ_BYTES: ${{ steps.meta.outputs.voz_bytes }}
+          WEB_URL: ${{ steps.meta.outputs.web_url }}
+          WEB_SHA: ${{ steps.meta.outputs.web_sha }}
+          WEB_BYTES: ${{ steps.meta.outputs.web_bytes }}
           CHANGELOG: ${{ steps.meta.outputs.changelog }}
         run: |
           PROJECT_ID="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
@@ -317,6 +361,10 @@ jobs:
             --arg vozurl "${VOZ_URL}" \
             --arg vozsha "${VOZ_SHA}" \
             --arg vozbytes "${VOZ_BYTES}" \
+            --arg weburl "${WEB_URL}" \
+            --arg websha "${WEB_SHA}" \
+            --arg webbytes "${WEB_BYTES}" \
+            --arg webapk "${WEB_APK_MINIMA}" \
             '[{"key":"APP_LATEST_VERSION_CODE","value":$code},
               {"key":"APP_LATEST_VERSION_NAME","value":$name},
               {"key":"APP_MIN_VERSION_CODE","value":"0"},
@@ -325,6 +373,11 @@ jobs:
               {"key":"APP_VOSK_SHA256","value":$vozsha},
               {"key":"APP_VOSK_BYTES","value":$vozbytes},
               {"key":"APP_VOSK_VERSION","value":"v1"},
+              {"key":"APP_WEB_VERSION","value":$code},
+              {"key":"APP_WEB_APK_MINIMA","value":$webapk},
+              {"key":"APP_WEB_URL","value":$weburl},
+              {"key":"APP_WEB_SHA256","value":$websha},
+              {"key":"APP_WEB_BYTES","value":$webbytes},
               {"key":"APP_CHANGELOG","value":$log}]
               | map(. + {type:"plain", target:["production","preview"]})')"
           RESP="$(curl -sS -X POST "https://api.vercel.com/v10/projects/${PROJECT_ID}/env?upsert=true" \
@@ -378,6 +431,7 @@ jobs:
         env:
           VERSION_CODE: ${{ steps.meta.outputs.version_code }}
           EXPECTED_VOZ_SHA: ${{ steps.meta.outputs.voz_sha }}
+          EXPECTED_WEB_SHA: ${{ steps.meta.outputs.web_sha }}
           BASE_URL: ${{ secrets.SYNC_SERVER_URL }}
         run: |
           sleep 10
@@ -397,6 +451,13 @@ jobs:
           echo "vozModelo.sha256 en producción: ${VOZ_SHA}"
           if [[ -z "${VOZ_SHA}" || "${VOZ_SHA}" == "null" || "${VOZ_SHA}" != "${EXPECTED_VOZ_SHA}" ]]; then
             echo "::error::El manifiesto no publica el modelo Vosk correcto (APP_VOSK_URL/SHA256/BYTES)."
+            exit 1
+          fi
+          WEB_VERSION="$(curl -sS "${BASE_URL}/api/app-version" | jq -r '.web.version')"
+          WEB_SHA="$(curl -sS "${BASE_URL}/api/app-version" | jq -r '.web.sha256')"
+          echo "web: version ${WEB_VERSION} (esperado ${VERSION_CODE}), sha256 ${WEB_SHA}"
+          if [[ "${WEB_VERSION}" != "${VERSION_CODE}" || "${WEB_SHA}" != "${EXPECTED_WEB_SHA}" ]]; then
+            echo "::error::El manifiesto no publica el bundle web de esta versión (APP_WEB_VERSION/URL/SHA256/BYTES)."
             exit 1
           fi
           echo "Manifiesto verificado."

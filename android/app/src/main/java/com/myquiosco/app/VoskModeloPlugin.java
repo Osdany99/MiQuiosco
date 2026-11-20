@@ -81,7 +81,9 @@ public class VoskModeloPlugin extends Plugin {
         cancelar.set(false);
 
         final String sha = call.getString("sha256", "");
-        final long bytesEsperados = call.getLong("bytes", 0L);
+        // Los números de JS llegan como Integer: getLong() los descarta y el
+        // tamaño esperado se quedaba en 0 (sin verificación de tamaño).
+        final long bytesEsperados = bytesDe(call, "bytes");
         final String version = call.getString("version", "");
 
         new Thread(() -> {
@@ -302,6 +304,14 @@ public class VoskModeloPlugin extends Plugin {
         try {
             notifyListeners("progreso", p);
         } catch (Exception ignored) { }
+    }
+
+    /** Número que llega de JS (Integer o Long) como long; 0 si no viene. */
+    private static long bytesDe(PluginCall call, String nombre) {
+        Long l = call.getLong(nombre, null);
+        if (l != null) return l;
+        Integer i = call.getInt(nombre, null);
+        return i == null ? 0L : i.longValue();
     }
 
     private static String sha256(File archivo) throws Exception {

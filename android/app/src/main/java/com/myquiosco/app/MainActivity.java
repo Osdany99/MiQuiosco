@@ -20,6 +20,10 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Watchdog del bundle web ANTES de que Capacitor cargue el WebView: si
+        // una actualización OTA no arrancó en los últimos intentos, se vuelve
+        // al bundle de la APK (el pref se lee en `Bridge.load()`).
+        WebBundle.arrancar(getApplicationContext());
         // Plugins propios de la app (instalador de APK, lector de SMS, contactos,
         // copia de seguridad de la base). `cap sync` no toca el módulo app, así
         // que el registro sobrevive a los syncs. SmsReceiver no se registra
@@ -39,6 +43,8 @@ public class MainActivity extends BridgeActivity {
         // Aprovisiona el modelo de Vosk (descarga reanudable o importación
         // desde archivo): ya no viaja dentro de la APK.
         registerPlugin(VoskModeloPlugin.class);
+        // Bundle web (HTML/JS/CSS) actualizable sin instalar la APK.
+        registerPlugin(WebBundlePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

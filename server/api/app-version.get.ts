@@ -16,6 +16,11 @@
  * `useVozModelo` lo usa para descargar, reanudar y verificar el archivo. Si
  * `url` viene vacío (modelo aún no publicado), la app informa que no está
  * disponible en vez de intentar una descarga rota.
+ *
+ * `web` describe el bundle web (HTML/JS/CSS, ~1 MB comprimido) que la app puede
+ * actualizar sin instalar la APK. `version` es el versionCode del release que
+ * lo generó y `apkMinima` el versionCode de la APK más vieja compatible: si el
+ * equipo está por debajo, el bundle se ignora y se le ofrece la APK.
  */
 export default defineEventHandler(() => {
   const num = (raw: string | undefined, fallback: number): number => {
@@ -35,6 +40,13 @@ export default defineEventHandler(() => {
       sha256: process.env.APP_VOSK_SHA256 || '',
       bytes: num(process.env.APP_VOSK_BYTES, 0),
       version: process.env.APP_VOSK_VERSION || ''
+    },
+    web: {
+      version: num(process.env.APP_WEB_VERSION, 0),
+      apkMinima: num(process.env.APP_WEB_APK_MINIMA, 0),
+      url: process.env.APP_WEB_URL || '',
+      sha256: process.env.APP_WEB_SHA256 || '',
+      bytes: num(process.env.APP_WEB_BYTES, 0)
     }
   }
 })
