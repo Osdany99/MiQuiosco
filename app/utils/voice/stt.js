@@ -16,7 +16,11 @@ export const MENSAJES_STT = {
     'El reconocedor no soporta español. Añade el idioma español al reconocimiento de voz del dispositivo.',
   too_many_requests: 'Demasiadas peticiones al reconocedor. Espera unos segundos.',
   server_disconnected:
-    'El servicio de voz del dispositivo no responde. Revisa la conexión o instala el paquete de reconocimiento offline.'
+    'El servicio de voz del dispositivo no responde. Revisa la conexión o instala el paquete de reconocimiento offline.',
+  // Google no respondió (red o paquete offline ausente) y el modelo Vosk
+  // tampoco está listo: no es solo «sin internet».
+  sin_motor_disponible:
+    'La voz no está disponible: revisa la conexión o descarga el modelo de voz offline en Ajustes → Voz.'
 }
 
 export function mensajeStt(detalle) {

@@ -18,6 +18,9 @@ export default defineEventHandler(async (event) => {
     comando: typeof query.comando === 'string' && query.comando.trim()
       ? query.comando.trim()
       : undefined,
+    motor: typeof query.motor === 'string' && query.motor.trim()
+      ? query.motor.trim()
+      : undefined,
     desde: ['24h', '7d', 'todo'].includes(String(query.desde))
       ? String(query.desde)
       : undefined,
@@ -32,6 +35,7 @@ export default defineEventHandler(async (event) => {
 
   const condiciones = []
   if (filtro.comando) condiciones.push(eq(vozAciertos.comando, filtro.comando))
+  if (filtro.motor) condiciones.push(eq(vozAciertos.motor, filtro.motor))
   if (filtro.desde === '24h') {
     condiciones.push(sql`${vozAciertos.creadoEn} >= now() - interval '24 hours'`)
   } else if (filtro.desde === '7d') {
@@ -52,6 +56,7 @@ export default defineEventHandler(async (event) => {
       detalle: vozAciertos.detalle,
       texto: vozAciertos.texto,
       confianza: vozAciertos.confianza,
+      motor: vozAciertos.motor,
       appVersion: vozAciertos.appVersion,
       creadoEn: vozAciertos.creadoEn
     })

@@ -162,7 +162,8 @@ watch(isOpen, (open) => {
 })
 
 async function confirmar() {
-  if (!valida.value) return
+  // Doble toque mientras guarda: no se aplica la corrección dos veces.
+  if (!valida.value || guardando.value) return
   guardando.value = true
   try {
     await inv.corregirLote(props.lote.id, {

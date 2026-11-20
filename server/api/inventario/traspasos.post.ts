@@ -4,6 +4,7 @@ import { lotes, movimientosInventario, traspasos } from '../../database/schema'
 import { traspasoSchema } from '#shared/schemas/traspaso'
 import { construirTraspaso, lotesConSaldo } from '#shared/inventario/operaciones'
 import { comoMovimiento } from '../../utils/inventario'
+import { existentePorId } from '../../utils/idempotencia'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -16,6 +17,16 @@ export default defineEventHandler(async (event) => {
   const puestoId = auth.usuario.puestoId
   const usuarioId = auth.usuario.id
   const ahoraMs = Date.now()
+
+  // Reintento del mismo traspaso: ya movió stock y no se repite.
+  const previo = await existentePorId(traspasos, datos.id, puestoId)
+  if (previo) {
+    const movs = await db
+      .select({ id: movimientosInventario.id })
+      .from(movimientosInventario)
+      .where(eq(movimientosInventario.traspasoId, previo.id))
+    return { traspasoId: previo.id, movimientos: movs.length, idempotente: true }
+  }
 
   const ids = [...new Set(datos.lineas.map(l => l.productoId))]
   const filasLotes = await db
@@ -34,7 +45,14 @@ export default defineEventHandler(async (event) => {
   const { traspaso, movimientos, faltantes } = construirTraspaso({
     lineas: datos.lineas,
     lotesPorProducto,
-    meta: { puestoId, usuarioId, ahora: ahoraMs, fecha: datos.fecha, notas: datos.notas }
+    meta: {
+      puestoId,
+      usuarioId,
+      ahora: ahoraMs,
+      fecha: datos.fecha,
+      notas: datos.notas,
+      traspasoId: datos.id
+    }
   })
 
   if (faltantes.length > 0) {

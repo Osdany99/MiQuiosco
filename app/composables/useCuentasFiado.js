@@ -2,7 +2,7 @@ import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
 import { calcularExcesoTope, sumarPorProducto } from '../../shared/fiadoTope'
 import { consumoPorProductoEnCuadreLocal } from '../utils/topeGeneral'
-import { construirVentaDirecta, lotesConSaldo } from '../../shared/inventario/operaciones'
+import { construirVentaDirecta, generarId, lotesConSaldo } from '../../shared/inventario/operaciones'
 import { useDb } from '../server-offline/db/client'
 
 const cuentaFiadoConfig = TABLES.cuentas_fiado
@@ -144,9 +144,11 @@ export function useCuentasFiado() {
     return `Tope excedido: quedan ${exceso.disponible} unidades disponibles de este producto (vendido ${exceso.disponible + yaFiado}, incluye fiado).`
   }
 
-  async function registrarNuevaDeuda({ clienteId, cuadreId, items, montoTotal: montoDirecto, montoPagadoInicial, formaPagoInicial, puestoId }) {
+  async function registrarNuevaDeuda({ id = null, clienteId, cuadreId, items, montoTotal: montoDirecto, montoPagadoInicial, formaPagoInicial, puestoId }) {
     cargando.value = true
     try {
+      // Id fijado por quien abre el formulario: reintentar no duplica la deuda.
+      const cuentaId = String(id || '').trim() || generarId()
       const topeMsg = await validarTopeLocal(cuadreId, items)
       if (topeMsg) {
         toast.add({ title: 'Error', description: topeMsg, color: 'error' })
@@ -156,7 +158,7 @@ export function useCuentasFiado() {
         // Endpoint transaccional del servidor (cuenta + items + pago inicial + cuadre)
         await $api('/api/cuentas-fiado', {
           method: 'POST',
-          body: { clienteId, cuadreOrigenId: cuadreId, items, montoTotal: Number(montoDirecto ?? 0), montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
+          body: { id: cuentaId, clienteId, cuadreOrigenId: cuadreId, items, montoTotal: Number(montoDirecto ?? 0), montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
           headers: apiHeaders()
         })
       } else {
@@ -172,6 +174,7 @@ export function useCuentasFiado() {
           return { ok: false, error: new Error(msg) }
         }
         const nueva = await r(cuentasRepo).create({
+          id: cuentaId,
           clienteId,
           cuadreOrigenId: cuadreId,
           puestoId,
@@ -292,10 +295,12 @@ export function useCuentasFiado() {
   async function cobrarDeuda({ id = null, cuentaFiadoId, cuadreId = null, monto, formaPago }) {
     cargando.value = true
     try {
+      // El id del pago se fija al dictar/abrir: reintentar no cobra dos veces.
+      const pagoId = String(id || '').trim() || generarId()
       if (esOnline.value) {
         await $api('/api/pagos-fiado', {
           method: 'POST',
-          body: { cuentaFiadoId, cuadreId: null, monto, formaPago },
+          body: { id: pagoId, cuentaFiadoId, cuadreId: null, monto, formaPago },
           headers: apiHeaders()
         })
       } else {
@@ -307,9 +312,8 @@ export function useCuentasFiado() {
         if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
 
         // El id se asigna al dictar (app cerrada): reintentar no duplica el pago.
-        const pagoId = String(id || '').trim() || undefined
         await r(pagosRepo).create({
-          ...(pagoId ? { id: pagoId } : {}),
+          id: pagoId,
           cuentaFiadoId,
           cuadreId: null,
           monto,
@@ -345,10 +349,12 @@ export function useCuentasFiado() {
   async function registrarDeudaDirecta({ id = null, clienteId, lineas, ubicacion = 'almacen', montoPagadoInicial = 0, formaPagoInicial = 'efectivo' }) {
     cargando.value = true
     try {
+      // Id fijado al abrir el formulario: reintentar no duplica la deuda.
+      const cuentaId = String(id || '').trim() || generarId()
       if (esOnline.value) {
         const rpta = await $api('/api/cuentas-fiado/directas', {
           method: 'POST',
-          body: { clienteId, lineas, ubicacion, montoPagadoInicial, formaPagoInicial },
+          body: { id: cuentaId, clienteId, lineas, ubicacion, montoPagadoInicial, formaPagoInicial },
           headers: apiHeaders()
         })
         return { ok: true, ...(rpta ?? {}) }
@@ -390,7 +396,6 @@ export function useCuentasFiado() {
         throw new Error('El pago inicial no puede superar el monto total.')
       }
 
-      const cuentaId = String(id || '').trim() || crypto.randomUUID()
       await db.transaction(async () => {
         await r(cuentasRepo).create({
           id: cuentaId,

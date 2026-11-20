@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
 export const pagoFiadoSchema = z.object({
+  // Id decidido por el cliente: reintentar la petición no registra dos pagos.
+  id: z.string().uuid('ID inválido').optional(),
   cuentaFiadoId: z.string().uuid('ID de cuenta inválido'),
   // null = cobro directo: el jefe cobró por fuera y el efectivo no entró a la
   // gaveta de ningún cuadre.

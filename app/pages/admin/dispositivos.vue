@@ -25,6 +25,18 @@ const filtros = ref({
   q: ''
 })
 
+/**
+ * Todos los filtros viven en el icono: en un teléfono no caben en la barra.
+ * `key` es la misma que espera `filtros`, así el popover y la consulta hablan
+ * de lo mismo. `server: true` = los aplica la vista (consulta o lista propia),
+ * la tabla solo los muestra.
+ */
+const camposFiltro = computed(() => [
+  { key: 'q', label: 'Buscar', server: true },
+  { key: 'puestoId', label: 'Puesto', type: 'select', options: opcionesPuesto.value, server: true },
+  { key: 'estado', label: 'Estado', type: 'select', options: estados, server: true }
+])
+
 const filas = ref([])
 const cargando = ref(false)
 const errorCarga = ref(null)
@@ -58,10 +70,14 @@ async function cargar() {
   cargando.value = true
   errorCarga.value = null
   try {
+    // El popover envía solo las claves con valor: se leen con fallback.
+    const puestoId = filtros.value.puestoId ?? 'todos'
+    const estado = filtros.value.estado ?? 'todos'
+    const q = String(filtros.value.q ?? '').trim()
     const resultado = await api.listarDispositivos({
-      puestoId: filtros.value.puestoId === 'todos' ? undefined : filtros.value.puestoId,
-      revocado: filtros.value.estado === 'todos' ? undefined : filtros.value.estado === 'revocados',
-      q: filtros.value.q.trim() || undefined,
+      puestoId: puestoId === 'todos' ? undefined : puestoId,
+      revocado: estado === 'todos' ? undefined : estado === 'revocados',
+      q: q || undefined,
       limit: 300
     })
     filas.value = resultado.dispositivos
@@ -93,7 +109,6 @@ watchDebounced(() => filtros.value.q, cargar, { debounce: 400 })
 function reiniciarFiltros() {
   filtros.value = { puestoId: 'todos', estado: 'todos', q: '' }
 }
-
 // --- Detalle y accesos ---
 const dialogoDetalle = ref(false)
 const detalle = ref(null)
@@ -352,38 +367,17 @@ async function confirmarRevocar() {
     />
 
     <BaseTable
+      v-model:filters="filtros"
       :data="filas"
       :columns="columnas"
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
-      :disable-filters="true"
+      :filter-fields="camposFiltro"
       empty-state="No hay dispositivos que coincidan"
       @reset="reiniciarFiltros"
       @reload="cargar"
     >
-      <template #toolbar-leading>
-        <UInput
-          v-model="filtros.q"
-          icon="i-lucide-search"
-          placeholder="Buscar nombre o modelo"
-          size="sm"
-          class="w-44 sm:w-60"
-        />
-        <USelect
-          v-model="filtros.puestoId"
-          :items="opcionesPuesto"
-          size="sm"
-          class="w-40"
-        />
-        <USelect
-          v-model="filtros.estado"
-          :items="estados"
-          size="sm"
-          class="w-32"
-        />
-      </template>
-
       <template #nombre-cell="{ row }">
         <p class="font-medium">
           {{ row.original.nombre || 'Equipo sin nombre' }}

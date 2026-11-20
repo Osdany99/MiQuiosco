@@ -105,13 +105,21 @@ export function resolverVenta({
     }
   }
 
-  // El precio dictado ("vende 2 panes a 10") manda sobre el del catálogo: es lo
-  // que el cliente acordó. Antes la venta directa lo ignoraba.
-  const precioUnitario = slots?.precioUnitario != null
+  // El precio depende del tipo: casa y familiar salen al costo (el lote más
+  // reciente), regalo no cobra y la venta directa usa el de catálogo. El
+  // precio dictado ("vende 2 panes a 10") manda sobre todos: es lo que se
+  // acordó con el cliente.
+  const tipoVenta = slots?.tipoVenta || 'directa'
+  const precioDictado = slots?.precioUnitario != null && Number(slots.precioUnitario) > 0
+  const precioUnitario = precioDictado
     ? Number(slots.precioUnitario)
-    : Number(fila?.precioVentaActual ?? 0)
+    : tipoVenta === 'regalo'
+      ? 0
+      : (tipoVenta === 'casa' || tipoVenta === 'familiar')
+          ? Number(fila?.costoActual ?? 0)
+          : Number(fila?.precioVentaActual ?? 0)
   const importe = Math.round(precioUnitario * cantidad * 100) / 100
-  const modoDirecta = Boolean(ventaDirecta) && (slots?.tipoVenta || 'directa') === 'directa'
+  const modoDirecta = Boolean(ventaDirecta) && tipoVenta === 'directa'
 
   return {
     tipo: 'venta',
@@ -123,6 +131,8 @@ export function resolverVenta({
     cantidad,
     disponible,
     precioUnitario,
+    precioDictado,
+    tipoVenta,
     importe,
     encontrados: encontrados.length,
     efectivo: decision.efectivo || 0

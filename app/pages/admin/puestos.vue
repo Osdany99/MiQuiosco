@@ -19,13 +19,17 @@ const filas = ref([])
 const cargando = ref(false)
 const errorCarga = ref(null)
 
-const busqueda = ref('')
-const filtroEstado = ref('todos')
+const filtros = ref({ busqueda: '', estado: 'todos' })
+
+/** Todos los filtros en el icono: en el teléfono no caben en la barra. */
+const camposFiltro = computed(() => [
+  { key: 'busqueda', label: 'Buscar', server: true },
+  { key: 'estado', label: 'Estado', type: 'select', options: estados, server: true }
+])
 
 /** «Restablecer» de la tabla: vuelve a los filtros de entrada. */
 function reiniciarFiltros() {
-  busqueda.value = ''
-  filtroEstado.value = 'todos'
+  filtros.value = { busqueda: '', estado: 'todos' }
 }
 
 const estados = [
@@ -46,11 +50,12 @@ const columnas = [
 ]
 
 const filtrados = computed(() => {
-  const texto = busqueda.value.trim().toLowerCase()
+  const texto = String(filtros.value.busqueda ?? '').trim().toLowerCase()
+  const estado = filtros.value.estado ?? 'todos'
 
   return filas.value.filter((puesto) => {
-    if (filtroEstado.value === 'activos' && !puesto.activo) return false
-    if (filtroEstado.value === 'inactivos' && puesto.activo) return false
+    if (estado === 'activos' && !puesto.activo) return false
+    if (estado === 'inactivos' && puesto.activo) return false
     if (!texto) return true
 
     const valores = [
@@ -350,32 +355,17 @@ async function guardarPin() {
     />
 
     <BaseTable
+      v-model:filters="filtros"
       :data="filtrados"
       :columns="columnas"
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
-      :disable-filters="true"
+      :filter-fields="camposFiltro"
       empty-state="No hay puestos que coincidan"
       @reset="reiniciarFiltros"
       @reload="cargar"
     >
-      <template #toolbar-leading>
-        <UInput
-          v-model="busqueda"
-          icon="i-lucide-search"
-          placeholder="Buscar puesto o jefe"
-          size="sm"
-          class="w-44 sm:w-64"
-        />
-        <USelect
-          v-model="filtroEstado"
-          :items="estados"
-          size="sm"
-          class="w-32"
-        />
-      </template>
-
       <template #nombre-cell="{ row }">
         <div class="flex items-center gap-2">
           <span class="font-medium">{{ row.original.nombre }}</span>

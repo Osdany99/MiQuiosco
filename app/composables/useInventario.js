@@ -142,10 +142,13 @@ export function useInventario() {
     if (!pid) throw new Error('Sin puesto asignado.')
     cargando.value = true
     try {
+      // `entradaRef` se decide antes de enviar: si el POST se reintenta, el
+      // servidor (o el sqlite) reconoce la entrada y no da el stock dos veces.
+      const entradaRef = parsed.data.entradaRef || generarId()
       if (esOnline.value) {
         return await $api('/api/inventario/entradas', {
           method: 'POST',
-          body: parsed.data,
+          body: { ...parsed.data, entradaRef },
           headers: apiHeaders()
         })
       }
@@ -160,10 +163,11 @@ export function useInventario() {
         const provs = await filasPuesto(proveedoresRepo, pid)
         if (!provs.some(p => p.id === parsed.data.proveedorId)) throw new Error('Proveedor inválido.')
       }
-      const { entradaRef, lotes: lotesNuevos, movimientos } = construirEntrada(parsed.data, {
+      const { lotes: lotesNuevos, movimientos } = construirEntrada(parsed.data, {
         puestoId: pid,
         usuarioId,
-        ahora
+        ahora,
+        entradaRef
       })
       await db.transaction(async () => {
         for (const l of lotesNuevos) await r(lotesRepo).create(l)
@@ -191,10 +195,13 @@ export function useInventario() {
     if (!pid) throw new Error('Sin puesto asignado.')
     cargando.value = true
     try {
+      // El id del traspaso viaja desde el cliente: reintentar no mueve el
+      // almacén dos veces.
+      const traspasoId = parsed.data.id || generarId()
       if (esOnline.value) {
         return await $api('/api/inventario/traspasos', {
           method: 'POST',
-          body: parsed.data,
+          body: { ...parsed.data, id: traspasoId },
           headers: apiHeaders()
         })
       }
@@ -209,7 +216,14 @@ export function useInventario() {
       const { traspaso, movimientos, faltantes } = construirTraspaso({
         lineas: parsed.data.lineas,
         lotesPorProducto,
-        meta: { puestoId: pid, usuarioId, ahora, fecha: parsed.data.fecha, notas: parsed.data.notas }
+        meta: {
+          puestoId: pid,
+          usuarioId,
+          ahora,
+          fecha: parsed.data.fecha,
+          notas: parsed.data.notas,
+          traspasoId
+        }
       })
       if (faltantes.length > 0) {
         throw new Error('Stock insuficiente en el almacén para uno o más productos.')
@@ -246,10 +260,12 @@ export function useInventario() {
     if (!pid) throw new Error('Sin puesto asignado.')
     cargando.value = true
     try {
+      // Id del primer movimiento: la merma/devolución es idempotente al reintentar.
+      const movimientoId = parsed.data.id || generarId()
       if (esOnline.value) {
         return await $api('/api/inventario/ajustes', {
           method: 'POST',
-          body: parsed.data,
+          body: { ...parsed.data, id: movimientoId },
           headers: apiHeaders()
         })
       }
@@ -270,7 +286,7 @@ export function useInventario() {
         nota: parsed.data.nota ?? null,
         loteId: parsed.data.loteId ?? null,
         lotesOrdenados: disponibles,
-        meta: { puestoId: pid, usuarioId, ahora }
+        meta: { puestoId: pid, usuarioId, ahora, movimientoId }
       })
       if (faltante) throw new Error('Stock insuficiente para este ajuste.')
       await db.transaction(async () => {
@@ -308,10 +324,14 @@ export function useInventario() {
     cargando.value = true
     try {
       const fechaVenta = Number(creadoEnFijado) || Date.now()
+      // El id viaja al servidor: si la petición se reintenta (red cortada
+      // después de escribir, doble toque), el endpoint devuelve la venta que ya
+      // existe en vez de descontar el stock otra vez.
+      const ventaId = String(idFijado || '').trim() || generarId()
       if (esOnline.value) {
         return await $api('/api/ventas-directas', {
           method: 'POST',
-          body: { ...parsed.data, creadoEn: fechaVenta },
+          body: { ...parsed.data, id: ventaId, creadoEn: fechaVenta },
           headers: apiHeaders()
         })
       }
@@ -330,7 +350,21 @@ export function useInventario() {
       const lotesPorProducto = new Map(
         ids.map(id => [id, lotesConSaldo(filasLotes, movs, id, parsed.data.ubicacion)])
       )
-      const ventaId = idFijado || generarId()
+      // Reintento de una venta que ya se guardó (el primer intento pudo
+      // confirmar y la UI mostrar un error posterior): se devuelve la que
+      // existe en vez de insertar otra. Sin esto, reintentar duplicaba la venta.
+      if (idFijado) {
+        const previa = await r(ventasDirectasRepo).read(ventaId).catch(() => null)
+        if (previa) {
+          return {
+            id: previa.id,
+            montoTotal: previa.montoTotal,
+            costoTotal: previa.costoTotal,
+            ganancia: previa.ganancia,
+            repetida: true
+          }
+        }
+      }
       const venta = construirVentaDirecta({
         lineas: parsed.data.lineas,
         lotesPorProducto,
@@ -574,6 +608,7 @@ export function useInventario() {
       lote: {
         ...lote,
         nombreProducto: producto?.nombre ?? null,
+        descripcionProducto: producto?.descripcion ?? null,
         proveedorNombre: proveedor?.nombre ?? null
       },
       movimientos: movs,

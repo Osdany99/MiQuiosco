@@ -201,7 +201,7 @@ public class VozServicioPlugin extends Plugin {
     @PluginMethod
     public void pausar(PluginCall call) {
         enviarAccion(VozEscuchaService.ACTION_PAUSAR);
-        call.resolve(estadoActual());
+        resolverCuandoLibere(call);
     }
 
     @PluginMethod
@@ -218,7 +218,7 @@ public class VozServicioPlugin extends Plugin {
     @PluginMethod
     public void detener(PluginCall call) {
         enviarAccion(VozEscuchaService.ACTION_DETENER);
-        call.resolve(estadoActual());
+        resolverCuandoLibere(call);
     }
 
     /**
@@ -277,7 +277,8 @@ public class VozServicioPlugin extends Plugin {
     }
 
     /** Las acciones de control no necesitan volver a promover el servicio. */
-    private void enviarAccion(String accion) {        try {
+    private void enviarAccion(String accion) {
+        try {
             Intent intent = new Intent(getContext(), VozEscuchaService.class).setAction(accion);
             if (VozEscuchaService.activo) {
                 getContext().startService(intent);
@@ -285,5 +286,30 @@ public class VozServicioPlugin extends Plugin {
         } catch (Exception ignored) {
             // Servicio ya muerto: no hay nada que pausar ni detener.
         }
+    }
+
+    /**
+     * Resuelve con el estado real una vez que el servicio soltó el micrófono.
+     *
+     * `startService` es asíncrono: resolver de inmediato devolvía `pausado`
+     * todavía en false y el dock abría el micrófono mientras el servicio lo
+     * tenía tomado (`busy` o un falso error de red). Se espera en un hilo corto
+     * para no bloquear el hilo principal y con tope por si el servicio murió.
+     */
+    private void resolverCuandoLibere(PluginCall call) {
+        final long topeMs = 1600L;
+        new Thread(() -> {
+            long fin = System.currentTimeMillis() + topeMs;
+            while (System.currentTimeMillis() < fin) {
+                boolean listo = !VozEscuchaService.activo || VozEscuchaService.liberado;
+                if (listo) break;
+                try {
+                    Thread.sleep(40L);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+            call.resolve(estadoActual());
+        }, "voz-micropausa").start();
     }
 }

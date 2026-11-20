@@ -118,6 +118,8 @@
 </template>
 
 <script setup>
+import { generarId } from '#shared/inventario/operaciones'
+
 const props = defineProps({
   // Fila de saldos desde la que se abrió (vistaSaldos): trae productoId,
   // nombre, precioVentaActual, costoActual y el stock de cada ubicación.
@@ -139,6 +141,9 @@ const fiado = useCuentasFiado()
 const toast = useToast()
 const auth = useAuth()
 const tts = useTts()
+// Id de la venta que se está preparando. Se fija al abrir y se reutiliza al
+// confirmar: si el primer intento falla a medias, reintentar no duplica.
+const ventaDirectaId = ref(null)
 const clientes = ref([])
 const lotes = ref([])
 const cantidadExcedeStock = ref(false)
@@ -227,7 +232,7 @@ const lineasForm = ref([])
 const etiquetaUbicacion = computed(() => props.ubicacion === 'quiosco' ? 'Quiosco' : 'Almacén')
 const descripcionDialogo = computed(() => esMultiple.value
   ? `${cfg.value.descripcion} ${etiquetaUbicacion.value.toLowerCase()} · ${lineasForm.value.length} productos`
-  : `${cfg.value.descripcion} · ${props.producto?.nombre ?? ''}`)
+  : `${cfg.value.descripcion} · ${props.producto?.nombre ?? ''}${props.producto?.descripcion?.trim() ? ` (${props.producto.descripcion})` : ''}`)
 const disponible = computed(() => Number(loteSeleccionado.value?.saldo ?? 0))
 const totalDisponibleStock = computed(() =>
   (lotes.value ?? []).reduce((acc, l) => acc + (Number(l?.saldo) || 0), 0) || Number(props.producto?.stock ?? 0)
@@ -305,7 +310,7 @@ const valida = computed(() => {
  * compra" que muestra la tabla. Regalo no lleva precio. */
 function precioInicial() {
   if (esRegalo.value) return 0
-  if (esCasa.value || props.modo === 'familiar') {
+  if (esCasa.value || modoActual.value === 'familiar') {
     return costoLoteSeleccionado.value
   }
   return Number(props.producto?.precioVentaActual ?? 0)
@@ -322,10 +327,12 @@ watch(isOpen, async (open) => {
     abriendo = false
     cantidadExcedeStock.value = false
     lineasForm.value = []
+    ventaDirectaId.value = null
     return
   }
   abriendo = true
   cantidadExcedeStock.value = false
+  ventaDirectaId.value = generarId()
 
   // Venta con varias líneas: no hay lote que elegir (cada producto consume por
   // FIFO al registrar) y el stock ya viene proyectado desde la voz.
@@ -369,7 +376,7 @@ watch(isOpen, async (open) => {
     clientes.value = cls ?? []
     lotes.value = ls ?? []
     form.value.loteId = lotes.value[0]?.id ?? null
-    if (esCasa.value || props.modo === 'familiar' || loteEspecial.value) {
+    if (esCasa.value || modoActual.value === 'familiar' || loteEspecial.value) {
       form.value.precioVentaUsado = costoLoteSeleccionado.value
     }
 
@@ -411,7 +418,7 @@ watch(isOpen, async (open) => {
 
 watch(() => form.value.loteId, () => {
   if (!isOpen.value || abriendo) return
-  if (esCasa.value || props.modo === 'familiar') {
+  if (esCasa.value || modoActual.value === 'familiar') {
     form.value.precioVentaUsado = costoLoteSeleccionado.value
     return
   }
@@ -424,6 +431,7 @@ watch(() => form.value.loteId, () => {
 }, { flush: 'post' })
 
 async function confirmar() {
+  if (guardando.value) return
   const lineas = esMultiple.value
     ? lineasForm.value.map((l, idx) => ({
         productoId: l.productoId,
@@ -453,6 +461,8 @@ async function confirmar() {
       // registrarDeudaDirecta no lanza: avisa con { ok: false } y ya puso el
       // toast, así que sin éxito el diálogo se queda abierto.
       const r = await fiado.registrarDeudaDirecta({
+        // Mismo id fijado al abrir: reintentar no duplica la deuda.
+        id: ventaDirectaId.value || undefined,
         clienteId: form.value.clienteId,
         ubicacion: props.ubicacion,
         lineas
@@ -463,6 +473,8 @@ async function confirmar() {
       void tts.speak(cfg.value.ok)
     } else {
       creada = await inv.registrarVentaDirecta({
+        // El id se fijó al abrir: si se reintenta, no se crea otra venta.
+        id: ventaDirectaId.value || undefined,
         ubicacion: props.ubicacion,
         tipoVenta: cfg.value.tipoVenta ?? 'directa',
         clienteId: form.value.clienteId || null,

@@ -85,6 +85,7 @@
 </template>
 
 <script setup>
+import { generarId } from '../../../shared/inventario/operaciones'
 const props = defineProps({
   cuadreId: { type: String, required: true },
   puestoId: { type: String, required: true },
@@ -107,6 +108,9 @@ const { montoTransferencia } = useCuadre()
 const toast = useToast()
 const nuevaOpen = ref(false)
 const eliminarOpen = ref(false)
+// Id fijo del intento en curso: si el guardado falla y se reintenta, no se
+// registra la transferencia dos veces.
+const nuevaTransferenciaId = ref(null)
 const nuevaForm = ref({ clienteId: null, monto: 0 })
 const transferenciaAEliminar = ref(null)
 const nuevaFormRef = ref(null)
@@ -137,6 +141,8 @@ async function onCrearCliente(data) {
 }
 
 async function confirmarNueva() {
+  // Doble toque mientras guarda: no se registra la transferencia dos veces.
+  if (cargando.value) return
   // El cliente no se valida aquí: la lista incluye el centinela "Sin cliente",
   // así que un valor no elegido es indistinguible de "no sé de quién era".
   // Si el jefe no eligió ninguno, registrarTransferencia lo rechaza.
@@ -144,11 +150,13 @@ async function confirmarNueva() {
     toast.add({ title: 'Error', description: 'El monto debe ser mayor que cero.', color: 'error' })
     return
   }
-  const r = await registrarTransferencia({ clienteId: nuevaForm.value.clienteId, monto: nuevaForm.value.monto, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  nuevaTransferenciaId.value ||= generarId()
+  const r = await registrarTransferencia({ id: nuevaTransferenciaId.value, clienteId: nuevaForm.value.clienteId, monto: nuevaForm.value.monto, cuadreId: props.cuadreId, puestoId: props.puestoId })
   // Sin éxito no se cierra: el error ya se avisó y el formulario se conserva.
   if (!r?.ok) return
   nuevaOpen.value = false
   nuevaForm.value = { clienteId: null, monto: 0 }
+  nuevaTransferenciaId.value = null
   emit('actualizado')
 }
 

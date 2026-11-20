@@ -30,7 +30,7 @@
         </UButton>
       </UTooltip>
       <template #content>
-        <div class="p-4 min-w-48 space-y-3">
+        <div class="p-4 space-y-3 w-[min(20rem,calc(100vw-2rem))]">
           <div v-for="field in resolvedFilterFields" :key="field.key" class="flex items-center gap-2">
             <label class="text-xs text-gray-500 whitespace-nowrap min-w-16">{{ field.label }}</label>
             <USelectMenu
@@ -42,6 +42,15 @@
               class="w-40"
               clearable
               :search-input="false"
+            />
+            <UInputDate
+              v-else-if="field.type === 'date'"
+              v-model="draft[field.key]"
+              class="w-40"
+            />
+            <USwitch
+              v-else-if="field.type === 'switch'"
+              v-model="draft[field.key]"
             />
             <UInput
               v-else
@@ -133,7 +142,7 @@ watch(open, (isOpen) => {
 })
 
 const appliedCount = computed(() =>
-  Object.values(props.modelValue).filter(v => v != null && v !== '').length
+  Object.values(props.modelValue).filter(v => v != null && v !== '' && v !== false).length
 )
 
 function aplicar() {

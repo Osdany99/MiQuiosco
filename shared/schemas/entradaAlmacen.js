@@ -3,6 +3,8 @@ import { z } from 'zod'
 // Entrada al almacén: una compra con uno o varios productos.
 // Cada línea genera un lote + un movimiento de tipo 'entrada'.
 export const entradaAlmacenSchema = z.object({
+  // Referencia decidida por el cliente: reintentar no duplica lotes ni stock.
+  entradaRef: z.string().uuid('ID inválido').optional(),
   fechaEntrada: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
   proveedorId: z.string().uuid().nullable().optional(),
   lugarCompra: z.string().max(150).nullable().optional(),

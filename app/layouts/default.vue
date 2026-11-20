@@ -214,6 +214,12 @@ async function escucharRespuesta(nombreProducto) {
 /** Modos con formulario que también se confirman por voz. */
 const MODOS_ASISTIDOS = new Set(['entrada', 'precio', 'traspaso', 'ajuste', 'cliente'])
 
+/**
+ * Ventas que piden el «sí» hablado. Casa, familiar y regalo también mueven
+ * stock y dinero: antes solo la venta directa preguntaba.
+ */
+const MODOS_VENTA_CONFIRMABLES = new Set(['venta', 'casa', 'familiar', 'regalo'])
+
 watch(() => vozActiva.value.producto.value, async (fila) => {
   if (!fila) return
   // Sin lectura de voz no hay confirmación hablada: el formulario queda abierto
@@ -265,7 +271,7 @@ watch(() => vozActiva.value.producto.value, async (fila) => {
     return
   }
   // Sin permiso de venta por voz solo queda el toque manual en el formulario.
-  if (!ceroToquesActivo.value || vozActiva.value.modo.value !== 'venta') {
+  if (!ceroToquesActivo.value || !MODOS_VENTA_CONFIRMABLES.has(vozActiva.value.modo.value)) {
     vozDialogAbierto.value = true
     return
   }

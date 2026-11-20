@@ -77,6 +77,21 @@ venta por voz funciona igual.
 5. Si no hay respuesta en el tiempo configurado, deja el formulario abierto y
    dice **“Sin respuesta, confirme manualmente.”**.
 
+**El precio depende del tipo de venta** (y es el mismo que registra el
+formulario): la venta directa usa el precio de catálogo, **casa y familiar van
+al costo** del lote y **regalo no cobra**. Si se dicta un precio («vende un pan
+familiar a 5»), manda el dictado. El anuncio lo dice: «Voy a vender 2 unidades
+de Pan del almacén por 12 pesos. Venta familiar. Diga sí para confirmar.».
+
+El «sí» hablado se pide también para **casa, familiar y regalo**: las tres
+mueven stock y dinero igual que la venta directa. Antes solo preguntaba la
+venta directa.
+
+Un producto se puede nombrar por su **descripción** cuando varios comparten
+nombre: «vende un maní molido» elige el Maní con descripción «molido» aunque
+haya otro «cocinado» o «garapiñado». La descripción también desempata en el
+servicio con la app cerrada.
+
 La ventana de 5 s para decir “cancela” ya **no existe**: una frase abierta al
 ambiente del mostrador podía anular una venta real. Un error se corrige desde el
 historial, no por voz.
@@ -187,13 +202,15 @@ mojaron 2 refrescos», «devuelve 4 panes al almacén».
 - Se abren en **`DialogoAjuste`**, el mismo diálogo que usa el inventario: no hay
   un formulario paralelo. Nada se escribe hasta pulsar **Guardar**.
 - **Merma**: el motivo se dicta. Se guarda un verbo canónico (`rotos`,
-  `vencidos`, `se cayó`, `se mojó`, `derramado`, `dañado`, `perdido`) y, si se
-  dijo, la cola detrás de «porque / pues / ya que»; máximo 200 caracteres. Sin
-  motivo, se guarda solo el verbo.
+  `vencidos`, `se cayó`, `se mojó`, `derramado`, `dañado`, `perdido`, `se cogió`)
+  y, si se dijo, la cola detrás de «porque / pues / ya que»; máximo 200
+  caracteres. Sin motivo, se guarda solo el verbo.
 - **Devolución** (tipo `devolucion`): siempre repone **del quiosco al almacén**;
   la cantidad no puede superar lo que hay en el quiosco.
-- La merma se registra donde se dictó o donde se dijo («del quiosco» / «del
-  almacén») y comprueba el stock de esa ubicación antes de abrir.
+- La merma se registra **en el almacén** salvo que se diga otra ubicación
+  («del quiosco» / «del almacén») y comprueba el stock de esa ubicación antes de
+  abrir. «Se cogieron 3 panes para la casa» es una merma (motivo «se cogió»);
+  también sin cantidad, y se anota 1 unidad para corregirla en el formulario.
 - La merma va a `movimientos_inventario` (tipo `merma`), igual que el botón del
   inventario: **no** toca gavetas del cuadre.
 - Un **trabajador no puede dictar merma ni devolución**: oye el aviso y no se

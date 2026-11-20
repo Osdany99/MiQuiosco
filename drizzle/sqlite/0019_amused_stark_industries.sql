@@ -1,0 +1,1 @@
+ALTER TABLE `acciones_pendientes_voz` ADD `motor` text;

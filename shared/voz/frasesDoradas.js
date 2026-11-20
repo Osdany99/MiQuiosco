@@ -20,6 +20,8 @@ export const FRASES_DORADAS = [
   { frase: 'cambia el precio del pan a 25', comando: 'cambio_precio' },
   { frase: 'pasa 5 panes del almacen al quiosco', comando: 'traspaso' },
   { frase: 'se rompieron 3 panes', comando: 'ajuste_inventario' },
+  { frase: 'se cogieron 3 panes para la casa', comando: 'ajuste_inventario' },
+  { frase: 'se cogieron los panes para la casa', comando: 'ajuste_inventario' },
   { frase: 'devuelve 2 panes al almacen', comando: 'ajuste_inventario' },
   { frase: 'crea un producto pan de leche a 25', comando: 'producto_alta' },
   { frase: 'agrega el cliente adrian', comando: 'cliente_alta' },

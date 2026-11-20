@@ -35,7 +35,7 @@
       <!-- El producto viene de la fila desde la que se abrió: los lotes se
            registran de uno en uno y aquí no se cambia. -->
       <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
-        <span class="font-medium truncate">{{ nombreProducto || '—' }}</span>
+        <BaseProductoNombre :nombre="nombreProducto" :descripcion="descripcionProducto" />
         <UBadge
           size="sm"
           variant="soft"
@@ -67,6 +67,7 @@
 </template>
 
 <script setup>
+import { generarId } from '../../../shared/inventario/operaciones'
 const props = defineProps({
   productoId: { type: String, default: null },
   /** Voz (Fase K): cantidad y costo dictados. `precioUnitario` null = último. */
@@ -79,10 +80,13 @@ const inv = useInventario()
 const toast = useToast()
 
 const nombreProducto = ref('')
+const descripcionProducto = ref('')
 const proveedoresItems = ref([])
 /** Último precio pagado por cada producto, derivado de su lote más reciente. */
 const ultimoPrecio = ref(new Map())
 const guardando = ref(false)
+// Id fijo del intento: reintentar tras un error no duplica la entrada.
+const entradaRef = ref(null)
 
 const form = ref({
   productoId: null,
@@ -127,6 +131,7 @@ watch(isOpen, async (open) => {
   ])
   const producto = (prods ?? []).find(p => p.id === props.productoId)
   nombreProducto.value = producto?.nombre ?? ''
+  descripcionProducto.value = producto?.descripcion ?? ''
 
   // El último precio pagado sale del LOTE más reciente, no de un espejo en el
   // producto: el lote es el único sitio donde ese precio existe de verdad.
@@ -165,9 +170,13 @@ watch(isOpen, async (open) => {
 })
 
 async function confirmar() {
+  // Doble toque o confirmación hablada mientras guarda: no se repite la entrada.
+  if (guardando.value) return
   guardando.value = true
+  entradaRef.value ||= generarId()
   try {
     await inv.registrarEntrada({
+      entradaRef: entradaRef.value,
       fechaEntrada: form.value.fechaEntrada,
       proveedorId: form.value.proveedorId ?? null,
       // El detalle no se pide: la compra se describe con el proveedor y el precio.
@@ -180,6 +189,7 @@ async function confirmar() {
       }]
     })
     toast.add({ title: 'Entrada guardada', description: 'El stock del almacén se actualizó.', color: 'success' })
+    entradaRef.value = null
     isOpen.value = false
     emit('guardado')
   } catch {

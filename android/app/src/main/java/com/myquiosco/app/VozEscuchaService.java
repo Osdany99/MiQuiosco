@@ -97,6 +97,12 @@ public class VozEscuchaService extends Service {
     public static volatile boolean activo = false;
     /** ¿Está pausado porque la app está abierta? */
     public static volatile boolean pausado = false;
+    /**
+     * ¿El servicio ya soltó el micrófono? El plugin de la app lo consulta antes
+     * de dictar: `pausado` se pone antes de cerrar el reconocedor, así que por
+     * sí solo no garantiza que el AudioRecord esté libre.
+     */
+    public static volatile boolean liberado = true;
     /** Dictados anotados desde que arrancó el servicio. */
     public static volatile int anotados = 0;
     /** Motor con el que está escuchando ahora: "sistema" o "vosk". */
@@ -375,8 +381,12 @@ public class VozEscuchaService extends Service {
         if (arrancarPausado) {
             // El servicio queda en primer plano (necesario para poder escuchar
             // después: Android 14 no deja arrancar un FGS de micrófono desde
-            // segundo plano) pero sin abrir el micrófono.
+            // segundo plano) pero sin abrir el micrófono. Si ya estaba
+            // escuchando (recarga del bundle web con el servicio vivo), hay que
+            // cerrar la sesión abierta: solo con `pausado = true` el
+            // reconocedor del sistema seguía capturando.
             pausado = true;
+            pararEscucha();
             actualizarNotificacion("En espera: escucha cuando la app no esté abierta");
             return START_STICKY;
         }
@@ -421,6 +431,7 @@ public class VozEscuchaService extends Service {
         wakeLock = null;
         activo = false;
         pausado = false;
+        liberado = true;
         motorActual = "";
         super.onDestroy();
     }
@@ -796,12 +807,14 @@ public class VozEscuchaService extends Service {
                         programarReinicio(espera);
                     }
                 });
+                liberado = false;
                 recognizer.startListening(construirIntent());
                 escuchando = true;
                 motorActual = "sistema";
             } catch (Exception e) {
                 Log.w(TAG, "No se pudo iniciar la escucha: " + e.getMessage());
                 cleanupRecognizer();
+                liberado = true;
                 programarReinicio(2000);
             }
         });
@@ -833,6 +846,10 @@ public class VozEscuchaService extends Service {
         liberarWakelock();
         ocultarOnda();
         WidgetVoz.detener(this);
+        // El reconocedor del sistema queda cancelado de forma síncrona; Vosk
+        // cierra su AudioRecord en el hilo al salir de `read()` (lo desbloquea
+        // `audio.stop()`), así que hasta entonces el micrófono no está libre.
+        liberado = hiloVosk == null;
     }
 
     // ── Escucha offline (Vosk) ────────────────────────────────────────────
@@ -852,6 +869,7 @@ public class VozEscuchaService extends Service {
         }
         if (escuchando) return;
         escuchando = true;
+        liberado = false;
         motorActual = "vosk";
         actualizarNotificacion(VoskModelo.extraido(this)
             ? "Escuchando: di «" + FRASE_POR_DEFECTO + "» y luego la venta"
@@ -939,6 +957,8 @@ public class VozEscuchaService extends Service {
             }
             modeloVosk = null;
             hiloVosk = null;
+            // El micrófono recién queda libre cuando el AudioRecord se cerró.
+            if (pausado || destruido || detenido) liberado = true;
             // Si el cierre no fue por pausa ni por apagado, hay que seguir
             // escuchando (por ejemplo, Vosk falló y tocaba el motor sistema).
             if (!destruido && !pausado) {
@@ -972,6 +992,9 @@ public class VozEscuchaService extends Service {
     // a la base: nada se registra solo.
 
     private void manejarTexto(String texto, float confianza, ArrayList<String> alternativas) {
+        // Un reconocedor que ya estaba en vuelo cuando el jefe abrió la app
+        // puede devolver una frase del mostrador: no debe anotarse nada.
+        if (pausado || detenido || destruido) return;
         String limpio = texto == null ? "" : texto.trim();
         if (limpio.isEmpty()) {
             programarReinicio(200);
@@ -1399,10 +1422,20 @@ public class VozEscuchaService extends Service {
             }
             if (!exacto && puntaje == 0) continue;
 
+            // La descripción desempata ("maní molido" entre varios "Maní").
+            // No basta por sí sola: sin ninguna palabra del nombre no entra.
+            String descripcion = IntencionVenta.normalizarFrase(p.optString("descripcion", ""));
+            int puntosDescripcion = 0;
+            for (String t : descripcion.split(" ")) {
+                if (t.length() < 3 || PALABRAS_VACIAS.contains(t)) continue;
+                if (contieneCompatible(palabras, t)) puntosDescripcion++;
+            }
+
             Candidato c = new Candidato();
             c.producto = p;
             c.exacto = exacto;
-            c.puntaje = exacto ? 100 + puntaje : puntaje;
+            c.puntaje = (exacto ? 100 + puntaje : puntaje) * 10
+                + Math.min(9, puntosDescripcion);
             encontrados.add(c);
         }
 
@@ -1580,13 +1613,26 @@ public class VozEscuchaService extends Service {
     }
 
     /** Lee la venta (o el fiado) con el importe y pide confirmación. */
+    /**
+     * Precio que se cobra según el tipo de venta dictado. Casa y familiar
+     * salen al costo, regalo no cobra y la venta directa usa el de catálogo.
+     * Antes el anuncio decía siempre el precio normal.
+     */
+    private double precioSegunTipo(JSONObject producto) {
+        if ("regalo".equals(tipoVentaDictada)) return 0;
+        if ("casa".equals(tipoVentaDictada) || "familiar".equals(tipoVentaDictada)) {
+            return producto.optDouble("costo", 0);
+        }
+        return producto.optDouble("precio", 0);
+    }
+
     private void proponerConfirmacion(JSONObject producto, int cantidad, String ubicacion) {
         if (!corrigiendoCantidad) correccionesConfirmacion = 0;
         productoPendiente = producto;
         cantidadPendiente = cantidad;
         ubicacionPendiente = ubicacion;
 
-        double precio = producto.optDouble("precio", 0);
+        double precio = precioSegunTipo(producto);
         double importe = Math.round(precio * cantidad * 100) / 100.0;
         String nombre = producto.optString("nombre", "ese producto");
 
@@ -1665,7 +1711,7 @@ public class VozEscuchaService extends Service {
             continuarEscucha();
             return;
         }
-        double precio = producto.optDouble("precio", 0);
+        double precio = precioSegunTipo(producto);
         double importe = Math.round(precio * cantidadPendiente * 100) / 100.0;
         boolean ok = anotarResuelto(producto, cantidadPendiente, ubicacionPendiente, precio, importe, cliente);
         if (ok) {
@@ -2162,6 +2208,9 @@ public class VozEscuchaService extends Service {
             o.put("cantidad", cantidad);
             o.put("precioUnitario", precio);
             o.put("importe", importe);
+            // Costo del producto: la app lo usa si la venta es de casa o
+            // familiar (el precio de catálogo no es el que se cobra).
+            o.put("costoUnitario", producto.optDouble("costo", 0));
             o.put("ubicacion", "almacen".equals(ubicacion) ? "almacen" : "quiosco");
             o.put("tipoVenta", "casa".equals(tipoVentaDictada) || "familiar".equals(tipoVentaDictada)
                 || "regalo".equals(tipoVentaDictada) ? tipoVentaDictada : "directa");
@@ -2173,6 +2222,9 @@ public class VozEscuchaService extends Service {
             }
             o.put("dictadoEn", ahora);
             o.put("origen", "servicio");
+            // Motor que transcribió: el panel de voz del super_admin lo guarda
+            // con cada acierto (Vosk u online, según la flota del equipo).
+            o.put("motor", motorActual);
 
             return escribirInbox(o, base);
         } catch (Exception e) {
@@ -2203,6 +2255,7 @@ public class VozEscuchaService extends Service {
             o.put("clienteNombre", cliente.optString("nombre", ""));
             o.put("dictadoEn", ahora);
             o.put("origen", "servicio");
+            o.put("motor", motorActual);
 
             return escribirInbox(o, base);
         } catch (Exception e) {

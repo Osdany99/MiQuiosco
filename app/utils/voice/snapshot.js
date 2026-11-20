@@ -12,7 +12,7 @@ import { proyectarStock } from './pendientes.js'
 import { resumirDeudas } from '../../../shared/voz/deudas.js'
 import { inicioDelDia, resumirDia } from '../../../shared/voz/dia.js'
 
-export const SNAPSHOT_VERSION = 5
+export const SNAPSHOT_VERSION = 6
 
 /**
  * Léxico efectivo que necesita el servicio con la app cerrada. Solo los verbos
@@ -95,6 +95,9 @@ export function construirSnapshot({
         pendienteQuiosco: numero(fila?.pendienteQuiosco),
         pendienteAlmacen: numero(fila?.pendienteAlmacen),
         precio: numero(fila?.precioVentaActual),
+        // Costo del lote más reciente: es el precio de la venta de casa y
+        // familiar, y el servicio nativo lo necesita para anunciar bien.
+        costo: numero(fila?.costoActual),
         seVende: fila?.seVende !== false
       }
     })

@@ -3,6 +3,7 @@ import { db } from '../../database/client'
 import { cuentasFiado, cuentasFiadoItems, pagosFiado, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
 import { validarTopeFiado } from '../../utils/fiadoTope'
+import { existentePorId } from '../../utils/idempotencia'
 import { createCuentaFiadoSchema } from '#shared/schemas/createCuentaFiado'
 
 export default defineEventHandler(async (event) => {
@@ -16,6 +17,22 @@ export default defineEventHandler(async (event) => {
   const { clienteId, cuadreOrigenId, items, montoPagadoInicial = 0, formaPagoInicial = 'efectivo' } = parsed.data
   const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
 
+  // Reintento de la misma deuda: no se vuelve a sumar al cuadre.
+  const previa = await existentePorId(cuentasFiado, parsed.data.id, auth.usuario.puestoId)
+  if (previa) {
+    return {
+      id: previa.id,
+      clienteId: previa.clienteId,
+      cuadreOrigenId: previa.cuadreOrigenId,
+      montoTotal: previa.montoTotal,
+      montoPagado: previa.montoPagado,
+      estado: previa.estado,
+      creadoEn: previa.creadoEn.toISOString(),
+      actualizadoEn: previa.actualizadoEn.toISOString(),
+      idempotente: true
+    }
+  }
+
   if (montoPagadoInicial > montoTotal) {
     throw createError({ statusCode: 400, statusMessage: 'El pago inicial no puede superar el monto total.' })
   }
@@ -26,6 +43,7 @@ export default defineEventHandler(async (event) => {
     const [cuenta] = await tx
       .insert(cuentasFiado)
       .values({
+        ...(parsed.data.id ? { id: parsed.data.id } : {}),
         puestoId: auth.usuario.puestoId,
         clienteId,
         cuadreOrigenId,

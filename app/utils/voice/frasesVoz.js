@@ -60,14 +60,20 @@ export function formatearImporte(importe) {
 }
 
 /** Frase del read-back antes de vender. `importe` y `cliente` son opcionales. */
-export function fraseVenta({ cantidad, nombre, lugar, importe = null, cliente = null }) {
+export function fraseVenta({ cantidad, nombre, lugar, tipo = 'venta', importe = null, cliente = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
   if (n < 1) return `Confirma la venta del ${lugar}.`
   const quien = String(cliente ?? '').trim()
   const destino = quien ? ` del ${lugar} a ${quien}` : ` del ${lugar}`
   const base = `Voy a vender ${describirCantidad(n, nombre)}${destino}`
   const monto = formatearImporte(importe)
-  return monto ? `${base} por ${monto} pesos.` : `${base}.`
+  const texto = monto ? `${base} por ${monto} pesos.` : `${base}.`
+  // El tipo se dice al final para que el jefe sepa si es familiar, de casa o un
+  // regalo: el importe es distinto y la venta también cuenta en el cuadre.
+  const etiqueta = tipo === 'familiar'
+    ? 'Venta familiar.'
+    : tipo === 'casa' ? 'Venta de casa.' : tipo === 'regalo' ? 'Regalo.' : ''
+  return etiqueta ? `${texto} ${etiqueta}` : texto
 }
 
 /**

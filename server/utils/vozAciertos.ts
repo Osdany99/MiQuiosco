@@ -9,6 +9,7 @@ export interface AciertoVozEntrada {
   detalle?: string | null
   texto?: string | null
   confianza?: number | null
+  motor?: string | null
   creadoEn?: string | null
 }
 
@@ -53,6 +54,7 @@ export async function registrarAciertosVoz(
       confianza: typeof a?.confianza === 'number' && Number.isFinite(a.confianza)
         ? a.confianza
         : null,
+      motor: a?.motor ? String(a.motor).trim().slice(0, 20) : null,
       appVersion: opts.appVersion ?? null,
       creadoEn: fechaDe(a?.creadoEn)
     })

@@ -14,6 +14,35 @@ export default defineEventHandler(async (event) => {
 
   const { cuentaFiadoId, cuadreId, monto, formaPago } = parsed.data
 
+  // Reintento del mismo cobro: el pago ya existe con ese id y no se vuelve a
+  // descontar del saldo ni a tocar el cuadre.
+  if (parsed.data.id) {
+    const [previo] = await db
+      .select()
+      .from(pagosFiado)
+      .where(eq(pagosFiado.id, parsed.data.id))
+      .limit(1)
+    if (previo) {
+      const [cuentaPrevia] = await db
+        .select({ puestoId: cuentasFiado.puestoId })
+        .from(cuentasFiado)
+        .where(eq(cuentasFiado.id, previo.cuentaFiadoId))
+        .limit(1)
+      if (!cuentaPrevia || cuentaPrevia.puestoId !== auth.usuario.puestoId) {
+        throw createError({ statusCode: 409, statusMessage: 'Ese id ya está usado en otro puesto.' })
+      }
+      return {
+        id: previo.id,
+        cuentaFiadoId: previo.cuentaFiadoId,
+        cuadreId: previo.cuadreId,
+        monto: previo.monto,
+        formaPago: previo.formaPago,
+        creadoEn: previo.creadoEn.toISOString(),
+        idempotente: true
+      }
+    }
+  }
+
   const [cuenta] = await db
     .select()
     .from(cuentasFiado)
@@ -51,7 +80,13 @@ export default defineEventHandler(async (event) => {
   const result = await db.transaction(async (tx) => {
     const [pago] = await tx
       .insert(pagosFiado)
-      .values({ cuentaFiadoId, cuadreId, monto, formaPago })
+      .values({
+        ...(parsed.data.id ? { id: parsed.data.id } : {}),
+        cuentaFiadoId,
+        cuadreId,
+        monto,
+        formaPago
+      })
       .returning()
     const p = pago!
 

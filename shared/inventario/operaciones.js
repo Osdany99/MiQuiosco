@@ -160,7 +160,8 @@ export function construirEntrada(datos, meta) {
 export function construirTraspaso({ lineas, lotesPorProducto, meta }) {
   const ahora = meta.ahora ?? Date.now()
   const traspaso = {
-    id: generarId(),
+    // El cliente puede fijar el id antes de enviar: reintentar no duplica.
+    id: meta.traspasoId ?? generarId(),
     puestoId: meta.puestoId,
     fecha: meta.fecha,
     desde: 'almacen',
@@ -595,7 +596,9 @@ export function construirAjuste({ productoId, tipo, ubicacion, cantidad, motivo,
     const toma = Math.min(lote.saldo, pendiente)
     const esDevolucion = tipo === 'devolucion'
     movimientos.push({
-      id: generarId(),
+      // El primer movimiento lleva el id que mandó el cliente (si lo hay): es
+      // la marca que hace idempotente la merma completa.
+      id: movimientos.length === 0 && meta.movimientoId ? meta.movimientoId : generarId(),
       puestoId: meta.puestoId,
       productoId,
       loteId: lote.id,

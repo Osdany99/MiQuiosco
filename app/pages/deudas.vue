@@ -39,18 +39,15 @@
 
       <BaseTable
         v-else
+        v-model:filters="filtrosDeudas"
         :data="deudasMostradas"
         :columns="columnasDeuda"
         :ui="uiTabla"
         :show-edit="false"
         :show-delete="false"
-        :filter-fields="camposFiltro"
+        :filter-fields="camposFiltroDeudas"
         :empty-state="textoVacioDeudas"
       >
-        <template #toolbar-leading>
-          <UInputDate v-model="diaDeudas" size="sm" class="w-44" />
-          <USwitch v-model="verTodasDeudas" label="Ver todas" />
-        </template>
         <template #nombreCliente-cell="{ row }">
           <div class="min-w-0">
             <p class="truncate font-medium">
@@ -134,17 +131,15 @@
 
     <BaseTable
       v-else
+      v-model:filters="filtrosSaldadas"
       :data="pagadasMostradas"
       :columns="columnasPagadas"
       :ui="uiTabla"
       :show-edit="false"
       :show-delete="false"
-      :filter-fields="camposFiltro"
+      :filter-fields="camposFiltroSaldadas"
       :empty-state="textoVacioSaldadas"
     >
-      <template #toolbar-leading>
-        <UInputDate v-model="diaSaldadas" size="sm" class="w-44" />
-      </template>
       <template #nombreCliente-cell="{ row }">
         {{ row.original.nombreCliente ?? 'Cliente' }}
       </template>
@@ -254,6 +249,7 @@
 <script setup>
 import { CalendarDate } from '@internationalized/date'
 import { aDia } from '../../shared/inventario/analitica'
+import { generarId } from '../../shared/inventario/operaciones'
 
 definePageMeta({
   middleware: ['jefe']
@@ -286,6 +282,8 @@ const showCobro = ref(false)
 const showCobroRecarga = ref(false)
 const showHistorial = ref(false)
 const cobrando = ref(false)
+// Id del cobro fijado al abrir el diálogo: reintentar no cobra dos veces.
+const cobroId = ref(null)
 const cobrandoRecarga = ref(false)
 const deudaACobrar = ref(null)
 
@@ -352,15 +350,17 @@ function calendarioDeHoy() {
 // Arrancan en hoy: lo que se revisa es lo del día. Limpiar la fecha muestra
 // todo; en Deudas además está "Ver todas" porque las pendientes viejas no
 // deben quedar escondidas detrás de un día sin movimiento.
-const diaDeudas = ref(calendarioDeHoy())
-const diaSaldadas = ref(calendarioDeHoy())
-const verTodasDeudas = ref(false)
-const diaDeudasISO = computed(() => (diaDeudas.value ? String(diaDeudas.value) : ''))
-const diaSaldadasISO = computed(() => (diaSaldadas.value ? String(diaSaldadas.value) : ''))
+// El estado vive en el objeto que comparte el popover de la tabla: así los
+// filtros quedan en el icono y la página los lee del mismo sitio.
+const filtrosDeudas = ref({ dia: calendarioDeHoy(), todas: false })
+const filtrosSaldadas = ref({ dia: calendarioDeHoy() })
+const diaDeudasISO = computed(() => (filtrosDeudas.value.dia ? String(filtrosDeudas.value.dia) : ''))
+const diaSaldadasISO = computed(() => (filtrosSaldadas.value.dia ? String(filtrosSaldadas.value.dia) : ''))
+const verTodasDeudas = computed(() => Boolean(filtrosDeudas.value.todas))
 
 // Elegir una fecha es pedir ese día: apaga "Ver todas" sola.
-watch(diaDeudas, () => {
-  verTodasDeudas.value = false
+watch(diaDeudasISO, () => {
+  if (filtrosDeudas.value.todas) filtrosDeudas.value = { ...filtrosDeudas.value, todas: false }
 })
 
 // El origen lo aplica ya BaseTable con los filtros del popover.
@@ -407,6 +407,18 @@ const camposFiltro = [
   { key: 'producto', label: 'Producto', get: d => (d.items ?? []).map(i => i.nombreProducto).join(' ') },
   { key: 'telefonoDestino', label: 'Teléfono' }
 ]
+
+/** Fecha y "Ver todas" en el mismo popover; los aplica la página, no la tabla. */
+const camposFiltroDeudas = computed(() => [
+  ...camposFiltro,
+  { key: 'dia', label: 'Fecha', type: 'date', server: true },
+  { key: 'todas', label: 'Ver todas', type: 'switch', server: true }
+])
+
+const camposFiltroSaldadas = computed(() => [
+  ...camposFiltro,
+  { key: 'dia', label: 'Fecha', type: 'date', server: true }
+])
 
 function etiquetaTipoRecarga(t) {
   if (t === 'saldo') return 'Saldo'
@@ -507,10 +519,13 @@ function abrirCobro(deuda) {
     monto: deuda.saldoPendiente,
     formaPago: 'efectivo'
   }
+  cobroId.value = generarId()
   showCobro.value = true
 }
 
 async function confirmarCobro() {
+  // Doble toque mientras cobra: no se registra el pago dos veces.
+  if (cobrando.value) return
   const monto = Number(cobrarForm.value.monto) || 0
   if (monto <= 0) {
     toast.add({ title: 'Error', description: 'El monto debe ser mayor a cero.', color: 'error' })
@@ -518,6 +533,7 @@ async function confirmarCobro() {
   }
   cobrando.value = true
   const r = await cobrarDeuda({
+    id: cobroId.value,
     cuentaFiadoId: deudaACobrar.value.id,
     cuadreId: null,
     monto,
@@ -542,6 +558,8 @@ async function abrirHistorial(deuda) {
 }
 
 async function confirmarCobroRecarga() {
+  // Doble toque mientras cobra: no se registra el cobro dos veces.
+  if (cobrandoRecarga.value) return
   const monto = Number(cobroRecargaForm.value.monto) || 0
   if (monto <= 0) {
     toast.add({ title: 'Error', description: 'El monto debe ser mayor a cero.', color: 'error' })

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MOTORES_STT } from '../voz/motoresStt.js'
 
 /**
  * Aciertos de voz: una fila por dictado que el intérprete resolvió y la app
@@ -14,6 +15,11 @@ export const aciertoVozSchema = z.object({
   /** Frase cruda; el servidor la descarta si `capturarAciertos` está apagado. */
   texto: z.string().max(300).nullable().default(null),
   confianza: z.number().min(0).max(1).nullable().default(null),
+  /** Motor que transcribió el dictado (null en filas viejas o del navegador). */
+  // Tolerante a propósito: un valor raro no debe tumbar el lote entero.
+  motor: z.string().max(20).nullable().optional()
+    .transform(valor => (MOTORES_STT.includes(String(valor ?? '').trim()) ? String(valor).trim() : null))
+    .default(null),
   /** Hora del dictado en el equipo, para no perderla si estuvo días sin red. */
   creadoEn: z.string().datetime({ offset: true }).nullable().default(null)
 })
@@ -24,6 +30,7 @@ export const aciertosVozSchema = z.object({
 
 export const filtroAciertosVozSchema = z.object({
   comando: z.string().trim().min(1).max(50).optional(),
+  motor: z.enum(['vosk', 'google-offline', 'google-online', 'web']).optional(),
   desde: z.enum(['24h', '7d', 'todo']).optional(),
   texto: z.string().trim().min(1).max(100).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional()

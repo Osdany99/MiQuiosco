@@ -156,7 +156,7 @@
           "vendo",
           "vendeme"
         ],
-        "texto": "Para vender, di por ejemplo «vende dos panes». Te leo lo que entendí y espero tu sí. Si no hay stock, no anoto nada.",
+        "texto": "Para vender, di por ejemplo «vende dos panes». Te leo lo que entendí (si es familiar, de casa o regalo) y espero tu sí. Si no hay stock, no anoto nada. Puedes nombrar el producto por su descripción: «vende un maní molido».",
         "ejemplo": "vende dos panes"
       },
       {
@@ -226,7 +226,7 @@
           "cliente",
           "mover"
         ],
-        "texto": "Puedo dejar listo un formulario, por ejemplo «entraron 20 panes a 10 pesos». Tú revisas y confirmas en la pantalla. También valen cambios de precio, traspasos, mermas, productos nuevos y clientes.",
+        "texto": "Puedo dejar listo un formulario, por ejemplo «entraron 20 panes a 10 pesos». Tú revisas y confirmas en la pantalla. La merma va al almacén salvo que digas «del quiosco»; también valen cambios de precio, traspasos, productos nuevos y clientes.",
         "ejemplo": "entraron 20 panes a 10 pesos"
       },
       {

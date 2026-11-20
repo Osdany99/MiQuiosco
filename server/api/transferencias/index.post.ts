@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { transferencias, cuadres } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { existentePorId } from '../../utils/idempotencia'
 import { createTransferenciaSchema } from '#shared/schemas/createTransferencia'
 
 export default defineEventHandler(async (event) => {
@@ -17,10 +18,25 @@ export default defineEventHandler(async (event) => {
   const { clienteId, cuadreId, monto } = parsed.data
   const montoTotal = Math.round(monto * 100) / 100
 
+  // Reintento: la transferencia ya sumó al cuadre; no se suma otra vez.
+  const previa = await existentePorId(transferencias, parsed.data.id, auth.usuario.puestoId)
+  if (previa) {
+    return {
+      id: previa.id,
+      clienteId: previa.clienteId,
+      cuadreId: previa.cuadreId,
+      montoTotal: previa.montoTotal,
+      creadoEn: previa.creadoEn.toISOString(),
+      actualizadoEn: previa.actualizadoEn.toISOString(),
+      idempotente: true
+    }
+  }
+
   const result = await db.transaction(async (tx) => {
     const [transferencia] = await tx
       .insert(transferencias)
       .values({
+        ...(parsed.data.id ? { id: parsed.data.id } : {}),
         puestoId: auth.usuario.puestoId,
         clienteId,
         cuadreId,

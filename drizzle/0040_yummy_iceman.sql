@@ -1,0 +1,1 @@
+ALTER TABLE "voz_aciertos" ADD COLUMN "motor" text;

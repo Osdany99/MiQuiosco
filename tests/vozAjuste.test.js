@@ -26,6 +26,28 @@ describe('voz: merma y devolución (P4b) — interpretación', () => {
     assert.equal(r.slots.motivo, 'se cayó, los tumbó el perro')
   })
 
+  it('«se cogieron para la casa» es una merma, con o sin cantidad', () => {
+    const conCantidad = interpretar('se cogieron 3 panes para la casa')
+    assert.equal(conCantidad.comando, 'ajuste_inventario')
+    assert.equal(conCantidad.slots.tipo, 'merma')
+    assert.equal(conCantidad.slots.cantidad, 3)
+    assert.equal(conCantidad.slots.motivo, 'se cogió')
+    assert.equal(conCantidad.slots.productoHint, 'panes')
+
+    const sinCantidad = interpretar('se cogieron los panes para la casa')
+    assert.equal(sinCantidad.comando, 'ajuste_inventario')
+    assert.equal(sinCantidad.slots.tipo, 'merma')
+    assert.equal(sinCantidad.slots.cantidad, 1)
+  })
+
+  it('la merma sin ubicación dicha se resuelve contra el almacén', () => {
+    const r = interpretar('se cogieron 3 panes para la casa')
+    assert.equal(r.slots.ubicacion, null)
+    const resuelto = resolverAjuste({ slots: r.slots }, CATALOGO, { ubicacion: 'almacen' })
+    assert.equal(resuelto.tipo, 'ok')
+    assert.equal(resuelto.ubicacion, 'almacen')
+  })
+
   it('la devolución exige decir el almacén', () => {
     const r = interpretar('devuelve 2 refrescos al almacén')
     assert.equal(r.comando, 'ajuste_inventario')

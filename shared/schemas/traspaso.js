@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 // Traspaso almacén → quiosco. Una o varias líneas en el mismo traspaso.
 export const traspasoSchema = z.object({
+  // Id decidido por el cliente: reintentar no duplica el traspaso ni el stock.
+  id: z.string().uuid('ID inválido').optional(),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
   notas: z.string().nullable().optional(),
   lineas: z
@@ -17,6 +19,8 @@ export const traspasoSchema = z.object({
 
 // Merma o devolución manual (jefe).
 export const ajusteInventarioSchema = z.object({
+  // Id del primer movimiento: reintentar la merma no descuenta dos veces.
+  id: z.string().uuid('ID inválido').optional(),
   productoId: z.string().uuid('ID de producto inválido'),
   tipo: z.enum(['merma', 'devolucion'], { message: 'Tipo inválido' }),
   ubicacion: z.enum(['quiosco', 'almacen'], { message: 'Ubicación inválida' }),

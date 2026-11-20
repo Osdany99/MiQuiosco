@@ -9,6 +9,7 @@ import {
   ventasDirectasItems
 } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { existentePorId } from '../../utils/idempotencia'
 import { ventaDirectaSchema } from '#shared/schemas/directas'
 import { construirVentaDirecta, generarId, lotesConSaldo } from '#shared/inventario/operaciones'
 import { comoMovimiento, comoVentaDirecta } from '../../utils/inventario'
@@ -30,6 +31,22 @@ export default defineEventHandler(async (event) => {
   const datos = parsed.data
   const puestoId = auth.usuario.puestoId
   const usuarioId = auth.usuario.id
+
+  // Reintento de la misma venta (red cortada, doble toque, cola de sync): la
+  // fila ya existe con ese id y volver a aplicarla descontaría stock dos veces.
+  const previa = await existentePorId(ventasDirectas, datos.id, puestoId)
+  if (previa) {
+    return {
+      id: previa.id,
+      ubicacion: previa.ubicacionVenta,
+      montoTotal: previa.montoTotal,
+      costoTotal: previa.costoTotal,
+      ganancia: previa.ganancia,
+      lineas: datos.lineas.length,
+      movimientos: 0,
+      idempotente: true
+    }
+  }
 
   // Fecha de la venta: por defecto ahora. La cola de voz manda la hora del
   // dictado (puede ser de ayer) para que la venta quede en su día. Se acota
@@ -71,7 +88,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const resultado = await db.transaction(async (tx) => {
-    const ventaId = generarId()
+    const ventaId = datos.id ?? generarId()
     const [filasLotes, movs] = await Promise.all([
       tx.select().from(lotes).where(and(eq(lotes.puestoId, puestoId), eq(lotes.anulado, false))),
       tx

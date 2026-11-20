@@ -83,15 +83,20 @@ export async function pull(pullResult, _opts, _auth) {
     const registros = pullResult[cfg.tabla]
     if (!registros?.length) continue
 
+    // La cancelación se atiende ENTRE lotes, nunca a mitad de uno: una
+    // escritura del usuario puede haberse unido a esta transacción y un
+    // ROLLBACK por cancelación la borraría después de haberle dicho que sí.
+    if (signal?.aborted) break
+
     // Una sola lectura por tabla (id + sincronizado) en vez de un getById por fila.
     const filasLocales = await db.queryAll(cfg.tabla)
     const existentes = new Map(filasLocales.map(r => [r.id, r]))
 
     for (let i = 0; i < registros.length; i += LOTE_APLICACION) {
+      if (signal?.aborted) break
       const trozo = registros.slice(i, i + LOTE_APLICACION)
       await db.transaction(async () => {
         for (const reg of trozo) {
-          signal?.throwIfAborted?.()
           if (await upsertRegistro(cfg, reg, existentes)) aplicados++
           procesados++
         }
@@ -111,10 +116,10 @@ export async function pull(pullResult, _opts, _auth) {
   )
 
   for (let i = 0; i < deletes.length; i += LOTE_APLICACION) {
+    if (signal?.aborted) break
     const trozo = deletes.slice(i, i + LOTE_APLICACION)
     await db.transaction(async () => {
       for (const del of trozo) {
-        signal?.throwIfAborted?.()
         const repo = reposDelete.get(del.tabla)
         if (repo) {
           try {
@@ -133,6 +138,10 @@ export async function pull(pullResult, _opts, _auth) {
   if (deletes.length > 0) {
     await removePendingDeletesAccepted(deletes)
   }
+
+  // La cancelación se propaga aquí, con los lotes ya confirmados: el caller
+  // no avanza el watermark y el próximo intento reaplica sin duplicar.
+  if (signal?.aborted) throw new Error('Sincronización cancelada.')
 
   return { aplicados, deletesAplicados, procesados }
 }

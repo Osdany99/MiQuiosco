@@ -1355,6 +1355,9 @@ export const vozAciertos = pgTable(
     // Frase cruda, sin enmascarar. Solo con `capturar_aciertos` encendido.
     texto: text('texto'),
     confianza: doublePrecision('confianza'),
+    // Motor que transcribió: `vosk` | `google-offline` | `google-online` | `web`.
+    // Sirve para saber si un fallo es del motor online o del offline del equipo.
+    motor: text('motor'),
     appVersion: text('app_version'),
     creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow()
   },

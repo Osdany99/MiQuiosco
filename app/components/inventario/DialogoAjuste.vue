@@ -14,7 +14,7 @@
     <div class="space-y-4">
       <!-- Producto y ubicación vienen de la fila: no se cambian aquí. -->
       <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
-        <span class="font-medium truncate">{{ nombreProducto || '—' }}</span>
+        <BaseProductoNombre :nombre="nombreProducto" :descripcion="descripcionProducto" />
         <UBadge
           size="sm"
           variant="soft"
@@ -58,6 +58,7 @@
 </template>
 
 <script setup>
+import { generarId } from '../../../shared/inventario/operaciones'
 const props = defineProps({
   productoId: { type: String, default: null },
   // Ubicación de la vista desde la que se abrió: el ajuste nunca la cambia.
@@ -73,9 +74,12 @@ const inv = useInventario()
 const toast = useToast()
 
 const nombreProducto = ref('')
+const descripcionProducto = ref('')
 const saldosMap = ref(new Map())
 const lotes = ref([])
 const guardando = ref(false)
+// Id del primer movimiento: reintentar tras un error no descuenta dos veces.
+const ajusteId = ref(null)
 
 const tipos = [{ id: 'merma', nombre: 'Merma' }, { id: 'devolucion', nombre: 'Devolución al almacén' }]
 
@@ -139,7 +143,9 @@ watch(isOpen, async (open) => {
     loteId: null
   }
   const [prods, saldos] = await Promise.all([inv.cargarProductos(), inv.cargarSaldos()])
-  nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
+  const producto = (prods ?? []).find(p => p.id === props.productoId)
+  nombreProducto.value = producto?.nombre ?? ''
+  descripcionProducto.value = producto?.descripcion ?? ''
   saldosMap.value = new Map((saldos ?? []).map(s => [s.productoId, s]))
   await cargarLotes()
 })
@@ -151,9 +157,13 @@ watch(() => form.value.tipo, async () => {
 
 async function confirmar() {
   const loteId = form.value.loteId ?? lotes.value[0]?.id ?? null
+  // Doble toque o confirmación hablada mientras guarda: no descuenta dos veces.
+  if (guardando.value) return
   guardando.value = true
+  ajusteId.value ||= generarId()
   try {
     await inv.registrarAjuste({
+      id: ajusteId.value,
       productoId: form.value.productoId,
       tipo: form.value.tipo,
       ubicacion: esDevolucion.value ? 'quiosco' : ubicacionBase.value,
@@ -163,6 +173,7 @@ async function confirmar() {
       loteId
     })
     toast.add({ title: 'Ajuste guardado', color: 'success' })
+    ajusteId.value = null
     isOpen.value = false
     emit('guardado')
   } catch {

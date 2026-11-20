@@ -314,6 +314,33 @@ export async function ejecutarTransaccionSql(conn, fn, ops) {
 }
 
 /**
+ * Ejecuta un bloque dentro de la transacción que ya está abierta, con un
+ * SAVEPOINT. Antes, una transacción anidada se ejecutaba tal cual (sin
+ * control): si fallaba a mitad, lo ya escrito se quedaba y luego se confirmaba
+ * con la transacción de arriba. Con el savepoint, el bloque es atómico aunque
+ * haya una transacción de sync abierta.
+ */
+let contadorSavepoints = 0
+
+export async function ejecutarSavepointSql(conn, fn, ops) {
+  const nombre = `sp_${++contadorSavepoints}`
+  await txRun(conn, `SAVEPOINT ${nombre}`)
+  try {
+    const r = await fn(ops)
+    await txRun(conn, `RELEASE ${nombre}`)
+    return r
+  } catch (err) {
+    try {
+      await txRun(conn, `ROLLBACK TO ${nombre}`)
+      await txRun(conn, `RELEASE ${nombre}`)
+    } catch {
+      // conexión en estado desconocido: el error original es el que importa
+    }
+    throw err
+  }
+}
+
+/**
  * Cola serializada de transacciones sobre una misma conexión SQLite.
  * Las llamadas se encadenan: nunca se solapan, pase lo que pase en los
  * llamadores. La cola nunca queda rechazada: un fallo no bloquea las

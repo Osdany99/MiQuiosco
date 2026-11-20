@@ -197,29 +197,15 @@
 
     <template v-else>
       <BaseTable
+        v-model:filters="filtrosHistorialVista"
         :data="lotesHistorialFiltrados"
         :columns="columnsHistorial"
         empty-state="Sin entradas registradas"
         :show-edit="false"
         :show-delete="false"
-        :disable-filters="true"
+        :filter-fields="camposFiltroHistorial"
         :show-reset="false"
       >
-        <template #toolbar-leading>
-          <UInput
-            v-model="busquedaHistorial"
-            icon="i-lucide-search"
-            placeholder="Buscar producto..."
-            class="w-56"
-          />
-          <USelect
-            v-model="filtroHistorial"
-            :items="filtrosHistorial"
-            class="w-40"
-          />
-          <USwitch v-model="incluirAnulados" label="Incluir anulados" />
-        </template>
-
         <template #nombreProducto-cell="{ row }">
           <div class="min-w-0">
             <div class="font-medium truncate">
@@ -307,6 +293,7 @@
       :producto-id="desgloseProductoId"
       ubicacion="almacen"
       :nombre-producto="desgloseNombre"
+      :descripcion-producto="desgloseDescripcion"
       :stock-total="desgloseStockTotal"
     />
 
@@ -356,6 +343,29 @@ const {
   abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
 
+/**
+ * Los filtros del historial viven en el composable; el popover de la tabla
+ * trabaja con un objeto plano. Este adaptador es la única traducción.
+ */
+const filtrosHistorialVista = computed({
+  get: () => ({
+    nombreProducto: busquedaHistorial.value,
+    lote: filtroHistorial.value,
+    anulados: incluirAnulados.value
+  }),
+  set: (valor) => {
+    busquedaHistorial.value = valor?.nombreProducto ?? ''
+    filtroHistorial.value = valor?.lote ?? 'con-stock'
+    incluirAnulados.value = Boolean(valor?.anulados)
+  }
+})
+
+const camposFiltroHistorial = computed(() => [
+  { key: 'nombreProducto', label: 'Producto', server: true },
+  { key: 'lote', label: 'Lotes', type: 'select', options: filtrosHistorial, server: true },
+  { key: 'anulados', label: 'Incluir anulados', type: 'switch', server: true }
+])
+
 const perms = usePermisos()
 const inv = useInventario()
 const toast = useToast()
@@ -397,11 +407,13 @@ const productoTraspaso = ref(null)
 const showDesgloseStock = ref(false)
 const desgloseProductoId = ref(null)
 const desgloseNombre = ref('')
+const desgloseDescripcion = ref('')
 const desgloseStockTotal = ref(0)
 
 function abrirDesgloseStock(row, ubicacion) {
   desgloseProductoId.value = row.productoId
   desgloseNombre.value = row.nombre
+  desgloseDescripcion.value = row.descripcion ?? ''
   desgloseStockTotal.value = ubicacion === 'quiosco' ? row.quiosco : row.almacen
   showDesgloseStock.value = true
 }

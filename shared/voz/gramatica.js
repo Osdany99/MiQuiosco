@@ -1136,7 +1136,7 @@ const VERBOS_TRANSFERENCIA_BASE = ['transfiere', 'transfiereme', 'transferir', '
  * Incluye el sustantivo («merma de 3 panes») porque es lo que se dicta cuando
  * no hay una desgracia concreta que contar. El prefijo «se» vive en el parser.
  */
-const VERBOS_MERMA_BASE = ['rompieron', 'rompio', 'rompimos', 'rompi', 'vencieron', 'vencio', 'vencimos', 'venci', 'dano', 'danaron', 'danamos', 'perdieron', 'perdio', 'perdimos', 'perdi', 'cayeron', 'cayo', 'caimos', 'mojaron', 'mojo', 'mojamos', 'derramaron', 'derramo', 'derramamos', 'merma', 'tira', 'tirame', 'bota', 'botame', 'descarta', 'descarte']
+const VERBOS_MERMA_BASE = ['rompieron', 'rompio', 'rompimos', 'rompi', 'vencieron', 'vencio', 'vencimos', 'venci', 'dano', 'danaron', 'danamos', 'perdieron', 'perdio', 'perdimos', 'perdi', 'cayeron', 'cayo', 'caimos', 'mojaron', 'mojo', 'mojamos', 'derramaron', 'derramo', 'derramamos', 'cogieron', 'cogio', 'cogimos', 'cogi', 'merma', 'tira', 'tirame', 'bota', 'botame', 'descarta', 'descarte']
 
 /**
  * Devolución al almacén: solo se reconoce si se nombra el almacén. «Devuelve el
@@ -1153,7 +1153,8 @@ const MOTIVOS_POR_VERBO = [
   [/\b(?:mojo|mojaron|mojado|mojados)\b/, 'se mojó'],
   [/\b(?:derramo|derramaron|derramado|derramados)\b/, 'derramado'],
   [/\b(?:dano|danaron|danado|danados)\b/, 'dañado'],
-  [/\b(?:perdio|perdieron|perdido|perdidos)\b/, 'perdido']
+  [/\b(?:perdio|perdieron|perdido|perdidos)\b/, 'perdido'],
+  [/\b(?:cogi|cogio|cogieron|cogimos)\b/, 'se cogió']
 ]
 
 /** ¿La frase trae algún número (dígitos o en palabras)? */
@@ -1245,7 +1246,10 @@ export function esAjusteInventario(texto, lexico = LEXICO_BASE) {
   const t = normalizar(texto)
   const c = compilar(lexico)
   if (c.RE_DEVOLUCION.test(t)) return /\balmacen\b/.test(t)
-  return c.RE_MERMA.test(t) && (hayNumero(t) || /\bmerma\b/.test(t))
+  // "se cogieron para la casa" se dicta muchas veces sin cantidad: se anota la
+  // merma con 1 unidad y el jefe la corrige en el formulario.
+  const cogieron = /\b(?:cogi|cogio|cogieron|cogimos)\b/.test(t)
+  return c.RE_MERMA.test(t) && (hayNumero(t) || /\bmerma\b/.test(t) || cogieron)
 }
 
 /** Motivo legible: el verbo, más la cola dictada tras «porque». */

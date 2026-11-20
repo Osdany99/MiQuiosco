@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
 import { computed, ref } from 'vue'
 import { motorParaServicio } from '#shared/voz/config'
+import { registrarLiberadorMicrofono } from '../utils/voice/microfonoServicio'
 import { resolverIdioma } from '../utils/voice/idioma'
 import { useAuth } from './useAuth'
 import { useVozConfig } from './useVozConfig'
@@ -247,6 +248,10 @@ export function useVozServicio() {
       return
     }
     if (appAbierta) {
+      // El estado del módulo puede estar viejo (recarga del bundle con el
+      // servicio vivo): se pregunta al nativo antes de decidir. Si no, se
+      // mandaría INICIAR a un servicio que ya estaba escuchando.
+      await refrescar()
       if (!activo.value) await iniciar({ pausado: true })
       else await pausar()
     } else {
@@ -258,6 +263,16 @@ export function useVozServicio() {
   const habilitado = computed(() =>
     nativo && auth.esJefe.value && preferencia.value && disponible.value
   )
+
+  /**
+   * El dock pide el micrófono antes de dictar. Si el servicio está vivo, se
+   * pausa y el plugin no resuelve hasta que suéltelo: dos sesiones a la vez
+   * hacen que el reconocedor devuelva busy o un falso error de red.
+   */
+  registrarLiberadorMicrofono(async () => {
+    if (!nativo) return
+    await pausar()
+  })
 
   /** Aviso accionable: el servicio está activo pero el sistema lo va a matar. */
   const faltaExencionBateria = computed(() =>

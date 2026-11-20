@@ -75,6 +75,12 @@ const MODO_POR_TIPO = {
   regalo: 'regalo'
 }
 
+/**
+ * Ventas con confirmación hablada. Casa, familiar y regalo también mueven
+ * stock y dinero: se anuncian y piden el «sí» igual que la venta directa.
+ */
+const MODOS_CON_CONFIRMACION = new Set(['venta', 'casa', 'familiar', 'regalo'])
+
 /** Ventana para responder «¿de qué quieres ejemplos?» tras el menú de ayuda. */
 const MS_ESCUCHA_AYUDA = 6000
 
@@ -322,6 +328,22 @@ function _create(ubicacion) {
    * Habla la venta prellenada con su importe y, si toca, la petición de
    * confirmación. Se reutiliza al corregir la cantidad para leer la nueva.
    */
+  /**
+   * Precio que se anuncia (y con el que se registrará) según el tipo de venta:
+   * casa y familiar van al costo, regalo no cobra y la directa usa catálogo.
+   * El precio dictado manda sobre todo lo demás.
+   */
+  function precioDeLectura(fila) {
+    const dictado = Number(prefill.value?.precioVentaUsado)
+    if (prefill.value?.precioVentaUsado != null && dictado > 0) return dictado
+    const modoVenta = prefill.value?.modo || 'venta'
+    if (modoVenta === 'regalo') return 0
+    if (modoVenta === 'familiar' || modoVenta === 'casa') {
+      return Number(fila?.costoActual ?? 0)
+    }
+    return Number(fila?.precioVentaActual ?? 0)
+  }
+
   function programarReadBack(fila) {
     const filaActual = fila ?? producto.value
     readBackPromise.value = (async () => {
@@ -350,18 +372,19 @@ function _create(ubicacion) {
       if (!filaActual) return
       // El importe se lee SIEMPRE: es la única cifra que delata una cantidad mal
       // transcrita ("12 panes" oído como "2 panes").
-      const precio = prefill.value?.precioVentaUsado == null
-        ? Number(filaActual?.precioVentaActual ?? 0)
-        : Number(prefill.value.precioVentaUsado)
+      const precio = precioDeLectura(filaActual)
       let texto = fraseVenta({
         cantidad: cant,
         nombre,
         lugar,
+        tipo: prefill.value?.modo ?? 'venta',
         importe: precio * cant,
         cliente: prefill.value?.clienteNombre || prefill.value?.clienteHint || null
       })
       // Una sola locución: anuncio + petición de confirmación, sin hueco entre ambas.
-      readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value) && modo.value === 'venta' && tts.habilitado.value
+      readBackIncluyeConfirmacion.value = Boolean(confirmacionHablada.value)
+        && MODOS_CON_CONFIRMACION.has(modo.value)
+        && tts.habilitado.value
       if (readBackIncluyeConfirmacion.value) texto = `${texto} ${FRASE_CONFIRMAR}`
       // Se guarda lo que de verdad se dice: la espera de confirmación lo compara
       // con la transcripción para no confundir el eco del TTS con un «sí».
@@ -767,8 +790,9 @@ function _create(ubicacion) {
    * y la decide quien responde por el inventario.
    *
    * La devolución siempre vuelve del quiosco al almacén; la merma se registra
-   * donde se dictó o donde se dijo («del quiosco»). El stock se comprueba en esa
-   * ubicación: un ajuste mayor deja el lote sin saldo que descontar.
+   * en el almacén salvo que se diga la ubicación («del quiosco»). El stock se
+   * comprueba en esa ubicación: un ajuste mayor deja el lote sin saldo que
+   * descontar.
    */
   async function resolverAjusteAccion(slots, sttConfidence = 0, vigente = () => true) {
     if (!auth.esJefe.value) {
@@ -779,9 +803,12 @@ function _create(ubicacion) {
       }
     }
     const tipoAjuste = slots?.tipo === 'devolucion' ? 'devolucion' : 'merma'
+    // La merma es mercancía que se pierde en el almacén salvo que se diga otra
+    // ubicación («se rompieron 3 panes del quiosco»). Antes caía en la pantalla
+    // desde la que se dictaba, que solía ser el quiosco.
     const lugar = tipoAjuste === 'devolucion'
       ? 'quiosco'
-      : (slots?.ubicacion === 'quiosco' || slots?.ubicacion === 'almacen' ? slots.ubicacion : ubicacion)
+      : (slots?.ubicacion === 'quiosco' || slots?.ubicacion === 'almacen' ? slots.ubicacion : 'almacen')
     const nombreLugar = lugar === 'almacen' ? 'el almacén' : 'el quiosco'
     if (!perms.puedeVista(lugar) || !perms.puedeAccion(lugar, 'ajuste')) {
       return { tipo: 'aviso', mensaje: `No tienes permiso para ajustar inventario en ${nombreLugar}.` }
@@ -2799,7 +2826,8 @@ function _create(ubicacion) {
         resultado: accion.tipo,
         detalle: detalleDeAccion(accion),
         texto: ultimoDictado || null,
-        confianza: confianzaDictado.value
+        confianza: confianzaDictado.value,
+        motor: voice.motorDictado.value
       })
     }
 

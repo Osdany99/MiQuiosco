@@ -19,6 +19,10 @@ const PESO_DESCRIPCION = 0.82
 // 0.7 si solo coincide la descripción (queda bajo el umbral: se pregunta).
 const REFUERZO_DESCRIPCION = 0.9
 const TOPE_SOLO_DESCRIPCION = 0.7
+// Nombre completo en el dictado + el resto en la descripción ("maní molido"):
+// es una identificación válida y pasa el umbral con margen sobre el nombre a
+// secas.
+const REFUERZO_POR_DESCRIPCION = 0.93
 
 function normal(texto) {
   return String(texto ?? '')
@@ -192,6 +196,18 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
             matchedField: 'description'
           }
         }
+      }
+
+      // El nombre está completo en el dictado y lo que sobra es la
+      // descripción: "maní molido" con nombre "Maní" y descripción "molido".
+      // Es la forma normal de distinguir productos con el mismo nombre, así
+      // que se puntúa alto (por encima del umbral) en vez de preguntar.
+      const tokensNombre = tokens(product.name ?? product.canonicalSpeak)
+      const tokensHint = tokens(hint)
+      const sobran = tokensHint.filter(t => !tokensNombre.includes(t))
+      const nombreCompleto = tokensNombre.length > 0 && tokensNombre.every(t => tokensHint.includes(t))
+      if (nombreCompleto && sobran.length > 0 && sobran.every(t => tokensDescription.includes(t))) {
+        mejor = { score: REFUERZO_POR_DESCRIPCION, distance: mejor.distance, matchedField: 'description' }
       }
 
       return { product, distance: mejor.distance, score: mejor.score, matchField: mejor.matchedField }

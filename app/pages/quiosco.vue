@@ -216,6 +216,7 @@
       :producto-id="desgloseProductoId"
       ubicacion="quiosco"
       :nombre-producto="desgloseNombre"
+      :descripcion-producto="desgloseDescripcion"
       :stock-total="desgloseStockTotal"
     />
   </BaseHeaderPage>
@@ -242,11 +243,13 @@ const productoTraspaso = ref(null)
 const showDesgloseStock = ref(false)
 const desgloseProductoId = ref(null)
 const desgloseNombre = ref('')
+const desgloseDescripcion = ref('')
 const desgloseStockTotal = ref(0)
 
 function abrirDesgloseStock(row, ubicacion) {
   desgloseProductoId.value = row.productoId
   desgloseNombre.value = row.nombre
+  desgloseDescripcion.value = row.descripcion ?? ''
   desgloseStockTotal.value = ubicacion === 'quiosco' ? row.quiosco : row.almacen
   showDesgloseStock.value = true
 }

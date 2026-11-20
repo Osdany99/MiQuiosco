@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
-import { mensajeStt } from '../utils/voice/stt'
+import { MENSAJES_STT, mensajeStt } from '../utils/voice/stt'
 import {
   hayInternet,
   ultimaSonda,
@@ -10,6 +10,8 @@ import {
 import { MOTORES, OPCIONES_MOTOR, resolverSeleccion } from '../utils/voice/engines'
 import { IDIOMAS_VOZ, etiquetaIdioma, resolverIdioma } from '../utils/voice/idioma'
 import { avanzarFaseStt } from '../utils/voice/faseVoz'
+import { liberarMicrofonoServicio } from '../utils/voice/microfonoServicio'
+import { motorEfectivo } from '#shared/voz/motoresStt'
 import {
   MS_RESCATE,
   MS_SIN_VOZ,
@@ -27,6 +29,27 @@ import {
 const PREFERENCIAS_MOTOR = new Set(['automatico', ...OPCIONES_MOTOR.map(opcion => opcion.id)])
 const GOOGLE_PLUGIN = MOTORES.find(motor => motor.id === 'google')?.plugin
 const IDIOMAS_VALIDOS = new Set(IDIOMAS_VOZ.map(opcion => opcion.id))
+
+/**
+ * Fallos del motor del sistema que se pueden reintentar con Vosk. No incluye
+ * `no_match`/`speech_timeout` (ahí sí se oyó, o no había nada que oír) ni los
+ * de permisos.
+ */
+const MOTIVOS_REINTENTO_VOSK = [
+  'error_network',
+  'network_timeout',
+  'error_server',
+  'server_disconnected',
+  'too_many_requests'
+]
+
+/** ¿Merece la pena repetir el dictado con el motor offline? */
+function puedeReintentarConVosk(detalle, seleccion, options) {
+  if (options?.motorForzado) return false
+  if (seleccion?.id !== 'google') return false
+  const texto = String(detalle ?? '')
+  return MOTIVOS_REINTENTO_VOSK.some(motivo => texto.includes(motivo))
+}
 
 // Tiempo máximo SIN actividad del reconocedor dentro de un intento. Se reinicia
 // con cada `start`/`ready`/`partial` nativo, así que ya no corta una frase a
@@ -205,6 +228,15 @@ function _useVoiceCommand() {
   const serviciosStt = ref([])
   // Motor de voz elegido para la escucha en curso: 'google' | 'vosk' | 'web' | null.
   const motorVoz = ref(null)
+  /**
+   * Motor real que transcribió `vosk` | `google-online` | `google-offline` |
+   * `web`. Es el valor que se guarda en `voz_aciertos.motor`.
+   */
+  const motorDictado = computed(() => motorEfectivo({
+    motorVoz: motorVoz.value,
+    modo: modoActual.value,
+    backend: backend.value
+  }))
   // Código nativo del último error (p. ej. "13"), para mostrarlo en la UI.
   const codigoError = ref(null)
   // Carga del modelo Vosk (solo Android nativo). Se muestra en la UI para que
@@ -606,7 +638,7 @@ function _useVoiceCommand() {
     }
   }
 
-  async function startListening(options = {}) {
+  async function intentarEscucha(options = {}) {
     if (estado.value === 'listening') return
     if (options?.contexto) {
       contextoInicio = {
@@ -785,7 +817,9 @@ function _useVoiceCommand() {
       await esperarInternet()
       if (contextoInicio) contextoInicio.red = hayInternet.value
     }
-    const seleccion = resolverSeleccion(preferenciaMotor.value, hayInternet.value)
+    const seleccion = options?.motorForzado
+      ? resolverSeleccion(options.motorForzado, hayInternet.value)
+      : resolverSeleccion(preferenciaMotor.value, hayInternet.value)
     if (!seleccion?.plugin) {
       error.value = 'No hay un motor de voz disponible.'
       estado.value = 'error'
@@ -936,6 +970,18 @@ function _useVoiceCommand() {
       }
       if (esCancelacion(detalle)) estado.value = 'cancelled'
       else {
+        // Google puede fallar por red aunque haya internet (o quedarse sin el
+        // paquete offline): si Vosk está aprovisionado, se reintenta una vez
+        // con él antes de mostrar el error al jefe.
+        if (puedeReintentarConVosk(detalle, seleccion, options)) {
+          registrar('stt.reintento_vosk', {
+            desde: seleccion.id,
+            offline: seleccion.offline,
+            detalle,
+            code: codigoError.value
+          })
+          return { reintentarVosk: true, detalle, offline: seleccion.offline }
+        }
         error.value = mensajeStt(detalle)
         estado.value = 'error'
       }
@@ -958,6 +1004,28 @@ function _useVoiceCommand() {
       limpiarVigilantes()
       await sincronizarDiagNativo()
     }
+  }
+
+  /**
+   * Un dictado puede necesitar dos motores: si el del sistema falla por red se
+   * reintenta una sola vez con Vosk (el mismo que usa el servicio con la app
+   * cerrada). La UI ve el estado del intento que acaba de terminar.
+   */
+  async function startListening(options = {}) {
+    // El servicio en primer plano suelta su micrófono antes de que el dock lo
+    // abra: con dos sesiones a la vez el reconocedor devuelve busy o network.
+    await liberarMicrofonoServicio()
+    const resultado = await intentarEscucha(options)
+    if (!resultado?.reintentarVosk) return resultado
+
+    reset()
+    const segundo = await intentarEscucha({ ...options, motorForzado: 'vosk' })
+    // Si Vosk tampoco puede (modelo sin descargar), el mensaje honesto no es
+    // «sin conexión»: el motor de Google no respondió y falta el offline.
+    if (estado.value === 'error' && !transcript.value) {
+      error.value = MENSAJES_STT.sin_motor_disponible
+    }
+    return segundo
   }
 
   /** Reinicia el reloj del intento en curso (cada señal de vida del motor). */
@@ -1128,6 +1196,8 @@ function _useVoiceCommand() {
     serviciosStt,
     // Motor de voz usado en la escucha actual: 'google' | 'vosk' | 'web' | null.
     motorVoz,
+    // Motor real que transcribió (`vosk` | `google-online` | `google-offline` | `web`).
+    motorDictado,
     // Hay acceso real a Internet (no solo interfaz de red).
     hayInternet: readonly(hayInternet),
     check,

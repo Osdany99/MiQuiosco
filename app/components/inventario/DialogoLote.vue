@@ -24,7 +24,12 @@
     <div v-else-if="desglose" class="space-y-4">
       <!-- Ficha de la compra -->
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-elevated/50 px-3 py-2 text-sm">
-        <span class="font-medium">{{ loteInfo.nombreProducto ?? '—' }}</span>
+        <div class="min-w-0">
+          <span class="font-medium">{{ loteInfo.nombreProducto ?? '—' }}</span>
+          <p v-if="loteInfo.descripcionProducto?.trim()" class="text-xs text-muted">
+            {{ loteInfo.descripcionProducto }}
+          </p>
+        </div>
         <span class="text-muted">Entrada: {{ loteInfo.fechaEntrada ? fmtDate(loteInfo.fechaEntrada) : '—' }}</span>
         <span v-if="loteInfo.proveedor" class="text-muted">Proveedor: {{ loteInfo.proveedor }}</span>
         <UBadge

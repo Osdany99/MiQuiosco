@@ -27,19 +27,16 @@
 
     <BaseTable
       v-if="cargando || ventas.length > 0"
+      v-model:filters="filtrosVenta"
       :data="ventasDelDia"
       :columns="columnas"
       :loading-prop="cargando"
-      :filter-fields="camposFiltro"
+      :filter-fields="camposFiltroVenta"
       :show-edit="false"
       :show-delete="false"
       :empty-state="textoVacio"
       :ui="uiTabla"
     >
-      <template #toolbar-leading>
-        <UInputDate v-model="dia" size="sm" class="w-44" />
-      </template>
-
       <template #nombreProducto-cell="{ row }">
         <div class="min-w-0">
           <div class="flex items-center gap-1 min-w-0">
@@ -231,9 +228,14 @@ function calendarioDeHoy() {
  * Día que se está mirando. Arranca en hoy: las salidas se revisan el mismo día
  * que ocurren. Se filtra en cliente sobre lo ya cargado (una sola lectura y la
  * navegación entre días es instantánea); si se limpia la fecha se ven todas.
+ * Vive en el objeto del popover: los filtros van en el icono.
  */
-const dia = ref(calendarioDeHoy())
-const diaISO = computed(() => (dia.value ? String(dia.value) : ''))
+const filtrosVenta = ref({ dia: calendarioDeHoy() })
+const diaISO = computed(() => (filtrosVenta.value.dia ? String(filtrosVenta.value.dia) : ''))
+const camposFiltroVenta = computed(() => [
+  ...camposFiltro,
+  { key: 'dia', label: 'Fecha', type: 'date', server: true }
+])
 
 const ventas = computed(() => crudas.value.map((v) => {
   const lineas = v.lineas ?? []

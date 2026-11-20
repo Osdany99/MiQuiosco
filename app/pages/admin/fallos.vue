@@ -43,6 +43,14 @@ const opcionesPuesto = computed(() => [
   ...puestos.value.map(puesto => ({ label: puesto.nombre, value: puesto.id }))
 ])
 
+/** Todos los filtros en el icono: en el teléfono no caben en la barra. */
+const camposFiltro = computed(() => [
+  { key: 'puestoId', label: 'Puesto', type: 'select', options: opcionesPuesto.value, server: true },
+  { key: 'estado', label: 'Estado', type: 'select', options: estados, server: true },
+  { key: 'tipo', label: 'Tipo', type: 'select', options: tipos, server: true },
+  { key: 'tabla', label: 'Tabla', type: 'select', options: tablas, server: true }
+])
+
 const columnas = [
   { accessorKey: 'ultimoEn', header: 'Último' },
   { accessorKey: 'puestoNombre', header: 'Puesto' },
@@ -71,11 +79,16 @@ async function cargar() {
   cargando.value = true
   errorCarga.value = null
   try {
+    // El popover envía solo las claves con valor: se leen con fallback.
+    const puestoId = filtros.value.puestoId ?? 'todos'
+    const estado = filtros.value.estado ?? 'todos'
+    const tipo = filtros.value.tipo ?? 'todos'
+    const tabla = filtros.value.tabla ?? 'todos'
     const resultado = await api.listarFallos({
-      puestoId: filtros.value.puestoId === 'todos' ? undefined : filtros.value.puestoId,
-      estado: filtros.value.estado === 'todos' ? undefined : filtros.value.estado,
-      tipo: filtros.value.tipo === 'todos' ? undefined : filtros.value.tipo,
-      tabla: filtros.value.tabla === 'todos' ? undefined : filtros.value.tabla,
+      puestoId: puestoId === 'todos' ? undefined : puestoId,
+      estado: estado === 'todos' ? undefined : estado,
+      tipo: tipo === 'todos' ? undefined : tipo,
+      tabla: tabla === 'todos' ? undefined : tabla,
       limit: 200
     })
     filas.value = resultado.fallos
@@ -167,43 +180,17 @@ async function cambiarEstado() {
     />
 
     <BaseTable
+      v-model:filters="filtros"
       :data="filas"
       :columns="columnas"
       :loading-prop="cargando"
       :show-edit="false"
       :show-delete="false"
-      :disable-filters="true"
+      :filter-fields="camposFiltro"
       empty-state="No hay fallos que coincidan"
       @reset="reiniciarFiltros"
       @reload="cargar"
     >
-      <template #toolbar-leading>
-        <USelect
-          v-model="filtros.puestoId"
-          :items="opcionesPuesto"
-          size="sm"
-          class="w-40"
-        />
-        <USelect
-          v-model="filtros.estado"
-          :items="estados"
-          size="sm"
-          class="w-32"
-        />
-        <USelect
-          v-model="filtros.tipo"
-          :items="tipos"
-          size="sm"
-          class="w-36"
-        />
-        <USelect
-          v-model="filtros.tabla"
-          :items="tablas"
-          size="sm"
-          class="w-36"
-        />
-      </template>
-
       <template #ultimoEn-cell="{ row }">
         <span class="text-sm">{{ fmtFechaHora(row.original.ultimoEn) }}</span>
       </template>

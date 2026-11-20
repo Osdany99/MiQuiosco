@@ -48,10 +48,10 @@ export const GRUPOS_AYUDA = Object.freeze([
     sustantivo: 'ventas',
     infinitivo: 'vender',
     palabras: ['vender', 'venta', 'ventas', 'vende', 'vendo', 'vendeme'],
-    detalle: 'Para vender, di por ejemplo «{ejemplo}». Te leo lo que entendí y espero tu sí.',
-    extra: 'Si no hay stock, no anoto nada.',
+    detalle: 'Para vender, di por ejemplo «{ejemplo}». Te leo lo que entendí (si es familiar, de casa o regalo) y espero tu sí.',
+    extra: 'Si no hay stock, no anoto nada. Puedes nombrar el producto por su descripción: «vende un maní molido».',
     ejemplo: 'vende dos panes',
-    ejemplos: ['vende dos panes', 'vende tres refrescos en el quiosco', 'vende un pan de regalo'],
+    ejemplos: ['vende dos panes', 'vende tres refrescos en el quiosco', 'vende un pan de regalo', 'vende dos refrescos familiar', 'vende un pan para la casa', 'vende un maní molido'],
     comandos: ['venta_directa']
   },
   {
@@ -97,9 +97,9 @@ export const GRUPOS_AYUDA = Object.freeze([
     infinitivo: 'dejar listas entradas y cambios',
     palabras: ['entrada', 'entradas', 'entraron', 'precio', 'cambiar', 'cambia', 'cambios', 'traspaso', 'pasa', 'merma', 'ajuste', 'producto', 'cliente', 'mover'],
     detalle: 'Puedo dejar listo un formulario, por ejemplo «{ejemplo}».',
-    extra: 'Tú revisas y confirmas en la pantalla. También valen cambios de precio, traspasos, mermas, productos nuevos y clientes.',
+    extra: 'Tú revisas y confirmas en la pantalla. La merma va al almacén salvo que digas «del quiosco»; también valen cambios de precio, traspasos, productos nuevos y clientes.',
     ejemplo: 'entraron 20 panes a 10 pesos',
-    ejemplos: ['entraron 20 panes a 10 pesos', 'cambia el precio del pan a 25', 'pasa 5 panes al quiosco', 'se rompieron 3 panes', 'crea un producto pan de leche a 25', 'agrega el cliente Adrián'],
+    ejemplos: ['entraron 20 panes a 10 pesos', 'cambia el precio del pan a 25', 'pasa 5 panes al quiosco', 'se rompieron 3 panes', 'se cogieron 3 panes para la casa', 'crea un producto pan de leche a 25', 'agrega el cliente Adrián'],
     comandos: ['entrada_inventario', 'cambio_precio', 'traspaso', 'ajuste_inventario', 'producto_alta', 'cliente_alta', 'mover_producto']
   },
   {

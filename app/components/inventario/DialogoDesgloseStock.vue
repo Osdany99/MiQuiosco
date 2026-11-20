@@ -4,6 +4,7 @@ const props = defineProps({
   productoId: { type: String, default: null },
   ubicacion: { type: String, default: 'quiosco' },
   nombreProducto: { type: String, default: '' },
+  descripcionProducto: { type: String, default: '' },
   stockTotal: { type: Number, default: 0 }
 })
 
@@ -73,7 +74,7 @@ const badgeTexto = (estado) => {
   <BaseDialog
     v-model="isOpen"
     title="Desglose de stock"
-    :description="`${nombreProducto || 'Producto'} - ${fmt(stockTotal)} en ${ubicacion}`"
+    :description="`${nombreProducto || 'Producto'}${descripcionProducto ? ` (${descripcionProducto})` : ''} - ${fmt(stockTotal)} en ${ubicacion}`"
     cancel-text="Cerrar"
     hide-confirm
     @cancel="isOpen = false"

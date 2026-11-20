@@ -126,6 +126,9 @@ const fechaDesde = ref(null)
 const fechaHasta = ref(null)
 const agrupacion = ref('dia')
 const productoSeleccionado = ref('')
+// Los filtros viven en el icono: la tarjeta con dos calendarios no cabe en un
+// teléfono y empujaba las gráficas fuera de la primera pantalla.
+const filtrosAbiertos = ref(false)
 const ventanaCoberturaActiva = ref(null)
 const kpis = ref(null)
 // Detalle de una barra: qué productos dejaron la ganancia de ese período y de
@@ -137,6 +140,22 @@ const tipoDetalle = ref('cuadre')
 const conexion = useModoConexion()
 
 const productosParaSelector = ref([])
+
+/** Resumen de lo que está filtrado, junto al icono. */
+const resumenFiltros = computed(() => {
+  const partes = []
+  if (rangoVisible.value && fechaDesde.value && fechaHasta.value) {
+    partes.push(`${fechaDesde.value} – ${fechaHasta.value}`)
+  }
+  if (graficaActiva.value?.params?.agrupacion) {
+    partes.push({ dia: 'por día', semana: 'por semana', mes: 'por mes' }[agrupacion.value] ?? agrupacion.value)
+  }
+  if (requiereProducto.value && productoSeleccionado.value) {
+    const producto = productosParaSelector.value.find(p => p.value === productoSeleccionado.value)
+    if (producto) partes.push(producto.label)
+  }
+  return partes.join(' · ')
+})
 
 const graficasDeSeccion = computed(() => graficas.filter(g => g.seccion === seccionActiva.value))
 const requiereProducto = computed(() => graficaActiva.value?.requiereProducto === true)
@@ -378,74 +397,83 @@ function getChartConfig(g) {
       @update:model-value="cambiarSeccion"
     />
 
-    <!-- Filtros globales -->
-    <UCard class="bg-muted/30">
-      <div class="flex flex-wrap items-end gap-4">
-        <UFormField
-          v-if="rangoVisible"
-          label="Desde"
-          class="w-40"
-        >
-          <UInputDate v-model="fechaDesde" />
-        </UFormField>
-        <UFormField
-          v-if="rangoVisible"
-          label="Hasta"
-          class="w-40"
-        >
-          <UInputDate v-model="fechaHasta" />
-        </UFormField>
-        <UFormField
-          v-if="graficaActiva?.params?.agrupacion"
-          label="Agrupación"
-          class="w-36"
-        >
-          <USelectMenu
-            v-model="agrupacion"
-            :items="[
-              { label: 'Día', value: 'dia' },
-              { label: 'Semana', value: 'semana' },
-              { label: 'Mes', value: 'mes' }
-            ]"
-            value-key="value"
-            label-key="label"
-            :search-input="false"
-            @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
+    <!-- Filtros globales: en el icono, para que no ocupen la pantalla -->
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <UPopover v-model:open="filtrosAbiertos">
+          <UButton
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-filter"
+            label="Filtros"
           />
-        </UFormField>
-        <UFormField
-          v-if="requiereProducto"
-          label="Producto"
-          class="w-56"
-        >
-          <USelectMenu
-            v-model="productoSeleccionado"
-            :items="productosParaSelector"
-            value-key="value"
-            label-key="label"
-            description-key="descripcion"
-            placeholder="Seleccionar..."
-            @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
-          />
-        </UFormField>
-        <UButton
-          v-if="rangoVisible"
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-calendar-range"
-          label="30 días"
-          @click="verUltimosDias(30); graficaActiva && cargarGrafica(graficaActiva)"
-        />
-        <UButton
-          v-if="graficaActiva"
-          color="primary"
-          icon="i-lucide-refresh-cw"
-          label="Actualizar"
-          :loading="cargando"
-          @click="limpiarCacheLibro(); cargarKpis(); cargarGrafica(graficaActiva)"
-        />
+          <template #content>
+            <div class="p-4 space-y-3 w-[min(22rem,calc(100vw-2rem))]">
+              <UFormField v-if="rangoVisible" label="Desde">
+                <UInputDate v-model="fechaDesde" class="w-full" />
+              </UFormField>
+              <UFormField v-if="rangoVisible" label="Hasta">
+                <UInputDate v-model="fechaHasta" class="w-full" />
+              </UFormField>
+              <UFormField v-if="graficaActiva?.params?.agrupacion" label="Agrupación">
+                <USelectMenu
+                  v-model="agrupacion"
+                  :items="[
+                    { label: 'Día', value: 'dia' },
+                    { label: 'Semana', value: 'semana' },
+                    { label: 'Mes', value: 'mes' }
+                  ]"
+                  value-key="value"
+                  label-key="label"
+                  :search-input="false"
+                  class="w-full"
+                  @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
+                />
+              </UFormField>
+              <UFormField v-if="requiereProducto" label="Producto">
+                <USelectMenu
+                  v-model="productoSeleccionado"
+                  :items="productosParaSelector"
+                  value-key="value"
+                  label-key="label"
+                  description-key="descripcion"
+                  placeholder="Seleccionar..."
+                  class="w-full"
+                  @update:model-value="graficaActiva && cargarGrafica(graficaActiva)"
+                />
+              </UFormField>
+              <div class="flex justify-between items-center pt-2 border-t border-default">
+                <UButton
+                  v-if="rangoVisible"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-calendar-range"
+                  label="30 días"
+                  @click="verUltimosDias(30); graficaActiva && cargarGrafica(graficaActiva)"
+                />
+                <UButton
+                  color="primary"
+                  size="sm"
+                  label="Listo"
+                  @click="filtrosAbiertos = false"
+                />
+              </div>
+            </div>
+          </template>
+        </UPopover>
+        <p v-if="resumenFiltros" class="text-xs text-muted truncate">
+          {{ resumenFiltros }}
+        </p>
       </div>
-    </UCard>
+      <UButton
+        v-if="graficaActiva"
+        color="primary"
+        icon="i-lucide-refresh-cw"
+        label="Actualizar"
+        :loading="cargando"
+        @click="limpiarCacheLibro(); cargarKpis(); cargarGrafica(graficaActiva)"
+      />
+    </div>
 
     <!-- Selector compacto (móvil) -->
     <USelectMenu

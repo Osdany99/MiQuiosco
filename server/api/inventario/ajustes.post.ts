@@ -17,6 +17,22 @@ export default defineEventHandler(async (event) => {
   const usuarioId = auth.usuario.id
   const ahoraMs = Date.now()
 
+  // Reintento de la misma merma/devolución: el primer movimiento lleva el id
+  // del cliente y, si ya existe, no se descuenta stock otra vez.
+  if (datos.id) {
+    const [previo] = await db
+      .select()
+      .from(movimientosInventario)
+      .where(eq(movimientosInventario.id, datos.id))
+      .limit(1)
+    if (previo) {
+      if (previo.puestoId !== puestoId) {
+        throw createError({ statusCode: 409, statusMessage: 'Ese id ya está usado en otro puesto.' })
+      }
+      return { movimientos: 0, idempotente: true }
+    }
+  }
+
   const [prod] = await db
     .select({ id: lotes.productoId })
     .from(lotes)
@@ -48,7 +64,7 @@ export default defineEventHandler(async (event) => {
     nota: datos.nota ?? null,
     loteId: datos.loteId ?? null,
     lotesOrdenados: disponibles,
-    meta: { puestoId, usuarioId, ahora: ahoraMs }
+    meta: { puestoId, usuarioId, ahora: ahoraMs, movimientoId: datos.id }
   })
 
   if (faltante) {

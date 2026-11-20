@@ -10,6 +10,7 @@ import {
   pagosFiado
 } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
+import { existentePorId } from '../../utils/idempotencia'
 import { deudaDirectaSchema } from '#shared/schemas/directas'
 import { construirVentaDirecta, lotesConSaldo } from '#shared/inventario/operaciones'
 import { comoMovimiento, comoVentaDirecta } from '../../utils/inventario'
@@ -37,6 +38,23 @@ export default defineEventHandler(async (event) => {
   const usuarioId = auth.usuario.id
   const ahora = new Date()
   const ahoraMs = ahora.getTime()
+
+  // Reintento de la misma deuda: la cuenta ya existe con ese id.
+  const previa = await existentePorId(cuentasFiado, datos.id, puestoId)
+  if (previa) {
+    return {
+      id: previa.id,
+      clienteId: previa.clienteId,
+      ubicacion: datos.ubicacion,
+      directa: true,
+      montoTotal: previa.montoTotal,
+      costoTotal: previa.costoTotal,
+      ganancia: previa.ganancia,
+      lineas: datos.lineas.length,
+      movimientos: 0,
+      idempotente: true
+    }
+  }
 
   // Los clientes viven en su propia tabla desde la migracion 0018 (antes eran
   // usuarios con rol='cliente'): validar contra usuarios hacia imposible crear
@@ -99,6 +117,7 @@ export default defineEventHandler(async (event) => {
     const [cuenta] = await tx
       .insert(cuentasFiado)
       .values({
+        ...(datos.id ? { id: datos.id } : {}),
         puestoId,
         clienteId: datos.clienteId,
         cuadreOrigenId: null,

@@ -1,6 +1,7 @@
 import { Preferences } from '@capacitor/preferences'
 import { API_ROUTES } from './api-paths'
 import { telemetriaActiva } from './voice/telemetria'
+import { normalizarMotorStt } from '../../shared/voz/motoresStt.js'
 
 const KEY = 'voz.aciertos.pendientes'
 const MAX_PENDIENTES = 500
@@ -61,6 +62,7 @@ export async function registrarAciertoVoz(datos) {
       confianza: typeof datos?.confianza === 'number' && Number.isFinite(datos.confianza)
         ? datos.confianza
         : null,
+      motor: normalizarMotorStt(datos?.motor),
       creadoEn: new Date().toISOString()
     }
 

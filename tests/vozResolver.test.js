@@ -40,6 +40,42 @@ describe('voz: resolución de venta (pura)', () => {
     })
     assert.equal(accion.precioUnitario, 12.5)
     assert.equal(accion.importe, 25)
+    assert.equal(accion.precioDictado, true)
+  })
+
+  it('casa y familiar salen al costo, no al precio de venta normal', () => {
+    const conCosto = CATALOGO.map(f => ({ ...f, costoActual: 6 }))
+    for (const tipoVenta of ['familiar', 'casa']) {
+      const accion = resolverVenta({
+        slots: slots({ tipoVenta }),
+        catalogo: conCosto,
+        sttConfidence: 0.95
+      })
+      assert.equal(accion.precioUnitario, 6, tipoVenta)
+      assert.equal(accion.importe, 12, tipoVenta)
+      assert.equal(accion.precioDictado, false, tipoVenta)
+      assert.equal(accion.tipoVenta, tipoVenta)
+    }
+  })
+
+  it('el regalo no cobra y el precio dictado manda en familiar', () => {
+    const conCosto = CATALOGO.map(f => ({ ...f, costoActual: 6 }))
+    const regalo = resolverVenta({
+      slots: slots({ tipoVenta: 'regalo' }),
+      catalogo: conCosto,
+      sttConfidence: 0.95
+    })
+    assert.equal(regalo.precioUnitario, 0)
+    assert.equal(regalo.importe, 0)
+
+    const dictado = resolverVenta({
+      slots: slots({ tipoVenta: 'familiar', precioUnitario: 4 }),
+      catalogo: conCosto,
+      sttConfidence: 0.95
+    })
+    assert.equal(dictado.precioUnitario, 4)
+    assert.equal(dictado.importe, 8)
+    assert.equal(dictado.precioDictado, true)
   })
 
   it('sin venta directa devuelve el modo formulario', () => {

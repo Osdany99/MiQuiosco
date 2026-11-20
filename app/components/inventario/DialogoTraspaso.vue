@@ -12,7 +12,7 @@
     <div class="space-y-4">
       <!-- Producto y fecha vienen de la fila y del día: no se cambian aquí. -->
       <div class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-3 py-2">
-        <span class="font-medium truncate">{{ nombreProducto || '—' }}</span>
+        <BaseProductoNombre :nombre="nombreProducto" :descripcion="descripcionProducto" />
         <UBadge
           size="sm"
           variant="soft"
@@ -44,6 +44,7 @@
 </template>
 
 <script setup>
+import { generarId } from '../../../shared/inventario/operaciones'
 const props = defineProps({
   productoId: { type: String, default: null },
   /** Voz (Fase N): cantidad dictada para el traspaso. */
@@ -56,8 +57,11 @@ const inv = useInventario()
 const toast = useToast()
 
 const nombreProducto = ref('')
+const descripcionProducto = ref('')
 const lotes = ref([])
 const guardando = ref(false)
+// Id fijo del intento: reintentar tras un error no mueve el stock dos veces.
+const traspasoId = ref(null)
 const consumoPlan = ref({ lineas: [], consumido: 0, faltante: 0 })
 function onConsumo(plan) {
   if (plan) consumoPlan.value = plan
@@ -90,7 +94,9 @@ watch(isOpen, async (open) => {
   const cantidadDicha = Math.max(1, Math.trunc(Number(props.prefill?.cantidad) || 1))
   form.value = { cantidad: cantidadDicha, loteId: null }
   const [prods, ls] = await Promise.all([inv.cargarProductos(), inv.lotesConStock(props.productoId, 'almacen')])
-  nombreProducto.value = (prods ?? []).find(p => p.id === props.productoId)?.nombre ?? ''
+  const producto = (prods ?? []).find(p => p.id === props.productoId)
+  nombreProducto.value = producto?.nombre ?? ''
+  descripcionProducto.value = producto?.descripcion ?? ''
   lotes.value = ls ?? []
   form.value.loteId = lotes.value[0]?.id ?? null
 })
@@ -103,14 +109,19 @@ async function confirmar() {
     cantidad: Math.trunc(Number(l.cantidad) || 0),
     loteId: l.loteId ?? form.value.loteId ?? lotes.value[0]?.id ?? null
   }))
+  // Doble toque o confirmación hablada mientras guarda: no se traspasa dos veces.
+  if (guardando.value) return
   guardando.value = true
+  traspasoId.value ||= generarId()
   try {
     await inv.registrarTraspaso({
+      id: traspasoId.value,
       fecha: hoyLocal(),
       notas: null,
       lineas
     })
     toast.add({ title: 'Traspaso listo', description: 'El quiosco quedó repuesto.', color: 'success' })
+    traspasoId.value = null
     isOpen.value = false
     emit('guardado')
   } catch {

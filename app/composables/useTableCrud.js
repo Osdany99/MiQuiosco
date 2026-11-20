@@ -72,6 +72,9 @@ export function useTableCrud(props, emit, form, refresh) {
   }
   // --- Submit ---
   const handleSubmit = async () => {
+    // Doble toque en "Guardar" o confirmación repetida: ya hay un guardado en
+    // curso, no se manda otro alta (evita duplicados de productos/clientes…).
+    if (loading.value) return
     if (props.formRef) {
       try {
         const formInstance = toValue(props.formRef)

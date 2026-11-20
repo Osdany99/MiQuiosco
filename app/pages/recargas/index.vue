@@ -137,6 +137,8 @@ function abrirCobrar(r) {
 }
 
 async function confirmarCobro() {
+  // Doble toque mientras cobra: no se registra el cobro dos veces.
+  if (guardando.value) return
   guardando.value = true
   try {
     await rec.cobrar(recargando.value.id, cobroForm.value.monto, cobroForm.value.formaPago)

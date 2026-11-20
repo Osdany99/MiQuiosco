@@ -100,6 +100,7 @@ export default defineEventHandler(async (event) => {
     lote: {
       ...lote,
       nombreProducto: producto?.nombre ?? null,
+      descripcionProducto: producto?.descripcion ?? null,
       proveedorNombre: proveedor?.nombre ?? null
     },
     movimientos: movs,

@@ -23,6 +23,8 @@ import { correccionLoteSchema } from '../shared/schemas/lote.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
 import { productoSchema } from '../shared/schemas/producto.js'
 import { ventaDirectaSchema, deudaDirectaSchema, pagoFiadoDirectoSchema } from '../shared/schemas/directas.js'
+import { createCuentaFiadoSchema } from '../shared/schemas/createCuentaFiado.js'
+import { createTransferenciaSchema } from '../shared/schemas/createTransferencia.js'
 import { pagoFiadoSchema } from '../shared/schemas/pagoFiado.js'
 import { vistaSaldos } from '../shared/inventario/vista.js'
 import { saldosDesdeMovimientos } from '../shared/inventario/fifo.js'
@@ -1505,5 +1507,115 @@ describe('capacidadDelCuadre', () => {
     // Sin índice de cabeceras, el arranque cae al día de su creadoEn y la
     // capacidad sale igual desde el saldo: se ve el número, no un hueco.
     assert.equal(r.get(PAN).capacidad, 3)
+  })
+})
+
+describe('altas idempotentes: el id del cliente es opcional pero válido', () => {
+  const UUID = '11111111-1111-4111-8111-111111111111'
+  const OTRO = '22222222-2222-4222-8222-222222222222'
+
+  it('acepta el id en venta, deuda y cobro directos', () => {
+    assert.equal(ventaDirectaSchema.safeParse({ id: UUID, lineas: [] }).success, false) // sin líneas sigue fallando
+    const venta = ventaDirectaSchema.safeParse({
+      id: UUID,
+      ubicacion: 'almacen',
+      lineas: [{ productoId: PAN, cantidad: 1, precioVentaUsado: 10 }]
+    })
+    assert.equal(venta.success, true)
+    assert.equal(venta.data.id, UUID)
+
+    const deuda = deudaDirectaSchema.safeParse({
+      id: UUID,
+      clienteId: OTRO,
+      ubicacion: 'almacen',
+      lineas: [{ productoId: PAN, cantidad: 1, precioVentaUsado: 10 }]
+    })
+    assert.equal(deuda.success, true)
+    assert.equal(deuda.data.id, UUID)
+
+    const pago = pagoFiadoDirectoSchema.safeParse({
+      id: UUID,
+      cuentaFiadoId: OTRO,
+      monto: 50,
+      formaPago: 'efectivo'
+    })
+    assert.equal(pago.success, true)
+    assert.equal(pago.data.id, UUID)
+  })
+
+  it('un id mal formado se rechaza', () => {
+    assert.equal(ventaDirectaSchema.safeParse({ id: 'no-uuid', lineas: [] }).success, false)
+  })
+
+  it('acepta el id en deuda, cobro y transferencia del cuadre', () => {
+    const cuenta = createCuentaFiadoSchema.safeParse({
+      id: UUID,
+      clienteId: OTRO,
+      cuadreOrigenId: PAN,
+      montoTotal: 10
+    })
+    assert.equal(cuenta.success, true)
+    assert.equal(cuenta.data.id, UUID)
+
+    const pago = pagoFiadoSchema.safeParse({
+      id: UUID,
+      cuentaFiadoId: OTRO,
+      cuadreId: null,
+      monto: 10,
+      formaPago: 'efectivo'
+    })
+    assert.equal(pago.success, true)
+    assert.equal(pago.data.id, UUID)
+
+    const transferencia = createTransferenciaSchema.safeParse({
+      id: UUID,
+      clienteId: OTRO,
+      cuadreId: PAN,
+      monto: 100
+    })
+    assert.equal(transferencia.success, true)
+    assert.equal(transferencia.data.id, UUID)
+  })
+
+  it('entrada, traspaso y ajuste aceptan su referencia idempotente', () => {
+    const entrada = entradaAlmacenSchema.safeParse({
+      entradaRef: UUID,
+      fechaEntrada: '2026-01-01',
+      lineas: [{ productoId: PAN, cantidad: 1, precioUnitario: 5 }]
+    })
+    assert.equal(entrada.success, true)
+    assert.equal(entrada.data.entradaRef, UUID)
+
+    const traspaso = traspasoSchema.safeParse({
+      id: UUID,
+      fecha: '2026-01-01',
+      lineas: [{ productoId: PAN, cantidad: 1 }]
+    })
+    assert.equal(traspaso.success, true)
+    assert.equal(traspaso.data.id, UUID)
+
+    const ajuste = ajusteInventarioSchema.safeParse({
+      id: UUID,
+      productoId: PAN,
+      tipo: 'merma',
+      ubicacion: 'quiosco',
+      cantidad: 1,
+      motivo: 'roto'
+    })
+    assert.equal(ajuste.success, true)
+    assert.equal(ajuste.data.id, UUID)
+  })
+
+  it('sin id el alta sigue funcionando (compatibilidad)', () => {
+    const venta = ventaDirectaSchema.safeParse({
+      ubicacion: 'almacen',
+      lineas: [{ productoId: PAN, cantidad: 1, precioVentaUsado: 10 }]
+    })
+    assert.equal(venta.success, true)
+    assert.equal(venta.data.id, undefined)
+
+    const traspaso = traspasoSchema.safeParse({ fecha: '2026-01-01', lineas: [{ productoId: PAN, cantidad: 1 }] })
+    assert.equal(traspaso.success, true)
+    assert.equal(traspaso.data.id, undefined)
   })
 })

@@ -1010,6 +1010,8 @@ export const accionesPendientesVoz = sqliteTable(
     /** Transcripción cruda: se conserva para auditar una mala interpretación. */
     texto: text('texto').notNull(),
     sttConfidence: real('stt_confidence'),
+    /** Motor que transcribió (`vosk` | `google-offline` | `google-online`). */
+    motor: text('motor'),
     origen: text('origen', { enum: ORIGENES_ACCION_VOZ }).notNull().default('app'),
     origenId: text('origen_id'),
     productoId: text('producto_id'),

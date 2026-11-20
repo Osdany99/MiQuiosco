@@ -151,6 +151,8 @@
 </template>
 
 <script setup>
+import { generarId } from '../../../shared/inventario/operaciones'
+
 const props = defineProps({
   cuadreId: { type: String, required: true },
   productosActivos: { type: Array, default: () => [] },
@@ -167,6 +169,10 @@ const {
 
 const nuevaDeudaOpen = ref(false)
 const deudaMontoOpen = ref(false)
+// Id fijado al abrir: si el guardado se reintenta (error de red tras escribir),
+// el servidor devuelve la deuda que ya existe en vez de duplicarla.
+const nuevaDeudaId = ref(null)
+const deudaMontoId = ref(null)
 const MONTODEUDA_VACIO = () => ({
   clienteId: null,
   montoTotal: 0,
@@ -263,6 +269,7 @@ function abrirNuevaDeuda(linea) {
     ...FIADO_VACIO(),
     items: [{ productoId: linea.productoId, cantidad: 0, precioVentaUsado: precio }]
   }
+  nuevaDeudaId.value = generarId()
   nuevaDeudaOpen.value = true
 }
 
@@ -272,11 +279,13 @@ function abrirDeudaProductos() {
     ...FIADO_VACIO(),
     items: [{ productoId: '', cantidad: 0, precioVentaUsado: 0 }]
   }
+  nuevaDeudaId.value = generarId()
   nuevaDeudaOpen.value = true
 }
 
 function abrirDeudaMonto() {
   montoDeudaForm.value = MONTODEUDA_VACIO()
+  deudaMontoId.value = generarId()
   deudaMontoOpen.value = true
 }
 
@@ -286,6 +295,8 @@ function cerrarDeudaMonto() {
 }
 
 async function confirmarDeudaMonto() {
+  // Doble toque mientras guarda: no se registra la deuda dos veces.
+  if (cargando.value) return
   const f = montoDeudaForm.value
   if (!f.clienteId) {
     toast.add({ title: 'Error', description: 'Elige el cliente que debe.', color: 'error' })
@@ -296,6 +307,7 @@ async function confirmarDeudaMonto() {
     return
   }
   const r = await registrarNuevaDeuda({
+    id: deudaMontoId.value,
     clienteId: f.clienteId,
     cuadreId: props.cuadreId,
     puestoId: props.puestoId,
@@ -316,6 +328,8 @@ function cerrarNuevaDeuda() {
 }
 
 async function confirmarNuevaDeuda() {
+  // Doble toque mientras guarda: no se registra la deuda dos veces.
+  if (cargando.value) return
   const form = fiadoForm.value
   if (!form.clienteId) {
     toast.add({ title: 'Error', description: 'Elige el cliente que debe.', color: 'error' })
@@ -342,7 +356,7 @@ async function confirmarNuevaDeuda() {
 
   // Toda deuda creada aquí nace del cuadre del día (las directas, fuera del
   // cuadre, se crean desde la vista de Deudas).
-  const r = await registrarNuevaDeuda({ ...form, cuadreId: props.cuadreId, puestoId: props.puestoId })
+  const r = await registrarNuevaDeuda({ ...form, id: nuevaDeudaId.value, cuadreId: props.cuadreId, puestoId: props.puestoId })
   if (!r?.ok) return
   cerrarNuevaDeuda()
   emit('actualizado')

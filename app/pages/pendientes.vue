@@ -13,6 +13,7 @@
  */
 import { Capacitor } from '@capacitor/core'
 import { etiquetaAntiguedad, estaCaducada, puedeAplicar } from '../utils/voice/pendientes'
+import { etiquetaMotorStt } from '../../shared/voz/motoresStt.js'
 
 definePageMeta({
   middleware: ['jefe']
@@ -105,6 +106,16 @@ function nombreProducto(accion) {
   return accion?.productoNombre || 'Producto sin identificar'
 }
 
+// Descripción del producto para distinguir nombres repetidos ("Maní" molido /
+// cocinado). Se resuelve del catálogo ya cargado: la acción no la guarda.
+const descripcionPorProducto = computed(() =>
+  new Map((inv.saldos.value ?? []).map(s => [s.productoId, s.descripcion ?? null]))
+)
+
+function descripcionProducto(accion) {
+  return descripcionPorProducto.value.get(accion?.productoId) ?? null
+}
+
 function sinProducto(accion) {
   return !accion?.productoId && accion?.tipo !== 'cobro'
 }
@@ -131,6 +142,9 @@ async function recargar() {
   await acciones.cargar({ forzar: true }).catch((e) => {
     toast.add({ title: 'No se pudo cargar la cola', description: e?.message, color: 'error' })
   })
+  // El catálogo hace falta para mostrar la descripción de cada producto y para
+  // el selector de las acciones sin identificar.
+  void inv.cargarSaldos().catch(() => {})
   listo.value = true
 }
 
@@ -165,6 +179,7 @@ const productoEdicion = computed(() => {
   return {
     productoId: accion.productoId,
     nombre: accion.productoNombre ?? 'Producto',
+    descripcion: descripcionProducto(accion),
     precioVentaActual: Number(accion.precioUnitario) || 0,
     stock: 0
   }
@@ -459,9 +474,11 @@ onMounted(() => {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-medium truncate">
-                  {{ nombreProducto(accion) }}
-                </span>
+                <BaseProductoNombre
+                  class="truncate"
+                  :nombre="nombreProducto(accion)"
+                  :descripcion="descripcionProducto(accion)"
+                />
                 <UBadge
                   variant="soft"
                   size="sm"
@@ -482,6 +499,14 @@ onMounted(() => {
                   color="info"
                   icon="i-lucide-radio"
                   label="Capturada con la app cerrada"
+                />
+                <UBadge
+                  v-if="accion.motor"
+                  variant="soft"
+                  size="sm"
+                  color="neutral"
+                  icon="i-lucide-audio-lines"
+                  :label="etiquetaMotorStt(accion.motor)"
                 />
                 <UBadge
                   v-if="estaVencida(accion)"
@@ -606,6 +631,9 @@ onMounted(() => {
               <p class="text-sm truncate">
                 {{ nombreProducto(accion) }} · {{ Number(accion.cantidad) }} ×
                 {{ fmtPrecio(accion.precioUnitario) }}
+              </p>
+              <p v-if="descripcionProducto(accion)" class="text-xs text-muted truncate">
+                {{ descripcionProducto(accion) }}
               </p>
               <p class="text-xs text-muted">
                 {{ fechaCompleta(accion.dictadoEn) }} · por {{ accion.usuarioNombre || 'el jefe' }}

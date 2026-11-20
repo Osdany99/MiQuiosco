@@ -1,5 +1,6 @@
 import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
+import { generarId } from '../../shared/inventario/operaciones'
 
 const transferenciaConfig = TABLES.transferencias
 const transferenciaItemConfig = TABLES.transferencia_items
@@ -38,20 +39,23 @@ export function useTransferencias() {
   }
 
   // Monto directo, sin productos ni tope: "el cliente X transfirió N pesos".
-  async function registrarTransferencia({ clienteId, cuadreId, monto, puestoId }) {
+  async function registrarTransferencia({ id = null, clienteId, cuadreId, monto, puestoId }) {
     cargando.value = true
     try {
       const montoTotal = Math.round((Number(monto) || 0) * 100) / 100
       if (!clienteId) throw new Error('Elige el cliente que transfirió.')
       if (!(montoTotal > 0)) throw new Error('El monto debe ser mayor que cero.')
+      // Id fijado por quien abre el formulario: reintentar no suma dos veces.
+      const transferenciaId = String(id || '').trim() || generarId()
       if (esOnline.value) {
         await $api('/api/transferencias', {
           method: 'POST',
-          body: { clienteId, cuadreId, monto: montoTotal },
+          body: { id: transferenciaId, clienteId, cuadreId, monto: montoTotal },
           headers: apiHeaders()
         })
       } else {
         const nueva = await r(transferenciasRepo).create({
+          id: transferenciaId,
           clienteId,
           cuadreId,
           puestoId,

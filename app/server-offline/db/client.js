@@ -11,7 +11,7 @@ import { Capacitor } from '@capacitor/core'
 import { deriveColumnTypes, coerceRow, deriveTableNames, deriveColumnDefs, deriveTimestampCols } from '../utils/schemaTypes'
 import { deriveColumnMap, validateColumns } from '../utils/tablaColumnas'
 import { snakeToCamelRow, camelToSnakeRow } from '../utils/normalize'
-import { tablaExiste, crearTablasFaltantes, crearTablaDesdeDefs, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, crearColaTransacciones, txRun, aplicarBaseline } from './esquema'
+import { tablaExiste, crearTablasFaltantes, crearTablaDesdeDefs, añadirColumnasFaltantes, crearIndicesFaltantes, eliminarColumnasObsoletas, ejecutarTransaccionSql, ejecutarSavepointSql, txRun, aplicarBaseline } from './esquema'
 import * as schemaSqlite from './schema'
 import { sembrarJefeLocal } from './seed'
 import { CLIENTE_SIN_CLIENTE_ID_FIJO } from '../../../shared/constants'
@@ -29,10 +29,20 @@ let dbConnectionPromise = null
 let inMemoryDb = null
 let inMemoryDbPromise = null
 
-// La cola es compartida a nivel módulo: como useDb() se instancia en cada
-// componente, una cola local por instancia no alcanzaría para serializar
-// transacciones entre consumidores distintos.
-const colaTransacciones = crearColaTransacciones()
+// Una sola cola para TODO lo que escribe en SQLite: transacciones y
+// sentencias sueltas. La sync aplica el pull por lotes dentro de una
+// transacción manual (BEGIN IMMEDIATE); si una escritura de la UI se colara
+// entre ese BEGIN y su COMMIT, el plugin abriría su propia transacción
+// implícita y SQLite respondería "cannot start a transaction within a
+// transaction" — y su `finally` revertiría la de la sync. Con la cola, la
+// escritura del usuario espera al lote y nunca comparte transacción.
+let colaEscrituras = Promise.resolve()
+
+function enColaEscritura(tarea) {
+  const turno = colaEscrituras.then(tarea, tarea)
+  colaEscrituras = turno.then(() => {}, () => {})
+  return turno
+}
 
 // Indica si el hilo actual de ejecución está dentro de nuestra transacción
 // manual. Las escrituras internas deben viajar con transaction:false para que
@@ -42,8 +52,11 @@ const colaTransacciones = crearColaTransacciones()
 let transaccionActiva = false
 
 async function runEscritura(conn, sql, params) {
+  // Dentro de una transacción ya abierta (propia o de la sync) la sentencia
+  // viaja sin transaction:true. Fuera, pasa por la cola: así no se cuela en el
+  // hueco entre un BEGIN y su COMMIT.
   if (transaccionActiva) return txRun(conn, sql, params)
-  return conn.run(sql, params)
+  return enColaEscritura(() => conn.run(sql, params))
 }
 
 /** Filas por sentencia en las escrituras masivas de sincronización. */
@@ -688,9 +701,9 @@ export function useDb() {
     await getConnection()
   }
 
-  // La cola colaTransacciones es compartida a nivel módulo: como useDb() se
+  // La cola colaEscrituras es compartida a nivel módulo: como useDb() se
   // instancia en cada componente, una cola local por instancia no alcanzaría
-  // para serializar transacciones entre consumidores distintos.
+  // para serializar escrituras entre consumidores distintos.
   async function transaction(fn) {
     const conn = await getConnection()
     const ops = { insert, update, remove }
@@ -706,19 +719,20 @@ export function useDb() {
         throw err
       }
     }
-    // Transacción anidada: ya estamos dentro de otra y las escrituras se están
-    // haciendo con transaction:false para no auto-confirmarse (ver txRun).
-    // Abrir una segunda aquí no solo es inútil, es un deadlock: la cola está
-    // esperando a que termine la de arriba, que está esperando a esta.
-    if (transaccionActiva) return fn(ops)
-    return colaTransacciones.ejecutar(conn, async (innerOps) => {
+    // Transacción anidada dentro de la MISMA operación (p. ej. un alta con
+    // mutación propia): savepoint, no un no-op. Si se quedara sin control, un
+    // fallo a mitad dejaría escritas las primeras sentencias.
+    if (transaccionActiva) return ejecutarSavepointSql(conn, fn, ops)
+    return enColaEscritura(() => {
+      // El flag se reserva ANTES del BEGIN (que cruza el puente nativo):
+      // cualquier escritura que llegue en ese hueco ya viaja con
+      // transaction:false y no intenta abrir otra transacción.
       transaccionActiva = true
-      try {
-        return await fn(innerOps)
-      } finally {
-        transaccionActiva = false
-      }
-    }, ops)
+      return ejecutarTransaccionSql(conn, async innerOps => fn(innerOps), ops)
+        .finally(() => {
+          transaccionActiva = false
+        })
+    })
   }
 
   // Las operaciones genéricas pasan por `conReparacion`: si la tabla no existe

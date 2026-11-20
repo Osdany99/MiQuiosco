@@ -75,6 +75,8 @@ describe('voz: clasificación (fase A)', () => {
     ['repite', 'repetir'],
     ['que puedes hacer', 'ayuda'],
     ['abre cuadre', 'cuadre_accion'],
+    ['se cogieron 3 panes para la casa', 'ajuste_inventario'],
+    ['se cogieron los panes para la casa', 'ajuste_inventario'],
     ['hola', 'desconocido'],
     ['', 'desconocido']
   ]
@@ -722,6 +724,20 @@ describe('voz: la descripción no supera al nombre', () => {
     assert.equal(mejor.product.id, '1')
     assert.ok(mejor.score > segundo.score)
   })
+
+  it('la descripción identifica entre productos del mismo nombre («maní molido»)', () => {
+    const catalogo = [
+      { id: 'cocido', name: 'Maní', description: 'cocinado' },
+      { id: 'molido', name: 'Maní', description: 'molido' },
+      { id: 'garapinado', name: 'Maní', description: 'garapiñado' }
+    ]
+    const resultados = fuzzyMatchProducts('mani molido', catalogo)
+    assert.equal(resultados[0].product.id, 'molido')
+    assert.ok(resultados[0].score >= UMBRAL_PRODUCTO, `puntaje ${resultados[0].score}`)
+    // Los demás conservan el puntaje del nombre a secas; el margen es lo que
+    // permite elegir sin preguntar (decidirProducto exige 0.1).
+    assert.ok(resultados[0].score - resultados[1].score >= 0.1)
+  })
 })
 
 describe('voz: privacidad / enmascarado', () => {
@@ -904,6 +920,21 @@ describe('voz: frases habladas (concordancia)', () => {
     )
     // Sin importe se mantiene la frase de siempre.
     assert.equal(fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'quiosco' }), 'Voy a vender 2 unidades de Pan del quiosco.')
+  })
+
+  it('el read-back dice el tipo cuando no es una venta directa', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'almacén', tipo: 'familiar', importe: 20 }),
+      'Voy a vender 2 unidades de Pan del almacén por 20 pesos. Venta familiar.'
+    )
+    assert.equal(
+      fraseVenta({ cantidad: 1, nombre: 'Pan', lugar: 'quiosco', tipo: 'casa', importe: 6 }),
+      'Voy a vender un Pan del quiosco por 6 pesos. Venta de casa.'
+    )
+    assert.equal(
+      fraseVenta({ cantidad: 1, nombre: 'Pan', lugar: 'quiosco', tipo: 'regalo' }),
+      'Voy a vender un Pan del quiosco. Regalo.'
+    )
   })
 
   it('avisa del stock sin decir "1 de pan"', () => {

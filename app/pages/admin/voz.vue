@@ -1,4 +1,6 @@
 <script setup>
+import { etiquetaMotorStt } from '#shared/voz/motoresStt'
+
 definePageMeta({
   layout: 'admin',
   middleware: ['super-admin']
@@ -9,7 +11,7 @@ const api = useAdminApi()
 const cargando = ref(false)
 const errorCarga = ref(null)
 const filas = ref([])
-const filtroEstado = ref('abierto')
+const filtrosEventos = ref({ estado: 'abierto' })
 /** Salud del módulo: última telemetría y proofs recientes. */
 const resumen = ref(null)
 
@@ -80,7 +82,8 @@ async function cargar() {
   cargando.value = true
   errorCarga.value = null
   try {
-    const query = filtroEstado.value === 'todos' ? {} : { estado: filtroEstado.value }
+    const estado = filtrosEventos.value.estado ?? 'todos'
+    const query = estado === 'todos' ? {} : { estado }
     const eventos = await api.listarEventosVoz(query)
     filas.value = (eventos ?? []).map(f => ({ ...f, ...partirMotivo(f.motivo) }))
     void cargarResumen()
@@ -106,9 +109,7 @@ async function marcar(id, estado) {
 const aciertos = ref([])
 const cargandoAciertos = ref(false)
 const errorAciertos = ref(null)
-const filtroComando = ref('todos')
-const filtroVentana = ref('7d')
-const busquedaTexto = ref('')
+const filtrosAciertos = ref({ ventana: '7d', comando: 'todos', motor: 'todos', texto: '' })
 const confirmarBorrarAciertos = ref(false)
 const borrandoAciertos = ref(false)
 
@@ -146,6 +147,13 @@ const opcionesVentana = [
   { label: 'Últimos 7 días', value: '7d' },
   { label: 'Todo', value: 'todo' }
 ]
+const opcionesMotor = [
+  { label: 'Todos los motores', value: 'todos' },
+  { label: 'Vosk (offline)', value: 'vosk' },
+  { label: 'Google (sin conexión)', value: 'google-offline' },
+  { label: 'Google (en línea)', value: 'google-online' },
+  { label: 'Navegador', value: 'web' }
+]
 
 const columnasAciertos = [
   { accessorKey: 'texto', header: 'Dictado' },
@@ -153,6 +161,7 @@ const columnasAciertos = [
   { accessorKey: 'resultado', header: 'Resultado' },
   { accessorKey: 'detalle', header: 'Detalle' },
   { accessorKey: 'puestoNombre', header: 'Puesto' },
+  { accessorKey: 'motor', header: 'Motor' },
   { accessorKey: 'confianza', header: 'Conf.' },
   { accessorKey: 'creadoEn', header: 'Fecha' }
 ]
@@ -170,10 +179,14 @@ async function cargarAciertos() {
   cargandoAciertos.value = true
   errorAciertos.value = null
   try {
+    const comando = filtrosAciertos.value.comando ?? 'todos'
+    const ventana = filtrosAciertos.value.ventana ?? '7d'
+    const motor = filtrosAciertos.value.motor ?? 'todos'
     const query = { limit: 300 }
-    if (filtroComando.value !== 'todos') query.comando = filtroComando.value
-    if (filtroVentana.value !== 'todo') query.desde = filtroVentana.value
-    const texto = busquedaTexto.value.trim()
+    if (comando !== 'todos') query.comando = comando
+    if (motor !== 'todos') query.motor = motor
+    if (ventana !== 'todo') query.desde = ventana
+    const texto = String(filtrosAciertos.value.texto ?? '').trim()
     if (texto) query.texto = texto
     aciertos.value = await api.listarAciertosVoz(query)
   } catch (e) {
@@ -201,7 +214,7 @@ async function borrarAciertos() {
   }
 }
 
-watch([filtroComando, filtroVentana], () => {
+watch(() => [filtrosAciertos.value.comando, filtrosAciertos.value.ventana, filtrosAciertos.value.motor], () => {
   if (vista.value === 'aciertos') void cargarAciertos()
 })
 // ---------------------------- Confirmaciones ----------------------------
@@ -300,7 +313,7 @@ watch(vista, (valor) => {
   if (valor === 'confirmaciones') void cargarConfirmaciones()
 })
 let timerBusqueda = null
-watch(busquedaTexto, () => {
+watch(() => filtrosAciertos.value.texto, () => {
   if (vista.value !== 'aciertos') return
   if (timerBusqueda) clearTimeout(timerBusqueda)
   timerBusqueda = setTimeout(() => {
@@ -314,20 +327,28 @@ onMounted(() => {
   if (vista.value === 'aciertos') void cargarAciertos()
   if (vista.value === 'confirmaciones') void cargarConfirmaciones()
 })
-watch(filtroEstado, cargar)
+watch(filtrosEventos, cargar, { deep: true })
 
 /** «Restablecer» de la tabla: vuelve a los filtros de entrada de cada pestaña. */
 function reiniciarFiltrosEventos() {
-  filtroEstado.value = 'abierto'
+  filtrosEventos.value = { estado: 'abierto' }
 }
 
 function reiniciarFiltrosAciertos() {
-  filtroComando.value = 'todos'
-  filtroVentana.value = '7d'
-  // Solo si había texto: asignar '' sobre '' no cambia nada y el `watch`
-  // debounced (350 ms) pediría la lista otra vez sin motivo.
-  if (busquedaTexto.value) busquedaTexto.value = ''
+  filtrosAciertos.value = { ventana: '7d', comando: 'todos', motor: 'todos', texto: '' }
 }
+
+/** Todos los filtros en el icono: en el teléfono no caben en la barra. */
+const camposFiltroEventos = computed(() => [
+  { key: 'estado', label: 'Estado', type: 'select', options: opcionesEstado, server: true }
+])
+
+const camposFiltroAciertos = computed(() => [
+  { key: 'ventana', label: 'Ventana', type: 'select', options: opcionesVentana, server: true },
+  { key: 'comando', label: 'Comando', type: 'select', options: opcionesComando, server: true },
+  { key: 'motor', label: 'Motor', type: 'select', options: opcionesMotor, server: true },
+  { key: 'texto', label: 'Dictado', server: true }
+])
 </script>
 
 <template>
@@ -366,25 +387,17 @@ function reiniciarFiltrosAciertos() {
       </div>
 
       <BaseTable
+        v-model:filters="filtrosEventos"
         :data="filas"
         :columns="columnas"
         :loading-prop="cargando"
         :show-edit="false"
         :show-delete="false"
-        :disable-filters="true"
+        :filter-fields="camposFiltroEventos"
         empty-state="No hay eventos de voz que coincidan"
         @reset="reiniciarFiltrosEventos"
         @reload="cargar"
       >
-        <template #toolbar-leading>
-          <USelect
-            v-model="filtroEstado"
-            :items="opcionesEstado"
-            size="sm"
-            class="w-40"
-          />
-        </template>
-
         <template #plantilla-cell="{ row }">
           <span class="font-mono text-xs">{{ row.original.plantilla || '—' }}</span>
           <span v-if="row.original.texto" class="mt-1 flex flex-col gap-0.5">
@@ -495,46 +508,26 @@ function reiniciarFiltrosAciertos() {
       />
 
       <BaseTable
+        v-model:filters="filtrosAciertos"
         :data="aciertos"
         :columns="columnasAciertos"
         :loading-prop="cargandoAciertos"
         :show-edit="false"
         :show-delete="false"
-        :disable-filters="true"
+        :filter-fields="camposFiltroAciertos"
         empty-state="No hay aciertos que coincidan"
         @reset="reiniciarFiltrosAciertos"
         @reload="cargarAciertos"
       >
         <template #toolbar-leading>
-          <div class="flex flex-wrap items-center gap-2">
-            <USelect
-              v-model="filtroVentana"
-              :items="opcionesVentana"
-              size="sm"
-              class="w-40"
-            />
-            <USelect
-              v-model="filtroComando"
-              :items="opcionesComando"
-              size="sm"
-              class="w-44"
-            />
-            <UInput
-              v-model="busquedaTexto"
-              size="sm"
-              placeholder="Buscar en el dictado…"
-              icon="i-lucide-search"
-              class="w-52"
-            />
-            <UButton
-              size="sm"
-              color="error"
-              variant="outline"
-              icon="i-lucide-trash-2"
-              label="Borrar todos"
-              @click="confirmarBorrarAciertos = true"
-            />
-          </div>
+          <UButton
+            size="sm"
+            color="error"
+            variant="outline"
+            icon="i-lucide-trash-2"
+            label="Borrar todos"
+            @click="confirmarBorrarAciertos = true"
+          />
         </template>
 
         <template #texto-cell="{ row }">
@@ -568,6 +561,17 @@ function reiniciarFiltrosAciertos() {
 
         <template #confianza-cell="{ row }">
           <span class="text-xs text-muted">{{ porcentaje(row.original.confianza) }}</span>
+        </template>
+
+        <template #motor-cell="{ row }">
+          <UBadge
+            v-if="row.original.motor"
+            variant="soft"
+            size="sm"
+            color="neutral"
+            :label="etiquetaMotorStt(row.original.motor)"
+          />
+          <span v-else class="text-xs text-muted">—</span>
         </template>
 
         <template #creadoEn-cell="{ row }">

@@ -10,61 +10,62 @@
     <div v-if="cargando" class="flex justify-center py-8">
       <UIcon name="i-lucide-loader-circle" class="animate-spin size-8 text-muted-foreground" />
     </div>
-    <p
-      v-else-if="producto?.descripcion?.trim()"
-      class="text-xs text-muted truncate mb-2"
-    >
-      {{ producto.descripcion }}
-    </p>
-    <UTable
-      v-else
-      :data="lotes"
-      :columns="columns"
-      empty="Sin lotes registrados"
-    >
-      <template #fechaEntrada-cell="{ row }">
-        {{ row.original.fechaEntrada }}
-      </template>
-      <template #precioUnitario-cell="{ row }">
-        {{ fmtPrecio(row.original.precioUnitario) }}
-      </template>
-      <template #saldo-cell="{ row }">
-        Alm: {{ row.original.saldoAlmacen }} · Quiosco: {{ row.original.saldoQuiosco }}
-      </template>
-      <template #proveedor-cell="{ row }">
-        {{ nombreProveedor(row.original) }}
-      </template>
-      <template #acciones-cell="{ row }">
-        <div class="flex items-center justify-end gap-1">
-          <UButton
-            v-if="!row.original.anulado"
-            icon="i-lucide-flag"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            title="Cambiar estado del lote"
-            @click="abrirEstado(row.original)"
-          />
-          <UButton
-            icon="i-lucide-eye"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            title="Ver detalle del lote"
-            @click="abrirDetalle(row.original)"
-          />
-          <UButton
-            v-if="!row.original.anulado"
-            icon="i-lucide-pencil"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            title="Corregir cantidad o precio"
-            @click="abrirCorreccion(row.original)"
-          />
-        </div>
-      </template>
-    </UTable>
+    <template v-else>
+      <p
+        v-if="producto?.descripcion?.trim()"
+        class="text-xs text-muted truncate mb-2"
+      >
+        {{ producto.descripcion }}
+      </p>
+      <UTable
+        :data="lotes"
+        :columns="columns"
+        empty="Sin lotes registrados"
+      >
+        <template #fechaEntrada-cell="{ row }">
+          {{ row.original.fechaEntrada }}
+        </template>
+        <template #precioUnitario-cell="{ row }">
+          {{ fmtPrecio(row.original.precioUnitario) }}
+        </template>
+        <template #saldo-cell="{ row }">
+          Alm: {{ row.original.saldoAlmacen }} · Quiosco: {{ row.original.saldoQuiosco }}
+        </template>
+        <template #proveedor-cell="{ row }">
+          {{ nombreProveedor(row.original) }}
+        </template>
+        <template #acciones-cell="{ row }">
+          <div class="flex items-center justify-end gap-1">
+            <UButton
+              v-if="!row.original.anulado"
+              icon="i-lucide-flag"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              title="Cambiar estado del lote"
+              @click="abrirEstado(row.original)"
+            />
+            <UButton
+              icon="i-lucide-eye"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              title="Ver detalle del lote"
+              @click="abrirDetalle(row.original)"
+            />
+            <UButton
+              v-if="!row.original.anulado"
+              icon="i-lucide-pencil"
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              title="Corregir cantidad o precio"
+              @click="abrirCorreccion(row.original)"
+            />
+          </div>
+        </template>
+      </UTable>
+    </template>
   </BaseDialog>
 
   <InventarioDialogoCorreccionLote v-model="showCorreccion" :lote="corrigiendo" @guardado="alGuardar" />

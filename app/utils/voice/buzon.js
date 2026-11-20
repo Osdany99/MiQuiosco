@@ -11,6 +11,8 @@
  * Sin dependencias: se prueba con `node --test` (tests/buzonVoz.test.js).
  */
 
+import { motorDeServicio } from '../../../shared/voz/motoresStt.js'
+
 export const TIPOS_VENTA_BUZON = ['directa', 'casa', 'familiar', 'regalo']
 
 function entero(valor) {
@@ -54,7 +56,9 @@ export function normalizarEntradaBuzon(datos) {
     dictadoEn,
     ubicacion: datos.ubicacion === 'almacen'
       ? 'almacen'
-      : (datos.ubicacion === 'quiosco' ? 'quiosco' : null)
+      : (datos.ubicacion === 'quiosco' ? 'quiosco' : null),
+    // El servicio escribe `sistema`/`vosk`; se normaliza al nombre del panel.
+    motor: motorDeServicio(datos.motor)
   }
 }
 
@@ -85,6 +89,7 @@ export function pendienteResuelto(datos) {
       sttConfidence: Number(datos.confidence) || 0,
       dictadoEn: Number(datos.dictadoEn) || Date.now(),
       origen: 'servicio',
+      motor: motorDeServicio(datos.motor),
       tipo: 'cobro',
       productoId: null,
       productoNombre: null,
@@ -104,10 +109,17 @@ export function pendienteResuelto(datos) {
   if (!productoId) return null
 
   const cantidad = entero(datos.cantidad)
-  const precioUnitario = monto(datos.precioUnitario)
-  const importe = datos.importe == null
-    ? monto(precioUnitario * cantidad)
-    : monto(datos.importe)
+  // El servicio nativo manda el precio de catálogo; para casa y familiar el
+  // precio es el costo y para regalo no se cobra. El importe se recalcula para
+  // que la revisión no muestre (ni registre) el precio de venta normal.
+  const tipoVenta = TIPOS_VENTA_BUZON.includes(datos.tipoVenta) ? datos.tipoVenta : 'directa'
+  const esCosto = tipoVenta === 'casa' || tipoVenta === 'familiar'
+  const precioUnitario = tipoVenta === 'regalo'
+    ? 0
+    : esCosto
+      ? monto(datos.costoUnitario)
+      : monto(datos.precioUnitario)
+  const importe = monto(precioUnitario * cantidad)
 
   // Fiado dictado con la app cerrada: además del producto hace falta el
   // cliente. Sin cliente no se puede crear la deuda y se descarta la entrada.
@@ -121,6 +133,7 @@ export function pendienteResuelto(datos) {
     sttConfidence: Number(datos.confidence) || 0,
     dictadoEn: Number(datos.dictadoEn) || Date.now(),
     origen: 'servicio',
+    motor: motorDeServicio(datos.motor),
     tipo: esDeuda ? 'deuda' : 'venta',
     productoId,
     productoNombre: datos.productoNombre ? String(datos.productoNombre) : null,
@@ -141,7 +154,8 @@ function base(entrada) {
     texto: String(entrada?.texto ?? ''),
     sttConfidence: Number(entrada?.sttConfidence) || 0,
     dictadoEn: Number(entrada?.dictadoEn) || Date.now(),
-    origen: 'servicio'
+    origen: 'servicio',
+    motor: entrada?.motor ?? null
   }
 }
 
@@ -214,20 +228,24 @@ export function pendienteDesdeAccion(accion, entrada) {
   if (accion.tipo === 'venta' || accion.tipo === 'stock') {
     const fila = accion.fila ?? {}
     const cantidad = entero(accion.cantidad)
-    const precioUnitario = accion.precioUnitario != null
-      ? monto(accion.precioUnitario)
-      : monto(fila.precioVentaActual)
+    const tipoVenta = TIPOS_VENTA_BUZON.includes(accion.slots?.tipoVenta)
+      ? accion.slots.tipoVenta
+      : 'directa'
+    const esCosto = tipoVenta === 'casa' || tipoVenta === 'familiar'
+    const precioUnitario = tipoVenta === 'regalo'
+      ? 0
+      : accion.precioUnitario != null
+        ? monto(accion.precioUnitario)
+        : esCosto ? monto(fila.costoActual) : monto(fila.precioVentaActual)
     return {
       ...comun,
       productoId: fila.productoId ?? null,
       productoNombre: fila.nombre ?? null,
       ubicacion: accion.destino?.ubicacion ?? entrada.ubicacion ?? 'quiosco',
-      tipoVenta: TIPOS_VENTA_BUZON.includes(accion.slots?.tipoVenta)
-        ? accion.slots.tipoVenta
-        : 'directa',
+      tipoVenta,
       cantidad,
       precioUnitario,
-      importe: accion.importe != null ? monto(accion.importe) : monto(precioUnitario * cantidad),
+      importe: monto(precioUnitario * cantidad),
       clienteId: accion.slots?.clienteId ?? null,
       // La falta de stock no la resuelve el servicio: se deja anotada para que
       // el jefe decida (reponer, editar cantidad o descartar).

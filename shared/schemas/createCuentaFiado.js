@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
 export const createCuentaFiadoSchema = z.object({
+  // Id de la cuenta decidido por el cliente: reintentar no duplica la deuda.
+  id: z.string().uuid('ID inválido').optional(),
   clienteId: z.string().uuid('ID de cliente inválido'),
   cuadreOrigenId: z.string().uuid('ID de cuadre inválido'),
   // Vacío cuando la deuda se registra solo por monto, sin productos.

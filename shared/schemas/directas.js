@@ -23,6 +23,8 @@ const lineaDirecta = z.object({
  * El cliente es opcional en todas; solo la deuda directa lo exige.
  */
 export const ventaDirectaSchema = z.object({
+  // Id decidido por el cliente: reintentar la petición no duplica la venta.
+  id: z.string().uuid('ID inválido').optional(),
   ubicacion: z.enum(['almacen', 'quiosco'], { message: 'Ubicación inválida' }).default('almacen'),
   tipoVenta: z
     .enum(['directa', 'casa', 'familiar', 'regalo'], { message: 'Tipo de venta inválido' })
@@ -46,6 +48,8 @@ export const ventaDirectaSchema = z.object({
  * a ningún cuadre, pero sí descuenta inventario y congela su costo FIFO.
  */
 export const deudaDirectaSchema = z.object({
+  // Id de la cuenta decidido por el cliente: reintentar no duplica la deuda.
+  id: z.string().uuid('ID inválido').optional(),
   clienteId: z.string().uuid('ID de cliente inválido'),
   ubicacion: z.enum(['almacen', 'quiosco'], { message: 'Ubicación inválida' }).default('almacen'),
   lineas: z
@@ -64,6 +68,8 @@ export const deudaDirectaSchema = z.object({
  * por fuera y el efectivo no entró a la gaveta de ningún cuadre.
  */
 export const pagoFiadoDirectoSchema = z.object({
+  // Id del pago decidido por el cliente: reintentar no cobra dos veces.
+  id: z.string().uuid('ID inválido').optional(),
   cuentaFiadoId: z.string().uuid('ID de cuenta inválido'),
   cuadreId: z.string().uuid('ID de cuadre inválido').nullable().optional(),
   monto: z.number().min(0, 'El monto no puede ser negativo'),

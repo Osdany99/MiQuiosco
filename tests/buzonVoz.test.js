@@ -83,6 +83,21 @@ describe('buzón de voz: venta ya resuelta por el servicio', () => {
     assert.equal(doc.importe, 20)
   })
 
+  it('casa y familiar se revisan al costo, no al precio de catálogo', () => {
+    const familiar = pendienteResuelto({ ...resuelta, tipoVenta: 'familiar', costoUnitario: 6 })
+    assert.equal(familiar.precioUnitario, 6)
+    assert.equal(familiar.importe, 12)
+    assert.equal(familiar.tipoVenta, 'familiar')
+
+    const casa = pendienteResuelto({ ...resuelta, tipoVenta: 'casa', costoUnitario: 6 })
+    assert.equal(casa.precioUnitario, 6)
+    assert.equal(casa.importe, 12)
+
+    const regalo = pendienteResuelto({ ...resuelta, tipoVenta: 'regalo' })
+    assert.equal(regalo.precioUnitario, 0)
+    assert.equal(regalo.importe, 0)
+  })
+
   it('descarta lo que no está resuelto o no trae producto', () => {
     assert.equal(pendienteResuelto({ ...resuelta, resuelto: false }), null)
     assert.equal(pendienteResuelto({ ...resuelta, productoId: '' }), null)
@@ -182,5 +197,50 @@ describe('buzón de voz: acción pendiente', () => {
     assert.equal(pendienteDesdeAccion({ tipo: 'cancelado' }, entrada), null)
     assert.equal(pendienteDesdeAccion(null, entrada), null)
     assert.equal(pendienteDesdeAccion({ tipo: 'venta' }, null), null)
+  })
+})
+
+describe('buzón de voz: motor que transcribió', () => {
+  it('la entrada del servicio normaliza `sistema` a Google en línea', () => {
+    const entrada = normalizarEntradaBuzon({ ...ENTRADA, motor: 'sistema' })
+    assert.equal(entrada.motor, 'google-online')
+  })
+
+  it('la entrada del servicio conserva Vosk', () => {
+    const entrada = normalizarEntradaBuzon({ ...ENTRADA, motor: 'vosk' })
+    assert.equal(entrada.motor, 'vosk')
+  })
+
+  it('sin motor la entrada queda en null', () => {
+    assert.equal(normalizarEntradaBuzon({ ...ENTRADA })?.motor, null)
+  })
+
+  it('el motor de la entrada viaja a la venta resuelta', () => {
+    const entrada = normalizarEntradaBuzon({ ...ENTRADA, motor: 'sistema' })
+    const doc = pendienteDesdeAccion({
+      tipo: 'venta',
+      fila: FILA,
+      destino: { ubicacion: 'quiosco' },
+      cantidad: 1,
+      precioUnitario: 10,
+      slots: { tipoVenta: 'directa' }
+    }, entrada)
+    assert.equal(doc.motor, 'google-online')
+  })
+
+  it('la deuda dictada guarda su motor', () => {
+    const doc = pendienteResuelto({
+      id: 'dictado-3.json',
+      resuelto: true,
+      texto: 'fía dos panes a Juan',
+      motor: 'vosk',
+      tipo: 'deuda',
+      clienteId: 'c1',
+      productoId: 'p1',
+      cantidad: 2,
+      precioUnitario: 10,
+      dictadoEn: 1763000000000
+    })
+    assert.equal(doc.motor, 'vosk')
   })
 })

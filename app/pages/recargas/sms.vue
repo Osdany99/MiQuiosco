@@ -120,7 +120,7 @@ function abrirConfirmar(p) {
 async function onConfirmar(estadoPago) {
   const p = confirmando.value
   const cliente = clienteDe(p)
-  if (!p || !cliente) return
+  if (!p || !cliente || guardando.value) return
   guardando.value = true
   try {
     await rec.confirmar(p.id, { clienteId: cliente.id, estadoPago })

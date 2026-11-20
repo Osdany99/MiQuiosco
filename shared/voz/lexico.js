@@ -55,8 +55,9 @@ export const LEXICO_BASE = Object.freeze({
     'rompieron', 'rompio', 'rompimos', 'rompi', 'vencieron', 'vencio',
     'vencimos', 'venci', 'dano', 'danaron', 'danamos', 'perdieron', 'perdio',
     'perdimos', 'perdi', 'cayeron', 'cayo', 'caimos', 'mojaron', 'mojo',
-    'mojamos', 'derramaron', 'derramo', 'derramamos', 'merma', 'tira',
-    'tirame', 'bota', 'botame', 'descarta', 'descarte'
+    'mojamos', 'derramaron', 'derramo', 'derramamos', 'cogieron', 'cogio',
+    'cogimos', 'cogi', 'merma', 'tira', 'tirame', 'bota', 'botame',
+    'descarta', 'descarte'
   ],
   devolucionVerbo: [
     'devuelve', 'devuelveme', 'devuelvamelo', 'devuelvele', 'regresa',

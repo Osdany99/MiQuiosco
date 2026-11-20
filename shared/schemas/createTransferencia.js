@@ -6,6 +6,8 @@ const uuidCanonico = z.string().regex(
 )
 
 export const createTransferenciaSchema = z.object({
+  // Id decidido por el cliente: reintentar no suma dos veces al cuadre.
+  id: uuidCanonico.optional(),
   clienteId: uuidCanonico,
   cuadreId: z.string().regex(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,

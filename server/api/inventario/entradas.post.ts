@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { lotes, movimientosInventario, productos, proveedores } from '../../database/schema'
 import { entradaAlmacenSchema } from '#shared/schemas/entradaAlmacen'
@@ -17,6 +17,28 @@ export default defineEventHandler(async (event) => {
   const usuarioId = auth.usuario.id
   const ahora = new Date()
   const ahoraMs = ahora.getTime()
+
+  // Reintento de la misma entrada: `entradaRef` la identifica. Los lotes ya
+  // creados se devuelven contados y no se vuelve a dar stock.
+  if (datos.entradaRef) {
+    const previos = await db
+      .select({ id: lotes.id })
+      .from(lotes)
+      .where(and(eq(lotes.puestoId, puestoId), eq(lotes.entradaRef, datos.entradaRef)))
+    if (previos.length > 0) {
+      const ids = previos.map(l => l.id)
+      const movs = await db
+        .select({ id: movimientosInventario.id })
+        .from(movimientosInventario)
+        .where(inArray(movimientosInventario.loteId, ids))
+      return {
+        entradaRef: datos.entradaRef,
+        lotes: previos.length,
+        movimientos: movs.length,
+        idempotente: true
+      }
+    }
+  }
 
   // Validar productos del puesto.
   const ids = [...new Set(datos.lineas.map(l => l.productoId))]
@@ -40,7 +62,8 @@ export default defineEventHandler(async (event) => {
   const { entradaRef, lotes: lotesNuevos, movimientos } = construirEntrada(datos, {
     puestoId,
     usuarioId,
-    ahora: ahoraMs
+    ahora: ahoraMs,
+    entradaRef: datos.entradaRef
   })
 
   await db.transaction(async (tx) => {

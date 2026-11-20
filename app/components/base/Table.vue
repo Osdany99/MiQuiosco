@@ -177,10 +177,17 @@ const props = defineProps({
    * filtrado (p. ej. "solo lo pendiente") sin que el usuario toque nada: se ven
    * igual en el popover y se quitan desde ahí.
    */
-  initialFilters: { type: Object, default: () => ({}) }
+  initialFilters: { type: Object, default: () => ({}) },
+  /**
+   * Filtros controlados por la vista (`v-model:filters`). Necesario cuando el
+   * filtro no se aplica en cliente sino que dispara una consulta (p. ej. el
+   * panel de dispositivos). Sin esto el popover no tenía forma de decírselo a
+   * la página.
+   */
+  filters: { type: Object, default: null }
 })
 
-const emit = defineEmits(['edit', 'delete', 'reload', 'details', 'reset'])
+const emit = defineEmits(['edit', 'delete', 'reload', 'details', 'reset', 'update:filters'])
 const form = defineModel({ type: Object })
 
 /**
@@ -217,10 +224,10 @@ const resolvedModalTitle = computed(() => {
     || 'Registro'
 })
 
-const activeFilters = ref({ ...props.initialFilters })
+const activeFilters = ref({ ...(props.filters ?? props.initialFilters) })
 
 const hayFiltros = computed(() =>
-  Object.values(activeFilters.value).some(v => v != null && v !== '')
+  Object.values(activeFilters.value).some(v => v != null && v !== '' && v !== false)
 )
 
 const resolvedEmptyState = computed(() => {
@@ -243,6 +250,21 @@ onMounted(() => {
 watch(() => props.initialFilters, (nuevos) => {
   activeFilters.value = { ...nuevos }
   page.value = 1
+}, { deep: true })
+
+// Filtros controlados por la vista: el popover escribe aquí y la página
+// escucha para volver a consultar. Se comparan serializados para no entrar en
+// un bucle de actualizaciones con el padre.
+watch(() => props.filters, (nuevos) => {
+  if (nuevos == null) return
+  if (JSON.stringify(nuevos) === JSON.stringify(activeFilters.value)) return
+  activeFilters.value = { ...nuevos }
+}, { deep: true })
+
+watch(activeFilters, (valor) => {
+  if (props.filters == null) return
+  if (JSON.stringify(valor) === JSON.stringify(props.filters)) return
+  emit('update:filters', { ...valor })
 }, { deep: true })
 
 // Al aplicar o quitar filtros la lista cambia de tamaño: se vuelve al inicio.
@@ -307,10 +329,15 @@ function normalizar(v) {
  * coincidencia exacta en vez de "contiene".
  */
 function filtrarEnCliente(items) {
-  const activos = Object.entries(activeFilters.value).filter(([, v]) => v != null && v !== '')
+  const activos = Object.entries(activeFilters.value)
+    .filter(([, v]) => v != null && v !== '' && v !== false)
   if (!activos.length) return items
   return items.filter(item => activos.every(([clave, valor]) => {
     const campo = camposDeFiltro.value.find(c => (c.key ?? c.accessorKey) === clave)
+    // Los filtros que la página aplica fuera (`server`) se muestran en el
+    // popover pero no se comparan aquí: su valor es una fecha o un interruptor,
+    // no un campo de la fila.
+    if (campo?.server) return true
     const actual = campo?.get ? campo.get(item) : item[clave]
     return campo?.type === 'select'
       ? String(actual ?? '') === String(valor)

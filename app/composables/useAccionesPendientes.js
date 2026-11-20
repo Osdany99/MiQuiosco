@@ -8,6 +8,7 @@ import { useLocalRepo } from './useLocalRepo'
 import { useModoConexion } from './useModoConexion'
 import { useRemoteRepo } from './useRemoteRepo'
 import { estaCaducada, puedeAplicar, resumenPendientes } from '../utils/voice/pendientes'
+import { registrarAciertoVoz } from '../utils/vozAciertos'
 
 /**
  * useAccionesPendientes — cola de lo dictado por voz que espera revisión.
@@ -159,6 +160,7 @@ export function useAccionesPendientes() {
         : 'directa',
       texto: String(accion.texto ?? ''),
       sttConfidence: accion.sttConfidence == null ? null : Number(accion.sttConfidence),
+      motor: accion.motor ?? null,
       origen: accion.origen === 'servicio' ? 'servicio' : 'app',
       origenId: accion.origenId ?? null,
       productoId: accion.productoId ?? null,
@@ -233,6 +235,22 @@ export function useAccionesPendientes() {
   }
 
   /**
+   * Un dictado del servicio (app cerrada) no pasa por el panel al dictarse:
+   * se apunta en los aciertos al aplicarlo, con el motor que lo transcribió.
+   */
+  function registrarAciertoServicio(accion, resultado) {
+    if (accion?.origen !== 'servicio') return
+    void registrarAciertoVoz({
+      comando: 'servicio',
+      resultado: resultado || accion.tipo || 'venta',
+      detalle: accion.motivo ? String(accion.motivo) : null,
+      texto: accion.texto || null,
+      confianza: accion.sttConfidence == null ? null : Number(accion.sttConfidence),
+      motor: accion.motor ?? null
+    })
+  }
+
+  /**
    * Registra la venta directa de una acción pendiente y la marca aplicada.
    *
    * `dictadoEn` es la fecha de la venta, no la de confirmación. Antes de
@@ -276,6 +294,7 @@ export function useAccionesPendientes() {
     })
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: idFinal }
     reemplazar(final)
+    registrarAciertoServicio(final, final.tipo || 'venta')
     return final
   }
 
@@ -316,6 +335,7 @@ export function useAccionesPendientes() {
     })
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: idFinal }
     reemplazar(final)
+    registrarAciertoServicio(final, 'deuda')
     return final
   }
 
@@ -361,6 +381,7 @@ export function useAccionesPendientes() {
     })
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: pagoId }
     reemplazar(final)
+    registrarAciertoServicio(final, 'cobro')
     return final
   }
 
@@ -423,6 +444,7 @@ export function useAccionesPendientes() {
       motivo: null
     }
     reemplazar(final)
+    registrarAciertoServicio(final, final.tipo || 'venta')
     return final
   }
 
