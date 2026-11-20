@@ -68,6 +68,7 @@
 
 <script setup>
 import { generarId } from '../../../shared/inventario/operaciones'
+
 const props = defineProps({
   productoId: { type: String, default: null },
   /** Voz (Fase K): cantidad y costo dictados. `precioUnitario` null = último. */

@@ -26,8 +26,8 @@ export default defineEventHandler(async (event) => {
       clienteId: previa.clienteId,
       cuadreId: previa.cuadreId,
       montoTotal: previa.montoTotal,
-      creadoEn: previa.creadoEn.toISOString(),
-      actualizadoEn: previa.actualizadoEn.toISOString(),
+      creadoEn: new Date(String(previa.creadoEn)).toISOString(),
+      actualizadoEn: new Date(String(previa.actualizadoEn)).toISOString(),
       idempotente: true
     }
   }

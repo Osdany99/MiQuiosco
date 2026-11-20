@@ -86,6 +86,7 @@
 
 <script setup>
 import { generarId } from '../../../shared/inventario/operaciones'
+
 const props = defineProps({
   cuadreId: { type: String, required: true },
   puestoId: { type: String, required: true },

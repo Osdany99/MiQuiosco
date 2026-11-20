@@ -59,6 +59,7 @@
 
 <script setup>
 import { generarId } from '../../../shared/inventario/operaciones'
+
 const props = defineProps({
   productoId: { type: String, default: null },
   // Ubicación de la vista desde la que se abrió: el ajuste nunca la cambia.

@@ -941,3 +941,99 @@ describe('clientes, telefonos, productos y proveedores', () => {
     assert.equal(delNo.status, 409)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Altas idempotentes en la API: el cliente manda el id y el servidor reconoce
+// el reintento sin volver a mover stock ni dinero.
+// ---------------------------------------------------------------------------
+
+describe('idempotencia de altas', () => {
+  it('un reintento de venta directa devuelve la misma venta (idempotente)', async () => {
+    const { productoId } = await montarTienda('idem_vd', { stock: 4, compra: 3, venta: 9, alQuiosco: 0 })
+    const id = randomUUID()
+    const linea = { productoId, cantidad: 2, precioVentaUsado: 9 }
+
+    const primera = await post('/api/ventas-directas', { id, ubicacion: 'almacen', tipoVenta: 'directa', lineas: [linea] }, { token, status: 200 })
+    const movsAntes = (await filas('movimientos_inventario', `venta_directa_id = '${id}'`)).length
+    const segunda = await post('/api/ventas-directas', { id, ubicacion: 'almacen', tipoVenta: 'directa', lineas: [linea] }, { token, status: 200 })
+
+    assert.equal(primera.id, id)
+    assert.equal(segunda.id, id)
+    assert.equal(segunda.idempotente, true)
+    assert.equal(Number(segunda.montoTotal), Number(primera.montoTotal))
+    // El reintento no generó movimientos nuevos: el stock se descontó una vez.
+    assert.equal((await filas('movimientos_inventario', `venta_directa_id = '${id}'`)).length, movsAntes)
+  })
+
+  it('reintentar una transferencia no la suma dos veces al cuadre', async () => {
+    const { productoId } = await montarTienda('idem_trans', { stock: 4 })
+    const cuadre = await crearCuadre()
+    await raw('POST', `/api/cuadres/${cuadre.id}/cerrar`, {
+      body: {
+        totalEsperado: 40, totalRealCaja: 40,
+        lineas: [{ id: randomUUID(), productoId, precioVentaUsado: 10, cantidad: 4, subtotal: 40 }]
+      },
+      token, status: 200
+    })
+    await raw('POST', `/api/cuadres/${cuadre.id}/reabrir`, { body: {}, token, status: 200 })
+    const cli = await crearCliente('idem_trans')
+    const id = randomUUID()
+    const body = { id, clienteId: cli.id, cuadreId: cuadre.id, monto: 40 }
+
+    const primera = await post('/api/transferencias', body, { token, status: 200 })
+    const segunda = await post('/api/transferencias', body, { token, status: 200 })
+
+    assert.equal(primera.id, id)
+    assert.equal(segunda.id, id)
+    assert.equal(segunda.idempotente, true)
+    assert.equal(Number(segunda.montoTotal), Number(primera.montoTotal))
+    assert.equal(Number((await filas('cuadres', `id = '${cuadre.id}'`))[0].monto_transferencia), 40)
+  })
+
+  it('reintentar un traspaso devuelve el mismo (sin mover stock otra vez)', async () => {
+    const { productoId } = await montarTienda('idem_tras', { stock: 4, alQuiosco: 0 })
+    const id = randomUUID()
+    const body = { id, fecha: '2026-05-10', notas: null, lineas: [{ productoId, cantidad: 2, loteId: null }] }
+
+    const primera = await post('/api/inventario/traspasos', body, { token, status: 200 })
+    const segunda = await post('/api/inventario/traspasos', body, { token, status: 200 })
+
+    assert.ok(primera?.traspasoId)
+    assert.ok(primera.movimientos > 0)
+    assert.equal(segunda.traspasoId, primera.traspasoId)
+    assert.equal(segunda.idempotente, true)
+    assert.equal(segunda.movimientos, primera.movimientos)
+    // Solo los movimientos del traspaso original: el reintento no duplicó.
+    assert.equal((await filas('movimientos_inventario', `traspaso_id = '${id}'`)).length, primera.movimientos)
+  })
+
+  it('reintentar una merma no la descuenta dos veces', async () => {
+    const { productoId } = await montarTienda('idem_aj', { stock: 4 })
+    const id = randomUUID()
+    const body = { id, productoId, tipo: 'merma', ubicacion: 'quiosco', cantidad: 1, motivo: 'roto', nota: null }
+
+    const primera = await post('/api/inventario/ajustes', body, { token, status: 200 })
+    const segunda = await post('/api/inventario/ajustes', body, { token, status: 200 })
+
+    assert.equal(segunda.idempotente, true)
+    assert.equal(segunda.movimientos, 0)
+    assert.equal(primera.movimientos, 1)
+    // El primer movimiento es el del id del cliente: no hay segundo.
+    assert.equal((await filas('movimientos_inventario', `id = '${id}'`)).length, 1)
+  })
+
+  it('reintentar una entrada no vuelve a dar stock', async () => {
+    const producto = await post('/api/productos', { nombre: nombreUnico('idem_ent_prod'), precioVentaActual: 10 }, { token, status: 200 })
+    const entradaRef = randomUUID()
+    const body = { entradaRef, fechaEntrada: '2026-05-11', lineas: [{ productoId: producto.id, cantidad: 5, precioUnitario: 3 }] }
+
+    const primera = await post('/api/inventario/entradas', body, { token, status: 200 })
+    const segunda = await post('/api/inventario/entradas', body, { token, status: 200 })
+
+    assert.ok(primera.movimientos > 0)
+    assert.equal(segunda.entradaRef, entradaRef)
+    assert.equal(segunda.idempotente, true)
+    assert.equal(segunda.movimientos, primera.movimientos)
+    assert.equal((await filas('lotes', `entrada_ref = '${entradaRef}'`)).length, 1)
+  })
+})

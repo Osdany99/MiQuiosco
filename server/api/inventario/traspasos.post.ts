@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
     const movs = await db
       .select({ id: movimientosInventario.id })
       .from(movimientosInventario)
-      .where(eq(movimientosInventario.traspasoId, previo.id))
+      .where(eq(movimientosInventario.traspasoId, String(previo.id)))
     return { traspasoId: previo.id, movimientos: movs.length, idempotente: true }
   }
 

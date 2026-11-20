@@ -45,6 +45,7 @@
 
 <script setup>
 import { generarId } from '../../../shared/inventario/operaciones'
+
 const props = defineProps({
   productoId: { type: String, default: null },
   /** Voz (Fase N): cantidad dictada para el traspaso. */
