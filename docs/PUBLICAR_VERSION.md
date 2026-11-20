@@ -1,9 +1,9 @@
 # Publicar cambios — MiQuiosco (runbook)
 
 Guía paso a paso para llevar cambios a producción (web + APK). Lee primero
-**Conceptos** y luego sigue el caso que corresponda: **A** (web+APK nueva, el
-habitual — automática desde GitHub), **B** (solo web/servidor) o **C** (con
-cambio de esquema de BD).
+**Conceptos**, después **¿APK nueva o solo bundle?** (la decisión de cada día) y
+luego sigue el caso que corresponda: **A** (release con tag, el habitual —
+automática desde GitHub), **B** (solo servidor) o **C** (cambio de esquema de BD).
 
 ## Conceptos
 
@@ -35,6 +35,48 @@ cambio de esquema de BD).
 - El **modelo de voz Vosk** (38 MB) tampoco viaja en la APK: se publica en el
   release permanente `modelo-vosk-v1` y cada equipo lo descarga una vez. Por eso
   la APK pesa ~19 MB en vez de ~57 MB. Ver "Modelo de voz offline" al final.
+- El **bundle web** (HTML/JS/CSS, ~1 MB comprimido) se publica en el mismo
+  release y los equipos ya instalados lo bajan solos. Ver "Bundle web" al final.
+
+## ¿APK nueva o solo bundle?
+
+Cada tag publica **dos** artefactos: la APK (~19 MB) y el bundle web (~1 MB).
+Un equipo que ya tiene la app instalada **solo descarga el bundle** (y no ve
+instalador) salvo que el cambio toque código nativo.
+
+| Cambio que hiciste | ¿Instalar APK? | `WEB_APK_MINIMA` | Qué corres |
+|---|---|---|---|
+| Pantalla, componente, texto, estilo | **No** | no tocar | tag |
+| Lógica de ventas, cuadre, fiado, voz (JS) | **No** | no tocar | tag |
+| Endpoint o servidor (sin tocar el cliente) | No | — | push a `main` (Caso B) |
+| Migración del **sqlite local** (aditiva) | **No** | no tocar | tag |
+| `AndroidManifest` (permiso nuevo), `build.gradle` | **Sí** | **súbelo** | tag |
+| Plugin Java nuevo o modificado (`*.java`) | **Sí** | **súbelo** | tag |
+| `libvosk.so`, dependencia, versión de Capacitor | **Sí** | **súbelo** | tag |
+| Modelo Vosk nuevo | No | no tocar | release `modelo-vosk-vN` + tag |
+
+**La única regla que hay que recordar:** si el bundle nuevo usa algo nativo que
+**no existe** en la APK que ya tienen los equipos (un método de un plugin, un
+permiso), sube `WEB_APK_MINIMA` (en `release-apk.yml`, `env` de `sync-vercel`) al
+`versionCode` de **este** release. Si no lo subes, el equipo aplicaría un bundle
+que puede fallar al llamar a código inexistente.
+
+### Qué hace el equipo en cada caso
+
+| Situación | En el dispositivo |
+|---|---|
+| Solo cambió el bundle | Baja ~1 MB en segundo plano y lo aplica **al reabrir**. No aparece instalador. |
+| Bundle con `apkMinima` mayor que su APK | **No** baja el bundle; le sale el aviso de instalar la APK. |
+| `APP_MIN_VERSION_CODE` mayor que su APK | Actualización **obligatoria** (bloquea). Solo para casos extremos. |
+| Sin red | Nada: sigue con el bundle que tiene. Reintenta con backoff 1/5/15/60 min. |
+| El bundle no arranca | El watchdog vuelve al de la APK a los 3 arranques y no lo reintenta. |
+
+### Comprobar qué versión corre un equipo
+
+**Ajustes → Actualización de la app**: "Versión web en uso" (la que está
+corriendo) y el estado (Al día / Lista para aplicar al reiniciar / Requiere
+actualizar la APK). Ahí mismo están "Buscar actualización", "Reiniciar ahora" y
+"Volver a la versión de la APK".
 
 ## Requisito previo (una sola vez): secretos en GitHub
 
@@ -63,7 +105,12 @@ Copia de seguridad del keystore: `Documents\MiQuiosco-seguro\<fecha>\`
 (`miquiosco-prod.jks` + `keystore.properties` + `LEEME.txt`). Sin estos
 archivos no se pueden firmar futuras actualizaciones compatibles.
 
-## Caso A — Release completo (web + APK nueva). El habitual. Automático.
+## Caso A — Release con tag (el habitual). Automático.
+
+Sirve para **cualquier** cambio del cliente: aunque solo toques una pantalla, se
+publica igual y los equipos se actualizan con el bundle de ~1 MB (ver
+"¿APK nueva o solo bundle?"). La APK del release solo la instalan los equipos
+nuevos o quien esté por debajo de `WEB_APK_MINIMA`.
 
 ```powershell
 # 0. Verificaciones locales (desde la raíz del proyecto)
@@ -100,15 +147,17 @@ pnpm lint && pnpm test && pnpm typecheck
       sin tocar la BD— y aplica las migraciones pendientes en Neon con
       `drizzle-kit migrate` (idempotente: si la BD ya está al día, no hace
       nada). Si falla, el release se aborta aquí y no se publica nada.
-   - Job `build-release`: build web con URL de producción, `cap sync`,
+   - Job `build-release`: build web con URL de producción, **empaqueta
+     `web-v<versionCode>.zip`** (el bundle OTA del mismo código), `cap sync`,
      verificación de URL, `assembleRelease`, verificación de firma con
-     `apksigner` y publicación del **GitHub Release** con la APK adjunta
-     (`miquiosco-vX.Y.N.apk`).
+     `apksigner`, gate de que la APK no lleva el modelo Vosk ni pasa de 30 MB, y
+     publicación del **GitHub Release** con la APK y el ZIP adjuntos.
    - Job `sync-vercel`: actualiza en Vercel `APP_LATEST_VERSION_CODE`,
      `APP_LATEST_VERSION_NAME`, `APP_MIN_VERSION_CODE` (= `0`, o sea
-     actualización **opcional**), `APP_APK_URL` (URL del asset recién
-     creado) y `APP_CHANGELOG`; luego redeploy a producción y verifica
-     `/api/app-version`.
+     actualización **opcional**), `APP_APK_URL`, `APP_CHANGELOG`, `APP_VOSK_*`
+     y `APP_WEB_*` (URL, sha256, tamaño y versión del bundle); luego redeploy a
+     producción y verifica `/api/app-version` (incluido el `sha256` del bundle
+     web).
 4. Vigilar el run en `Actions → release-apk` hasta que los 3 jobs estén en
    verde (tarda ~10–12 min en total).
 5. Probar en dispositivo físico los 3 caminos:
@@ -117,6 +166,8 @@ pnpm lint && pnpm test && pnpm typecheck
          no vuelve a insistir, "Actualizar" abre el navegador con la APK.
    - [ ] APK bajo el mínimo (obligatoria) → overlay no descartable y el
          servidor responde `426` al intentar sincronizar.
+   - [ ] **Bundle OTA**: en Ajustes → *Actualización de la app*, la versión en
+         uso debe ser la del tag tras reabrir la app (sin instalar nada).
 
 Si el workflow falla: revisa el log del paso en rojo. Los fallos
 intencionados (gates) son: tag con formato inválido, secretos ausentes
@@ -385,12 +436,38 @@ el bundle estrene algo nativo (un plugin nuevo, un permiso, un método de
 `VoskModelo`…). Los equipos por debajo de ese número se quedan con su bundle y
 reciben el aviso de actualizar la APK.
 
+**Checklist para publicar (el día a día)**
+
+1. `pnpm lint && pnpm test && pnpm typecheck`.
+2. ¿El cambio tocó algo nativo? (ver tabla arriba). Si **sí**, sube
+   `WEB_APK_MINIMA` al `versionCode` de este release.
+3. Commit + push a `main`.
+4. Tag anotado `vX.Y.N` con un cuerpo que se entienda en el móvil:
+   ```powershell
+   git tag -a v2.4.23 -m "v2.4.23" -m "Arregla el total del cuadre cuando hay devoluciones."
+   git push origin main --follow-tags
+   ```
+5. Espera al workflow (`gh run watch`). Comprueba que `sync-vercel` termine en
+   verde: verifica `/api/app-version` en producción, incluido `.web.sha256`.
+
+**Comprobar que el OTA llegó**
+
+- En un equipo: **Ajustes → Actualización de la app** debe mostrar la versión
+  nueva como "Versión web en uso" o "Lista para aplicar al reiniciar".
+- Si sigue en la anterior: puede ser que no haya reabierto la app (se aplica al
+  arrancar), que no tenga red, o que `apkMinima` sea mayor que su APK.
+- Desde el servidor: `curl https://mi-quiosco.vercel.app/api/app-version | jq .web`
+  debe devolver `version` = versionCode del último tag y el `sha256` del ZIP.
+
 **Volver atrás**
 
 - Un bundle concreto: republicar el manifiesto apuntando al `web-v<anterior>.zip`
-  que ya está en su release (solo cambian `APP_WEB_*`), o.
+  que ya está en su release (solo cambian `APP_WEB_*` en Vercel y se redeplega),
+  o.
 - En el equipo: Ajustes → *Actualización de la app* → **Volver a la versión de
   la APK** (recarga con el bundle de fábrica).
+- Un bundle que no arranca se revierte solo (watchdog) y queda marcado como
+  fallido en ese equipo; no se reintenta hasta que publiques una versión nueva.
 
 **Límites (importante)**
 
