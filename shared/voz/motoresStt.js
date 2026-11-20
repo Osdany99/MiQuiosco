@@ -9,10 +9,10 @@
 export const MOTORES_STT = ['vosk', 'google-offline', 'google-online', 'web']
 
 export const ETIQUETAS_MOTOR_STT = {
-  vosk: 'Vosk (offline)',
+  'vosk': 'Vosk (offline)',
   'google-offline': 'Google (sin conexión)',
   'google-online': 'Google (en línea)',
-  web: 'Navegador'
+  'web': 'Navegador'
 }
 
 /** Normaliza lo que llegue de la BD o de una entrada vieja del buzón. */
