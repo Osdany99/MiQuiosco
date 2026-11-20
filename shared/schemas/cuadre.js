@@ -1,6 +1,10 @@
 import { z } from 'zod'
 
 export const cuadreSchema = z.object({
+  // Igual que en cuadre_items: el id nace en el dispositivo y debe llegar tal
+  // cual. Si no, el cuadre en memoria y el del servidor tienen ids distintos y
+  // sus líneas se cuelgan de uno que no existe.
+  id: z.string().uuid('ID de cuadre inválido').optional(),
   puestoId: z.string().nullable().optional(),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (AAAA-MM-DD)'),
   jefeId: z.string().nullable().optional(),

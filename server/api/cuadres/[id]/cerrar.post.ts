@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '../../../database/client'
 import { cuadres, cuadreItems, lotes, movimientosInventario } from '../../../database/schema'
 import { construirVentaCuadre, lotesConSaldo } from '#shared/inventario/operaciones'
+import { deduplicarLineasCuadre } from '#shared/inventario/lineasCuadre'
 import { comoMovimiento } from '../../../utils/inventario'
 
 const lineaSchema = z.object({
@@ -58,8 +59,22 @@ export default defineEventHandler(async (event) => {
     // 1. Sincronizar líneas (crear / actualizar / eliminar por id).
     const existentes = await tx.select().from(cuadreItems).where(eq(cuadreItems.cuadreId, id))
     const porId = new Map(existentes.map(e => [e.id, e]))
+
+    // Blindaje para APKs viejas: pueden mandar dos juegos de líneas con ids
+    // distintos (mismo producto/secuencia/lote/esExtra). Se cierra con una sola
+    // por clave, prefiriendo la fila guardada más reciente, para no descontar
+    // el stock dos veces.
+    type LineaEntrada = typeof datos.lineas[number]
+    const dedupe = deduplicarLineasCuadre(datos.lineas, {
+      instanteDe: (l: object) => {
+        const fila = porId.get((l as LineaEntrada).id)
+        return fila?.creadoEn ? new Date(fila.creadoEn).getTime() : 0
+      }
+    }) as { lineas: LineaEntrada[], descartadas: LineaEntrada[] }
+    const { lineas, descartadas } = dedupe
+
     const vistas = new Set<string>()
-    for (const l of datos.lineas) {
+    for (const l of lineas) {
       vistas.add(l.id)
       const prev = porId.get(l.id)
       if (prev) {
@@ -103,7 +118,7 @@ export default defineEventHandler(async (event) => {
     }
 
     // 2. FIFO sobre el quiosco, en orden de secuencia.
-    const lineasVenta = datos.lineas
+    const lineasVenta = lineas
       .filter(l => Number(l.cantidad) > 0)
       .sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
       .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad, loteId: l.loteId ?? null, secuencia: Number(l.secuencia ?? 0) }))
@@ -139,13 +154,19 @@ export default defineEventHandler(async (event) => {
     // 3. Cerrar con costo y ganancia congelados.
     const redondear2 = (n: number) => Math.round(n * 100) / 100
     const costo = redondear2(costoTotal)
-    const ganancia = redondear2(datos.totalEsperado - costo)
+    // Si hubo líneas descartadas, el total que mandó el cliente está inflado
+    // (sumaba los dos juegos): se recalcula sobre las líneas que de verdad se
+    // descontaron. Sin duplicados se respeta el total del cliente.
+    const totalEsperado = descartadas.length
+      ? redondear2(lineas.reduce((s, l) => s + Number(l.subtotal), 0) - datos.montoRegalo - datos.montoDescuento)
+      : datos.totalEsperado
+    const ganancia = redondear2(totalEsperado - costo)
     const diferencia = redondear2(
-      (datos.totalRealCaja + datos.montoTransferencia + datos.montoFiado) - datos.totalEsperado
+      (datos.totalRealCaja + datos.montoTransferencia + datos.montoFiado) - totalEsperado
     )
     await tx.update(cuadres).set({
       estado: 'cerrado',
-      totalEsperado: datos.totalEsperado,
+      totalEsperado,
       totalRealCaja: datos.totalRealCaja,
       montoTransferencia: datos.montoTransferencia,
       montoFiado: datos.montoFiado,
@@ -161,7 +182,7 @@ export default defineEventHandler(async (event) => {
       cerradoEn: ahora
     }).where(eq(cuadres.id, id))
 
-    return { costoTotal: costo, ganancia, diferencia, faltantes }
+    return { costoTotal: costo, ganancia, diferencia, faltantes, lineasDuplicadas: descartadas.length }
   })
 
   return resultado

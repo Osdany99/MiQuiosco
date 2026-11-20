@@ -127,6 +127,44 @@ describe('inventario y ventas: validaciones', () => {
   })
 })
 
+describe('cuadre_items: alta idempotente', () => {
+  it('el mismo id no duplica la linea y devuelve el id enviado', async () => {
+    const p = await post('/api/productos', {
+      nombre: nombreUnico('idem_prod'), precioVentaActual: 5
+    }, { token, status: 200 })
+    let c = null
+    for (const d of ['06', '07', '08', '09', '10']) {
+      try {
+        c = await post('/api/cuadres', { fecha: `2026-09-${d}` }, { token, status: 200 })
+        break
+      } catch { /* fecha ocupada, probar la siguiente */ }
+    }
+    assert.ok(c, 'se pudo crear un cuadre')
+
+    const id = crypto.randomUUID()
+    const body = {
+      id,
+      cuadreId: c.id,
+      productoId: p.id,
+      precioVentaUsado: 5,
+      cantidad: 2,
+      subtotal: 10,
+      secuencia: 1,
+      tipoLinea: 'normal',
+      esExtra: false
+    }
+    const a = await post('/api/cuadre-items', body, { token, status: 200 })
+    assert.equal(a.id, id)
+    // Reintento identico (timeout + reintento): no crea otra fila.
+    const b = await post('/api/cuadre-items', body, { token, status: 200 })
+    assert.equal(b.id, id)
+
+    const lista = await raw('GET', `/api/cuadre-items?cuadreId=${c.id}`, { token })
+    assert.equal(lista.status, 200)
+    assert.equal(lista.body.filter(l => l.id === id).length, 1)
+  })
+})
+
 describe('listas hijas con filtro propio', () => {
   it('GET /api/historial_precios devuelve array (filtrado por puesto)', async () => {
     const r = await raw('GET', '/api/historial_precios', { token })

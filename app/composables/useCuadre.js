@@ -6,6 +6,8 @@ import { capacidadDelCuadre } from '../../shared/inventario/capacidad'
 import { generateId } from '~/utils/id'
 import { $api } from '../utils/api'
 import { calcularSubtotalLinea } from '../utils'
+import { sincronizarLineas } from '../utils/cuadreSync'
+import { deduplicarLineasCuadre } from '../../shared/inventario/lineasCuadre'
 
 const cuadreConfig = TABLES.cuadres
 const cuadreItemConfig = TABLES.cuadre_items
@@ -76,7 +78,10 @@ function normalizarLinea(i) {
 const AUTOSAVE_MS = 800
 let autosaveTimer = null
 let guardandoBorrador = false
-let suprimirAutosave = false
+// Contador, no booleano: si dos cargas se solapan, la primera en terminar no
+// puede reactivar el autoguardado mientras la segunda sigue reemplazando
+// `lineas` (eso permitía guardar un estado a medias y recrear líneas).
+let suprimirAutosave = 0
 let ctxAutosave = null
 let detenerAutosave = null
 
@@ -92,7 +97,7 @@ function motivoBloqueo(ctx) {
 }
 
 function programarAutosave() {
-  if (suprimirAutosave) return
+  if (suprimirAutosave > 0) return
   if (motivoBloqueo(ctxAutosave)) return
 
   clearTimeout(autosaveTimer)
@@ -118,10 +123,12 @@ function reportarFalloAutosave(err) {
 
 async function guardarCuadreBorrador() {
   if (guardandoBorrador) return
+  if (suprimirAutosave > 0) return
   if (motivoBloqueo(ctxAutosave)) return
 
   const {
-    cuadre, db, conexion, persistirLineas, cuadreRepo,
+    cuadre, lineas, db, conexion, persistirLineas, cuadreRepo,
+    localCuadres, localItems,
     totalRealCaja, montoTransferencia, montoRegalo, montoDescuento,
     trabajadorTurnoId, pagoTrabajador, notasCuadre
   } = ctxAutosave
@@ -129,7 +136,7 @@ async function guardarCuadreBorrador() {
   try {
     const guardar = async () => {
       await persistirLineas()
-      await cuadreRepo.update(cuadre.value.id, {
+      const r = await cuadreRepo.update(cuadre.value.id, {
         totalRealCaja: totalRealCaja.value,
         montoTransferencia: montoTransferencia.value,
         montoRegalo: montoRegalo.value,
@@ -138,6 +145,15 @@ async function guardarCuadreBorrador() {
         pagoTrabajador: pagoTrabajador.value,
         notas: notasCuadre.value
       })
+      // `useRepo` no lanza: sin esta comprobación, un fallo al guardar la
+      // cabecera (p. ej. no existe en local tras degradar el modo) se perdía.
+      if (r?.error) throw r.error
+      if (conexion.modo.value === 'online') {
+        // Espejo local del cuadre mientras se trabaja online: si la app muere
+        // o la red cae, al volver en local el cuadre está en sqlite con los
+        // mismos ids en vez de recrearse desde cero.
+        await espejarCuadreEnLocal(cuadre, lineas, localCuadres, localItems).catch(() => {})
+      }
     }
     // Igual que el cierre: transacción en local, directo en online.
     if (conexion.modo.value !== 'online') {
@@ -220,6 +236,85 @@ function registrarGuardadoEnSegundoPlano() {
   })
 }
 
+/* ------------------------------------------------------------------ */
+/* Reconciliación al cambiar de backend con un cuadre abierto          */
+/* ------------------------------------------------------------------ */
+
+// En modo online el cuadre solo vive en el servidor: sqlite se queda sin sus
+// líneas (y a veces sin su cabecera). Si la red se cae a mitad del día,
+// `useModoConexion` degrada a local y el autoguardado leía un cuadre vacío.
+// Eso fue la segunda mitad del fallo del 2026-11-19.
+//
+// Al degradar se copia el cuadre a sqlite con los MISMOS ids, antes de que el
+// autoguardado lo lea vacío. Al volver a online se relee del servidor (que ya
+// recibió lo local en cambiarAOnline) para no quedarse con un estado fantasma.
+
+let detenerReconciliacion = null
+let reconciliandoModo = false
+
+/**
+ * Copia a sqlite la cabecera y las líneas que solo existen en el servidor.
+ * Idempotente: se puede llamar varias veces sin duplicar.
+ */
+async function espejarCuadreEnLocal(cuadreRef, lineasRef, localCuadres, localItems) {
+  const c = cuadreRef.value
+  if (!c?.id) return
+
+  const cabecera = await localCuadres.read(c.id)
+  if (!cabecera) {
+    await localCuadres.create({ ...c })
+  }
+
+  const locales = await localItems.readAll({ query: { cuadreId: c.id } })
+  if (!Array.isArray(locales)) return
+
+  const res = await sincronizarLineas({
+    lineas: lineasRef.value,
+    existentes: locales,
+    cuadreId: c.id,
+    api: {
+      crear: payload => localItems.create(payload),
+      actualizar: (id, cambios) => localItems.update(id, cambios),
+      eliminar: id => localItems.remove(id)
+    }
+  })
+  if (!res.ok && res.motivo !== 'vacio') {
+    console.warn('[cuadre] no se pudo espejar en local:', res.error ?? res.motivo)
+  }
+}
+
+function registrarReconciliacionDeModo(ctx) {
+  if (detenerReconciliacion) detenerReconciliacion()
+  const parar = watch(
+    () => ctx.conexion.modo.value,
+    async (nuevo, anterior) => {
+      if (!ctx.cuadre.value || nuevo === anterior || reconciliandoModo) return
+      reconciliandoModo = true
+      try {
+        if (nuevo === 'local') {
+          await espejarCuadreEnLocal(ctx.cuadre, ctx.lineas, ctx.localCuadres, ctx.localItems)
+        } else if (autosaveTimer) {
+          // Hay una cantidad recién escrita sin guardar: se vuelca al backend
+          // nuevo (ya online) en vez de recargar, que pisaría ese cambio.
+          flushAutosave()
+        } else {
+          await ctx.recargar(ctx.cuadre.value.id)
+        }
+      } catch (err) {
+        console.warn('[cuadre] reconciliación tras cambio de modo:', err)
+      } finally {
+        reconciliandoModo = false
+      }
+    }
+  )
+  detenerReconciliacion = parar
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      parar()
+    })
+  }
+}
+
 export function useCuadre() {
   const auth = useAuth()
   const db = useDb()
@@ -229,6 +324,10 @@ export function useCuadre() {
   const cuadreRepo = useRepo(cuadreConfig)
   const itemsRepo = useRepo(cuadreItemConfig)
   const usuariosRepo = useRepo(usuarioConfig)
+  // Repos locales directos (sin la capa online/offline) para el espejo del
+  // cuadre en sqlite: se crean en el setup, donde hay contexto de Nuxt.
+  const localCuadres = useLocalRepo(cuadreConfig)
+  const localItems = useLocalRepo(cuadreItemConfig)
 
   const cuadre = useState('cuadre-cuadre', () => null)
   const lineas = useState('cuadre-lineas', () => [])
@@ -400,9 +499,19 @@ export function useCuadre() {
     return puestoId ? lista.filter(f => !f.puestoId || f.puestoId === puestoId) : lista
   }
 
-  async function cargarDatos(puestoId, cuadreId) {
+  // Serializa las cargas: dos llamadas concurrentes (montaje + navegación)
+  // intercalaban lecturas y dejaban `lineas` a medias justo cuando el
+  // autoguardado ya estaba mirando. Se encadenan y la última manda.
+  let colaCarga = Promise.resolve()
+  function cargarDatos(puestoId, cuadreId) {
+    const tarea = colaCarga.then(() => cargarDatosInterno(puestoId, cuadreId))
+    colaCarga = tarea.catch(() => {})
+    return tarea
+  }
+
+  async function cargarDatosInterno(puestoId, cuadreId) {
     cargando.value = true
-    suprimirAutosave = true
+    suprimirAutosave++
     try {
       if (!puestoId) {
         toast.add({ title: 'Configuración incompleta', description: 'No tienes un puesto asignado. Contacta al administrador.', color: 'warning' })
@@ -503,7 +612,7 @@ export function useCuadre() {
       // Reanudar autosave en el próximo tick: evita que la restauración
       // dispare un guardado inmediato de los mismos valores.
       setTimeout(() => {
-        suprimirAutosave = false
+        suprimirAutosave = Math.max(0, suprimirAutosave - 1)
       }, 0)
     }
   }
@@ -542,12 +651,20 @@ export function useCuadre() {
   async function cargarLineasDeCuadre(cuadreId, repo, autoPopulate = true) {
     let itemsFiltrados
     if (conexion.modo.value !== 'online') {
-      const itemsLocal = await db.getItemsDeCuadre(cuadreId)
-      itemsFiltrados = itemsLocal.map(normalizarLinea)
+      try {
+        const itemsLocal = await db.getItemsDeCuadre(cuadreId)
+        itemsFiltrados = itemsLocal.map(normalizarLinea)
+      } catch {
+        // Un fallo de lectura local no significa "cuadre vacío": se deja la
+        // memoria como está y no se auto-puebla (eso crearía líneas nuevas).
+        return
+      }
     } else {
-      const { data: items } = await repo.readAll({ query: { cuadreId } })
+      const { data: items, error } = await repo.readAll({ query: { cuadreId } })
       if (!Array.isArray(items)) {
-        lineas.value = []
+        // Igual que arriba: antes esto vaciaba `lineas.value`, y el
+        // autoguardado siguiente recreaba el cuadre completo con ids nuevos.
+        if (error) console.warn('[cuadre] no se pudieron leer las líneas:', error)
         return
       }
       itemsFiltrados = items.filter((i) => {
@@ -570,7 +687,11 @@ export function useCuadre() {
         prev.cantidad = (Number(prev.cantidad) || 0) + (Number(l.cantidad) || 0)
         prev.subtotal = Math.round(((Number(prev.subtotal) || 0) + (Number(l.subtotal) || 0)) * 100) / 100
       }
-      const lineasCargadas = [...porId.values()]
+      // Después, una sola línea por identidad funcional (producto, secuencia,
+      // lote, esExtra). Los dos juegos con ids distintos del fallo de 2026-11-19
+      // se colapsan aquí; el autoguardado borra de la BD las descartadas.
+      const { lineas: sinDuplicados } = deduplicarLineasCuadre([...porId.values()])
+      const lineasCargadas = sinDuplicados
       // Fantasmas fuera: líneas en cero de productos que ya no están en el
       // catálogo (se desactivaron a mitad del día). No son venta real y se
       // pintarían sin nombre ('—'). Las que tienen cantidad se conservan
@@ -771,17 +892,19 @@ export function useCuadre() {
     const payload = Object.fromEntries(
       Object.entries(cuadreObj).filter(([, v]) => v !== undefined)
     )
-    try {
-      await repo.create(payload)
-    } catch (err) {
-      const status = err?.response?.status || err?.statusCode
+    const { data: creada, error } = await repo.create(payload)
+    if (error) {
+      const status = error?.response?.status || error?.statusCode || error?.data?.statusCode
       if (status === 409) {
         const existente = await buscarCuadreActual(puestoId, repo)
         if (existente) return existente
       }
-      throw err
+      throw error
     }
-    return cuadreObj
+    // El backend es la autoridad sobre el id: si contestó otra fila (alta
+    // idempotente, recorte de campos), se adopta para que las líneas cuelguen
+    // del cuadre que de verdad existe.
+    return normalizarCuadre({ ...cuadreObj, ...(creada ?? {}) })
   }
 
   function recalcularSubtotal(linea) {
@@ -790,69 +913,45 @@ export function useCuadre() {
 
   // Sincroniza las líneas en memoria con la BD (crear/actualizar/eliminar).
   // Lo usan tanto el cierre como el autoguardado del borrador.
+  //
+  // La lógica vive en app/utils/cuadreSync.js: aquí solo se conecta con el repo
+  // y se convierte un `{ data, error }` en una excepción, porque `useRepo` no
+  // lanza. Tragarse el error es lo que dejaba pasar un "no pude leer" como "no
+  // hay líneas" y recreaba el cuadre entero.
   async function persistirLineas() {
-    const { data: existentes } = await itemsRepo.readAll({ query: { cuadreId: cuadre.value.id } })
-    const itemsExistentes = (existentes ?? []).filter((i) => {
-      const n = normalizarLinea(i)
-      return n.cuadreId === cuadre.value.id
+    const cuadreId = cuadre.value?.id
+    if (!cuadreId) return { ok: false, motivo: 'sin_cuadre' }
+
+    const { data, error } = await itemsRepo.readAll({ query: { cuadreId } })
+
+    const exigir = fn => async (...args) => {
+      const r = await fn(...args)
+      if (r?.error) throw r.error
+      return r?.data
+    }
+
+    const res = await sincronizarLineas({
+      lineas: lineas.value,
+      // Un fallo de lectura se pasa como null para que la sincronización aborte:
+      // con [] se crearía de nuevo todo lo que ya existe.
+      existentes: error ? null : data,
+      cuadreId,
+      api: {
+        crear: exigir(itemsRepo.create),
+        actualizar: exigir(itemsRepo.update),
+        eliminar: exigir(itemsRepo.remove)
+      }
     })
 
-    // Clave por ID de línea (no por producto): un producto puede tener varias
-    // líneas el mismo día con precios distintos, y cada una se crea/actualiza
-    // por separado. Clave por producto haría que la duplicada sobrescribiera a
-    // la original y que el borrado final se llevara por delante una de las dos.
-    const existentesMap = new Map(itemsExistentes.map(i => [i.id, i]))
-    const lineasGuardadas = new Set()
-
-    for (const linea of lineas.value) {
-      const existente = existentesMap.get(linea.id)
-      if (existente) {
-        const cambia = Number(existente.cantidad) !== Number(linea.cantidad)
-          || Number(existente.precioVentaUsado) !== Number(linea.precioVentaUsado)
-          || (existente.loteId ?? null) !== (linea.loteId ?? null)
-          || existente.tipoLinea !== linea.tipoLinea
-          || existente.nota !== linea.nota
-          || existente.esExtra !== linea.esExtra
-          || Number(existente.secuencia ?? 0) !== Number(linea.secuencia ?? 0)
-        if (cambia) {
-          await itemsRepo.update(existente.id, {
-            cantidad: linea.cantidad,
-            precioVentaUsado: linea.precioVentaUsado,
-            subtotal: linea.subtotal,
-            loteId: linea.loteId ?? null,
-            tipoLinea: linea.tipoLinea,
-            nota: linea.nota,
-            esExtra: linea.esExtra,
-            secuencia: Number(linea.secuencia ?? 0)
-          })
-        }
-        lineasGuardadas.add(linea.id)
-      } else {
-        // El id se envía explícito: la línea ya nació en memoria (id generado
-        // al duplicar o al auto-añadir el producto) y el autoguardado la
-        // reconoce en la siguiente pasada en vez de duplicarla.
-        await itemsRepo.create({
-          id: linea.id,
-          cuadreId: linea.cuadreId,
-          productoId: linea.productoId,
-          loteId: linea.loteId ?? null,
-          precioVentaUsado: linea.precioVentaUsado,
-          cantidad: linea.cantidad,
-          subtotal: linea.subtotal,
-          tipoLinea: linea.tipoLinea,
-          nota: linea.nota,
-          esExtra: linea.esExtra,
-          secuencia: Number(linea.secuencia ?? 0)
-        })
-        lineasGuardadas.add(linea.id)
-      }
+    if (res.motivo === 'lectura' || res.motivo === 'escritura') {
+      throw res.error ?? new Error('No se pudieron guardar las líneas del cuadre.')
     }
-
-    for (const existente of itemsExistentes) {
-      if (!lineasGuardadas.has(existente.id)) {
-        await itemsRepo.remove(existente.id)
-      }
+    if (res.motivo === 'vacio') {
+      // La memoria está vacía pero la BD no: es una carga a medias, no un
+      // cuadre sin líneas (la línea base nunca se puede borrar). No se toca.
+      console.warn('[cuadre] se omite el guardado: no hay líneas en memoria')
     }
+    return res
   }
 
   // Autoguardado del borrador: el estado y el watch viven a nivel módulo
@@ -865,11 +964,20 @@ export function useCuadre() {
   // persisten en guardarCuadreBorrador, así que se observan igual.
   registrarAutosave({
     cuadre, lineas, esTrabajador, db, conexion, persistirLineas, cuadreRepo,
+    localCuadres, localItems,
     totalRealCaja, montoTransferencia, montoRegalo, montoDescuento,
     montoFiado, montoCobradoFiado,
     trabajadorTurnoId, pagoTrabajador, notasCuadre, toast
   })
   registrarGuardadoEnSegundoPlano()
+  registrarReconciliacionDeModo({
+    cuadre,
+    lineas,
+    conexion,
+    localCuadres,
+    localItems,
+    recargar: cuadreId => cargarLineasDeCuadre(cuadreId, itemsRepo, false)
+  })
 
   function toggleExpandir(lineaId) {
     if (expandida.has(lineaId)) {
@@ -1011,6 +1119,13 @@ export function useCuadre() {
         costoTotal = res.costoTotal
         ganancia = res.ganancia
         faltantes = res.faltantes ?? []
+        if (Number(res.lineasDuplicadas) > 0) {
+          toast.add({
+            title: 'Líneas repetidas ignoradas',
+            description: `Se cerró con una línea por producto: ${res.lineasDuplicadas} repetidas no se descontaron.`,
+            color: 'warning'
+          })
+        }
         cuadre.value = {
           ...cuadre.value,
           ...cambios,
@@ -1079,7 +1194,10 @@ export function useCuadre() {
       lotesRepo.readAll().then(r => (r.data ?? []).filter(l => !pid || l.puestoId === pid)),
       movsRepo.readAll().then(r => (r.data ?? []).filter(m => !pid || m.puestoId === pid))
     ])
-    const lineasVenta = lineas.value
+    // Blindaje: si quedara un duplicado en memoria, el FIFO descontaría dos
+    // veces. Se deduplica con la misma regla que la carga.
+    const { lineas: lineasUnicas } = deduplicarLineasCuadre(lineas.value)
+    const lineasVenta = lineasUnicas
       .filter(l => Number(l.cantidad) > 0)
       .sort((a, b) => Number(a.secuencia ?? 0) - Number(b.secuencia ?? 0))
       .map(l => ({ id: l.id, productoId: l.productoId, cantidad: l.cantidad, loteId: l.loteId ?? null, secuencia: Number(l.secuencia ?? 0) }))

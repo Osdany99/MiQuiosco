@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
 export const cuadreItemSchema = z.object({
+  // El id lo genera el dispositivo y viaja en el POST: conservarlo hace que el
+  // alta sea idempotente (un reintento actualiza, no duplica) y que el id en
+  // memoria coincida con el guardado. Sin esto el servidor creaba otro id y el
+  // autoguardado volvía a crear el cuadre entero en cada pasada.
+  id: z.string().uuid('ID de línea inválido').optional(),
   cuadreId: z.string().uuid('ID de cuadre inválido'),
   productoId: z.string().uuid('ID de producto inválido'),
   precioVentaUsado: z.number().min(0, 'El precio no puede ser negativo').default(0),

@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
   const body = await readBody(event)
 
-  return await crudCreate({ tabla: 'cuadres', schema: cuadreSchema, puestoScoped: true }, {
+  return await crudCreate({ tabla: 'cuadres', schema: cuadreSchema, puestoScoped: true, idempotente: true }, {
     body,
     auth,
     hooks: {

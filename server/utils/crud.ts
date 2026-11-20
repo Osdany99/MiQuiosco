@@ -49,6 +49,13 @@ interface CrudCreateConfig {
   schema: { safeParse: SafeParseFn }
   puestoScoped?: boolean
   dbSchema?: { shape: Record<string, { constructor: { name: string } }> }
+  /**
+   * Alta idempotente por el id que manda el cliente. Si llega `id` y la fila
+   * ya existe (mismo padre/puesto), se devuelve esa en vez de crear otra.
+   * Necesario donde el id nace en el dispositivo: un reintento tras un timeout
+   * o un guardado que se repite al cambiar de backend no debe duplicar.
+   */
+  idempotente?: boolean
   customMutations?: {
     create?: (ctx: any, payload: any, opts: any) => Promise<any>
   }
@@ -186,6 +193,27 @@ export async function crudGet(config: CrudGetConfig, opts: CrudGetOpts) {
   return serialize ? serialize(row) : row
 }
 
+/**
+ * Fila que ya ocupa el id que manda el cliente, si es del mismo puesto.
+ *
+ * Reutiliza `exigirPuesto` para no duplicar la regla de aislamiento: un id de
+ * otro puesto responde 404 igual que si no existiera. Además se compara el
+ * padre del payload (cuadreId) para no devolver una fila de otro cuadre del
+ * mismo puesto ante una colisión de id.
+ */
+async function buscarAltaIdempotente(tabla: string, data: Record<string, any>, auth: AuthUser) {
+  try {
+    const previa = await exigirPuesto(auth, tabla, data.id, 'Registro')
+    if (data.cuadreId && previa?.cuadreId && previa.cuadreId !== data.cuadreId) {
+      throw createError({ statusCode: 409, statusMessage: 'El id ya existe en otro cuadre.' })
+    }
+    return previa
+  } catch (e: any) {
+    if (e?.statusCode === 404) return null
+    throw e
+  }
+}
+
 export async function crudCreate(config: CrudCreateConfig, opts: CrudCreateOpts) {
   const { body, auth, hooks = {}, serialize } = opts
   const table = getTable(config.tabla)
@@ -198,6 +226,15 @@ export async function crudCreate(config: CrudCreateConfig, opts: CrudCreateOpts)
   }
 
   let data = { ...parsed.data }
+
+  // Alta idempotente: si el id que manda el cliente ya existe en su puesto, es
+  // un reintento (timeout, guardado repetido al cambiar de backend) y devolver
+  // la fila guardada evita duplicarla. Va antes de los hooks para que un
+  // reintento no dispare sus guardas (p. ej. el 409 de "ya hay cuadre hoy").
+  if (config.idempotente && data.id && auth) {
+    const previa = await buscarAltaIdempotente(config.tabla, data, auth)
+    if (previa) return serialize ? serialize(previa) : previa
+  }
 
   if (config.puestoScoped && !data.puestoId && auth?.usuario?.puestoId) {
     data.puestoId = auth.usuario.puestoId
