@@ -646,6 +646,19 @@ public class VozEscuchaService extends Service {
             // Sin wakelock se sigue intentando: el audio suele mantener la CPU.
         }
         if (debeUsarVosk()) {
+            // El modelo ya no viaja dentro de la APK: si falta, no es un fallo
+            // permanente (se está descargando o el admin aún no lo aprovisionó),
+            // así que no se marca `voskFalloTodo` y se sigue con el sistema.
+            if (!VoskModelo.disponible(this)) {
+                if (SpeechRecognizer.isRecognitionAvailable(this)) {
+                    motorPreferido = "sistema";
+                    actualizarNotificacion("Modelo de voz offline sin descargar; usando el del sistema");
+                    iniciarSesion();
+                } else {
+                    actualizarNotificacion("Falta el modelo de voz offline: descárgalo en Ajustes → Voz");
+                }
+                return;
+            }
             iniciarVosk();
             return;
         }
@@ -899,9 +912,11 @@ public class VozEscuchaService extends Service {
         } catch (Throwable e) {
             Log.w(TAG, "Vosk no arrancó: " + e.getMessage());
             // Sin modelo utilizable se vuelve al motor del sistema, que al
-            // menos funciona con datos. Se marca para no reintentar Vosk en
-            // bucle (el fallo suele ser permanente: modelo corrupto o sin disco).
-            voskFalloTodo = true;
+            // menos funciona con datos. Un modelo AÚN NO DESCARGADO no es un
+            // fallo permanente (la app lo está trayendo): no se marca.
+            if (!(e instanceof VoskModelo.Ausente)) {
+                voskFalloTodo = true;
+            }
             if (!destruido && !pausado) {
                 motorPreferido = "sistema";
                 motorActual = "sistema";

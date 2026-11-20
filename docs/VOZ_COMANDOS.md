@@ -614,7 +614,7 @@ significado son únicos:
 
 | Motor de flota | App abierta | App cerrada |
 |---|---|---|
-| `auto` (por defecto) | Google si hay red; Vosk si no | Vosk empaquetado |
+| `auto` (por defecto) | Google si hay red; Vosk si no | Vosk |
 | `vosk` | Vosk | Vosk |
 | `google` | Google | `SpeechRecognizer` (puede pitar en cada frase) |
 
@@ -625,7 +625,10 @@ segundos. Vosk escucha de forma continua y en silencio.
 
 Vosk reutiliza `files/vosk-es`, la MISMA carpeta que el dock (`VoskModelo`), y
 solo extrae el ZIP la primera vez (la notificación dice «Preparando la escucha
-offline»). Si el modelo no carga, el servicio cae al motor del sistema y no
+offline»). Si el modelo aún **no se ha descargado**, no cuenta como fallo: el
+servicio usa el motor del sistema y la notificación avisa «Falta el modelo de voz
+offline: descárgalo en Ajustes → Voz» mientras `useVozModelo` lo reintenta. Si el
+modelo existe pero no carga, el fallo es permanente para esa sesión y no se
 vuelve a intentar Vosk hasta el próximo arranque.
 
 Con el motor offline escucha de forma continua: el micrófono se silencia
@@ -912,8 +915,9 @@ timeout), no solo si hay interfaz WiFi/datos (`hayRed`):
   está disponible) → idioma + offline → sin idioma + online. Si Google falla
   por completo, se hace **fallback a Vosk** antes de reportar error.
 - **Sin Internet real** (`hayInternet = false` o desconocido): motor **Vosk**
-  empaquetado (`VoskVoice`, modelo `vosk-model-small-es-0.42`, 39 MB,
-  Apache 2.0). No requiere que el usuario descargue ningún paquete de voz.
+  (`VoskVoice`, modelo `vosk-model-small-es-0.42`, 39 MB, Apache 2.0). El
+  modelo se descarga una vez (ver «Aprovisionamiento» abajo) o se importa desde
+  un archivo; no requiere que el usuario configure paquetes de idioma.
 
 El orden depende de la red porque el modelo offline puede devolver un texto
 válido pero malo: si no hay error, el plan no llegaría nunca al motor online.
@@ -982,11 +986,15 @@ Al copiar se vuelca primero el buffer nativo y lo persistido. Es un registro
 Cuando no hay acceso a Internet real, la app usa **Vosk** en lugar de Google:
 
 - **Modelo**: `vosk-model-small-es-0.42` (español, 39 MB, Apache 2.0).
-- **Empaquetado**: va dentro del APK en `android/app/src/main/assets/vosk/vosk-es.zip`.
-  Se descomprime una sola vez a `filesDir/vosk-es/` al primer uso offline.
-- **Cero descargas para el usuario**: no necesita instalar paquetes de idioma
-  ni configurar nada en Ajustes de Android.
-- **Tamaño del APK**: +~50 MB (modelo + librerías nativas arm64).
+- **Aprovisionamiento**: ya **no viaja dentro de la APK**. Se publica como asset
+  del release `modelo-vosk-v1` y el APK lo descarga una sola vez (reanudable,
+  con verificación sha256) cuando la configuración de flota pide el motor Vosk.
+  Si un equipo no tiene red, en **Ajustes → Voz** hay *Importar archivo* para
+  llevarlo en USB/SD. Se descomprime a `filesDir/vosk-es/` (`VoskModelo`).
+- **Sin descargas para el usuario en uso normal**: la descarga la dispara la
+  configuración del super admin, no el usuario final. Si falla, reintenta con
+  backoff y el panel de admin lo ve (`vozVosk: false`).
+- **Tamaño del APK**: ~19 MB (antes ~57 MB con el modelo dentro).
 - **RAM**: ~300 MB mientras el modelo está cargado. Se libera al pasar a
   segundo plano.
 - **Calidad**: buena para comandos de venta cortos («vende dos refrescos»,

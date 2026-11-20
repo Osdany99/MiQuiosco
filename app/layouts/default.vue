@@ -34,13 +34,16 @@ const vozSnapshot = useVozSnapshot()
 const buzon = useBuzonVoz()
 const vozConfig = useVozConfig()
 const vozServicio = useVozServicio()
+const vozModelo = useVozModelo()
 const toast = useToast()
 const pendientesVoz = computed(() => accionesVoz.pendientes.value.length)
 
 // Un cambio de flota se empuja al servicio en cuanto llega por sync; con el
-// servicio detenido se aplicará en el próximo arranque.
+// servicio detenido se aplicará en el próximo arranque. Si la flota pide Vosk,
+// aquí también se dispara la descarga del modelo (que ya no viaja en la APK).
 watch(() => vozConfig.version.value, () => {
   void vozServicio.configurar()
+  void vozModelo.quizasAprovisionar().catch(() => {})
 })
 
 /**
@@ -498,13 +501,18 @@ onMounted(() => {
       .then(() => vozServicio.cargarPreferencia())
       .then(() => vozServicio.sincronizarConApp(true))
       .catch(() => {})
-    void vozConfig.refrescar().catch(() => {})
+    void vozConfig.refrescar()
+      .then(() => vozModelo.quizasAprovisionar())
+      .catch(() => {})
     // Al volver de segundo plano puede haber dictados nuevos del servicio.
     void import('@capacitor/app').then(({ App }) => {
       const handle = App.addListener('appStateChange', ({ isActive }) => {
         void vozServicio.sincronizarConApp(isActive)
         if (isActive) {
           void drenarBuzon()
+          // La descarga del modelo de voz se reanuda al volver a la app (y el
+          // backoff evita reintentos en bucle si sigue sin red).
+          void vozModelo.quizasAprovisionar().catch(() => {})
           // Los proofs que no subieron por falta de red se reintentan al volver.
           void reintentarProofs({ token: auth.jwtSync.value }).catch(() => {})
         } else {
@@ -537,6 +545,7 @@ function reintentarProofsPendientes() {
 // Capacitor, que ya alimenta `hayRed`. Al volver la conexión se reintenta.
 watch(hayRed, (conectado) => {
   if (conectado && auth.esJefe.value) void reintentarProofsPendientes()
+  if (conectado) void vozModelo.quizasAprovisionar().catch(() => {})
 })
 
 onUnmounted(() => {

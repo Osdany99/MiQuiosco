@@ -32,6 +32,9 @@ cambio de esquema de BD).
 - La APK se distribuye como asset del **GitHub Release** (no se commitea a
   `public/apk/`). `APP_APK_URL` en Vercel apunta a la URL de ese asset
   (el cliente acepta URLs absolutas `https://...` sin cambios de código).
+- El **modelo de voz Vosk** (38 MB) tampoco viaja en la APK: se publica en el
+  release permanente `modelo-vosk-v1` y cada equipo lo descarga una vez. Por eso
+  la APK pesa ~19 MB en vez de ~57 MB. Ver "Modelo de voz offline" al final.
 
 ## Requisito previo (una sola vez): secretos en GitHub
 
@@ -296,3 +299,49 @@ Usa **`assembleRelease`**, no `assembleDebug`: el build debug va firmado con la
 debug key y Android lo rechaza como actualización de una release. Prueba en
 **dispositivo físico** (el emulador no reproduce bien el instalador) y, si
 puedes, en más de un fabricante.
+
+## Modelo de voz offline (Vosk) — descarga aparte
+
+El modelo pesa 38 MB y no cambia casi nunca: llevarlo dentro de la APK hacía
+que **cada** actualización (57 MB) lo volviera a bajar. Desde la v2.4 se publica
+como asset independiente y cada equipo lo descarga una sola vez.
+
+**Dónde vive**
+
+- Release permanente `modelo-vosk-v1`, asset `vosk-es.zip`
+  (`.../releases/download/modelo-vosk-v1/vosk-es.zip`). No se commitea:
+  `android/app/src/main/assets/vosk/*.zip` está en `.gitignore`.
+- El job `sync-vercel` calcula `sha256` y tamaño del asset y los publica en
+  Vercel como `APP_VOSK_URL`, `APP_VOSK_SHA256`, `APP_VOSK_BYTES` y
+  `APP_VOSK_VERSION` (`v1`). Además verifica que `/api/app-version` los sirva.
+- `build-release` falla si la APK vuelve a incluir el ZIP o pasa de 30 MB.
+
+**Cómo llega al equipo**
+
+1. El super admin pone el motor Vosk en la configuración de flota.
+2. El equipo, al sincronizar (o al abrir la app), ve que necesita el modelo y
+   llama a `VoskModelo.descargar()`: descarga **reanudable** (Range), con
+   verificación `sha256`/tamaño y escritura atómica antes de descomprimir.
+3. Si falla, **no se queda en un intento**: backoff 1m → 5m → 15m → 1h, y se
+   reintenta al arrancar, al volver a la app, al recuperar red y tras cada sync.
+4. Sin red se puede llevar el ZIP en USB/SD: **Ajustes → Voz → Importar
+   archivo**. Queda listo igual (misma verificación de ZIP).
+5. Mientras no esté: la escucha con la app cerrada usa el reconocedor del
+   sistema y el panel `/admin/dispositivos` muestra `vozVosk: false`
+   («no tiene el modelo Vosk instalado»).
+
+**Actualizar el modelo (raro)**
+
+1. Crear release `modelo-vosk-v2` con el nuevo `vosk-es.zip`.
+2. Cambiar `VOZ_URL` y `APP_VOSK_VERSION` en `.github/workflows/release-apk.yml`
+   (`modelo-vosk-v2` / `"v2"`).
+3. Publicar un tag de release normal. El workflow actualiza las env y los
+   equipos comparan su versión local con la del manifiesto y se actualizan
+   solos. Un equipo que venía de la APK vieja (modelo dentro) adopta la versión
+   `v1` sin volver a descargar nada.
+
+**Probar en local**
+
+- `.env`: `APP_VOSK_URL`, `APP_VOSK_SHA256` y `APP_VOSK_BYTES` apuntando al
+  asset (o a un `npx serve` local del ZIP).
+- O ensayar el camino sin red con *Importar archivo* desde el propio teléfono.

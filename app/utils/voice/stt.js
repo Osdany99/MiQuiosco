@@ -25,5 +25,10 @@ export function mensajeStt(detalle) {
     return MENSAJES_STT[d]
   }
   if (d === 'timeout') return 'La escucha tardó demasiado.'
+  // El modelo Vosk ya no viaja en la APK: su ausencia no es un fallo del
+  // micrófono, es un aprovisionamiento pendiente que la app reintenta.
+  if (/modelo de voz offline no est/i.test(d) || /modelo_no_descargado/i.test(d)) {
+    return 'Falta el modelo de voz offline. Se descargará solo; también puedes importarlo en Ajustes → Voz.'
+  }
   return d
 }

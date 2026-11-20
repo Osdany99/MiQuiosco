@@ -13,6 +13,20 @@ const tts = useTts()
 const voz = useVoiceCommand()
 const vozConfig = useVozConfig()
 const servicioVoz = useVozServicio()
+const {
+  estado: estadoModeloVoz,
+  progreso: progresoModeloVoz,
+  error: errorModeloVoz,
+  intentos: intentosModeloVoz,
+  proximoIntento: proximoModeloVoz,
+  descargando: descargandoModeloVoz,
+  listo: modeloVozListo,
+  refrescar: refrescarModeloVoz,
+  descargar: descargarModeloVoz,
+  importar: importarModeloVoz,
+  borrar: borrarModeloVoz,
+  cancelar: cancelarModeloVoz
+} = useVozModelo()
 const aliasVoz = useVozAlias()
 const inventarioAlias = useInventario()
 const aliasAbierto = ref(false)
@@ -166,6 +180,7 @@ onMounted(() => {
   void voz.refrescarTraza()
   void voz.sincronizarDiagNativo()
   void servicioVoz.refrescar()
+  void refrescarModeloVoz()
   void vozConfig.cargar().then(() => vozConfig.refrescar()).catch(() => {})
 })
 
@@ -388,6 +403,58 @@ async function descargarConfigVoz() {
     color: vozConfig.error.value ? 'warning' : 'success'
   })
 }
+
+/** Texto de la fase de descarga/extracción del modelo de voz. */
+const faseModeloVozTexto = computed(() => {
+  const fase = progresoModeloVoz.value.fase
+  if (fase === 'descargando') return 'Descargando'
+  if (fase === 'verificando') return 'Verificando'
+  if (fase === 'instalando') return 'Instalando'
+  if (fase === 'descomprimiendo' || fase === 'extrayendo') return 'Descomprimiendo'
+  if (fase === 'listo') return 'Listo'
+  return 'Preparando'
+})
+
+const proximoModeloVozTexto = computed(() => {
+  const t = proximoModeloVoz.value
+  if (!t) return ''
+  const minutos = Math.ceil(Math.max(0, t - Date.now()) / 60000)
+  return minutos <= 0
+    ? 'Se reintentará al volver a la app.'
+    : `Próximo intento automático en ~${minutos} min.`
+})
+
+async function descargarModeloVozAhora() {
+  const ok = await descargarModeloVoz()
+  toast.add(ok
+    ? {
+        title: 'Modelo de voz instalado',
+        description: 'La escucha con la app cerrada ya puede usar Vosk.',
+        color: 'success'
+      }
+    : {
+        title: 'No se pudo descargar el modelo',
+        description: errorModeloVoz.value ?? 'Revisa la conexión e inténtalo de nuevo.',
+        color: 'error'
+      })
+}
+
+async function importarModeloVozDesdeArchivo() {
+  const ok = await importarModeloVoz()
+  if (ok) {
+    toast.add({ title: 'Modelo de voz importado', color: 'success' })
+  }
+}
+
+async function borrarModeloVozDelEquipo() {
+  await borrarModeloVoz()
+  toast.add({
+    title: 'Modelo de voz borrado',
+    description: 'Se volverá a descargar cuando haga falta.',
+    color: 'neutral'
+  })
+}
+
 const telemetriaValor = ref(telemetriaActivaSync())
 const telemetriaActivaComputed = computed({
   get: () => telemetriaValor.value,
@@ -1079,6 +1146,88 @@ async function whOlvidarEste() {
             <NuxtLink to="/pendientes" class="underline">Por revisar (voz)</NuxtLink>.
             Al dictar se muestra la onda del dock con lo que se va entendiendo.
           </p>
+
+          <!-- Modelo Vosk: ya no viaja en la APK (eran 38 de 57 MB de cada
+               actualización). Se descarga una vez o se importa desde un
+               archivo si el equipo no tiene red. -->
+          <div class="space-y-2 rounded-lg border border-default p-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h4 class="text-sm font-medium">
+                Modelo de voz sin conexión
+              </h4>
+              <UBadge
+                :color="modeloVozListo ? 'success' : (estadoModeloVoz === 'error' ? 'error' : 'neutral')"
+                variant="soft"
+                size="sm"
+              >
+                {{ modeloVozListo ? 'Instalado' : 'No instalado' }}
+              </UBadge>
+            </div>
+            <p class="text-xs text-muted">
+              Vosk trabaja sin datos y con la app cerrada. Se descarga una sola
+              vez (38 MB) y no vuelve a viajar en cada actualización.
+            </p>
+
+            <div v-if="descargandoModeloVoz" class="space-y-1">
+              <UProgress :model-value="progresoModeloVoz.pct" size="sm" />
+              <p class="text-xs text-muted">
+                {{ faseModeloVozTexto }} · {{ progresoModeloVoz.pct }}%
+                <span v-if="progresoModeloVoz.total">
+                  ({{ formatearBytes(progresoModeloVoz.bytes) }} de {{ formatearBytes(progresoModeloVoz.total) }})
+                </span>
+              </p>
+            </div>
+
+            <p v-if="errorModeloVoz" class="text-xs text-error">
+              {{ errorModeloVoz }}
+            </p>
+            <p v-else-if="!modeloVozListo && intentosModeloVoz > 0" class="text-xs text-muted">
+              {{ intentosModeloVoz }} intento(s) fallido(s). {{ proximoModeloVozTexto }}
+            </p>
+
+            <div class="flex flex-wrap gap-2">
+              <UButton
+                v-if="!modeloVozListo && !descargandoModeloVoz"
+                size="sm"
+                color="primary"
+                variant="soft"
+                icon="i-lucide-download"
+                @click="descargarModeloVozAhora"
+              >
+                Descargar modelo
+              </UButton>
+              <UButton
+                v-if="descargandoModeloVoz"
+                size="sm"
+                color="neutral"
+                variant="outline"
+                icon="i-lucide-x"
+                @click="cancelarModeloVoz"
+              >
+                Cancelar
+              </UButton>
+              <UButton
+                v-if="!descargandoModeloVoz"
+                size="sm"
+                color="neutral"
+                variant="outline"
+                icon="i-lucide-file-up"
+                @click="importarModeloVozDesdeArchivo"
+              >
+                Importar archivo
+              </UButton>
+              <UButton
+                v-if="modeloVozListo && esSuperAdmin"
+                size="sm"
+                color="error"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                @click="borrarModeloVozDelEquipo"
+              >
+                Borrar
+              </UButton>
+            </div>
+          </div>
         </div>
 
         <!-- Alias de producto aprendidos: el jefe los enseña y los borra. -->

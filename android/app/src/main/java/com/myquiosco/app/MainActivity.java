@@ -36,6 +36,9 @@ public class MainActivity extends BridgeActivity {
         // Motor de voz offline empaquetado (Vosk). Se usa cuando no hay
         // acceso a Internet real.
         registerPlugin(VoskVoicePlugin.class);
+        // Aprovisiona el modelo de Vosk (descarga reanudable o importación
+        // desde archivo): ya no viaja dentro de la APK.
+        registerPlugin(VoskModeloPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

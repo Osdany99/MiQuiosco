@@ -140,9 +140,10 @@ const guardandoVoz = ref(false)
 const formVoz = ref({ motor: 'heredar', idioma: 'heredar', wake: '' })
 
 const opcionesMotorVoz = computed(() => {
-  // Si el equipo reportó que no puede correr un motor, se ofrece deshabilitado
-  // (`null` = todavía no reportó nada: no se bloquea nada).
-  const sinVosk = detalle.value?.vozVosk === false
+  // El reconocedor del sistema es una capacidad fija del aparato: si no lo
+  // tiene, Google no se puede elegir. Vosk ya NO es así: el modelo no viaja en
+  // la APK y este mismo panel es el que lo dispara, así que «no instalado» es
+  // transitorio y deshabilitarlo impediría justo la acción que lo resuelve.
   const sinStt = detalle.value?.vozStt === false
   return [
     {
@@ -152,7 +153,7 @@ const opcionesMotorVoz = computed(() => {
     ...MOTORES_FLOTA.map(opcion => ({
       label: opcion.label,
       value: opcion.id,
-      disabled: (opcion.id === 'vosk' && sinVosk) || (opcion.id === 'google' && sinStt)
+      disabled: opcion.id === 'google' && sinStt
     }))
   ]
 })
@@ -185,7 +186,11 @@ const avisoMotor = computed(() => {
 /** Qué le falta al equipo para poder usar cada motor. */
 const capacidadesMotor = computed(() => {
   const partes = []
-  if (detalle.value?.vozVosk === false) partes.push('no tiene el modelo Vosk instalado')
+  // «Sin Vosk» es un aprovisionamiento pendiente, no una limitación: al
+  // aplicar el motor, la app descarga el modelo (o se importa en Ajustes).
+  if (detalle.value?.vozVosk === false) {
+    partes.push('aún no tiene el modelo Vosk (se descargará solo al aplicarlo)')
+  }
   if (detalle.value?.vozStt === false) partes.push('no tiene reconocedor del sistema')
   return partes.length ? `Este equipo ${partes.join(' y ')}.` : null
 })

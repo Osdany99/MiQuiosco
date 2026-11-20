@@ -14,6 +14,7 @@ import { subirAciertosVozPendientes } from '../utils/vozAciertos'
 import { useVozLexico } from './useVozLexico'
 import { useVozConfig } from './useVozConfig'
 import { useVozServicio } from './useVozServicio'
+import { useVozModelo } from './useVozModelo'
 import { infoDispositivo } from '../utils/dispositivo'
 import { SYNC_TABLES } from '../../shared/tables'
 import { getAuthInstance } from './useAuth.js'
@@ -476,6 +477,10 @@ function _create() {
         await subirAciertosVozPendientes(fetch).catch(() => {})
         await vozLexico.refrescar(fetch).catch(() => {})
         await vozConfig.refrescar(fetch).catch(() => {})
+        // La flota ya está al día y hay red: si pide Vosk y el modelo (38 MB,
+        // fuera de la APK) no está, este es el momento de traerlo. No bloquea
+        // el sync y respeta el backoff si acaba de fallar.
+        await useVozModelo().quizasAprovisionar().catch(() => {})
         await reportarEstadoSync(exito).catch(() => {})
       }
     }))

@@ -28,6 +28,14 @@ describe('GET /api/app-version (manifiesto publico)', () => {
     assert.equal(typeof r.body.apkUrl, 'string')
     assert.equal(typeof r.body.changelog, 'string')
     assert.ok(['navegador', 'interno', 'automatico'].includes(r.body.metodoSugerido))
+    // El modelo Vosk se publica aparte de la APK: el manifiesto siempre trae
+    // el bloque (aunque las env estén vacías) para que el APK sepa si puede
+    // descargarlo.
+    assert.equal(typeof r.body.vozModelo, 'object')
+    assert.equal(typeof r.body.vozModelo.url, 'string')
+    assert.equal(typeof r.body.vozModelo.sha256, 'string')
+    assert.equal(typeof r.body.vozModelo.bytes, 'number')
+    assert.equal(typeof r.body.vozModelo.version, 'string')
   })
 })
 

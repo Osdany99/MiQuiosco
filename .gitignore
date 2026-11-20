@@ -4,6 +4,9 @@ android/build
 android/.gradle
 android/local.properties
 android/captures
+# Modelo Vosk: 38 MB que ya no viajan en la APK. Se publica como asset del
+# release `modelo-vosk-v1` y el APK lo descarga en el primer uso.
+android/app/src/main/assets/vosk/*.zip
 
 # Nuxt dev/build outputs
 .output

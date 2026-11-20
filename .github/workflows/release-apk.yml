@@ -209,6 +209,24 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk "${APK_NAME}"
           ls -la "${APK_NAME}"
 
+      # El modelo Vosk (38 MB) se publica aparte, en el release permanente
+      # `modelo-vosk-v1`. Si alguien vuelve a dejarlo en assets/ la APK engorda
+      # sin que nadie lo note hasta la descarga, así que se falla aquí.
+      - name: Verificar que la APK no lleva el modelo Vosk
+        shell: bash
+        run: |
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          if unzip -l "${APK}" | grep -q "assets/vosk/vosk-es.zip"; then
+            echo "::error::La APK incluye assets/vosk/vosk-es.zip (38 MB). El modelo se publica en el release modelo-vosk-v1 y se descarga en el primer uso. Bórralo de android/app/src/main/assets/vosk/."
+            exit 1
+          fi
+          MB="$(du -m "${APK}" | cut -f1)"
+          echo "APK: ${MB} MB (sin el modelo Vosk)"
+          if [[ "${MB}" -gt 30 ]]; then
+            echo "::error::La APK pesa ${MB} MB; se esperaban menos de 30 MB sin el modelo Vosk."
+            exit 1
+          fi
+
       - name: Publicar GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
@@ -247,10 +265,24 @@ jobs:
           APK_NAME="miquiosco-v${VERSION_NAME}.${VERSION_CODE}.apk"
           git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force --quiet
           CHANGELOG="$(git tag -l --format='%(contents:body)' "${TAG}" | sed -e 's/^[[:space:]]*//')"
+          # Modelo de voz offline: release permanente e independiente del APK.
+          # Se calcula sha256/tamaño aquí para que el manifiesto nunca publique
+          # un hash viejo si el asset se reemplaza.
+          VOZ_URL="https://github.com/${{ github.repository }}/releases/download/modelo-vosk-v1/vosk-es.zip"
+          curl -sSfL -o "${RUNNER_TEMP}/vosk-es.zip" "${VOZ_URL}" || {
+            echo "::error::No se pudo descargar el modelo Vosk de ${VOZ_URL}. ¿Existe el release modelo-vosk-v1?"
+            exit 1
+          }
+          VOZ_SHA="$(sha256sum "${RUNNER_TEMP}/vosk-es.zip" | cut -d' ' -f1)"
+          VOZ_BYTES="$(stat -c%s "${RUNNER_TEMP}/vosk-es.zip")"
+          echo "Modelo Vosk: ${VOZ_BYTES} bytes, sha256 ${VOZ_SHA}"
           {
             echo "version_name=${VERSION_NAME}"
             echo "version_code=${VERSION_CODE}"
             echo "apk_url=https://github.com/${{ github.repository }}/releases/download/${TAG}/${APK_NAME}"
+            echo "voz_url=${VOZ_URL}"
+            echo "voz_sha=${VOZ_SHA}"
+            echo "voz_bytes=${VOZ_BYTES}"
             echo "changelog<<EOF_CHANGELOG"
             printf '%s\n' "${CHANGELOG}"
             echo "EOF_CHANGELOG"
@@ -263,6 +295,9 @@ jobs:
           VERSION_NAME: ${{ steps.meta.outputs.version_name }}
           VERSION_CODE: ${{ steps.meta.outputs.version_code }}
           APK_URL: ${{ steps.meta.outputs.apk_url }}
+          VOZ_URL: ${{ steps.meta.outputs.voz_url }}
+          VOZ_SHA: ${{ steps.meta.outputs.voz_sha }}
+          VOZ_BYTES: ${{ steps.meta.outputs.voz_bytes }}
           CHANGELOG: ${{ steps.meta.outputs.changelog }}
         run: |
           PROJECT_ID="$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" \
@@ -279,10 +314,17 @@ jobs:
             --arg name "${VERSION_NAME}" \
             --arg url "${APK_URL}" \
             --arg log "${CHANGELOG}" \
+            --arg vozurl "${VOZ_URL}" \
+            --arg vozsha "${VOZ_SHA}" \
+            --arg vozbytes "${VOZ_BYTES}" \
             '[{"key":"APP_LATEST_VERSION_CODE","value":$code},
               {"key":"APP_LATEST_VERSION_NAME","value":$name},
               {"key":"APP_MIN_VERSION_CODE","value":"0"},
               {"key":"APP_APK_URL","value":$url},
+              {"key":"APP_VOSK_URL","value":$vozurl},
+              {"key":"APP_VOSK_SHA256","value":$vozsha},
+              {"key":"APP_VOSK_BYTES","value":$vozbytes},
+              {"key":"APP_VOSK_VERSION","value":"v1"},
               {"key":"APP_CHANGELOG","value":$log}]
               | map(. + {type:"plain", target:["production","preview"]})')"
           RESP="$(curl -sS -X POST "https://api.vercel.com/v10/projects/${PROJECT_ID}/env?upsert=true" \
@@ -335,6 +377,7 @@ jobs:
         shell: bash
         env:
           VERSION_CODE: ${{ steps.meta.outputs.version_code }}
+          EXPECTED_VOZ_SHA: ${{ steps.meta.outputs.voz_sha }}
           BASE_URL: ${{ secrets.SYNC_SERVER_URL }}
         run: |
           sleep 10
@@ -348,6 +391,12 @@ jobs:
           echo "minVersionCode en producción: ${MIN} (esperado: 0, actualización opcional)"
           if [[ "${MIN}" != "0" ]]; then
             echo "::error::La actualización se está publicando como obligatoria (minVersionCode=${MIN})."
+            exit 1
+          fi
+          VOZ_SHA="$(curl -sS "${BASE_URL}/api/app-version" | jq -r '.vozModelo.sha256')"
+          echo "vozModelo.sha256 en producción: ${VOZ_SHA}"
+          if [[ -z "${VOZ_SHA}" || "${VOZ_SHA}" == "null" || "${VOZ_SHA}" != "${EXPECTED_VOZ_SHA}" ]]; then
+            echo "::error::El manifiesto no publica el modelo Vosk correcto (APP_VOSK_URL/SHA256/BYTES)."
             exit 1
           fi
           echo "Manifiesto verificado."

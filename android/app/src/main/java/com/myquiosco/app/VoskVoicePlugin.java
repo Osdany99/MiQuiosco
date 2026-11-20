@@ -138,6 +138,12 @@ public class VoskVoicePlugin extends Plugin {
             } catch (Throwable e) {
                 cargandoModelo.set(false);
                 Log.e(TAG, "preparar falló", e);
+                // El modelo ya no viaja en la APK: "no descargado" no es un
+                // fallo del reconocedor, es un estado que la app puede resolver.
+                if (e instanceof VoskModelo.Ausente) {
+                    call.reject("El modelo de voz offline no está descargado (Ajustes → Voz)", "MODELO_AUSENTE");
+                    return;
+                }
                 call.reject("modelo: " + e.getMessage());
             }
         }, "vosk-preparar").start();
