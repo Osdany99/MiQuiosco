@@ -177,9 +177,14 @@ const BORDE_VACIAS = new Set([...PALABRAS_VACIAS, 'para', 'desde', 'en', 'al', '
 
 /**
  * Preposiciones que introducen una ubicación. «para el kiosco», «hacia el
- * depósito» y «pal quiosco» son destinos tan válidos como «al quiosco».
+ * depósito», «pal quiosco» y «a depósito» son destinos tan válidos como
+ * «al quiosco».
+ *
+ * La «a» suelta se acepta porque el STT se come la contracción y también se
+ * dicta «pasa 4 manis a depósito». No hay ambigüedad: el grupo exigido es el
+ * nombre de una ubicación, así que «fía dos panes a Juan» no entra.
  */
-const PREPOSICIONES_UBICACION = ['desde', 'del', 'de', 'en', 'al', 'para', 'hacia', 'pal']
+const PREPOSICIONES_UBICACION = ['desde', 'del', 'de', 'en', 'al', 'para', 'hacia', 'pal', 'a']
 
 /**
  * Extrae la ubicación dicha ("del almacén", "en el quiosco") y la quita del
@@ -418,9 +423,10 @@ function compilar(lexico) {
     // Cualquier mención de ubicación, con su preposición («del almacén»,
     // «para el kiosco»).
     RE_UBICACION: new RegExp(`\\b${trasUbicacion}`),
-    // Solo destino: «al kiosco», «para el depósito», «hacia el quiosco».
+    // Solo destino: «al kiosco», «para el depósito», «hacia el quiosco»,
+    // «a depósito».
     RE_UBICACION_DESTINO: new RegExp(
-      `\\b(?:${alternancia(['al', 'para', 'hacia', 'pal'])})\\s+(?:el\\s+|la\\s+)?(${sinUbicacion})\\b`
+      `\\b(?:${alternancia(['a', 'al', 'para', 'hacia', 'pal'])})\\s+(?:el\\s+|la\\s+)?(${sinUbicacion})\\b`
     ),
     RE_TRANSFERENCIA: prefijo(transferenciaVerbo),
     RE_MERMA: mermaVerbo.length
@@ -842,6 +848,17 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
 
   if (c.PREFIJO_VENTA.test(texto)) {
     return { comando: 'venta_directa', confianza: 0.95, reasons: ['verbo_venta'] }
+  }
+
+  // Destino explícito + verbo débil: «dame 4 manis para el kiosco», «quiero 10
+  // azúcar al kiosco». Sin una ubicación nombrada no hay traspaso; con ella, el
+  // destino de inventario manda sobre la debilidad del verbo. Sin esta guarda
+  // estas frases se grababan como VENTA: el stock salía como vendido y se creaba
+  // un cliente «kiosco».
+  if (c.PREFIJO_VENTA_DEBIL.test(texto) && c.RE_UBICACION_DESTINO.test(texto)) {
+    // «vende dos panes al quiosco» es una entrega, no un traspaso: el verbo
+    // fuerte de venta ya se resolvió arriba.
+    return { comando: 'traspaso', confianza: 0.85, reasons: ['verbo_debil_con_destino'] }
   }
 
   // Deudas: "cuánto debe Juan", "las deudas de María", "quién me debe más".

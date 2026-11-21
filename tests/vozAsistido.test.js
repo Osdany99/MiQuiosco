@@ -93,11 +93,37 @@ describe('voz asistida: comandos (K, L, M, N)', () => {
       assert.equal(r.slots.cantidad, 10)
       assert.equal(r.slots.destino, 'quiosco')
     }
-    // «al depósito» es el almacén, no el quiosco.
-    const deposito = interpretar('pasa 10 azucar al deposito')
-    assert.equal(deposito.comando, 'traspaso')
-    assert.equal(deposito.slots.destino, 'almacen')
-    assert.equal(interpretar('pasa 10 azucar al kiosco').slots.destino, 'quiosco')
+    it('«al depósito» es el almacén, no el quiosco.', () => {
+      const deposito = interpretar('pasa 10 azucar al deposito')
+      assert.equal(deposito.comando, 'traspaso')
+      assert.equal(deposito.slots.destino, 'almacen')
+      assert.equal(interpretar('pasa 10 azucar al kiosco').slots.destino, 'quiosco')
+    })
+
+    it('destino explícito gana aunque el verbo sea débil (P1.3)', () => {
+      // «dame … para el kiosco» o «quiero … al kiosco» se grababan como VENTA:
+      // el stock salía como vendido y se creaba un cliente «kiosco».
+      for (const frase of [
+        'dame 4 manis para el kiosco',
+        'damelo 4 manis al kiosco',
+        'quiero 10 azucar al kiosco',
+        'ponme 4 manis pal kiosco'
+      ]) {
+        const r = interpretar(frase)
+        assert.equal(r.comando, 'traspaso', `«${frase}» se grabó como ${r.comando}`)
+        assert.equal(r.slots.destino, 'quiosco')
+      }
+      // «a depósito», sin la «l» que se come el STT, también es destino.
+      const sinContraccion = interpretar('sube 4 manis a deposito')
+      assert.equal(sinContraccion.comando, 'traspaso')
+      assert.equal(sinContraccion.slots.destino, 'almacen')
+    })
+
+    it('vender en el quiosco sigue siendo VENTA, no traspaso', () => {
+      const r = interpretar('vende 5 panes al quiosco')
+      assert.equal(r.comando, 'venta_directa')
+      assert.equal(r.slots.ubicacion, 'quiosco')
+    })
   })
 
   it('los verbos confirmados por el dueño también son traspaso', () => {
