@@ -320,7 +320,7 @@ export function esConsultaDia(texto) {
   ]
   if (fijas.some(f => frase === f || frase.startsWith(`${f} `))) return true
 
-  const hablaDeVentas = /\b(vendi|vendimos|vendido|vendidos|vendiste|venta|ventas|llevo|llevamos)\b/.test(frase)
+  const hablaDeVentas = /\b(vendi|vendimos|vendido|vendidos|vendiste|venta|ventas|llevo|llevamos|hice|he vendido)\b/.test(frase)
   const marcaDia = /\b(hoy|dia)\b/.test(frase) || mencionaFecha(frase)
   // «Cómo fue ayer» pregunta por el día sin nombrar ventas: el marcador de día
   // relativo ya dice de qué se habla.

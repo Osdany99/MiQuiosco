@@ -126,7 +126,7 @@ const VERBOS_VENTA = [
 // «pon» NO está aquí a propósito: el dueño no vende con «pon». «pon el refresco
 // a 60» es un cambio de tarifa, no una venta a 60. Para vender se dice «ponme»
 // o un verbo de venta.
-const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo']
+const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo', 'quiero', 'llevo', 'echame', 'apuntale']
 
 // (regex de verbos se compila en `compilar()` según el léxico)
 
@@ -892,7 +892,13 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
   }
 
   if (c.PREFIJO_VENTA_DEBIL.test(texto) && texto.split(' ').length > 1) {
-    return { comando: 'venta_directa', confianza: 0.85, reasons: ['verbo_venta_debil'] }
+    const primer = texto.split(' ')[0]
+    // «quiero» solo es venta si trae un número («quiero dos panes»).
+    if (primer === 'quiero' && !hayNumero(texto)) {
+      // no es venta: cae a desconocido
+    } else {
+      return { comando: 'venta_directa', confianza: 0.85, reasons: ['verbo_venta_debil'] }
+    }
   }
 
   if (c.VERBO_VENTA.test(texto)) {
@@ -974,11 +980,10 @@ function parsearPrecio(tokens) {
  */
 function recortarVerbo(texto, ventaFuerte = VERBOS_VENTA, ventaDebil = VERBOS_VENTA_DEBILES) {
   const all = [...ventaFuerte, ...ventaDebil]
-  if (new RegExp(`^(${all.join('|')})\\b`).test(texto)) {
-    return texto.replace(new RegExp(`^(${all.join('|')})\\b`), '').trim()
-  }
   const tokens = texto.split(' ').filter(Boolean)
-  const idx = tokens.findIndex(t => all.includes(t))
+  // Se recorta hasta el ÚLTIMO verbo de venta: «anota que se vendieron dos
+  // panes» -> «dos panes» (el «vendieron» interior manda).
+  const idx = tokens.reduce((acc, t, i) => (all.includes(t) ? i : acc), -1)
   if (idx >= 0) {
     return tokens.slice(idx + 1).join(' ').trim()
   }
@@ -1100,25 +1105,51 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
   // unidades.
   const tokens = work.split(' ').filter(Boolean)
   if (tokens.length) {
-    const numero = parseNumberSequence(tokens)
+    // F2.1: el numero puede ir en cualquier posicion. Si no hay al inicio, se
+    // busca uno que ocupe el final (ej. "pan de leche dos").
+    let numero = parseNumberSequence(tokens)
     let usados = 0
+    let indiceNumero = 0
     let cantidad = 1
+
+    if (!numero) {
+      // Buscar un número en cualquier posición (cantidad al final: "pan de leche dos").
+      // Se prefiere el último número de la frase (adyacente al producto).
+      let mejor = null
+      let mejorI = -1
+      for (let i = 0; i < tokens.length; i++) {
+        const n = parseNumberSequence(tokens.slice(i))
+        if (n && n.consumidos > 0) {
+          mejor = n
+          mejorI = i
+          i += n.consumidos - 1
+        }
+      }
+      if (mejor) {
+        numero = mejor
+        indiceNumero = mejorI
+      }
+    }
 
     if (numero) {
       if (numero.valor > 0) cantidad = Math.max(1, Math.trunc(numero.valor))
       usados = numero.consumidos
+      if (indiceNumero > 0) {
+        tokens.splice(indiceNumero, usados)
+        usados = 0
+      }
     }
 
-    if (DOCENAS.has(tokens[usados])) {
+    if (indiceNumero === 0 && DOCENAS.has(tokens[usados])) {
       cantidad = (numero && numero.valor > 0 ? Math.trunc(numero.valor) : 1) * 12
       usados++
-    } else if (!numero && tokens[0] === 'media' && DOCENAS.has(tokens[1])) {
+    } else if (indiceNumero === 0 && !numero && tokens[0] === 'media' && DOCENAS.has(tokens[1])) {
       cantidad = 6
       usados = 2
     }
 
     slots.cantidad = cantidad
-    tokens.splice(0, usados)
+    if (usados > 0) tokens.splice(0, usados)
   }
 
   slots.productoHint = limpiarBordes(tokens)

@@ -36,13 +36,23 @@ function esNumeroCompuesto(anterior, siguiente) {
  * Parte la frase por comas, «y» y «con», volviendo a unir los números
  * compuestos que el «y» había cortado («treinta y cinco panes»).
  */
-export function dividirSegmentos(texto) {
+export function dividirSegmentos(texto, productos = []) {
   const plano = String(texto ?? '')
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
+  // F3: con contexto de catálogo, no cortar en «con» si hay un producto que
+  // contenga esa palabra («Pan con queso»). Sin contexto, comportamiento actual.
+  const tieneProductoCon = (productos || []).some(p => {
+    const nombre = String(p?.nombre ?? p ?? '')
+    const descripcion = String(p?.descripcion ?? '')
+    return /\bcon\b/.test((nombre + ' ' + descripcion).toLowerCase())
+  })
+  const separador = tieneProductoCon
+    ? /\s*,\s*|\s+y\s+/
+    : /\s*,\s*|\s+y\s+|\s+con\s+/
   const crudos = plano
-    .split(/\s*,\s*|\s+y\s+|\s+con\s+/)
+    .split(separador)
     .map(p => p.trim())
     .filter(Boolean)
 
@@ -67,8 +77,8 @@ export function dividirSegmentos(texto) {
  * - ubicación y tipo de venta son comunes a toda la venta (si dos segmentos
  *   dicen cosas distintas, no se adivina: `null`).
  */
-export function segmentarVentaMultiple(transcript, lexico = LEXICO_BASE) {
-  const partes = dividirSegmentos(transcript)
+export function segmentarVentaMultiple(transcript, lexico = LEXICO_BASE, productos = []) {
+  const partes = dividirSegmentos(transcript, productos)
   if (partes.length < 2) return null
 
   const segmentos = partes.map((parte, indice) => {
