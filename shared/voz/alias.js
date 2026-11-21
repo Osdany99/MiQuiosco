@@ -41,6 +41,30 @@ const RESERVADAS = new Set([
 
 const RESERVADAS_POR_TOKEN = RESERVADAS
 
+/**
+ * Marcas de gramática que no forman parte del nombre de un producto. Se
+ * comparan como secuencia de palabras para no rechazar nombres legítimos que
+ * contienen una palabra suelta.
+ *
+ * El dueño comprobó que alias como «maní como venta» o «azúcar al kiosco»
+ * arrastraban la etiqueta del comando y no servían para nada.
+ */
+const MARCAS_GRAMATICA = [
+  ['como', 'venta'],
+  ['venta', 'familiar'],
+  ['de', 'casa'],
+  ['de', 'regalo'],
+  ['regalo'],
+  ['al', 'kiosco'],
+  ['al', 'quiosco'],
+  ['al', 'almacen'],
+  ['al', 'deposito'],
+  ['para', 'el'],
+  ['para', 'la'],
+  ['pal', 'kiosco'],
+  ['pal', 'quiosco']
+]
+
 /** Forma canónica del alias: sin tildes, minúsculas y espacios colapsados. */
 export function normalizarAlias(texto) {
   return normalizar(texto)
@@ -51,24 +75,97 @@ function tokensDe(texto) {
   return t ? t.split(' ').filter(Boolean) : []
 }
 
+function contieneSecuenciaDePalabras(tokens, secuencia) {
+  if (!secuencia.length || secuencia.length > tokens.length) return false
+  for (let i = 0; i + secuencia.length <= tokens.length; i++) {
+    let igual = true
+    for (let j = 0; j < secuencia.length; j++) {
+      if (tokens[i + j] !== secuencia[j]) {
+        igual = false
+        break
+      }
+    }
+    if (igual) return true
+  }
+  return false
+}
+
+/** Singular tosco, el mismo criterio que usa el emparejador de productos. */
+function singularizarToken(token) {
+  const t = String(token ?? '')
+  if (t.length > 4 && t.endsWith('es')) return t.slice(0, -2)
+  if (t.length > 3 && t.endsWith('s')) return t.slice(0, -1)
+  return t
+}
+
+function singularizarFrase(frase) {
+  return tokensDe(frase).map(singularizarToken).join(' ')
+}
+
+/**
+ * ¿El alias junta varios productos con «y»? Eso es una venta sin segmentar
+ * («huevos un jugo y un paquete de ref»), no el nombre de uno solo.
+ */
+function tieneVariosProductos(tokens) {
+  if (!tokens.includes('y')) return false
+  const tramos = []
+  let desde = 0
+  tokens.forEach((token, i) => {
+    if (token !== 'y') return
+    tramos.push(tokens.slice(desde, i))
+    desde = i + 1
+  })
+  tramos.push(tokens.slice(desde))
+  const conProducto = tramos.filter(tramo =>
+    tramo.some(t => !RESERVADAS_POR_TOKEN.has(t) && !NUMEROS.has(t)))
+  return conProducto.length > 1
+}
+
 /**
  * ¿Merece la pena aprender este texto para un producto?
  *
- * Se rechaza lo que es pura gramática («de la», «dos»), lo que ya es el nombre
- * del producto y lo demasiado corto o largo.
+ * Se rechaza lo que es pura gramática («de la», «dos»), lo que ya resuelve el
+ * catálogo (el nombre del producto o su nombre con la descripción), lo que
+ * arrastra una marca de comando («como venta», «al kiosco»), lo que junta
+ * varios productos y lo demasiado corto o largo.
+ *
+ * @param {string} texto
+ * @param {object} opciones
+ * @param {string[]} [opciones.nombresProductos] nombres de TODO el catálogo
+ * @param {string[]} [opciones.nombresCompletos] nombre + descripción del catálogo
  */
-export function esAliasValido(texto, { nombresProductos = [] } = {}) {
+export function esAliasValido(texto, { nombresProductos = [], nombresCompletos = [] } = {}) {
   const frase = normalizarAlias(texto)
   if (frase.length < LARGO_MIN_ALIAS || frase.length > LARGO_MAX_ALIAS) return false
   if (!/^[a-z0-9 ]+$/.test(frase)) return false
 
-  const utiles = tokensDe(frase).filter(t => !RESERVADAS_POR_TOKEN.has(t) && !NUMEROS.has(t))
+  const tokens = tokensDe(frase)
+  const utiles = tokens.filter(t => !RESERVADAS_POR_TOKEN.has(t) && !NUMEROS.has(t))
   if (!utiles.length) return false
   if (utiles.every(t => t.length < 3)) return false
 
-  const yaEsNombre = (nombresProductos ?? [])
-    .some(nombre => normalizarAlias(nombre) === frase)
-  return !yaEsNombre
+  // Etiqueta de comando pegada al nombre: no es forma de llamar al producto.
+  if (MARCAS_GRAMATICA.some(marca => contieneSecuenciaDePalabras(tokens, marca))) return false
+
+  // Dos o más productos unidos por «y»: no es alias de uno solo.
+  if (tieneVariosProductos(tokens)) return false
+
+  // El catálogo ya resuelve esto: nombre oficial, o nombre + descripción.
+  // También se rechaza el plural mal formado de ese nombre («maní molidos»).
+  const nombres = [...(nombresProductos ?? []), ...(nombresCompletos ?? [])]
+    .map(nombre => normalizarAlias(nombre))
+    .filter(Boolean)
+  const singular = singularizarFrase(frase)
+  return !nombres.some(nombre => nombre === frase || singularizarFrase(nombre) === singular)
+}
+
+/**
+ * Alias guardados que las reglas de hoy ya no aceptarían. La pantalla de
+ * administración los muestra antes de borrarlos: nada se borra solo.
+ */
+export function aliasesQueSobran(aliases = [], { nombresProductos = [], nombresCompletos = [] } = {}) {
+  return (aliases ?? []).filter(a =>
+    a?.texto && !esAliasValido(a.texto, { nombresProductos, nombresCompletos }))
 }
 
 /**

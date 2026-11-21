@@ -1,5 +1,6 @@
 <script setup>
 import { evaluarCambio } from '#shared/voz/evaluarCambio'
+import { aliasesQueSobran } from '#shared/voz/alias'
 import { FRASES_DORADAS } from '#shared/voz/frasesDoradas'
 import { CATEGORIAS_LEXICO } from '#shared/schemas/vozLexico'
 import { LEXICO_BASE, crearLexico } from '#shared/voz/lexico'
@@ -20,6 +21,64 @@ const nueva = ref({ categoria: 'venta_fuerte', valor: '', nota: '' })
 const plantillaRef = ref('')
 const prueba = ref({ categoria: 'venta_fuerte', valor: '', activo: true, plantillas: '' })
 const resultadoPrueba = ref(null)
+
+/*
+ * Alias que sobran. Los alias viven en este teléfono (tabla `voz_alias`) y se
+ * aprenden al elegir un producto a mano. Con las reglas nuevas, un alias que el
+ * catálogo ya resuelve («maní molido» con nombre y descripción) no aporta nada.
+ * Aquí se revisan y se muestran ANTES de borrar: nada se borra solo.
+ */
+const aliasVoz = useVozAlias()
+const inventario = useInventario()
+const revisandoAlias = ref(false)
+const revisadoAlias = ref(false)
+const aliasSobrantes = ref([])
+const borrandoAlias = ref(false)
+
+const nombrePorProducto = computed(() => {
+  const mapa = new Map()
+  for (const fila of inventario.saldos?.value ?? []) {
+    if (fila?.productoId) mapa.set(fila.productoId, fila.nombre)
+  }
+  return mapa
+})
+
+async function revisarAlias() {
+  if (revisandoAlias.value) return
+  revisandoAlias.value = true
+  try {
+    await aliasVoz.cargar({ forzar: true }).catch(() => [])
+    const catalogo = await inventario.cargarSaldos().catch(() => [])
+    aliasSobrantes.value = aliasesQueSobran(aliasVoz.lista.value ?? [], {
+      nombresProductos: (catalogo ?? []).map(f => f?.nombre).filter(Boolean),
+      nombresCompletos: (catalogo ?? [])
+        .map(f => [f?.nombre, f?.descripcion].filter(Boolean).join(' '))
+        .filter(Boolean)
+    })
+    revisadoAlias.value = true
+  } finally {
+    revisandoAlias.value = false
+  }
+}
+
+async function borrarAliasSobrantes() {
+  if (borrandoAlias.value || !aliasSobrantes.value.length) return
+  borrandoAlias.value = true
+  let borrados = 0
+  try {
+    for (const fila of aliasSobrantes.value) {
+      if (await aliasVoz.deshacer(fila.id)) borrados++
+    }
+    aliasSobrantes.value = []
+    toast.add({
+      title: 'Alias limpiados',
+      description: `${borrados} ${borrados === 1 ? 'alias borrado' : 'alias borrados'}.`,
+      color: 'success'
+    })
+  } finally {
+    borrandoAlias.value = false
+  }
+}
 
 const CAMPO = {
   venta_fuerte: 'ventaFuerte',
@@ -387,6 +446,54 @@ onMounted(() => {
           </li>
         </ul>
       </div>
+    </div>
+
+    <div class="mt-8 border-t pt-4">
+      <h2 class="text-sm font-semibold">
+        Alias aprendidos que sobran
+      </h2>
+      <p class="text-muted mt-1 text-xs">
+        Un alias que el catálogo ya resuelve (el nombre del producto, o su nombre
+        con la descripción) no aporta nada. Se muestran antes de borrar: no se
+        borra nada solo.
+      </p>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <UButton
+          icon="i-lucide-search"
+          color="neutral"
+          variant="soft"
+          :loading="revisandoAlias"
+          @click="revisarAlias"
+        >
+          Buscar los que sobran
+        </UButton>
+        <UButton
+          v-if="aliasSobrantes.length"
+          icon="i-lucide-trash-2"
+          color="error"
+          :loading="borrandoAlias"
+          @click="borrarAliasSobrantes"
+        >
+          Borrar los que sobran ({{ aliasSobrantes.length }})
+        </UButton>
+      </div>
+
+      <div v-if="aliasSobrantes.length" class="mt-3">
+        <p class="text-xs">
+          Se van a borrar:
+        </p>
+        <ul class="mt-1 list-inside list-disc text-xs">
+          <li v-for="fila in aliasSobrantes" :key="fila.id">
+            <span class="font-mono">{{ fila.texto }}</span>
+            <span v-if="nombrePorProducto.get(fila.productoId)" class="text-muted">
+              → {{ nombrePorProducto.get(fila.productoId) }}
+            </span>
+          </li>
+        </ul>
+      </div>
+      <p v-else-if="revisadoAlias" class="text-muted mt-3 text-xs">
+        No hay alias que sobren.
+      </p>
     </div>
   </BaseHeaderPage>
 </template>

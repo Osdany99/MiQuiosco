@@ -55,14 +55,28 @@ export function useVozAlias() {
   /**
    * Aprende el alias si es válido y no choca con otro producto.
    * Devuelve la fila creada, `{ repetido: true }` si ya existía igual, o null.
+   *
+   * `nombresProductos`/`nombresCompletos` son el catálogo entero: un alias que
+   * el emparejador ya resuelve (nombre, o nombre + descripción como «maní
+   * molido») no aporta nada y no se guarda.
    */
-  async function aprender({ texto, productoId, productoNombre = null, origen = 'candidato' }) {
+  async function aprender({
+    texto,
+    productoId,
+    productoNombre = null,
+    nombresProductos = [],
+    nombresCompletos = [],
+    origen = 'candidato'
+  }) {
     const pid = puestoId.value
     if (!pid || !productoId) return null
     await cargar()
 
     const limpio = textoParaAlias(texto)
-    if (!esAliasValido(limpio, { nombresProductos: productoNombre ? [productoNombre] : [] })) return null
+    const nombres = (nombresProductos?.length
+      ? nombresProductos
+      : (productoNombre ? [productoNombre] : []))
+    if (!esAliasValido(limpio, { nombresProductos: nombres, nombresCompletos })) return null
 
     const existente = lista.value.find(a => a.texto === limpio)
     if (existente) {

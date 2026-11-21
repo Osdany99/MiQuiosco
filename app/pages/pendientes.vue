@@ -271,10 +271,18 @@ async function confirmarAsignar() {
       precioUnitario: precio
     })
     // Asignar a mano es señal de cómo llama el mostrador a ese producto.
+    // Se pasa el catálogo entero: lo que ya resuelve el emparejador (nombre +
+    // descripción) no se guarda como alias.
+    const nombresProductos = (catalogoAsignar.value ?? []).map(f => f?.nombre).filter(Boolean)
+    const nombresCompletos = (catalogoAsignar.value ?? [])
+      .map(f => [f?.nombre, f?.descripcion].filter(Boolean).join(' '))
+      .filter(Boolean)
     const filaAlias = await aliasVoz.aprender({
       texto: accion.texto,
       productoId: opcion.id,
       productoNombre: opcion.nombre,
+      nombresProductos,
+      nombresCompletos,
       origen: 'asignado'
     }).catch(() => null)
     if (filaAlias && !filaAlias.repetido) {

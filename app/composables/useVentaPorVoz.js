@@ -3056,10 +3056,20 @@ function _create(ubicacion) {
    */
   async function aprenderAlias(textoDicho, fila) {
     if (!fila?.productoId) return
+    // Todo el catálogo, no solo el producto elegido: con tres «Maní» el nombre
+    // a secas no distingue, y «maní molido» (nombre + descripción) ya lo
+    // resuelve el emparejador sin necesidad de alias.
+    const catalogo = await catalogoDe('almacen', { soloVendibles: false }).catch(() => [])
+    const nombresProductos = (catalogo ?? []).map(f => f?.nombre).filter(Boolean)
+    const nombresCompletos = (catalogo ?? [])
+      .map(f => [f?.nombre, f?.descripcion].filter(Boolean).join(' '))
+      .filter(Boolean)
     const filaAlias = await alias.aprender({
       texto: textoDicho,
       productoId: fila.productoId,
-      productoNombre: fila.nombre
+      productoNombre: fila.nombre,
+      nombresProductos,
+      nombresCompletos
     }).catch(() => null)
     if (!filaAlias || filaAlias.repetido) return
     toast.add({

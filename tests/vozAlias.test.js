@@ -5,6 +5,7 @@ import {
   MAX_ALIAS_POR_PRODUCTO,
   agregarAliasConTope,
   aliasCoincide,
+  aliasesQueSobran,
   esAliasValido,
   normalizarAlias,
   textoParaAlias
@@ -39,6 +40,51 @@ describe('voz: alias — validación', () => {
   it('acepta jerga y frases con partículas', () => {
     assert.equal(esAliasValido('bombi'), true)
     assert.equal(esAliasValido('pan de la casa'), true)
+  })
+})
+
+describe('voz: alias — lo que el catálogo ya resuelve no se aprende', () => {
+  // Catálogo real de la captura: tres «Maní» que solo se distinguen por la
+  // descripción, y un refresco.
+  const nombresProductos = ['Maní', 'Maní', 'Maní', 'Refresco']
+  const nombresCompletos = ['Maní molido', 'Maní cocinado', 'Maní garapiñado', 'Refresco']
+  const opciones = { nombresProductos, nombresCompletos }
+
+  it('«maní molido» es nombre + descripción y no se guarda', () => {
+    assert.equal(esAliasValido('mani molido', opciones), false)
+  })
+
+  it('su plural mal formado tampoco', () => {
+    assert.equal(esAliasValido('mani molidos', opciones), false)
+    assert.equal(esAliasValido('mani molidoS', opciones), false)
+  })
+
+  it('un alias que arrastra la etiqueta del comando no sirve', () => {
+    assert.equal(esAliasValido('mani como venta', opciones), false)
+    assert.equal(esAliasValido('azucar al kiosco', opciones), false)
+    assert.equal(esAliasValido('pan para el quiosco', opciones), false)
+    assert.equal(esAliasValido('refresco de regalo', opciones), false)
+  })
+
+  it('una venta sin segmentar no es alias de un solo producto', () => {
+    assert.equal(esAliasValido('jugo y pan', opciones), false)
+    assert.equal(esAliasValido('huevos un jugo y un paquete de ref', opciones), false)
+  })
+
+  it('«paquete de refresco» sí vale: el catálogo no lo resuelve', () => {
+    assert.equal(esAliasValido('paquete de refresco', opciones), true)
+  })
+
+  it('la lista de sobrantes es exactamente la de la captura', () => {
+    const guardados = [
+      { id: 'a1', texto: 'mani molido' },
+      { id: 'a2', texto: 'mani molidoS' },
+      { id: 'a3', texto: 'mani como venta' },
+      { id: 'a4', texto: 'paquete de refresco' },
+      { id: 'a5', texto: 'huevos un jugo y un paquete de ref' }
+    ]
+    const sobrantes = aliasesQueSobran(guardados, opciones).map(a => a.id)
+    assert.deepEqual(sobrantes, ['a1', 'a2', 'a3', 'a5'])
   })
 })
 
