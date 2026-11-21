@@ -43,7 +43,7 @@ export function dividirSegmentos(texto, productos = []) {
     .replace(/[\u0300-\u036f]/g, '')
   // F3: con contexto de catálogo, no cortar en «con» si hay un producto que
   // contenga esa palabra («Pan con queso»). Sin contexto, comportamiento actual.
-  const tieneProductoCon = (productos || []).some(p => {
+  const tieneProductoCon = (productos || []).some((p) => {
     const nombre = String(p?.nombre ?? p ?? '')
     const descripcion = String(p?.descripcion ?? '')
     return /\bcon\b/.test((nombre + ' ' + descripcion).toLowerCase())

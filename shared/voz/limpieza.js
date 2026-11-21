@@ -19,8 +19,6 @@ const TRAILING_FILLERS = ['por favor', 'gracias', 'ya', 'ahora']
 
 const PREPOSICIONES = new Set(['con', 'de', 'del', 'y', 'al', 'para', 'a', 'el', 'la', 'un', 'los', 'las', 'en', 'del'])
 
-const CORTESES_TRAS_VERBO = ['por favor']
-
 function quitarPrefijo(texto, quitadas) {
   let t = texto
   let cambio = true

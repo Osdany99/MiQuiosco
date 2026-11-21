@@ -14,7 +14,11 @@ const MAX_CHARLA_FALSOS = 13
 function interpretar(f) {
   const r = resolverComando(f)
   let s = {}
-  try { s = extraerSlots(r.comando, f) ?? {} } catch { s = { _error: true } }
+  try {
+    s = extraerSlots(r.comando, f) ?? {}
+  } catch {
+    s = { _error: true }
+  }
   const limpio = {}
   for (const k of Object.keys(s).sort()) limpio[k] = s[k]
   return { comando: r.comando, slots: JSON.stringify(limpio) }
@@ -24,7 +28,10 @@ const W2D = { dos: '2', tres: '3', cuatro: '4', cinco: '5', seis: '6', siete: '7
 const D2W = Object.fromEntries(Object.entries(W2D).map(([w, d]) => [d, w]))
 const aDigitos = f => f.split(' ').map(t => W2D[t] ?? t).join(' ')
 const aPalabras = f => f.split(' ').map(t => D2W[t] ?? t).join(' ')
-const medio = (f, x) => { const [v, ...r] = f.split(' '); return [v, x, ...r].join(' ') }
+const medio = (f, x) => {
+  const [v, ...r] = f.split(' ')
+  return [v, x, ...r].join(' ')
+}
 
 const PERTURBACIONES = {
   'prefijo oye': f => `oye ${f}`,
@@ -40,7 +47,10 @@ const PERTURBACIONES = {
   'por favor tras el verbo': f => medio(f, 'por favor'),
   'verbo repetido': f => medio(f, f.split(' ')[0]),
   'quiosco a kiosco': f => f.replace(/quiosco/g, 'kiosco'),
-  'cifras y palabras': f => { const a = aDigitos(f); return a !== f ? a : aPalabras(f) }
+  'cifras y palabras': (f) => {
+    const a = aDigitos(f)
+    return a !== f ? a : aPalabras(f)
+  }
 }
 
 export const CHARLA = [
@@ -60,7 +70,10 @@ function medir() {
       if (v === b.frase) continue
       n++
       const r = interpretar(v)
-      if (r.comando === b.comando) { okI++; if (r.slots === b.slots) okS++ }
+      if (r.comando === b.comando) {
+        okI++
+        if (r.slots === b.slots) okS++
+      }
     }
   }
   const falsos = CHARLA.filter(f => resolverComando(f).comando !== 'desconocido').length
