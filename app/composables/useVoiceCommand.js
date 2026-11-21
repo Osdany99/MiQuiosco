@@ -13,10 +13,14 @@ import { avanzarFaseStt } from '../utils/voice/faseVoz'
 import { liberarMicrofonoServicio } from '../utils/voice/microfonoServicio'
 import { motorEfectivo } from '#shared/voz/motoresStt'
 import {
+  MAX_EXTENSIONES_ESCUCHA,
+  MS_ESCUCHA_COLGANTE,
   MS_RESCATE,
   MS_SIN_VOZ,
   MS_TEXTO_ESTABLE,
-  decidirVigilancia
+  decidirVigilancia,
+  limiteEscuchaTexto,
+  pareceIncompleta
 } from '../utils/voice/vigilancia'
 import {
   formatearEntrada,
@@ -109,6 +113,10 @@ function _useVoiceCommand() {
   let ultimoParcialTraza = null
   let inicioReady = 0
   let ultimoCambioTexto = 0
+  // Silencio que se está tolerando con el parcial actual y cuántas veces se ha
+  // alargado en esta escucha (ver P12 en utils/voice/vigilancia.js).
+  let limiteTextoMs = MS_TEXTO_ESTABLE
+  let extensionesEscucha = 0
   // Firma del último evento nativo registrado (D: traza sin duplicados).
   let firmaNativaPrevia = ''
   // Plugin nativo activo en la escucha actual (Google o Vosk). stopListening
@@ -340,6 +348,12 @@ function _useVoiceCommand() {
   /**
    * Actualiza el parcial y reinicia el vigilante de silencio. Solo cuenta si
    * el texto cambió: los parciales repetidos no deben posponer el cierre.
+   *
+   * El silencio que se tolera depende de cómo va la frase (P12): una frase que
+   * ya tiene forma completa se cierra antes que una que termina en «de» o
+   * «para», que es donde el jefe suele dudar. Cada parcial colgante gasta una
+   * de las dos extensiones; agotadas, se vuelve al límite de siempre para que
+   * la escucha no pueda quedarse colgada.
    */
   function marcarParcial(textoCrudo) {
     const crudo = String(textoCrudo ?? '')
@@ -347,6 +361,14 @@ function _useVoiceCommand() {
     if (!limpio || limpio === ultimoTextoVigilado) return
     ultimoTextoVigilado = limpio
     ultimoCambioTexto = Date.now()
+    const colgante = pareceIncompleta(limpio)
+    limiteTextoMs = limiteEscuchaTexto({
+      terminaEnPalabraColgante: colgante,
+      extensionesUsadas: extensionesEscucha
+    })
+    if (colgante && limiteTextoMs === MS_ESCUCHA_COLGANTE) {
+      extensionesEscucha = Math.min(extensionesEscucha + 1, MAX_EXTENSIONES_ESCUCHA)
+    }
     transcriptParcial.value = crudo
     marcarTextoReciente()
     if (vigilanteSinVoz) {
@@ -362,7 +384,7 @@ function _useVoiceCommand() {
     vigilanteTexto = setTimeout(() => {
       vigilanteTexto = null
       evaluarVigilancia()
-    }, MS_TEXTO_ESTABLE + 60)
+    }, limiteTextoMs + 60)
   }
 
   /** Tope sin una sola palabra: cerrar en vez de esperar 45 s. */
@@ -382,7 +404,8 @@ function _useVoiceCommand() {
       desdeReadyMs: inicioReady ? ahora - inicioReady : null,
       desdeTextoMs: ultimoCambioTexto ? ahora - ultimoCambioTexto : null,
       hayTexto: Boolean(ultimoTextoVigilado),
-      finalizando
+      finalizando,
+      limites: { textoEstable: limiteTextoMs }
     })
     if (accion === 'terminar' || accion === 'sin_voz') {
       pedirFinal(accion)
@@ -415,7 +438,12 @@ function _useVoiceCommand() {
       clearTimeout(vigilanteSinVoz)
       vigilanteSinVoz = null
     }
-    registrar('stt.fin', { motivo, texto: ultimoTextoVigilado })
+    registrar('stt.fin', {
+      motivo,
+      texto: ultimoTextoVigilado,
+      limite: limiteTextoMs,
+      extensiones: extensionesEscucha
+    })
     if (!pluginActivo) return // web: el cierre lo hace SpeechRecognition
     try {
       const p = pluginActivo.finish?.()
@@ -465,6 +493,8 @@ function _useVoiceCommand() {
     ultimoCambioTexto = 0
     ultimoTextoVigilado = ''
     ultimoParcialTraza = null
+    limiteTextoMs = MS_TEXTO_ESTABLE
+    extensionesEscucha = 0
     textoReciente.value = false
   }
 
@@ -910,6 +940,8 @@ function _useVoiceCommand() {
         finalizando = false
         ultimoTextoVigilado = ''
         ultimoParcialTraza = null
+        limiteTextoMs = MS_TEXTO_ESTABLE
+        extensionesEscucha = 0
         faseStt.value = 'preparando'
         // Tope absoluto de la escucha completa (incluye los reintentos del plugin).
         topeEscucha = setTimeout(() => {

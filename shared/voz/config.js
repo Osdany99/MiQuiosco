@@ -15,6 +15,18 @@ export const VOZ_IDIOMA_DEFECTO = 'sistema'
 export const VOZ_RETENCION_DEFECTO = 30
 export const VOZ_RETENCION_ACIERTOS_DEFECTO = 7
 
+/**
+ * Silencio antes de dar por terminado un dictado, en ms.
+ *
+ * Van aquí, y no dentro de `VOZ_CONFIG_DEFECTO`, porque no son configuración de
+ * flota: cambiarlas no debe forzar una migración ni una sincronización. Son
+ * parte del comportamiento del vigilante de escucha (P12).
+ */
+export const MS_ESCUCHA_COMPLETA = 1000
+export const MS_ESCUCHA_COLGANTE = 2800
+/** Cuántas veces se alarga la espera en una misma escucha antes de cerrar. */
+export const MAX_EXTENSIONES_ESCUCHA = 2
+
 export const VOZ_RETENCION_MIN = 7
 export const VOZ_RETENCION_MAX = 365
 export const VOZ_RETENCION_ACIERTOS_MIN = 1
