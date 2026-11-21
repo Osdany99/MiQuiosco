@@ -1405,7 +1405,7 @@ function extraerCuadreSlots(transcript, lexico) {
   return { accion: c.RE_CUADRE_CERRAR.test(texto) ? 'cerrar' : 'abrir' }
 }
 
-export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
+export function extraerSlots(comando, transcript, lexico = LEXICO_BASE, { ahora = Date.now() } = {}) {
   if (comando === 'entrada_inventario') return extraerEntradaSlots(transcript, lexico)
   if (comando === 'cambio_precio') return extraerCambioPrecioSlots(transcript, lexico)
   if (comando === 'traspaso') return extraerTraspasoSlots(transcript, lexico)
@@ -1423,7 +1423,7 @@ export function extraerSlots(comando, transcript, lexico = LEXICO_BASE) {
   if (comando === 'consulta_deuda') return extraerDeudaSlots(transcript)
   if (comando === 'cobro_deuda') return extraerCobroSlots(transcript, lexico)
   if (comando === 'consulta_dia' || comando === 'consulta_ganancia') {
-    const fecha = resolverFechaDictada(transcript)
+    const fecha = resolverFechaDictada(transcript, { ahora })
     return { fecha: fecha?.iso ?? null }
   }
   if (comando === 'consulta_caja') return {}
@@ -1490,13 +1490,13 @@ export function elegirAlternativa(evaluadas, { margen = 0.1 } = {}) {
 }
 
 /** Interpretación completa (clasificación + slots) en un solo objeto. */
-export function interpretar(transcript, lexico = LEXICO_BASE) {
+export function interpretar(transcript, lexico = LEXICO_BASE, opciones = {}) {
   const clasificado = resolverComando(transcript, lexico)
   return {
     comando: clasificado.comando,
     transcript: String(transcript ?? ''),
     confidence: clasificado.confianza,
-    slots: extraerSlots(clasificado.comando, transcript, lexico),
+    slots: extraerSlots(clasificado.comando, transcript, lexico, opciones),
     reasons: clasificado.reasons
   }
 }

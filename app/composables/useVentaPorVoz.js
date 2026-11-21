@@ -37,7 +37,8 @@ import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
 import { buscarClienteDeuda, distribuirCobro, formatearDeuda, resumirDeudas, saldoTotalDeudas } from '#shared/voz/deudas'
 import { formatearDia, formatearGanancia, resumirDia } from '#shared/voz/dia'
-import { rangoDeIso } from '#shared/voz/fechas'
+import { rangoDeDiaNegocio, rangoDeIso } from '#shared/voz/fechas'
+import { ahoraServidor } from '../utils/relojServidor'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
 import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseAjuste, fraseProductoAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, fraseDeudaDinero, fraseTransferencia, FRASE_CONFIRMAR, FRASE_NADA_QUE_REPETIR, FRASE_PROMPT } from '../utils/voice/frasesVoz'
@@ -1208,7 +1209,10 @@ function _create(ubicacion) {
    * fecha, lee las ventas de ese día concreto y lo calcula igual.
    */
   async function resumenDeDia(fecha) {
-    const rango = fecha ? rangoDeIso(fecha) : null
+    // Con fecha se lee ese día de negocio (medianoche del negocio a medianoche),
+    // no la medianoche del aparato: el reloj del teléfono puede ir una hora
+    // corrido y la venta de las 11 de la noche caería en el día equivocado.
+    const rango = fecha ? (rangoDeDiaNegocio(fecha) ?? rangoDeIso(fecha)) : null
     if (!rango) return { resumen: await snapshotVoz.resumenDelDia(), rango: null }
     const ventas = await inv.cargarVentasDirectas({ desde: rango.inicio, hasta: rango.hasta }).catch(() => [])
     return {
@@ -2682,7 +2686,7 @@ function _create(ubicacion) {
     // Frase elegida del último comando: la captura de diagnóstico la usa tal
     // cual, sin enmascarar, solo si la flota lo tiene activado.
     ultimoDictado = String(textoElegido ?? '')
-    const interpretado = interpretar(textoElegido, vozLexico.lexico.value)
+    const interpretado = interpretar(textoElegido, vozLexico.lexico.value, { ahora: ahoraServidor() })
     voice.registrar('voz.interpretar', {
       texto: textoElegido,
       comando: interpretado?.comando || '',

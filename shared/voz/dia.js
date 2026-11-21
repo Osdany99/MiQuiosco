@@ -123,10 +123,13 @@ export function formatearGanancia(resumen, { cuando = null } = {}) {
 
 const RE_DIA_SEMANA = /\b(domingo|lunes|martes|miercoles|jueves|viernes|sabado)\b/
 const RE_FECHA_DIA_MES = /\b\d{1,2}\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/
+// «ayer» y «anteayer» son días concretos igual que «el martes»: sin ellos,
+// «cuánto gané ayer» se quedaba en «consulta no soportada».
+const RE_DIAS_RELATIVOS = /\b(ayer|anteayer|antiayer|antayer|antier)\b/
 
-/** ¿La frase nombra un día concreto (de la semana o del calendario)? */
+/** ¿La frase nombra un día concreto (de la semana, del calendario o relativo)? */
 function mencionaFecha(frase) {
-  return RE_DIA_SEMANA.test(frase) || RE_FECHA_DIA_MES.test(frase)
+  return RE_DIA_SEMANA.test(frase) || RE_FECHA_DIA_MES.test(frase) || RE_DIAS_RELATIVOS.test(frase)
 }
 
 /**
@@ -214,5 +217,8 @@ export function esConsultaDia(texto) {
 
   const hablaDeVentas = /\b(vendi|vendimos|vendido|vendidos|vendiste|venta|ventas|llevo|llevamos)\b/.test(frase)
   const marcaDia = /\b(hoy|dia)\b/.test(frase) || mencionaFecha(frase)
+  // «Cómo fue ayer» pregunta por el día sin nombrar ventas: el marcador de día
+  // relativo ya dice de qué se habla.
+  if (/\bcomo\s+(?:fue|estuvo)\b/.test(frase) && mencionaFecha(frase)) return true
   return hablaDeVentas && marcaDia
 }
