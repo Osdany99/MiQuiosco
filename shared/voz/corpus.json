@@ -1,329 +1,1219 @@
 [
   {
     "texto": "vende cinco panes",
-    "comando": "venta_directa",
-    "slots": {}
+    "comando": "venta_directa"
   },
   {
     "texto": "vendeme 10 mani",
-    "comando": "venta_directa",
-    "slots": {}
+    "comando": "venta_directa"
   },
   {
     "texto": "cuanto hay de pan",
-    "comando": "consulta_stock",
-    "slots": {}
+    "comando": "consulta_stock"
   },
   {
     "texto": "abre cuadre",
-    "comando": "cuadre_accion",
-    "slots": {}
+    "comando": "cuadre_accion"
   },
   {
     "texto": "dame cinco panes",
-    "comando": "venta_directa",
-    "slots": {}
+    "comando": "venta_directa"
   },
   {
     "texto": "vende un refresco familiar",
-    "comando": "venta_directa",
-    "slots": {}
+    "comando": "venta_directa"
   },
   {
     "texto": "hola",
-    "comando": "desconocido",
-    "slots": {}
+    "comando": "desconocido"
   },
   {
     "texto": "cinco panes",
-    "comando": "venta_directa",
-    "slots": {}
+    "comando": "venta_directa"
   },
   {
     "texto": "cuanto cuesta el pan",
-    "comando": "consulta_precio",
-    "slots": {}
+    "comando": "consulta_precio"
   },
   {
     "texto": "cuanto debe juan",
-    "comando": "consulta_deuda",
-    "slots": {}
+    "comando": "consulta_deuda"
   },
   {
     "texto": "quien me debe mas",
-    "comando": "consulta_deuda",
-    "slots": {}
+    "comando": "consulta_deuda"
   },
   {
     "texto": "cuanto me deben",
-    "comando": "consulta_deuda",
-    "slots": {}
+    "comando": "consulta_deuda"
   },
   {
     "texto": "como va el dia",
-    "comando": "consulta_dia",
-    "slots": {}
+    "comando": "consulta_dia"
   },
   {
     "texto": "cuanto vendi hoy",
-    "comando": "consulta_dia",
-    "slots": {}
+    "comando": "consulta_dia"
   },
   {
     "texto": "ventas de hoy",
-    "comando": "consulta_dia",
-    "slots": {}
+    "comando": "consulta_dia"
   },
   {
     "texto": "fia dos panes a juan",
-    "comando": "venta_fiada",
-    "slots": {}
+    "comando": "venta_fiada"
   },
   {
     "texto": "cobra 200 a juan",
-    "comando": "cobro_deuda",
-    "slots": {}
+    "comando": "cobro_deuda"
   },
   {
     "texto": "entraron 20 panes a 10 pesos",
-    "comando": "entrada_inventario",
-    "slots": {}
+    "comando": "entrada_inventario"
   },
   {
     "texto": "cambia el precio del pan a 25",
-    "comando": "cambio_precio",
-    "slots": {}
+    "comando": "cambio_precio"
   },
   {
     "texto": "pasa 5 panes del almacen al quiosco",
-    "comando": "traspaso",
-    "slots": {}
+    "comando": "traspaso"
   },
   {
     "texto": "se rompieron 3 panes",
-    "comando": "ajuste_inventario",
-    "slots": {}
+    "comando": "ajuste_inventario"
   },
   {
     "texto": "se cogieron 3 panes para la casa",
-    "comando": "ajuste_inventario",
-    "slots": {}
+    "comando": "ajuste_inventario"
   },
   {
     "texto": "se cogieron los panes para la casa",
-    "comando": "ajuste_inventario",
-    "slots": {}
+    "comando": "ajuste_inventario"
   },
   {
     "texto": "devuelve 2 panes al almacen",
-    "comando": "ajuste_inventario",
-    "slots": {}
+    "comando": "ajuste_inventario"
   },
   {
     "texto": "crea un producto pan de leche a 25",
-    "comando": "producto_alta",
-    "slots": {}
+    "comando": "producto_alta"
   },
   {
     "texto": "agrega el cliente adrian",
-    "comando": "cliente_alta",
-    "slots": {}
+    "comando": "cliente_alta"
   },
   {
     "texto": "pon el refresco debajo del pan",
-    "comando": "mover_producto",
-    "slots": {}
+    "comando": "mover_producto"
   },
   {
     "texto": "anota que juan debe 500",
-    "comando": "deuda_dinero",
-    "slots": {}
+    "comando": "deuda_dinero"
   },
   {
     "texto": "transferencia de 500 a juan",
-    "comando": "transferencia_cuadre",
-    "slots": {}
+    "comando": "transferencia_cuadre"
   },
   {
-    "texto": "hola",
-    "comando": "desconocido",
-    "slots": {},
+    "texto": "vende dos mani",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "cuanto me gane hoy",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "cambia el precio de las javas a 20",
+    "comando": "cambio_precio"
+  },
+  {
+    "texto": "vende un bocadito",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende un bocadito de",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende 12 toallitas",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende una paleta como venta familiar",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende dos paletas como venta familiar",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende una paleta a yosley como venta familiar",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "cuanto gane el 20 de noviembre",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "cuanto me gane el 19 de noviembre",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "pon la azucar a 580",
+    "comando": "cambio_precio"
+  },
+  {
+    "texto": "vende dos cigarros",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende dos cigarros a 700",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende dos cigarros a $700",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "otra vez",
+    "comando": "repetir"
+  },
+  {
+    "texto": "cual es el precio del azucar",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "cambia el precio del azucar a 580",
+    "comando": "cambio_precio"
+  },
+  {
+    "texto": "que precio tiene el azucar",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "entrada 165 azucar a 500",
+    "comando": "entrada_inventario"
+  },
+  {
+    "texto": "ayuda",
+    "comando": "ayuda"
+  },
+  {
+    "texto": "dime el precio del detergente",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "cual es el precio del mantecado",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "pon el refresco debajo del huevo",
+    "comando": "mover_producto"
+  },
+  {
+    "texto": "cuanto gane ayer",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "cuanto me gane ayer",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "pasa 10 azucar al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "pasa 30 huevos para el kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "pasa 7 azucar al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "pasa 10 azucar para el kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "envia 10 azucar del almacen al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "lleva 10 azucar para el kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "anota como merma un chupa chupa",
+    "comando": "ajuste_inventario",
     "conocido_fallo": true
+  },
+  {
+    "texto": "entrada a",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "llevar 10 azucar",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye vende dos panes por favor",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "mira vende cinco refrescos",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "por favor fia dos panes a juan",
+    "comando": "venta_fiada"
+  },
+  {
+    "texto": "oye cuanto cuesta el pan",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "mira cuanto hay de azucar",
+    "comando": "consulta_stock"
+  },
+  {
+    "texto": "bueno vende un bocadito",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "a ver cuanto me gane hoy",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "ahora cobra 200 a juan",
+    "comando": "cobro_deuda"
+  },
+  {
+    "texto": "vende dos panes ya",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "vende tres refrescos gracias",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye pasa cinco panes al quiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "mira pasa 10 azucar al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "por favor anota que juan debe 500",
+    "comando": "deuda_dinero"
+  },
+  {
+    "texto": "oye cambia el precio del pan a 25",
+    "comando": "cambio_precio"
+  },
+  {
+    "texto": "mira pon la azucar a 580",
+    "comando": "cambio_precio"
+  },
+  {
+    "texto": "oye agrega el cliente adrian",
+    "comando": "cliente_alta"
+  },
+  {
+    "texto": "por favor crea un producto pan de leche a 25",
+    "comando": "producto_alta"
+  },
+  {
+    "texto": "mira se rompieron tres panes",
+    "comando": "ajuste_inventario"
+  },
+  {
+    "texto": "oye devuelve dos panes al almacen",
+    "comando": "ajuste_inventario"
+  },
+  {
+    "texto": "bueno dime el precio del detergente",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "oye como va el dia",
+    "comando": "consulta_dia"
+  },
+  {
+    "texto": "mira cuanto vendi hoy",
+    "comando": "consulta_dia"
+  },
+  {
+    "texto": "oye cuanto debe juan",
+    "comando": "consulta_deuda"
+  },
+  {
+    "texto": "mira quien me debe mas",
+    "comando": "consulta_deuda"
+  },
+  {
+    "texto": "oye abre cuadre",
+    "comando": "cuadre_accion"
+  },
+  {
+    "texto": "mira pon el refresco debajo del huevo",
+    "comando": "mover_producto"
+  },
+  {
+    "texto": "oye entra 20 panes a 10 pesos",
+    "comando": "entrada_inventario"
+  },
+  {
+    "texto": "a ver transferencia de 500 a juan",
+    "comando": "transferencia_cuadre"
+  },
+  {
+    "texto": "oye cuanto gane ayer",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "mira cuanto me gane anteayer",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "oye dame dos refrescos",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "mira quiero tres panes",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye me llevo dos panes",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "mira echame tres refrescos",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye apuntale dos panes",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "bueno vende pan de leche dos",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye cuantas toallitas quedan",
+    "comando": "consulta_stock"
+  },
+  {
+    "texto": "mira cuanto vale el mantecado",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "oye cuanto le debo a juan",
+    "comando": "consulta_deuda",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "mira como fue ayer",
+    "comando": "consulta_dia"
+  },
+  {
+    "texto": "oye cuanta ganancia hay hoy",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "mira cobra 100 a maria",
+    "comando": "cobro_deuda"
+  },
+  {
+    "texto": "oye fia una paleta a yosley",
+    "comando": "venta_fiada"
+  },
+  {
+    "texto": "mira vende una paleta como venta familiar",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye vende dos paletas como regalo",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "mira vende una paleta para la casa",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye dame cinco cigarros",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "mira ponme dos cervezas",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye cuanto me deben",
+    "comando": "consulta_deuda"
+  },
+  {
+    "texto": "mira se cogieron tres panes para la casa",
+    "comando": "ajuste_inventario"
+  },
+  {
+    "texto": "oye vende doce toallitas",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "mira vende un bocadito de",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye cuanto gane el 20 de noviembre",
+    "comando": "consulta_ganancia"
+  },
+  {
+    "texto": "mira envia diez azucar del almacen al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "oye sube cinco panes al quiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "mira echa cuatro manis al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "oye manda 10 azucar para el kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "mira dame cuatro manis para el kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "oye quiero diez azucar al kiosco",
+    "comando": "traspaso"
+  },
+  {
+    "texto": "mira vende 5 panes al quiosco",
+    "comando": "venta_directa"
+  },
+  {
+    "texto": "oye cuanto esta el azucar",
+    "comando": "consulta_precio",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "mira que precio tiene el refresco",
+    "comando": "consulta_precio"
+  },
+  {
+    "texto": "mira ayuda",
+    "comando": "ayuda"
+  },
+  {
+    "texto": "oye otra vez",
+    "comando": "repetir"
+  },
+  {
+    "texto": "mira pon el refresco al final",
+    "comando": "mover_producto"
+  },
+  {
+    "texto": "oye cuanto me gane el 19 de noviembre",
+    "comando": "consulta_ganancia"
   },
   {
     "texto": "buenas tardes",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
+  },
+  {
+    "texto": "buenos dias",
+    "comando": "desconocido"
   },
   {
     "texto": "ya voy",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "dame un momento",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "pasame la bolsa",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "tengo dos hijos",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "son las cinco",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "hace tres dias",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "el cliente quiere dos",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "cinco minutos y vuelvo",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "tengo veinte pesos",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "que calor hace hoy",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "anota mi telefono",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "manana vienen dos camiones",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "pon la radio",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "baja el volumen",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "saca la basura",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "cobra ya que me voy",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "dame la bolsa",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
     "texto": "abre la ventana",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "cierra la puerta",
-    "comando": "desconocido",
-    "slots": {},
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "me quedan dos horas",
     "comando": "desconocido",
-    "slots": {},
     "conocido_fallo": true
   },
   {
-    "texto": "vende dos panes",
-    "comando": "venta_directa",
-    "slots": {}
+    "texto": "como estas",
+    "comando": "desconocido"
   },
   {
-    "texto": "quiero dos panes",
-    "comando": "venta_directa",
-    "slots": {}
+    "texto": "que tal",
+    "comando": "desconocido"
   },
   {
-    "texto": "me llevo dos panes",
-    "comando": "venta_directa",
-    "slots": {}
+    "texto": "nos vemos luego",
+    "comando": "desconocido"
   },
   {
-    "texto": "fia dos panes a juan por favor",
-    "comando": "venta_fiada",
-    "slots": {}
+    "texto": "esperame un rato",
+    "comando": "desconocido"
   },
   {
-    "texto": "cobra 200 a juan",
-    "comando": "cobro_deuda",
-    "slots": {}
+    "texto": "voy al banco",
+    "comando": "desconocido"
   },
   {
-    "texto": "cuanto hay de pan",
-    "comando": "consulta_stock",
-    "slots": {}
+    "texto": "vino mi prima",
+    "comando": "desconocido"
   },
   {
-    "texto": "cuanto cuesta el pan",
-    "comando": "consulta_precio",
-    "slots": {}
+    "texto": "que dia es hoy",
+    "comando": "desconocido"
   },
   {
-    "texto": "cuanto debe juan",
-    "comando": "consulta_deuda",
-    "slots": {}
+    "texto": "me duele la cabeza",
+    "comando": "desconocido"
   },
   {
-    "texto": "como va el dia",
-    "comando": "consulta_dia",
-    "slots": {}
+    "texto": "tengo sueño",
+    "comando": "desconocido",
+    "conocido_fallo": true
   },
   {
-    "texto": "cuanto vendi hoy",
-    "comando": "consulta_dia",
-    "slots": {}
+    "texto": "hace frio",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "llueve mucho",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "la guagua se fue",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el carro no arranca",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mi hijo estudia",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tengo que barrer",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "la luz se fue",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el agua esta fria",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "busca el telefono",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "prende la luz",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "apaga la television",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "sube el volumen",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "cierra la nevera",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "abre la puerta de atras",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "voy a almorzar",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "ya comi",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tengo hambre",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "que hora es",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "vamos a la playa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mañana es domingo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el lunes empiezo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mi vecino vino",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "la vecina pregunto",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "hay visita en casa",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "me llamo por telefono",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "espera un segundo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "vuelvo ahora",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no tengo cambio",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "me falta el vuelto",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "cuenta otra vez",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no te escuche",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "habla mas alto",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "estoy ocupado",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "ahora no puedo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "despues te digo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mañana hablamos",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "que bueno",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "que lastima",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "esta bien",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no importa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "claro que si",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "por supuesto",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tiene razon",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no se",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "creo que si",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "creo que no",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tal vez",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "quiza luego",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "vamos a ver",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "a ver que pasa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "eso mismo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "asi es",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no me digas",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "que cosa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "oye escucha",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mira esto",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "te cuento algo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "resulta que",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "deja eso ahi",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "pon eso alla",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "busca la llave",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tengo la llave",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "se me olvido",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "se me perdio",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "lo encontre",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "ahi esta",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "aca no esta",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "alla tampoco",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no hay nadie",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "vino gente",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "se fueron todos",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tengo dos hermanos",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "mi mama viene",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mi papa esta",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el nino juega",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "la nina duerme",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el perro ladra",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el gato se fue",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "vamos al parque",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "vamos a caminar",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tengo que estudiar",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "tengo que trabajar",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "el jefe no esta",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el trabajador vino",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "hoy no abrimos",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mañana abrimos",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "cerramos temprano",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "hace mucho calor",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "hace mucho frio",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "esta lloviendo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "el sol esta fuerte",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "viene un ciclon",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no hay corriente",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "se daño la nevera",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "se rompio el vaso",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "limpia la mesa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "barre el piso",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "pon la mesa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "recoge eso",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "guarda la ropa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "lava los platos",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "cocina el arroz",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "hierve el agua",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "corta la cebolla",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "compra pan",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "compra leche",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no hay pan en casa",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "me prestas un lapiz",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "dame una mano",
+    "comando": "desconocido",
+    "conocido_fallo": true
+  },
+  {
+    "texto": "ayudame con esto",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "esperame afuera",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "te espero adentro",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "nos vemos manana",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "que tengas buen dia",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "saludos a tu mama",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "feliz cumpleaños",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "muchas gracias",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "de nada",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "con permiso",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "perdon",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "disculpa",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "no era asi",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "me equivoque",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "ya casi",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "falta poco",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "ya termine",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "todavia no",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "ahora mismo",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "en un rato",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "mas tarde",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "por la mañana",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "por la tarde",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "por la noche",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "a mediodia",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "temprano",
+    "comando": "desconocido"
+  },
+  {
+    "texto": "tarde en la noche",
+    "comando": "desconocido"
   }
 ]
