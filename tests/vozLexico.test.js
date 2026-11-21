@@ -19,7 +19,7 @@ describe('voz: léxico — tombstones y retirada', () => {
   it('desactivar una palabra base la quita solo de su categoría', () => {
     assert.equal(sinSaca.ventaFuerte.includes('saca'), false)
     assert.equal(sinSaca.ventaFuerte.includes('vende'), true)
-    assert.equal(sinSaca.ventaDebil.includes('pon'), true)
+    assert.equal(sinSaca.ventaDebil.includes('pon'), false)
     assert.deepEqual(sinSaca.retiradas, [{ categoria: 'venta_fuerte', valor: 'saca' }])
     // La base no se muta: otros léxicos siguen viendo la palabra.
     assert.equal(LEXICO_BASE.ventaFuerte.includes('saca'), true)

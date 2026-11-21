@@ -36,14 +36,20 @@ describe('voz asistida: comandos (K, L, M, N)', () => {
     assert.equal(r.slots.precioUnitario, null)
   })
 
-  it('un cambio de precio exige la palabra «precio»', () => {
+  it('un cambio de precio acepta la forma natural con "pon" (sin la palabra "precio")', () => {
     const r = interpretar('cambia el precio del pan a 25')
+
     assert.equal(r.comando, 'cambio_precio')
+
     assert.equal(r.slots.productoHint, 'pan')
+
     assert.equal(r.slots.precio, 25)
-    // Sin «precio» sigue siendo una venta: «pon el refresco a 60» no cambia la
-    // tarifa del catálogo.
-    assert.notEqual(interpretar('pon el refresco a 60').comando, 'cambio_precio')
+
+    // Decisión del dueño (2026-11-21): "pon" no es verbo de venta.
+
+    // "pon el refresco a 60" cambia la tarifa del catálogo.
+
+    assert.equal(interpretar('pon el refresco a 60').comando, 'cambio_precio')
   })
 
   it('distingue abrir de cerrar el cuadre', () => {
@@ -226,7 +232,7 @@ describe('voz asistida: mover producto', () => {
   })
 
   it('no roba ventas ni cambios de precio', () => {
-    assert.equal(interpretar('pon el refresco a 60').comando, 'venta_directa')
+    assert.equal(interpretar('pon el refresco a 60').comando, 'cambio_precio')
     assert.equal(interpretar('sube el precio del pan a 25').comando, 'cambio_precio')
   })
 

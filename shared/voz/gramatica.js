@@ -121,7 +121,11 @@ const VERBOS_VENTA = [
 
 // Verbos que piden cualquier cosa ("dame el total del día"). Solo cuentan como
 // venta si la frase no es una consulta ni una navegación (ver resolverComando).
-const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo', 'pon']
+//
+// «pon» NO está aquí a propósito: el dueño no vende con «pon». «pon el refresco
+// a 60» es un cambio de tarifa, no una venta a 60. Para vender se dice «ponme»
+// o un verbo de venta.
+const VERBOS_VENTA_DEBILES = ['dame', 'damelo', 'ponme', 'ponmelo']
 
 // (regex de verbos se compila en `compilar()` según el léxico)
 
@@ -1186,12 +1190,40 @@ export function esEntradaInventario(texto, lexico = LEXICO_BASE) {
 }
 
 /**
- * «Cambia el precio del pan a 25» (Fase L). Exige la palabra «precio»: sin ella
- * «pon el refresco a 60» es un precio de venta dictado, no un cambio de tarifa.
+ * «Cambia el precio del pan a 25» (Fase L).
+ *
+ * Dos formas:
+ *   - Explícita: lleva la palabra «precio» («cambia el precio del pan a 25»).
+ *   - Natural: verbo de tarifa + producto + precio dicho («pon el refresco a
+ *     60», «deja el arroz a 200»). El dueño NO vende con «pon»: para vender
+ *     dice «ponme» o un verbo de venta.
+ *
+ * La forma natural exige que el precio venga confirmado con «a N» (o «a precio
+ * de N»), y descarta lo que es otra cosa: traspaso («sube 4 manís al quiosco»),
+ * mover en el catálogo («pon el refresco debajo del pan») o venta con verbo
+ * fuerte/débil («vende 2 azúcares a 580», «ponme dos refrescos a 60»).
  */
 export function esCambioPrecio(texto, lexico = LEXICO_BASE) {
   const t = normalizar(texto)
-  return compilar(lexico).RE_PRECIO.test(t) && /\bprecios?\b/.test(t) && hayNumero(t)
+  const c = compilar(lexico)
+  if (!c.RE_PRECIO.test(t) || !hayNumero(t)) return false
+  if (/\bprecios?\b/.test(t)) return true
+
+  // La forma natural solo vale para verbos de tarifa solos. Los verbos de venta
+  // (fuertes y débiles) mandan: «ponme dos refrescos a 60» es una venta.
+  if (c.PREFIJO_VENTA.test(t)) return false
+  if (c.PREFIJO_VENTA_DEBIL.test(t)) return false
+
+  // Otra familia con el mismo verbo: mover en el catálogo o traspasar stock.
+  if (/\bal final\b|\bal principio\b/.test(t)) return false
+  if (/\b(debajo|encima|arriba|abajo|antes|despues|detras|delante)\s+(?:de|del)\b/.test(t)) return false
+  if (c.RE_UBICACION_DESTINO.test(t)) return false
+
+  // El número tiene que ser el precio nuevo («a 60»), no una cantidad suelta.
+  const resto = t.replace(c.RE_PRECIO, ' ')
+  const { slots } = extraerBase(resto, false, lexico)
+  if (!slots.productoHint) return false
+  return slots.precioUnitario != null
 }
 
 /** «Cierra el cuadre» / «abre el cuadre» (Fase M). Nunca escribe por sí solo. */

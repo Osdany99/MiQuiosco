@@ -16,7 +16,7 @@ export const LEXICO_BASE = Object.freeze({
     'anotamelo', 'registra', 'registrame', 'saca', 'sacame', 'despacha',
     'despachame', 'vendele', 'cobra', 'cobrame', 'cobrale', 'apunta', 'apuntame'
   ],
-  ventaDebil: ['dame', 'damelo', 'ponme', 'ponmelo', 'pon'],
+  ventaDebil: ['dame', 'damelo', 'ponme', 'ponmelo'],
   consultaMarca: [
     'cuanto', 'cuanta', 'cuantos', 'cuantas', 'hay', 'queda', 'quedan',
     'stock', 'existencia', 'existencias', 'tenemos', 'tengo', 'disponible',

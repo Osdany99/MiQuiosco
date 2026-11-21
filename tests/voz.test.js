@@ -548,6 +548,24 @@ describe('voz: verbos débiles ("dame", "ponme")', () => {
     assert.equal(resolverComando('vendele un pan').comando, 'venta_directa')
   })
 
+  it('"pon" ya no es verbo de venta: cambia la tarifa', () => {
+    // Decisión del dueño: no se vende con "pon".
+    assert.equal(resolverComando('pon el refresco a 60').comando, 'cambio_precio')
+    assert.equal(resolverComando('pon la azúcar a 580').comando, 'cambio_precio')
+    assert.equal(resolverComando('ponle el refresco a 60').comando, 'cambio_precio')
+  })
+
+  it('"pon" con cantidad suelta sigue cayendo en venta por cantidad y producto', () => {
+    assert.equal(resolverComando('pon 2 panes').comando, 'venta_directa')
+  })
+
+  it('"pon" no roba otras familias', () => {
+    assert.equal(resolverComando('pon el refresco debajo del pan').comando, 'mover_producto')
+    assert.equal(resolverComando('pon el agua al principio').comando, 'mover_producto')
+    assert.equal(resolverComando('sube 4 manís al quiosco').comando, 'traspaso')
+    assert.equal(resolverComando('vende 2 azúcares a 580').comando, 'venta_directa')
+  })
+
   it('un verbo débil no convierte consultas ni navegación en ventas', () => {
     assert.notEqual(resolverComando('dame cuanto hay de pan').comando, 'venta_directa')
     assert.notEqual(resolverComando('dame el inventario').comando, 'venta_directa')
