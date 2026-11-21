@@ -745,7 +745,8 @@ describe('analitica: fechas', () => {
     assert.equal(aDia(ms('2026-01-05')), '2026-01-05')
     assert.equal(aDia('2026-01-05T23:59:59.000Z'), '2026-01-05')
     assert.equal(aDia('2026-01-05'), '2026-01-05')
-    assert.equal(aDia(new Date(2026, 0, 5)), '2026-01-05')
+    // Date se interpreta por instante real: mediodía UTC cae en 2026-01-05 en UTC-5.
+    assert.equal(aDia(new Date(Date.UTC(2026, 0, 5, 12, 0, 0))), '2026-01-05')
     assert.equal(aDia(null), '')
     assert.equal(aDia('no-es-fecha'), '')
   })
