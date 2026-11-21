@@ -43,6 +43,11 @@ export function useVozSnapshot() {
       ? useRemoteRepo(TABLES.clientes)
       : useLocalRepo(TABLES.clientes)
   ))
+  const cuadresRepo = computed(() => (
+    conexion.modo.value === 'online'
+      ? useRemoteRepo(TABLES.cuadres)
+      : useLocalRepo(TABLES.cuadres)
+  ))
 
   // Solo puede haber una escritura en vuelo: dos pantallas montando a la vez
   // no deben pisarse el fichero.
@@ -62,7 +67,7 @@ export function useVozSnapshot() {
     ])
     await acciones.cargar().catch(() => {})
 
-    return construirSnapshot({
+    const snapshot = construirSnapshot({
       puestoId,
       filas: filas ?? [],
       acciones: acciones.pendientes.value,
@@ -72,6 +77,29 @@ export function useVozSnapshot() {
       lexico: vozLexico.lexico.value,
       ahora
     })
+
+    // Ganancia con la app cerrada (P3.5): el servicio nativo lee
+    // `resumen.gananciaHoy`, que aquí sale solo de las ventas directas. Con un
+    // cuadre CERRADO de hoy esa cifra no es la del cuadre y no cuadraría con la
+    // que responde la app abierta ni con la gráfica. Mientras el cálculo por
+    // cuadre no exista en Java, se quita el campo: el servicio contesta «Abre la
+    // app para ver la ganancia», que es la verdad. Sin cuadre cerrado la cifra
+    // fuera de cuadre sí es correcta y se conserva.
+    const hayCuadreCerrado = await hayCuadreCerradoHoy(puestoId, ahora).catch(() => false)
+    if (hayCuadreCerrado && snapshot?.resumen) delete snapshot.resumen.gananciaHoy
+
+    return snapshot
+  }
+
+  /** ¿Cerró hoy el cuadre de este puesto? Solo lectura, para la foto de voz. */
+  async function hayCuadreCerradoHoy(puestoId, ahora = Date.now()) {
+    const res = await cuadresRepo.value.readAll()
+    const filas = Array.isArray(res) ? res : (res?.data ?? [])
+    const dia = new Date(inicioDelDia(ahora))
+    const iso = `${dia.getFullYear()}-${String(dia.getMonth() + 1).padStart(2, '0')}-${String(dia.getDate()).padStart(2, '0')}`
+    return (filas ?? []).some(c => c?.estado === 'cerrado'
+      && String(c?.fecha ?? '') === iso
+      && (!puestoId || !c?.puestoId || c.puestoId === puestoId))
   }
 
   /**

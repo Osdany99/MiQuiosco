@@ -53,6 +53,92 @@ function enRangoDia(valor, inicio, fin) {
 }
 
 /**
+ * Un cuadre por puesto+fecha. El duplicado sale del modo offline, que no tiene
+ * el índice único de Postgres: sin esto, dos cuadres cerrados del mismo día
+ * sumaban su ganancia dos veces. Es la misma regla que `cuadresCerradosEnRango`
+ * en la gráfica de ganancia por período.
+ */
+function sinDuplicados(cuadres) {
+  const porPuestoFecha = new Map()
+  for (const c of cuadres) {
+    const k = `${c?.puestoId ?? ''}||${c?.fecha ?? ''}`
+    const prev = porPuestoFecha.get(k)
+    if (!prev || ms(c?.actualizadoEn) >= ms(prev?.actualizadoEn)) porPuestoFecha.set(k, c)
+  }
+  return [...porPuestoFecha.values()]
+}
+
+/**
+ * Cuadres de un día de negocio, ya limpios: solo los del puesto (una fila sin
+ * `puestoId` se conserva, como hace `useCuadre.leerPuesto`), sin duplicados y
+ * separados por estado.
+ *
+ * Sin el filtro de puesto, «cuánto gané hoy» en un negocio con dos puestos
+ * sumaba la ganancia del otro. Solo lee datos: puro y probado con `node --test`.
+ *
+ * @param {Array} cuadres filas de `cuadres`
+ * @param {string} dia 'YYYY-MM-DD'
+ * @param {{puestoId?: string|null}} opciones
+ * @returns {{cerrados: Array, abierto: object|null}}
+ */
+export function cuadresDelDia(cuadres = [], dia, { puestoId = null } = {}) {
+  const buscado = String(dia ?? '')
+  const delDia = (cuadres ?? [])
+    .filter(c => String(c?.fecha ?? '') === buscado)
+    .filter(c => !puestoId || !c?.puestoId || c.puestoId === puestoId)
+  const cerrados = sinDuplicados(delDia.filter(c => c?.estado === 'cerrado'))
+  const abiertos = sinDuplicados(delDia.filter(c => c?.estado === 'abierto'))
+  return { cerrados, abierto: abiertos[0] ?? null }
+}
+
+/**
+ * Ganancia neta de los cuadres cerrados de un día, con la MISMA regla que la
+ * gráfica "ganancia por período": FIFO congelada al cerrar menos el pago al
+ * trabajador, y un cuadre por puesto+fecha (el duplicado del modo offline no
+ * suma dos veces).
+ *
+ * Vive en `shared/` para que la gráfica (`app/utils/graficas.js`) y la voz
+ * (`gananciaDelDia`) llamen a la misma función. Si cada una calculara a su
+ * manera, ninguna de las dos cifras serviría.
+ *
+ * Un cuadre sin `ganancia` (legado) no se estima aquí: la gráfica lo hace con el
+ * precio de compra actual y con las líneas del cuadre. Se informa en
+ * `sinGanancia` para que quien responda pueda avisar en vez de inventar.
+ *
+ * @param {Array} cuadres filas de `cuadres` (cualquier estado)
+ * @param {string} dia 'YYYY-MM-DD'
+ * @param {{puestoId?: string|null}} opciones
+ * @returns {{monto: number, cerrados: number, sinGanancia: number}}
+ */
+export function gananciaCuadreDia(cuadres = [], dia, { puestoId = null } = {}) {
+  const buscado = String(dia ?? '')
+  const delDia = (cuadres ?? [])
+    .filter(c => c?.estado === 'cerrado' && String(c?.fecha ?? '') === buscado)
+    .filter(c => !puestoId || !c?.puestoId || c.puestoId === puestoId)
+
+  // Un registro por puesto+fecha; gana el más reciente, como en la gráfica.
+  const porPuestoFecha = new Map()
+  for (const c of delDia) {
+    const k = `${c.puestoId ?? ''}||${c.fecha}`
+    const prev = porPuestoFecha.get(k)
+    if (!prev || ms(c.actualizadoEn) >= ms(prev.actualizadoEn)) porPuestoFecha.set(k, c)
+  }
+  const cerrados = [...porPuestoFecha.values()]
+
+  let monto = 0
+  let sinGanancia = 0
+  for (const c of cerrados) {
+    monto -= Number(c?.pagoTrabajador) || 0
+    if (c?.ganancia == null) {
+      sinGanancia++
+      continue
+    }
+    monto += Number(c.ganancia) || 0
+  }
+  return { monto: redondear2(monto), cerrados: cerrados.length, sinGanancia }
+}
+
+/**
  * Ganancia de un día, alineada con la gráfica "ganancia por período":
  * - día cerrado (hay cuadre cerrado de ese día) -> ganancia del cuadre;
  * - hoy con cuadre abierto -> fuera de cuadre (ventas directas + deudas directas
@@ -60,7 +146,10 @@ function enRangoDia(valor, inicio, fin) {
  * - sin cuadre ni movimientos -> vacío.
  *
  * `cuadres` puede traer varios; se usa el cerrado del día, o el abierto si no hay
- * cerrado. `deudasDirectas` son cuentas fiado sin `cuadreOrigenId`.
+ * cerrado. Los duplicados offline del mismo puesto+fecha se colapsan, y con
+ * `puestoId` se descartan los cuadres de otro puesto: la ganancia que se lee es
+ * la del puesto que pregunta. `deudasDirectas` son cuentas fiado sin
+ * `cuadreOrigenId`.
  */
 export function gananciaDelDia({
   fecha = null,
@@ -68,6 +157,7 @@ export function gananciaDelDia({
   ventas = [],
   deudasDirectas = [],
   movimientos = [],
+  puestoId = null,
   ahora = Date.now(),
   desde = null,
   hasta = null
@@ -76,21 +166,12 @@ export function gananciaDelDia({
   const fin = hasta ?? (inicio + 24 * 60 * 60 * 1000 - 1)
   const dia = fecha || diaDeMs(inicio)
 
-  const delDia = (cuadres ?? []).filter(c => String(c?.fecha ?? '') === dia)
-  const cerrados = delDia.filter(c => c?.estado === 'cerrado')
+  const { cerrados, abierto } = cuadresDelDia(cuadres, dia, { puestoId })
   if (cerrados.length) {
-    // Misma regla que la gr�fica (filasGananciaCuadre): ganancia FIFO congelada
-    // al cerrar menos el pago al trabajador.
-    // Decisi�n Fase 3: cuadres viejos con ganancia == null NO se estiman con
-    // precio de compra actual (la gr�fica s� lo hace por legado). MiQuiosco se
-    // reinici� en v2.4.21; si aparecen, se omiten para no inventar cifras.
-    let monto = 0
-    for (const c of cerrados) {
-      if (c?.ganancia == null) continue
-      monto += Number(c.ganancia) || 0
-      monto -= Number(c?.pagoTrabajador) || 0
-    }
-    return { origen: 'cuadre', monto: redondear2(monto), dia }
+    // Misma función que la barra «cuadre» de la gráfica: FIFO congelada menos
+    // el pago al trabajador, un cuadre por puesto+fecha. Así la cifra que se
+    // escucha es exactamente la que se ve en la pantalla.
+    return { origen: 'cuadre', monto: gananciaCuadreDia(cuadres, dia, { puestoId }).monto, dia }
   }
 
   let fuera = 0
@@ -111,7 +192,6 @@ export function gananciaDelDia({
     hayMovimientos = true
   }
 
-  const abierto = delDia.find(c => c?.estado === 'abierto') ?? null
   if (abierto) {
     return { origen: 'abierto', monto: redondear2(fuera), dia }
   }
@@ -134,8 +214,13 @@ export function gananciaDelDia({
  * @param {number} opciones.ahora
  * @param {number|null} opciones.desde Inicio del rango (ms). Sin él, hoy.
  * @param {number|null} opciones.hasta Fin del rango (ms). Sin él, el día completo.
+ * @param {Array|null} opciones.cuadres Cuadres del rango (activa el cálculo por cuadre).
+ * @param {Array|null} opciones.deudasDirectas Cuentas fiado sin cuadre de origen.
+ * @param {Array|null} opciones.movimientos Movimientos de inventario (mermas).
+ * @param {string|null} opciones.puestoId Puesto que pregunta: los cuadres ajenos
+ *   no cuentan en su ganancia.
  */
-export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = Date.now(), desde = null, hasta = null, cuadres = null, deudasDirectas = null, movimientos = null } = {}) {
+export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = Date.now(), desde = null, hasta = null, cuadres = null, deudasDirectas = null, movimientos = null, puestoId = null } = {}) {
   const inicio = desde ?? inicioDelDia(ahora)
   const fin = hasta ?? (inicio + 24 * 60 * 60 * 1000 - 1)
   const delDia = (ventas ?? []).filter((v) => {
@@ -161,7 +246,7 @@ export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = D
   const pendientes = vigentes.length + Math.max(0, Math.trunc(Number(dictados) || 0))
   const usarCuadre = cuadres !== null || deudasDirectas !== null || movimientos !== null
   const ganancia = usarCuadre
-    ? gananciaDelDia({ cuadres: cuadres ?? [], ventas, deudasDirectas: deudasDirectas ?? [], movimientos: movimientos ?? [], ahora, desde: inicio, hasta: fin })
+    ? gananciaDelDia({ cuadres: cuadres ?? [], ventas, deudasDirectas: deudasDirectas ?? [], movimientos: movimientos ?? [], puestoId, ahora, desde: inicio, hasta: fin })
     : { origen: 'ventas', monto: redondear2(gananciaVentas), dia: diaDeMs(inicio) }
 
   return {

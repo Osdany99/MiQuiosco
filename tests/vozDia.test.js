@@ -8,6 +8,7 @@ import {
   formatearDia,
   formatearGanancia,
   formatearMonto,
+  gananciaCuadreDia,
   gananciaDelDia,
   inicioDelDia,
   resumirDia
@@ -241,6 +242,49 @@ describe('voz: ganancia del día', () => {
       movimientos: [{ creadoEn: AHORA, tipo: 'merma', importe: 5 }]
     })
     assert.deepEqual({ origen: r.origen, monto: r.monto }, { origen: 'fuera_de_cuadre', monto: 32 })
+  })
+
+  it('un cuadre duplicado del modo offline no suma dos veces', () => {
+    // El duplicado sale del modo sin conexión: no hay índice único. La gráfica
+    // deduplica por puesto+fecha y gana el más reciente; la voz hace lo mismo.
+    const cuadres = [
+      { id: 'a', puestoId: 'p1', fecha: '2026-11-16', estado: 'cerrado', ganancia: 50, actualizadoEn: AHORA - HORA },
+      { id: 'b', puestoId: 'p1', fecha: '2026-11-16', estado: 'cerrado', ganancia: 55, actualizadoEn: AHORA }
+    ]
+    assert.deepEqual(gananciaCuadreDia(cuadres, '2026-11-16'), { monto: 55, cerrados: 1, sinGanancia: 0 })
+    const r = gananciaDelDia({ fecha: '2026-11-16', cuadres, desde: inicioDelDia(AHORA) })
+    assert.equal(r.monto, 55)
+    assert.equal(r.origen, 'cuadre')
+  })
+
+  it('la ganancia de otro puesto no entra en la cifra de este', () => {
+    const cuadres = [
+      { id: 'propio', puestoId: 'p1', fecha: '2026-11-16', estado: 'cerrado', ganancia: 40, actualizadoEn: AHORA },
+      { id: 'ajeno', puestoId: 'p2', fecha: '2026-11-16', estado: 'cerrado', ganancia: 900, actualizadoEn: AHORA }
+    ]
+    assert.equal(gananciaCuadreDia(cuadres, '2026-11-16', { puestoId: 'p1' }).monto, 40)
+    const r = gananciaDelDia({ fecha: '2026-11-16', cuadres, puestoId: 'p1', desde: inicioDelDia(AHORA) })
+    assert.equal(r.monto, 40)
+  })
+
+  it('la cifra por voz es la misma que la base de la gráfica', () => {
+    // La gráfica reexporta `gananciaCuadreDia`; la voz la llama dentro de
+    // `gananciaDelDia`. Si alguna de las dos cambiara de criterio, este test
+    // cae: es la garantía de que pantalla y voz no divergen (P3.4).
+    const cuadres = [
+      { id: 'b', puestoId: 'p1', fecha: '2026-11-16', estado: 'cerrado', ganancia: 120, pagoTrabajador: 20, actualizadoEn: AHORA - HORA },
+      { id: 'a', puestoId: 'p1', fecha: '2026-11-16', estado: 'cerrado', ganancia: 130, pagoTrabajador: 20, actualizadoEn: AHORA }
+    ]
+    const grafica = gananciaCuadreDia(cuadres, '2026-11-16', { puestoId: 'p1' }).monto
+    const voz = gananciaDelDia({ fecha: '2026-11-16', cuadres, puestoId: 'p1', desde: inicioDelDia(AHORA) }).monto
+    assert.equal(voz, grafica)
+    // Gana el registro más reciente (a): 130 − 20.
+    assert.equal(voz, 110)
+  })
+
+  it('el pago al trabajador se resta igual que en la gráfica', () => {
+    const cuadres = [{ id: 'a', puestoId: 'p1', fecha: '2026-11-16', estado: 'cerrado', ganancia: 100, pagoTrabajador: 90 }]
+    assert.equal(gananciaCuadreDia(cuadres, '2026-11-16').monto, 10)
   })
 
   it('exige marca de día', () => {

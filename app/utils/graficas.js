@@ -6,6 +6,7 @@ import {
 } from '../../shared/inventario/analitica'
 import { leerLibro, reposLibro } from './libro'
 import { ahoraServidor } from './relojServidor'
+import { gananciaCuadreDia } from '../../shared/voz/dia.js'
 
 const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres
@@ -211,6 +212,12 @@ function cuadresCerradosEnRango(cuadres, desde, hasta) {
   }
   return [...porPuestoFecha.values()]
 }
+
+/**
+ * `gananciaCuadreDia` se reexporta desde `shared/` (no se copia aquí): la voz y
+ * la gráfica tienen que usar literalmente la misma función.
+ */
+export { gananciaCuadreDia }
 
 async function cargarDatos(opts, productoRepo, cuadreRepo, itemsRepo, usuariosRepo) {
   const [todosCuadres, todosItems, todosProductos, todosUsuarios] = await Promise.all([
