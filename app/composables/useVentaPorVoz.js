@@ -743,22 +743,24 @@ function _create(ubicacion) {
     if (!auth.esJefe.value || !perms.puedeVista('clientes')) {
       return { tipo: 'aviso', mensaje: 'Solo el jefe puede agregar clientes.' }
     }
+    // Mayúsculas de nombre propio: «os Dani» → «Os Dani».
     const nombre = String(slots?.nombre ?? '').trim()
-    if (!nombre) {
+    const nombrePropio = nombre.charAt(0).toUpperCase() + nombre.slice(1)
+    if (!nombrePropio) {
       return { tipo: 'aviso', mensaje: '¿Cómo se llama el cliente? Prueba: agrega el cliente Adrián.' }
     }
     const pid = auth.usuarioActual.value?.puestoId
     const lista = pid
       ? await fiado.cargarClientes(pid, { incluirSinCliente: false }).catch(() => [])
       : []
-    const parecidos = clientesSimilares(nombre, lista, { umbral: 0.86 })
+    const parecidos = clientesSimilares(nombrePropio, lista, { umbral: 0.86 })
     if (parecidos.length) {
       return {
         tipo: 'aviso',
         mensaje: `Ya existe «${parecidos[0].cliente.nombre}». Revisa /clientes antes de crear otro.`
       }
     }
-    return { tipo: 'cliente_alta', slots: { nombre }, sttConfidence }
+    return { tipo: 'cliente_alta', slots: { nombre: nombrePropio }, sttConfidence }
   }
 
   /** Fase N — traspaso almacén → quiosco. Solo jefe con ambas ubicaciones. */ async function resolverTraspasoAccion(slots, sttConfidence = 0, vigente = () => true) {
@@ -946,7 +948,7 @@ function _create(ubicacion) {
   }
 
   /** Prepara el alta de cliente: el formulario abre con el nombre dictado. */
-  function prepararClienteAlta(accion) {
+  async function prepararClienteAlta(accion) {
     const nombre = String(accion?.slots?.nombre ?? '').trim()
     prefill.value = { modo: 'cliente', nombre }
     // El layout abre el diálogo al ver `producto`: se usa un marcador con el
@@ -958,6 +960,10 @@ function _create(ubicacion) {
     toast.add({ title: 'Nuevo cliente', description: texto, color: 'neutral', duration: 8000 })
     voice.registrar('voz.cliente', { nombre })
     hablarAsistido(texto)
+    // P5.1/P5.2: abrir el formulario real de alta de cliente en /clientes con
+    // el nombre prellenado (navegar si no estamos ahí). La voz no escribe.
+    const query = { nuevo: '1', nombre }
+    await navigateTo({ path: '/clientes', query })
   }
 
   /**

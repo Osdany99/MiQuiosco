@@ -22,6 +22,8 @@ definePageMeta({
 
 const toast = useToast()
 const auth = useAuth()
+const route = useRoute()
+const router = useRouter()
 const cli = useClientes()
 const tablaRef = ref(null)
 
@@ -414,8 +416,23 @@ watch(pid, async (valor) => {
   await cli.cargarClientes(valor)
 }, { immediate: true })
 
+watch(() => route.query, (q) => {
+  const { nuevo, nombre, ...resto } = q
+  if (nuevo) {
+    abrirNuevo()
+    form.value.nombre = String(nombre ?? '')
+    void router.replace({ path: route.path, query: resto })
+  }
+})
+
 onMounted(() => {
   leerPermiso()
+  const { nuevo, nombre, ...resto } = route.query
+  if (nuevo) {
+    abrirNuevo()
+    form.value.nombre = String(nombre ?? '')
+    void router.replace({ path: route.path, query: resto })
+  }
 })
 </script>
 
