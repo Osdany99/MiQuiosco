@@ -96,7 +96,15 @@ async function recargar() {
   await cargar()
 }
 
+const datosVersion = useDatosVersion()
+const vozOcupada = useState('voz:ocupada', () => false)
+
 onMounted(cargar)
+
+watch(() => datosVersion.version.value, () => {
+  if (cargando.value || dialogoAbierto.value || filtrosAbiertos.value || vozOcupada.value) return
+  void cargar()
+})
 
 // El desglose es el mismo diálogo que abre el "Q:N" del cuadre. Aquí se le pasa
 // el día y el producto, y el `historico` evita que le pida al jefe corregir una

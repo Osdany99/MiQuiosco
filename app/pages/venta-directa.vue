@@ -269,6 +269,9 @@ const textoVacio = computed(() =>
   diaISO.value ? `Sin salidas el ${fmtDate(diaISO.value)}` : 'Sin ventas directas'
 )
 
+const datosVersion = useDatosVersion()
+const vozOcupada = useState('voz:ocupada', () => false)
+
 async function recargar() {
   cargando.value = true
   try {
@@ -281,4 +284,9 @@ async function recargar() {
 }
 
 onMounted(recargar)
+
+watch(() => datosVersion.version.value, () => {
+  if (cargando.value || vozOcupada.value) return
+  void recargar()
+})
 </script>

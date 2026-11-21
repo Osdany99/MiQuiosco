@@ -579,4 +579,12 @@ async function confirmarCobroRecarga() {
 }
 
 onMounted(recargar)
+
+const vozOcupada = useState('voz:ocupada', () => false)
+watch(() => datosVersion.version.value, () => {
+  if (cargando.value || cobrando.value || cobrandoRecarga.value) return
+  if (showCobro.value || showCobroRecarga.value || showHistorial.value) return
+  if (vozOcupada.value) return
+  void recargar()
+})
 </script>

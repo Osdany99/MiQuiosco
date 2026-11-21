@@ -10,6 +10,8 @@ const toast = useToast()
 const cuadreCtl = useCuadre()
 
 const tableRef = ref(null)
+const datosVersion = useDatosVersion()
+const vozOcupada = useState('voz:ocupada', () => false)
 
 // El historial va de lo más reciente a lo más viejo. Sin esto la API devuelve
 // las filas en orden físico de inserción (Postgres) y el SQLite local en orden
@@ -55,6 +57,11 @@ function pedirReabrir(row) {
   reabrirTarget.value = row
   reabrirOpen.value = true
 }
+
+watch(() => datosVersion.version.value, () => {
+  if (reabrirOpen.value || reabriendo.value || vozOcupada.value) return
+  void tableRef.value?.refresh()
+})
 
 async function confirmarReabrir() {
   const row = reabrirTarget.value

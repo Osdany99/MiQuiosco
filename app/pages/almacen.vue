@@ -362,6 +362,16 @@ const {
   abrirVenta, showVenta, modoVenta, productoVenta
 } = useVistaInventario('almacen')
 
+const datos = useDatosVersion()
+const hayDialogoAbierto = computed(() => showEntrada.value || showTraspaso.value || showAjuste.value
+  || showLotes.value || showCorreccion.value || showAnulacion.value || showDetalleLote.value
+  || showVenta.value || showEdicion.value || dialogoProducto.value)
+const vozOcupada = useState('voz:ocupada', () => false)
+watch(() => datos.version.value, () => {
+  if (hayDialogoAbierto.value || vozOcupada.value) return
+  void recargar()
+})
+
 /**
  * Los filtros del historial viven en el composable; el popover de la tabla
  * trabaja con un objeto plano. Este adaptador es la única traducción.

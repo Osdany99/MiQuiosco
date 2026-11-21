@@ -29,6 +29,7 @@ const conexion = useModoConexion()
 const route = useRoute()
 const vozQuiosco = useVentaPorVoz('quiosco')
 const vozAlmacen = useVentaPorVoz('almacen')
+const datos = useDatosVersion()
 const accionesVoz = useAccionesPendientes()
 const vozSnapshot = useVozSnapshot()
 const buzon = useBuzonVoz()
@@ -809,7 +810,7 @@ const userMenuItems = computed(() => {
         :ubicacion="vozActiva.prefill.value?.ubicacion ?? ubicacionVozActual"
         :modo="vozActiva.modo.value"
         :prefill="vozActiva.prefill.value"
-        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz(), datos.notificarCambioDatos())"
       />
 
       <!-- Comandos asistidos (K, L, N): cada uno tiene su diálogo y su propio
@@ -820,21 +821,21 @@ const userMenuItems = computed(() => {
         v-model="dialogoEntradaAbierto"
         :producto-id="vozActiva.modo.value === 'entrada' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :prefill="vozActiva.modo.value === 'entrada' ? vozActiva.prefill.value : null"
-        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz(), datos.notificarCambioDatos())"
       />
       <ProductoDialogoPrecio
         ref="precioDialogRef"
         v-model="dialogoPrecioAbierto"
         :producto="vozActiva.modo.value === 'precio' ? vozActiva.producto.value : null"
         :prefill="vozActiva.modo.value === 'precio' ? vozActiva.prefill.value : null"
-        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz(), datos.notificarCambioDatos())"
       />
       <InventarioDialogoTraspaso
         ref="traspasoDialogRef"
         v-model="dialogoTraspasoAbierto"
         :producto-id="vozActiva.modo.value === 'traspaso' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :prefill="vozActiva.modo.value === 'traspaso' ? vozActiva.prefill.value : null"
-        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz(), datos.notificarCambioDatos())"
       />
       <InventarioDialogoAjuste
         ref="ajusteDialogRef"
@@ -842,13 +843,13 @@ const userMenuItems = computed(() => {
         :producto-id="vozActiva.modo.value === 'ajuste' ? (vozActiva.producto.value?.productoId ?? null) : null"
         :ubicacion="vozActiva.modo.value === 'ajuste' ? (vozActiva.prefill.value?.ubicacion || ubicacionVozActual) : ubicacionVozActual"
         :prefill="vozActiva.modo.value === 'ajuste' ? vozActiva.prefill.value : null"
-        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz())"
+        @guardado="void (vozActiva.limpiar(), vozActiva.invalidarCatalogoVoz(), datos.notificarCambioDatos())"
       />
       <ClienteDialogo
         ref="clienteDialogRef"
         v-model="dialogoClienteAbierto"
         :prefill="vozActiva.modo.value === 'cliente' ? vozActiva.prefill.value : null"
-        @guardado="void vozActiva.limpiar()"
+        @guardado="void (vozActiva.limpiar(), datos.notificarCambioDatos())"
       />
 
       <UButton

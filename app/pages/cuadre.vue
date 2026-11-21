@@ -54,6 +54,9 @@ async function alCerrar() {
   }
 }
 
+const datosVersion = useDatosVersion()
+const vozOcupada = useState('voz:ocupada', () => false)
+
 onMounted(() => {
   const pid = auth.usuarioActual.value?.puestoId
   if (!pid) {
@@ -61,6 +64,11 @@ onMounted(() => {
     return
   }
   cargarDatos(pid, cuadreIdParam.value)
+})
+
+watch(() => datosVersion.version.value, () => {
+  if (vozOcupada.value || showSugerencia.value) return
+  recargar()
 })
 </script>
 

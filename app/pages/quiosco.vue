@@ -236,6 +236,7 @@ const {
 } = useVistaInventario('quiosco')
 
 const perms = usePermisos()
+const datos = useDatosVersion()
 
 const showTraspaso = ref(false)
 const productoTraspaso = ref(null)
@@ -273,4 +274,12 @@ function abrirTraspasoDe(productoId) {
   productoTraspaso.value = productoId
   showTraspaso.value = true
 }
+
+const hayDialogoAbierto = computed(() => showTraspaso.value || showAjuste.value || showLotes.value
+  || showVenta.value || showDesgloseStock.value)
+const vozOcupada = useState('voz:ocupada', () => false)
+watch(() => datos.version.value, () => {
+  if (hayDialogoAbierto.value || vozOcupada.value) return
+  void recargar()
+})
 </script>
