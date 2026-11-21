@@ -176,7 +176,23 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
   const hint = normal(productoHint)
   if (!hint) return []
 
-  const puntuados = (catalogo || [])
+  const catalogoSeguro = Array.isArray(catalogo) ? catalogo : []
+  // Cuántos productos comparten nombre. La identidad nombre+descripción solo
+  // sirve para desempatar homónimos: aplicarla siempre haría que un producto
+  // cuya descripción repite el nombre de otro («Pan» con descripción «leche»)
+  // le ganara al producto que de verdad se llama así.
+  const nombres = new Map()
+  for (const product of catalogoSeguro) {
+    const clave = tokens(product.name ?? product.canonicalSpeak).join(' ')
+    if (!clave) continue
+    nombres.set(clave, (nombres.get(clave) ?? 0) + 1)
+  }
+  const esHomonimo = (product) => {
+    const clave = tokens(product.name ?? product.canonicalSpeak).join(' ')
+    return Boolean(clave) && (nombres.get(clave) ?? 0) > 1
+  }
+
+  const puntuados = catalogoSeguro
     .map((product) => {
       let mejor = { score: 0, distance: 999, matchedField: 'name' }
       let scoreNombre = 0
@@ -233,11 +249,14 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
       // Identidad = nombre + descripción, como la dice la gente («maní molido»).
       // Solo cuenta cuando el NOMBRE está entero en el dictado: así la
       // descripción no puede hacer ganar a un producto que se llama distinto
-      // («Hielo · bolsa para refresco» no compite con «refresco»). Con esto
-      // «maní» empata entre molido/cocinado/garapiñado y `decidirProducto`
-      // pregunta, mientras que «maní molido» gana con margen.
+      // («Hielo · bolsa para refresco» no compite con «refresco»). Y solo se
+      // aplica a homónimos: con un nombre único no hay nada que desempatar, y
+      // usarla siempre dejaría que una descripción que repite el nombre de otro
+      // producto le ganara al que de verdad se llama así. Con esto «maní» empata
+      // entre molido/cocinado/garapiñado y `decidirProducto` pregunta, mientras
+      // que «maní molido» gana con margen.
       const nombreEnDictado = tokensNombre.length > 0 && tokensNombre.every(t => tokensHint.includes(t))
-      if (nombreEnDictado) {
+      if (nombreEnDictado && esHomonimo(product)) {
         const identidad = nombreCompleto(product.name ?? product.canonicalSpeak, product.description ?? product.descripcion)
         const p = puntuar(hint, identidad)
         // La identidad manda sobre el nombre a secas: es el identificador real.
@@ -262,6 +281,9 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
 
   puntuados.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
+    // A igual puntaje gana el nombre: es más prueba que la descripción.
+    const porNombre = item => (item.matchField === 'name' ? 0 : 1)
+    if (porNombre(a) !== porNombre(b)) return porNombre(a) - porNombre(b)
     if (a.distance !== b.distance) return a.distance - b.distance
     return String(a.product.name ?? '').length - String(b.product.name ?? '').length
   })

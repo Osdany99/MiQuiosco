@@ -817,6 +817,26 @@ describe('voz: la identidad es nombre + descripción', () => {
     assert.equal(decision.ambiguo, true)
   })
 
+  it('la descripción de uno no le gana al nombre de otro producto', () => {
+    // «Pan» con descripción «leche» no es «Pan de leche»: si la identidad se
+    // aplicara a nombres únicos, la descripción podría suplantar al producto
+    // que de verdad se llama así.
+    const catalogo = [
+      { id: 'pan', name: 'Pan', description: 'leche' },
+      { id: 'pdl', name: 'Pan de leche' }
+    ]
+    const [mejor] = fuzzyMatchProducts('pan de leche', catalogo)
+    assert.equal(mejor.product.id, 'pdl')
+    // Y sin la preposición, el empate se pregunta en vez de adivinar.
+    assert.equal(
+      decidirProducto(
+        fuzzyMatchProducts('pan leche', catalogo),
+        { umbral: UMBRAL_PRODUCTO, sttConfidence: 0 }
+      ).elegido,
+      null
+    )
+  })
+
   it('la identidad no rompe cuando el producto no tiene descripción', () => {
     const catalogo = [{ id: '1', name: 'Refresco' }, { id: '2', name: 'Hielo', description: 'bolsa' }]
     const [mejor] = fuzzyMatchProducts('refresco', catalogo)
