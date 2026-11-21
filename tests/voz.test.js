@@ -29,7 +29,7 @@ import {
 import { clasificarRespuesta, esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
 import { cabecerasDePrueba } from '../app/utils/voice/auditoria.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
-import { describirCantidad, fraseVenta, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
+import { describirCantidad, fraseVenta, fraseVentaMultiple, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
 import { formatearPrecio } from '../app/utils/voice/respuestasVoz.js'
 import { MS_MARGEN_ANTIECO, esEcoDePrompt, ecoPalabraSuelta, respuestaTrasEco } from '../app/utils/voice/eco.js'
 import { extraerCorreccion } from '../app/utils/voice/correccion.js'
@@ -1063,6 +1063,19 @@ describe('voz: la lectura dice la descripción', () => {
     assert.equal(
       fraseStockInsuficiente({ disponible: 3, nombre: 'Maní', descripcion: 'molido', lugar: 'quiosco' }),
       'Solo hay 3 unidades de Maní molido en el quiosco.'
+    )
+  })
+
+  it('la venta de varias líneas nombra la descripción de cada una', () => {
+    assert.equal(
+      fraseVentaMultiple({
+        lineas: [
+          { cantidad: 2, nombre: 'Maní', descripcion: 'molido' },
+          { cantidad: 1, nombre: 'Pan', descripcion: 'de leche' }
+        ],
+        lugar: 'almacén'
+      }),
+      'Voy a vender 2 unidades de Maní molido y un Pan de leche del almacén.'
     )
   })
 

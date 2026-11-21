@@ -280,6 +280,7 @@ function _create(ubicacion) {
     const lineas = (accion?.lineas ?? []).map(l => ({
       productoId: l.productoId,
       nombre: l.nombre,
+      descripcion: l.fila?.descripcion ?? l.descripcion ?? null,
       cantidad: l.cantidad,
       precioVentaUsado: l.precioUnitario,
       disponible: l.disponible,
