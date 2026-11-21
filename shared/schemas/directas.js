@@ -36,8 +36,11 @@ export const ventaDirectaSchema = z.object({
   notas: z.string().nullable().optional(),
   /**
    * Fecha de la venta en epoch ms. Solo la usa la cola de voz: una venta
-   * dictada ayer y confirmada hoy debe quedar en el día en que se dictó. El
-   * servidor la acota a los últimos días y rechaza fechas futuras.
+   * dictada ayer y confirmada hoy debe quedar en el día en que se dictó.
+   *
+   * El servidor ya NO la rechaza por "futura": si el reloj del equipo va
+   * adelantado (Cuba sin cambio de hora, teléfonos que sí lo aplicaron) se usa
+   * el instante del servidor. Solo se descarta lo demasiado antiguo.
    */
   creadoEn: z.number().int().positive().optional()
 })

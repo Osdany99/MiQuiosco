@@ -13,13 +13,15 @@ import {
   auditarAnulacionesCuadre,
   construirAjuste,
   construirCorreccionLote,
+  construirAnulacionLote,
+  evaluarAnulacionLote,
   saldosPorProducto,
   saldosPorLote,
   saldosDeLote,
   lotesConSaldo
 } from '../shared/inventario/operaciones.js'
 import { entradaAlmacenSchema } from '../shared/schemas/entradaAlmacen.js'
-import { correccionLoteSchema } from '../shared/schemas/lote.js'
+import { correccionLoteSchema, anulacionLoteSchema } from '../shared/schemas/lote.js'
 import { traspasoSchema, ajusteInventarioSchema } from '../shared/schemas/traspaso.js'
 import { productoSchema } from '../shared/schemas/producto.js'
 import { ventaDirectaSchema, deudaDirectaSchema, pagoFiadoDirectoSchema } from '../shared/schemas/directas.js'
@@ -1222,6 +1224,119 @@ describe('corrección de una entrada: cantidad y precio', () => {
     assert.equal(s.almacen, 60)
     assert.equal(s.quiosco, 30)
     assert.equal(s.consumido, true)
+  })
+})
+
+describe('anulación de una entrada equivocada', () => {
+  /** Reutiliza el libro del bloque de corrección: entrada, traspaso y venta. */
+  function libro({ cantidad = 100, precio = 8, traspaso = 0, ventaQuiosco = 0 } = {}) {
+    const e = entrada(cantidad, precio)
+    const lote = e.lotes[0]
+    const movs = [...e.movimientos]
+    if (traspaso > 0) {
+      const tr = construirTraspaso({
+        lineas: [{ productoId: PAN, cantidad: traspaso }],
+        lotesPorProducto: new Map([[PAN, lotesEn(movs, 'almacen')]]),
+        meta: { ...meta, fecha: '2026-01-02' }
+      })
+      movs.push(...tr.movimientos)
+    }
+    if (ventaQuiosco > 0) {
+      const v = construirVentaCuadre({
+        lineas: [{ id: 'linea-1', productoId: PAN, cantidad: ventaQuiosco }],
+        lotesPorProducto: new Map([[PAN, lotesEn(movs, 'quiosco')]]),
+        cuadreId: 'c1',
+        meta
+      })
+      movs.push(...v.movimientos)
+    }
+    return { lote, movs }
+  }
+
+  it('un lote intacto se puede anular y queda sin stock en las dos ubicaciones', () => {
+    const { lote, movs } = libro()
+    const plan = construirAnulacionLote({ lote, movimientos: movs, datos: { motivo: 'era otro producto' }, meta })
+    assert.equal(plan.cambiosLote.anulado, true)
+    assert.equal(plan.cambiosLote.actualizadoEn, meta.ahora)
+    assert.equal(plan.almacen, 0)
+    assert.equal(plan.quiosco, 0)
+    // Se invalida la entrada, no se escribe contrapartida: no hay stock que
+    // compensar y un contramovimiento duplicaría las cifras del libro.
+    assert.equal(plan.movimientosActualizados.length, 1)
+    const mov = plan.movimientosActualizados[0]
+    assert.equal(mov.anulado, true)
+    assert.equal(mov.anuladoPor, meta.usuarioId)
+    assert.equal(mov.motivo, 'anulacion_entrada')
+    assert.equal(mov.nota, 'era otro producto')
+  })
+
+  it('el libro aplicado deja de contar el lote: sin saldo y fuera de FIFO', () => {
+    const { lote, movs } = libro()
+    const plan = construirAnulacionLote({ lote, movimientos: movs, datos: { motivo: 'x' }, meta })
+    const cambios = new Map(plan.movimientosActualizados.map(m => [m.id, m]))
+    const libroFinal = movs.map(m => ({ ...m, ...(cambios.get(m.id) ?? {}) }))
+    assert.equal(saldosDeLote(lote, libroFinal).almacen, 0)
+    assert.equal(lotesConSaldo([{ ...lote, anulado: true }], libroFinal, PAN, 'almacen').length, 0)
+  })
+
+  it('con mercancía fuera no se anula: se corrige o se da de baja con merma', () => {
+    const { lote, movs } = libro({ traspaso: 40 })
+    assert.throws(
+      () => construirAnulacionLote({ lote, movimientos: movs, datos: { motivo: 'x' }, meta }),
+      /ya salió mercancía/
+    )
+    // Ni siquiera con una venta en el quiosco.
+    const conVenta = libro({ traspaso: 40, ventaQuiosco: 10 })
+    assert.throws(
+      () => construirAnulacionLote({ lote: conVenta.lote, movimientos: conVenta.movs, datos: { motivo: 'x' }, meta }),
+      /ya salió mercancía/
+    )
+  })
+
+  it('la merma también bloquea: el lote ya no está intacto', () => {
+    const { lote, movs } = libro()
+    const merma = construirAjuste({
+      productoId: PAN,
+      tipo: 'merma',
+      ubicacion: 'almacen',
+      cantidad: 1,
+      motivo: 'roto',
+      lotesOrdenados: lotesEn(movs, 'almacen'),
+      meta
+    })
+    const conMerma = [...movs, ...merma.movimientos]
+    assert.throws(
+      () => construirAnulacionLote({ lote, movimientos: conMerma, datos: { motivo: 'x' }, meta }),
+      /ya salió mercancía/
+    )
+  })
+
+  it('un lote ya anulado o sin motivo no se toca', () => {
+    const { lote, movs } = libro()
+    assert.throws(
+      () => construirAnulacionLote({ lote: { ...lote, anulado: true }, movimientos: movs, datos: { motivo: 'x' }, meta }),
+      /ya está anulado/
+    )
+    assert.throws(
+      () => construirAnulacionLote({ lote, movimientos: movs, datos: { motivo: '  ' }, meta }),
+      /El motivo es obligatorio/
+    )
+  })
+
+  it('evaluarAnulacionLote acompaña a la corrección sin contradecirla', () => {
+    const intacto = libro()
+    assert.equal(evaluarAnulacionLote({ lote: intacto.lote, movimientos: intacto.movs }).anulable, true)
+    const usado = libro({ traspaso: 40 })
+    const r = evaluarAnulacionLote({ lote: usado.lote, movimientos: usado.movs })
+    assert.equal(r.anulable, false)
+    assert.match(r.motivoNoAnulable, /merma/)
+  })
+
+  it('el esquema exige un motivo real', () => {
+    assert.equal(anulacionLoteSchema.safeParse({ motivo: 'era otro producto' }).success, true)
+    assert.equal(anulacionLoteSchema.safeParse({ motivo: '' }).success, false)
+    assert.equal(anulacionLoteSchema.safeParse({}).success, false)
+    assert.equal(anulacionLoteSchema.safeParse({ motivo: 'x'.repeat(201) }).success, false)
   })
 })
 

@@ -19,6 +19,8 @@
  * epoch, el sqlite guarda epoch y las filas de cuadre/lote traen 'YYYY-MM-DD'.
  */
 
+import { diaEnOffset } from '../fechas.js'
+
 const DIA_MS = 86400000
 
 /** Tramos de antigüedad de lote para el capital dormido. */
@@ -33,8 +35,13 @@ export const TRAMOS_EDAD = [
 // ---------------------------------------------------------------- fechas ----
 
 /**
- * Normaliza cualquier timestamp a 'YYYY-MM-DD' en hora local (el día que el
- * jefe vive). Acepta epoch ms, ISO, Date y el propio 'YYYY-MM-DD'.
+ * Normaliza cualquier timestamp a 'YYYY-MM-DD' del día de negocio.
+ *
+ * Acepta epoch ms, ISO, Date y el propio 'YYYY-MM-DD'. El día se calcula con
+ * el desfase fijo del negocio (shared/fechas.diaEnOffset), NO con la zona del
+ * aparato: así el servidor en UTC y el teléfono de Cuba devuelven el mismo día
+ * para el mismo instante, y el país que decidió no cambiar la hora no queda
+ * desplazado en las gráficas ni en las ventanas de reportes.
  */
 export function aDia(v) {
   if (v == null || v === '') return ''
@@ -47,8 +54,7 @@ export function aDia(v) {
   if (v instanceof Date) return aDia(v.getTime())
   const n = Number(v)
   if (!Number.isFinite(n) || n <= 0) return ''
-  const d = new Date(n)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return diaEnOffset(n)
 }
 
 /** 'YYYY-MM-DD' → entero de día UTC (aritmética sin errores de horario de verano). */

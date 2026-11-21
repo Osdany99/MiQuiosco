@@ -7,6 +7,9 @@
  * escriben a mano, porque ahí el número sin unidad se confundiría con una
  * cantidad.
  */
+import { diaEnOffset } from '../../shared/fechas.js'
+import { ahoraServidor } from './relojServidor.js'
+
 export function fmtPrecio(v) {
   return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0 }).format(v)
 }
@@ -28,6 +31,21 @@ export function hoyLocal() {
   const mes = String(d.getMonth() + 1).padStart(2, '0')
   const dia = String(d.getDate()).padStart(2, '0')
   return `${d.getFullYear()}-${mes}-${dia}`
+}
+
+/**
+ * Día de negocio de hoy con el reloj del SERVIDOR, no con el del aparato.
+ *
+ * En Cuba el cambio de hora se decidió no aplicar y muchos teléfonos quedaron
+ * una hora adelantados: entre las 23:00 y las 00:00 `hoyLocal()` daba el día
+ * siguiente y se creaban lotes/traspasos con fecha futura. El día se calcula
+ * sobre `ahoraServidor()` (desfase medido en useReloj) con el desfase del
+ * negocio (shared/fechas.diaEnOffset).
+ *
+ * Todo lo que se feche "hoy" desde un formulario debe usar esta función.
+ */
+export function hoyNegocio() {
+  return diaEnOffset(ahoraServidor())
 }
 
 // El bono es del 1% solo de lo vendido POR ENCIMA de este umbral: los

@@ -3,6 +3,7 @@ import { db } from '../../database/client'
 import { lotes, movimientosInventario, productos, proveedores } from '../../database/schema'
 import { entradaAlmacenSchema } from '#shared/schemas/entradaAlmacen'
 import { construirEntrada } from '#shared/inventario/operaciones'
+import { diaNegocioPlausible } from '#shared/fechas'
 import { comoMovimiento } from '../../utils/inventario'
 
 export default defineEventHandler(async (event) => {
@@ -17,6 +18,18 @@ export default defineEventHandler(async (event) => {
   const usuarioId = auth.usuario.id
   const ahora = new Date()
   const ahoraMs = ahora.getTime()
+
+  // La entrada se fecha con el día que dice el equipo, que en Cuba puede ir una
+  // hora adelantado: entre las 23:00 y las 00:00 eso es el "día siguiente". Se
+  // corrige al día del servidor; más allá se rechaza (un lote con fecha futura
+  // rompe el FIFO y los reportes de compras).
+  const revisada = diaNegocioPlausible(datos.fechaEntrada, ahoraMs)
+  if (!revisada.ok) {
+    if (!revisada.diaAjustado) {
+      throw createError({ statusCode: 400, statusMessage: revisada.motivo ?? 'Fecha inválida.' })
+    }
+    datos.fechaEntrada = revisada.diaAjustado
+  }
 
   // Reintento de la misma entrada: `entradaRef` la identifica. Los lotes ya
   // creados se devuelven contados y no se vuelve a dar stock.

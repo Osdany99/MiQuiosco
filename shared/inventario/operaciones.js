@@ -791,3 +791,105 @@ export function construirCorreccionLote({ lote, movimientos, datos, meta = {} })
     cambiaPrecio
   }
 }
+
+/**
+ * ¿Se puede anular esta entrada entera?
+ *
+ * Solo mientras NADA del lote se haya movido: ni una unidad traspasada al
+ * quiosco, ni vendida desde el almacén, ni mermada, ni devuelta. Es el caso de
+ * la entrada equivocada (se dio de alta "10 refrescos" cuando eran 10 panes):
+ * corregirla de producto cambiaría la historia del almacén, así que lo honesto
+ * es invalidar la entrada y volver a darla bien.
+ *
+ * En cuanto salió mercancía, el libro ya tiene consecuencias (saldos, costos
+ * congelados, reportes de compras): ahí no se anula, se corrige la cantidad
+ * hasta el piso o se hace una merma. Por eso `anulable` es una decisión del
+ * mismo `saldosDeLote` que gobierna la corrección, no un criterio aparte.
+ *
+ * @returns {{ anulable: boolean, motivoNoAnulable: string|null, entrada: object|null }}
+ */
+export function evaluarAnulacionLote({ lote, movimientos }) {
+  if (!lote) return { anulable: false, motivoNoAnulable: 'Lote no encontrado.', entrada: null }
+  if (lote.anulado) return { anulable: false, motivoNoAnulable: 'El lote ya está anulado.', entrada: null }
+
+  const s = saldosDeLote(lote, movimientos)
+  if (s.consumido || s.salidasAlmacen > 0 || s.quiosco !== 0) {
+    return {
+      anulable: false,
+      motivoNoAnulable: 'De este lote ya salió mercancía: se corrige la cantidad o se da de baja con una merma.',
+      entrada: s.entrada
+    }
+  }
+  if (s.entradas.length > 1) {
+    return {
+      anulable: false,
+      motivoNoAnulable: 'Este lote tiene varias entradas en el libro y no se puede anular solo. Revísalo con el jefe.',
+      entrada: s.entrada
+    }
+  }
+  // Sin movimiento de entrada no hay nada que invalidar en el libro: el stock
+  // solo lo dice la cabecera, y borrar la cabecera lo haría desaparecer sin
+  // dejar rastro del porqué.
+  const entradas = (movimientos ?? []).filter(m => m && !m.anulado && m.loteId === lote.id && m.tipo === 'entrada')
+  if (entradas.length === 0) {
+    return {
+      anulable: true,
+      motivoNoAnulable: null,
+      entrada: null
+    }
+  }
+  return { anulable: true, motivoNoAnulable: null, entrada: entradas[0] }
+}
+
+/**
+ * Anulación de una entrada equivocada: tombstone, no borrado.
+ *
+ * Se marca `anulado` en la cabecera del lote y en SU movimiento de entrada,
+ * que es el único que existía (si hubo alguno más, `evaluarAnulacionLote` ya
+ * lo rechaza). No se escribe contrapartida tipo 'anulacion': no hay stock
+ * físico que compensar —nada salió— y un contramovimiento duplicaría las
+ * cifras del libro.
+ *
+ * Se usa `anulado` y no un DELETE real porque: (1) el libro es append-only y
+ * ya tiene ese flag para invalidar sin contrapartida, (2) el borrado físico
+ * obligaría a pasar por deleted_records con las FK colgando de
+ * movimientos_inventario, y (3) un update de `anulado` viaja por el sync sin
+ * tocarle nada al esquema de ninguna de las dos bases.
+ *
+ * @param {object} params — { lote, movimientos, datos, meta }
+ *   `datos`: { motivo } (ya validado por anulacionLoteSchema).
+ * @returns {{
+ *   cambiosLote: { anulado: true, actualizadoEn: number },
+ *   movimientosActualizados: Array<object>,
+ *   almacen: number, quiosco: number
+ * }}
+ * @throws {Error} con el mensaje en español, listo para mostrar al jefe.
+ */
+export function construirAnulacionLote({ lote, movimientos, datos, meta = {} }) {
+  const ahora = meta.ahora ?? Date.now()
+  const motivo = String(datos?.motivo ?? '').trim()
+  if (!motivo) throw new Error('El motivo es obligatorio.')
+
+  const { anulable, motivoNoAnulable, entrada } = evaluarAnulacionLote({ lote, movimientos })
+  if (!anulable) throw new Error(motivoNoAnulable ?? 'No se puede anular este lote.')
+
+  const movimientosActualizados = []
+  if (entrada) {
+    movimientosActualizados.push({
+      id: entrada.id,
+      anulado: true,
+      anuladoPor: meta.usuarioId ?? null,
+      anuladoEn: ahora,
+      motivo: 'anulacion_entrada',
+      nota: motivo.slice(0, 200)
+    })
+  }
+
+  return {
+    cambiosLote: { anulado: true, actualizadoEn: ahora },
+    movimientosActualizados,
+    // Con la entrada neutralizada el lote no deja saldo en ninguna ubicación.
+    almacen: 0,
+    quiosco: 0
+  }
+}

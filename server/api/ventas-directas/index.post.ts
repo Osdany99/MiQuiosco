@@ -11,6 +11,7 @@ import {
 import { requireRole } from '../../utils/auth'
 import { existentePorId } from '../../utils/idempotencia'
 import { ventaDirectaSchema } from '#shared/schemas/directas'
+import { instanteConfiable } from '#shared/fechas'
 import { construirVentaDirecta, generarId, lotesConSaldo } from '#shared/inventario/operaciones'
 import { comoMovimiento, comoVentaDirecta } from '../../utils/inventario'
 
@@ -49,14 +50,21 @@ export default defineEventHandler(async (event) => {
   }
 
   // Fecha de la venta: por defecto ahora. La cola de voz manda la hora del
-  // dictado (puede ser de ayer) para que la venta quede en su día. Se acota
-  // para que un reloj mal puesto no meta ventas de hace un mes.
+  // dictado (puede ser de ayer) para que la venta quede en su día. El reloj del
+  // aparato puede ir adelantado (Cuba no cambió la hora y los teléfonos sí): se
+  // recorta al instante del servidor para que nada quede fechado en el futuro.
   const ahoraMsServidor = Date.now()
-  const MS_MARGEN_FUTURO = 60 * 1000
   const MS_MAXIMO_ANTIGUO = 8 * 24 * 60 * 60 * 1000
-  const fechaVentaMs = datos.creadoEn ?? ahoraMsServidor
-  if (fechaVentaMs > ahoraMsServidor + MS_MARGEN_FUTURO) {
-    throw createError({ statusCode: 400, statusMessage: 'La fecha de la venta no puede ser futura.' })
+  const { ms: fechaVentaMs, ajustado, fueraDeTolerancia } = instanteConfiable(datos.creadoEn, ahoraMsServidor)
+  if (fueraDeTolerancia) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'La fecha de la venta está muy por delante de la hora del servidor: revisa la hora del equipo.'
+    })
+  }
+  if (ajustado) {
+    // Queda constancia: si un equipo va adelantado, se ve en los logs.
+    console.warn(`[ventas-directas] reloj del equipo adelantado: ${datos.creadoEn} → ${fechaVentaMs}`)
   }
   if (ahoraMsServidor - fechaVentaMs > MS_MAXIMO_ANTIGUO) {
     throw createError({ statusCode: 400, statusMessage: 'La fecha de la venta es demasiado antigua.' })

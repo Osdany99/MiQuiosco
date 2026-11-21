@@ -1,11 +1,12 @@
 import { getCurrentScope, onScopeDispose } from 'vue'
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
-import { aEpochOpcional as tsToEpoch } from '../../shared/fechas'
+import { aEpochOpcional as tsToEpoch, diaEnOffset } from '../../shared/fechas'
 import { capacidadDelCuadre } from '../../shared/inventario/capacidad'
 import { generateId } from '~/utils/id'
 import { $api } from '../utils/api'
 import { calcularSubtotalLinea } from '../utils'
+import { ahoraServidor } from '../utils/relojServidor'
 import { sincronizarLineas } from '../utils/cuadreSync'
 import { deduplicarLineasCuadre } from '../../shared/inventario/lineasCuadre'
 
@@ -365,7 +366,13 @@ export function useCuadre() {
   // (ver cargarDatos), así que no necesita persistirse ni migración.
   const pagoManual = ref(false)
 
-  const hoy = hoyLocal()
+  /**
+   * Día de negocio de hoy. No basta con calcularlo al abrir el composable: la
+   * app puede quedarse abierta pasada la medianoche y el cuadre debe pasar al
+   * día siguiente solo. Se recalcula con el reloj del servidor (useReloj), así
+   * que un teléfono adelantado no pide "el cuadre de mañana" a las 23:30.
+   */
+  const hoy = computed(() => diaEnOffset(ahoraServidor()))
 
   const esTrabajador = computed(() => auth.esTrabajador.value)
 
@@ -397,7 +404,7 @@ export function useCuadre() {
   })
 
   const tituloCuadre = computed(() => {
-    const fechaStr = cuadre.value?.fecha || hoy
+    const fechaStr = cuadre.value?.fecha || hoy.value
     const d = new Date(fechaStr + 'T12:00:00')
     return 'Cuadre del día ' + d.toLocaleDateString('es-ES', { weekday: 'long' })
   })
@@ -634,11 +641,12 @@ export function useCuadre() {
   }
 
   async function buscarCuadreActual(puestoId, repo) {
-    const { data: todos } = await repo.readAll({ query: { fecha: hoy } })
+    const dia = hoy.value
+    const { data: todos } = await repo.readAll({ query: { fecha: dia } })
     if (!Array.isArray(todos)) return null
     const delDia = todos
       .map(normalizarCuadre)
-      .filter(n => n.puestoId === puestoId && n.fecha === hoy)
+      .filter(n => n.puestoId === puestoId && n.fecha === dia)
     if (delDia.length === 0) return null
     // Con varios cuadres del día (posibles duplicados), preferir el que siga
     // abierto y, entre varios, el creado más recientemente.
@@ -874,7 +882,7 @@ export function useCuadre() {
     // En offline, useLocalRepo los añade automáticamente (ver crearRepoGenerico).
     const cuadreObj = {
       id: nuevoId,
-      fecha: hoy,
+      fecha: hoy.value,
       estado: 'abierto',
       totalEsperado: 0,
       totalRealCaja: null,

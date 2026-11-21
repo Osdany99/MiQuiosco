@@ -6,6 +6,8 @@ import { crearCopiaBd, formatearBytes, elegirCopiaParaRestaurar, restaurarCopiaB
 import { fijarTelemetria, telemetriaActivaSync } from '../utils/voice/telemetria'
 import { IDIOMAS_FLOTA, MOTORES_FLOTA } from '#shared/voz/config'
 import { useVozServicio } from '../composables/useVozServicio'
+import { medirReloj } from '../composables/useReloj'
+import { estadoReloj } from '../utils/relojServidor'
 
 const toast = useToast()
 const conexion = useModoConexion()
@@ -270,11 +272,44 @@ async function probarConexion() {
     await $fetch(`${base}/api/health`)
     estadoPrueba.value = 'ok'
     mensajePrueba.value = 'Servidor alcanzado correctamente.'
+    // Probar la conexión es también el momento natural para re-medir el reloj.
+    void remedirReloj()
   } catch {
     estadoPrueba.value = 'error'
     mensajePrueba.value = 'No se pudo conectar al servidor. Verifica la URL y que el servidor esté encendido.'
   } finally {
     probando.value = false
+  }
+}
+
+// --- Reloj: la hora del negocio la manda el servidor (ver useReloj) ---
+const midiendoReloj = ref(false)
+const relojMedido = ref(estadoReloj())
+const relojDesfasado = computed(
+  () => Math.abs(relojMedido.value.desfaseMs) >= AVISO_DESFASE_MINUTOS * 60 * 1000
+)
+
+const desfaseTexto = computed(() => {
+  const min = Math.round(Math.abs(relojMedido.value.desfaseMs) / 60000)
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  const partes = h > 0 ? `${h} h ${m} min` : `${m} min`
+  return `${partes} (${relojMedido.value.desfaseMs > 0 ? 'equipo atrasado' : 'equipo adelantado'})`
+})
+
+const textoReloj = computed(() => {
+  if (!relojMedido.value.mediciones) return 'Sin medir todavía. Se mide al sincronizar.'
+  if (Math.abs(relojMedido.value.desfaseMs) < 60000) return 'Coincide con el servidor.'
+  return `Diferencia: ${desfaseTexto.value}.`
+})
+
+async function remedirReloj() {
+  midiendoReloj.value = true
+  try {
+    await medirReloj()
+    relojMedido.value = estadoReloj()
+  } finally {
+    midiendoReloj.value = false
   }
 }
 
@@ -777,6 +812,35 @@ async function whOlvidarEste() {
           icon="i-lucide-alert-circle"
           :title="mensajePrueba"
         />
+
+        <div class="border-t border-default pt-4 space-y-2">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium">
+                Hora del equipo
+              </p>
+              <p class="text-sm text-muted">
+                {{ textoReloj }}
+              </p>
+            </div>
+            <UButton
+              :loading="midiendoReloj"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              @click="remedirReloj"
+            >
+              Medir
+            </UButton>
+          </div>
+          <UAlert
+            v-if="relojDesfasado"
+            color="warning"
+            icon="i-lucide-clock-alert"
+            title="La hora del equipo no coincide con el servidor"
+            :description="`Diferencia de ${desfaseTexto}. La app corrige las fechas al guardar, pero conviene poner la hora del teléfono en automático.`"
+          />
+        </div>
       </div>
     </UCard>
 

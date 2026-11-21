@@ -114,3 +114,29 @@ export interface CorreccionLote {
 export function comoCorreccionLote(plan: unknown): CorreccionLote {
   return plan as CorreccionLote
 }
+
+/** Anulación de una entrada: qué se marca en la cabecera y qué filas del libro. */
+export interface AnulacionLote {
+  cambiosLote: {
+    anulado: true
+    actualizadoEn: number
+  }
+  movimientosActualizados: Array<{
+    id: string
+    anulado: true
+    anuladoPor: string | null
+    anuladoEn: number
+    motivo: string
+    nota: string
+  }>
+  almacen: number
+  quiosco: number
+}
+
+/**
+ * `construirAnulacionLote` es JS sin tipos y él mismo lanza cuando el lote ya
+ * tiene mercancía fuera, así que aquí solo se estrecha la forma.
+ */
+export function comoAnulacionLote(plan: unknown): AnulacionLote {
+  return plan as AnulacionLote
+}

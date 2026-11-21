@@ -16,12 +16,16 @@ import {
   construirAjuste,
   construirVentaDirecta,
   construirCorreccionLote,
+  construirAnulacionLote,
+  evaluarAnulacionLote,
   generarId,
   lotesConSaldo
 } from '../../shared/inventario/operaciones'
 import { vistaSaldos } from '../../shared/inventario/vista'
 import { desgloseDeLote } from '../../shared/inventario/desglose'
 import { sugerenciaReposicion } from '../../shared/inventario/fifo'
+import { instanteConfiable } from '../../shared/fechas'
+import { ahoraServidor } from '../utils/relojServidor'
 import { $api } from '../utils/api'
 
 const proveedoresConfig = TABLES.proveedores
@@ -153,7 +157,7 @@ export function useInventario() {
         })
       }
       const usuarioId = auth.usuarioActual.value?.id ?? null
-      const ahora = Date.now()
+      const ahora = ahoraServidor()
       const productos = await filasPuesto(productosRepo, pid)
       const porProd = new Map(productos.map(p => [p.id, p]))
       for (const l of parsed.data.lineas) {
@@ -206,7 +210,7 @@ export function useInventario() {
         })
       }
       const usuarioId = auth.usuarioActual.value?.id ?? null
-      const ahora = Date.now()
+      const ahora = ahoraServidor()
       const [filasLotes, movs] = await Promise.all([
         filasPuesto(lotesRepo, pid),
         filasPuesto(movimientosRepo, pid)
@@ -270,7 +274,7 @@ export function useInventario() {
         })
       }
       const usuarioId = auth.usuarioActual.value?.id ?? null
-      const ahora = Date.now()
+      const ahora = ahoraServidor()
       const ubicacion = parsed.data.tipo === 'devolucion' ? 'quiosco' : parsed.data.ubicacion
       const [filasLotes, movs] = await Promise.all([
         filasPuesto(lotesRepo, pid),
@@ -323,7 +327,15 @@ export function useInventario() {
     if (!pid) throw new Error('Sin puesto asignado.')
     cargando.value = true
     try {
-      const fechaVenta = Number(creadoEnFijado) || Date.now()
+      // La fecha del dictado manda (la venta pertenece al día en que se dijo),
+      // pero nunca del futuro: un reloj adelantado no puede fechar una venta más
+      // adelante que el propio servidor. Mismo criterio que el endpoint; si el
+      // reloj está mal de verdad el servidor lo rechazará y el mensaje se verá.
+      const pedida = Number(creadoEnFijado) || null
+      const { ms: fechaVenta, fueraDeTolerancia } = instanteConfiable(pedida, ahoraServidor())
+      if (fueraDeTolerancia) {
+        throw new Error('La fecha está muy por delante de la hora del servidor: revisa la hora del equipo.')
+      }
       // El id viaja al servidor: si la petición se reintenta (red cortada
       // después de escribir, doble toque), el endpoint devuelve la venta que ya
       // existe en vez de descontar el stock otra vez.
@@ -438,13 +450,13 @@ export function useInventario() {
       await r(ventasDirectasRepo).update(ventaId, {
         anulado: true,
         sincronizado: 0,
-        actualizadoEn: Date.now()
+        actualizadoEn: ahoraServidor()
       })
 
       // 2. Marcar los movimientos de inventario relacionados como anulados.
       const movs = await r(movimientosRepo).readAll({ query: { ventaDirectaId: ventaId } })
       const usuarioId = auth.usuarioActual.value?.id ?? null
-      const ahora = Date.now()
+      const ahora = ahoraServidor()
       for (const m of (movs ?? [])) {
         if (!m.anulado) {
           await r(movimientosRepo).update(m.id, {
@@ -679,6 +691,75 @@ export function useInventario() {
     }
   }
 
+  /**
+   * Anula una entrada equivocada (el caso "eran 10 panes, no 10 refrescos").
+   *
+   * Solo se permite mientras nada del lote se haya movido: si ya salió
+   * mercancía, la respuesta es corregir la cantidad o una merma. La regla la
+   * pone `evaluarAnulacionLote`/`construirAnulacionLote`, iguales en el
+   * servidor y en el sqlite.
+   *
+   * No borra filas: marca `anulado` en la cabecera y en su movimiento de
+   * entrada (mismo criterio que `anularVentaDirecta`). Así el cambio viaja por
+   * el sync como un update y el libro conserva el rastro del error.
+   *
+   * @param {string} loteId
+   * @param {{ motivo: string }} datos
+   */
+  async function anularLote(loteId, datos) {
+    exigirJefe()
+    const motivo = String(datos?.motivo ?? '').trim()
+    if (!motivo) throw new Error('El motivo es obligatorio.')
+    cargando.value = true
+    try {
+      if (esOnline.value) {
+        return await $api(`/api/lotes/${loteId}`, {
+          method: 'DELETE',
+          body: { motivo },
+          headers: apiHeaders()
+        })
+      }
+      const pid = puestoIdActual()
+      const usuarioId = auth.usuarioActual.value?.id ?? null
+      const lote = await r(lotesRepo).read(loteId)
+      if (!lote || (pid && lote.puestoId !== pid)) throw new Error('Lote no encontrado.')
+      const movs = await filasPuesto(movimientosRepo, pid)
+      const plan = construirAnulacionLote({
+        lote,
+        movimientos: movs,
+        datos: { motivo },
+        meta: { usuarioId }
+      })
+      await db.transaction(async () => {
+        // enrichForUpdate pone `sincronizado = 0` y la hora de ahora: la fila
+        // sube en el próximo push en vez de quedar revertida por el servidor.
+        await r(lotesRepo).update(loteId, plan.cambiosLote)
+        for (const m of plan.movimientosActualizados) {
+          await r(movimientosRepo).update(m.id, m)
+        }
+      })
+      await cargarSaldos().catch(() => {})
+      return { id: loteId, anulado: true, almacen: plan.almacen, quiosco: plan.quiosco }
+    } catch (err) {
+      toast.add({ title: 'Error al anular la entrada', description: err.data?.statusMessage || err.message, color: 'error' })
+      throw err
+    } finally {
+      cargando.value = false
+    }
+  }
+
+  /**
+   * Si un lote se puede anular y por qué no, para la UI (botón de la papelera).
+   * Usa el mismo criterio que el servidor, así que no puede discrepar.
+   */
+  async function puedeAnularLote(loteId) {
+    const pid = puestoIdActual()
+    const lote = await r(lotesRepo).read(loteId)
+    if (!lote || (pid && lote.puestoId !== pid)) return { anulable: false, motivoNoAnulable: 'Lote no encontrado.' }
+    const movs = await filasPuesto(movimientosRepo, pid)
+    return evaluarAnulacionLote({ lote, movimientos: movs })
+  }
+
   function sugerenciaParaManana(productos, saldosRows) {
     const mapa = new Map(saldosRows.map(s => [s.productoId, { almacen: s.almacen, quiosco: s.quiosco }]))
     return sugerenciaReposicion({ productos, saldos: mapa })
@@ -778,6 +859,8 @@ export function useInventario() {
     cargarVentasDirectas,
     cargarDesgloseLote,
     corregirLote,
+    anularLote,
+    puedeAnularLote,
     cambiarEstadoLote,
     sugerenciaParaManana,
     lotesConStock

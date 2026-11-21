@@ -12,6 +12,7 @@ import { useDb, COLUMN_MAP, TIMESTAMP_COLS } from '../db/client'
 import { requireJefe } from '../utils/auth'
 import { inyectarPuestoId } from '../utils/inyectarPuestoId'
 import { generateId } from '../../utils/id'
+import { ahoraServidor } from '../../utils/relojServidor'
 import { normalizarFechas, aEpochOpcional } from '../../../shared/fechas'
 
 const PREF_PENDING_DELETES = 'pending_deletes'
@@ -190,7 +191,7 @@ export async function descartarSyncRechazo(tabla, id) {
   }
 }
 
-const ahora = () => Date.now()
+const ahora = () => ahoraServidor()
 const identidad = x => x
 
 function pruneToColumns(tabla, obj) {

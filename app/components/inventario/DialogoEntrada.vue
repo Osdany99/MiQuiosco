@@ -68,6 +68,7 @@
 
 <script setup>
 import { generarId } from '../../../shared/inventario/operaciones'
+import { hoyNegocio } from '../../utils'
 
 const props = defineProps({
   productoId: { type: String, default: null },
@@ -91,7 +92,7 @@ const entradaRef = ref(null)
 
 const form = ref({
   productoId: null,
-  fechaEntrada: hoyLocal(),
+  fechaEntrada: hoyNegocio(),
   proveedorId: null,
   cantidad: 0,
   precioUnitario: 0
@@ -152,7 +153,7 @@ watch(isOpen, async (open) => {
 
   form.value = {
     productoId: props.productoId,
-    fechaEntrada: hoyLocal(),
+    fechaEntrada: hoyNegocio(),
     proveedorId: null,
     // Se precarga el último precio pagado: es lo que el jefe quiere confirmar en
     // la mayoría de las compras. Si la voz dictó cantidad y costo (Fase K),

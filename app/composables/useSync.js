@@ -16,6 +16,7 @@ import { useVozConfig } from './useVozConfig'
 import { useVozServicio } from './useVozServicio'
 import { useVozModelo } from './useVozModelo'
 import { infoDispositivo } from '../utils/dispositivo'
+import { aplicarMarcaDelServidor, medirReloj } from './useReloj'
 import { SYNC_TABLES } from '../../shared/tables'
 import { getAuthInstance } from './useAuth.js'
 
@@ -119,6 +120,10 @@ function _create() {
       const s2 = await Preferences.get({ key: PREF_ULTIMO_INTENTO })
       if (s2.value) ultimoIntento.value = Number(s2.value)
     } catch {}
+
+    // Desfase contra el servidor al arrancar (y tras cada pull). Sin esto, el
+    // teléfono escribiría con su reloj, que en Cuba va una hora adelantado.
+    void medirReloj()
 
     await actualizarPendientesCount()
 
@@ -324,6 +329,11 @@ function _create() {
       timeoutMs: TIMEOUT_PULL_MS
     })
     if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
+
+    // El pull es un roundtrip periódico: de paso ajusta el reloj del equipo.
+    // `ahora_servidor` (no `timestamp_servidor`, que es el watermark de sync)
+    // es la hora real del servidor al responder.
+    aplicarMarcaDelServidor(pullResult?.ahora_servidor, inicioPull)
 
     const total = contarPayload(pullResult)
     await registrarSyncLog({

@@ -10,7 +10,7 @@
  * distintas del mismo producto.
  */
 import { estadoDeFila } from '../../shared/inventario/analitica'
-import { saldosDeLote } from '../../shared/inventario/operaciones'
+import { saldosDeLote, evaluarAnulacionLote } from '../../shared/inventario/operaciones'
 
 const COLOR_POR_ESTADO = {
   'ok': 'success',
@@ -242,22 +242,25 @@ export function useVistaInventario(ubicacion) {
    * El endpoint /api/lotes ya viene con los saldos del libro, pero el sqlite
    * devuelve la fila cruda. Sin este paso el diálogo de corrección abriría con
    * piso 0 en modo offline y dejaría bajar la cantidad por debajo de lo que ya
-   * salió. Se usa el MISMO cálculo del servidor (saldosDeLote).
+   * salió. Se usa el MISMO cálculo del servidor (saldosDeLote) y la misma
+   * regla de anulación (evaluarAnulacionLote).
    */
   async function conSaldosDeLote(lotes) {
-    if (!lotes.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null)) return lotes
+    if (!lotes.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null || l.anulable == null)) return lotes
     const crudos = await inv.movimientosRepo.value.readAll()
     const movs = Array.isArray(crudos) ? crudos : (crudos?.data ?? [])
     return lotes.map((l) => {
-      if (l.saldoAlmacen != null && l.saldoQuiosco != null) return l
+      if (l.saldoAlmacen != null && l.saldoQuiosco != null && l.anulable != null) return l
       const s = saldosDeLote(l, movs)
+      const { anulable } = evaluarAnulacionLote({ lote: l, movimientos: movs })
       return {
         ...l,
         saldoAlmacen: s.almacen,
         saldoQuiosco: s.quiosco,
         conConsumo: s.consumido,
         salidasAlmacen: s.salidasAlmacen,
-        piso: s.piso
+        piso: s.piso,
+        anulable
       }
     })
   }

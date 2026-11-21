@@ -49,6 +49,22 @@ export const correccionLoteSchema = z
     message: 'Escribe la cantidad o el precio correctos.'
   })
 
+/**
+ * Anulación de una entrada equivocada (el lote todavía no se ha tocado).
+ *
+ * Es el caso de "di entrada a 10 refrescos cuando eran 10 panes": cambiar el
+ * producto no es una corrección, es otra compra. Se invalida la entrada entera
+ * y se da de alta la buena.
+ *
+ * Aquí solo se valida el motivo, que es obligatorio porque sin él no queda
+ * rastro de por qué se dio por inexistente una compra. La regla de fondo (si
+ * el lote ya se movió) vive en shared/inventario/operaciones.js
+ * (evaluarAnulacionLote), la misma que usa el camino offline.
+ */
+export const anulacionLoteSchema = z.object({
+  motivo: z.string().min(1, 'El motivo es obligatorio').max(200)
+})
+
 export const ESTADOS_LOTE = ['normal', 'liquidacion', 'defectuoso', 'vencimiento_proximo']
 
 export const estadoLoteSchema = z.object({

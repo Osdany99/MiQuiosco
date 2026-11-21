@@ -26,6 +26,8 @@
 </template>
 
 <script setup>
+import { hoyNegocio } from '../../utils'
+
 const props = defineProps({
   sugerencias: { type: Array, default: () => [] }
 })
@@ -79,7 +81,7 @@ async function confirmar() {
   guardando.value = true
   try {
     await inv.registrarTraspaso({
-      fecha: hoyLocal(),
+      fecha: hoyNegocio(),
       notas: 'Reposición post-cierre',
       lineas: seleccion.value.map(s => ({ productoId: s.productoId, cantidad: s.aReponer }))
     })

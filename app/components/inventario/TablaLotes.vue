@@ -62,6 +62,15 @@
               title="Corregir cantidad o precio"
               @click="abrirCorreccion(row.original)"
             />
+            <UButton
+              v-if="puedeAnularLote(row.original)"
+              icon="i-lucide-trash-2"
+              size="xs"
+              color="error"
+              variant="ghost"
+              title="Anular esta entrada (no se ha usado nada del lote)"
+              @click="abrirAnulacion(row.original)"
+            />
           </div>
         </template>
       </UTable>
@@ -69,6 +78,7 @@
   </BaseDialog>
 
   <InventarioDialogoCorreccionLote v-model="showCorreccion" :lote="corrigiendo" @guardado="alGuardar" />
+  <InventarioDialogoAnulacionLote v-model="showAnulacion" :lote="anulando" @guardado="alGuardar" />
   <InventarioDialogoLote v-model="showDetalleLote" :lote="loteDetalle" />
 
   <BaseDialog
@@ -105,7 +115,7 @@
 </template>
 
 <script setup>
-import { saldosDeLote } from '../../../shared/inventario/operaciones'
+import { saldosDeLote, evaluarAnulacionLote } from '../../../shared/inventario/operaciones'
 
 const props = defineProps({
   producto: { type: Object, default: null }
@@ -115,11 +125,24 @@ const emit = defineEmits(['guardado'])
 
 const inv = useInventario()
 const toast = useToast()
+const perms = usePermisos()
+
+/**
+ * Anular es del almacén y del jefe: mismo permiso que en /almacen, para que un
+ * trabajador con el diálogo abierto (o un puesto con la acción apagada) no vea
+ * una papelera que el servidor le va a rechazar.
+ */
+function puedeAnularLote(lote) {
+  if (!lote || lote.anulado) return false
+  return lote.anulable === true && perms.puedeAccion('almacen', 'anular_lote')
+}
 
 const lotes = ref([])
 const cargando = ref(false)
 const showCorreccion = ref(false)
 const corrigiendo = ref(null)
+const showAnulacion = ref(false)
+const anulando = ref(null)
 const showDetalleLote = ref(false)
 const loteDetalle = ref(null)
 const showEstado = ref(false)
@@ -174,20 +197,22 @@ async function recargar() {
     // El repo puede devolver filas crudas (sin saldos): se derivan con la
     // misma regla del servidor (saldosPorLote) para que el piso del diálogo de
     // corrección sea el mismo online que offline.
-    const faltaSaldo = filas.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null)
+    const faltaSaldo = filas.some(l => l.saldoAlmacen == null || l.saldoQuiosco == null || l.anulable == null)
     if (faltaSaldo) {
       const movsCrudo = await inv.movimientosRepo.value.readAll()
       const movs = Array.isArray(movsCrudo) ? movsCrudo : (movsCrudo?.data ?? [])
       filas = filas.map((l) => {
-        if (l.saldoAlmacen != null && l.saldoQuiosco != null) return l
+        if (l.saldoAlmacen != null && l.saldoQuiosco != null && l.anulable != null) return l
         const s = saldosDeLote(l, movs)
+        const { anulable } = evaluarAnulacionLote({ lote: l, movimientos: movs })
         return {
           ...l,
           saldoAlmacen: s.almacen,
           saldoQuiosco: s.quiosco,
           conConsumo: s.consumido,
           salidasAlmacen: s.salidasAlmacen,
-          piso: s.piso
+          piso: s.piso,
+          anulable
         }
       })
     }
@@ -201,6 +226,11 @@ async function recargar() {
 function abrirCorreccion(lote) {
   corrigiendo.value = lote
   showCorreccion.value = true
+}
+
+function abrirAnulacion(lote) {
+  anulando.value = lote
+  showAnulacion.value = true
 }
 
 function abrirDetalle(lote) {

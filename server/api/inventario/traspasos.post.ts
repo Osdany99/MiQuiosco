@@ -3,6 +3,7 @@ import { db } from '../../database/client'
 import { lotes, movimientosInventario, traspasos } from '../../database/schema'
 import { traspasoSchema } from '#shared/schemas/traspaso'
 import { construirTraspaso, lotesConSaldo } from '#shared/inventario/operaciones'
+import { diaNegocioPlausible } from '#shared/fechas'
 import { comoMovimiento } from '../../utils/inventario'
 import { existentePorId } from '../../utils/idempotencia'
 
@@ -17,6 +18,17 @@ export default defineEventHandler(async (event) => {
   const puestoId = auth.usuario.puestoId
   const usuarioId = auth.usuario.id
   const ahoraMs = Date.now()
+
+  // La fecha es un día de negocio, no un instante: un equipo adelantado la manda
+  // un día por delante solo entre las 23:00 y las 00:00. Ahí se corrige al día
+  // del servidor; más allá se rechaza (no es el reloj, es un dato mal puesto).
+  const revisada = diaNegocioPlausible(datos.fecha, ahoraMs)
+  if (!revisada.ok) {
+    if (!revisada.diaAjustado) {
+      throw createError({ statusCode: 400, statusMessage: revisada.motivo ?? 'Fecha inválida.' })
+    }
+    datos.fecha = revisada.diaAjustado
+  }
 
   // Reintento del mismo traspaso: ya movió stock y no se repite.
   const previo = await existentePorId(traspasos, datos.id, puestoId)

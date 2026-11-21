@@ -13,6 +13,7 @@ export const API_ROUTES = {
   syncPull: '/api/sync/pull',
   syncEstado: '/api/sync/estado',
   syncFallos: '/api/sync/fallos',
+  health: '/api/health',
   vozEventos: '/api/voz/eventos',
   vozAciertos: '/api/voz/aciertos'
 }

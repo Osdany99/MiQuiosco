@@ -259,6 +259,20 @@
                 @click="abrirCorreccion(row.original)"
               />
             </UTooltip>
+            <UTooltip
+              v-if="puedeAnular(row.original)"
+              text="Anular esta entrada (no se ha usado nada del lote)"
+              :delay-duration="0"
+            >
+              <UButton
+                icon="i-lucide-trash-2"
+                size="xs"
+                color="error"
+                variant="ghost"
+                aria-label="Anular entrada"
+                @click="abrirAnulacion(row.original)"
+              />
+            </UTooltip>
           </div>
         </template>
       </BaseTable>
@@ -276,6 +290,11 @@
     <InventarioDialogoCorreccionLote
       v-model="showCorreccion"
       :lote="loteCorreccion"
+      @guardado="recargar"
+    />
+    <InventarioDialogoAnulacionLote
+      v-model="showAnulacion"
+      :lote="loteAnulacion"
       @guardado="recargar"
     />
     <InventarioDialogoLote v-model="showDetalleLote" :lote="loteDetalle" />
@@ -369,6 +388,24 @@ const camposFiltroHistorial = computed(() => [
 const perms = usePermisos()
 const inv = useInventario()
 const toast = useToast()
+
+// Anulación de una entrada equivocada (lote todavía intacto).
+const showAnulacion = ref(false)
+const loteAnulacion = ref(null)
+
+/**
+ * El mismo criterio que aplica el servidor (lote sin salidas) más el permiso.
+ * Lo resuelve el backend en `anulable`; offline lo deriva `useVistaInventario`.
+ */
+function puedeAnular(lote) {
+  if (!lote || lote.anulado) return false
+  return lote.anulable === true && perms.puedeAccion('almacen', 'anular_lote')
+}
+
+function abrirAnulacion(lote) {
+  loteAnulacion.value = lote
+  showAnulacion.value = true
+}
 
 const showEstadoHistorico = ref(false)
 const loteEstadoHistorico = ref(null)

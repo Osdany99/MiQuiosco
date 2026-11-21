@@ -5,6 +5,7 @@ import {
   totalesValorInventario, conteoEstadoStock, ventanaCobertura
 } from '../../shared/inventario/analitica'
 import { leerLibro, reposLibro } from './libro'
+import { ahoraServidor } from './relojServidor'
 
 const productoConfig = TABLES.productos
 const cuadreConfig = TABLES.cuadres
@@ -954,7 +955,9 @@ async function _comparativaTrabajador(opts, productoRepo, cuadreRepo, itemsRepo)
 
 /** Hoy en 'YYYY-MM-DD', para las fotos de inventario (no dependen del rango). */
 function hoy() {
-  return aDia(Date.now())
+  // Con el reloj del servidor: un teléfono adelantado marcaba "hoy+1" y las
+  // fotos de inventario (antigüedad de lotes, cobertura) salían desplazadas.
+  return aDia(ahoraServidor())
 }
 
 /**

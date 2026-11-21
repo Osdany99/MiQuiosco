@@ -1,7 +1,7 @@
 import { eq, and, desc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { lotes, movimientosInventario } from '../../database/schema'
-import { saldosDeLote } from '#shared/inventario/operaciones'
+import { saldosDeLote, evaluarAnulacionLote } from '#shared/inventario/operaciones'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -31,6 +31,9 @@ export default defineEventHandler(async (event) => {
     // Misma regla que el camino offline (saldosDeLote), para que el diálogo de
     // corrección muestre el mismo piso en los dos modos.
     const s = saldosDeLote(l, movs)
+    // Anular solo se puede mientras nada del lote se haya movido: la UI lo
+    // decide con esta bandera y el mismo criterio aplica el DELETE.
+    const { anulable } = evaluarAnulacionLote({ lote: l, movimientos: movs })
     return {
       ...l,
       fechaEntrada: l.fechaEntrada,
@@ -38,12 +41,14 @@ export default defineEventHandler(async (event) => {
       actualizadoEn: l.actualizadoEn.toISOString(),
       // Lote sin ningún movimiento (datos importados a mano): se muestra lo que
       // dice la cabecera, como siempre. Para corregirlo el diálogo avisa de que
-      // el libro no tiene su entrada.
-      saldoAlmacen: movs.some(m => m.loteId === l.id) ? s.almacen : l.cantidadInicial,
-      saldoQuiosco: s.quiosco,
+      // el libro no tiene su entrada. Un lote ANULADO no tiene saldo nunca: sus
+      // movimientos van sin el flag `anulado`, así que el fallback mentiría.
+      saldoAlmacen: l.anulado ? 0 : (movs.some(m => m.loteId === l.id) ? s.almacen : l.cantidadInicial),
+      saldoQuiosco: l.anulado ? 0 : s.quiosco,
       conConsumo: s.consumido,
       salidasAlmacen: s.salidasAlmacen,
-      piso: s.piso
+      piso: s.piso,
+      anulable
     }
   })
 })

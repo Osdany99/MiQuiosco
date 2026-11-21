@@ -98,6 +98,10 @@ export default defineEventHandler(async (event) => {
   return {
     ...payload,
     deletes,
+    // Hora del servidor al responder. `timestamp_servidor` es el watermark de
+    // sincronización (máximo de `actualizadoEn`), no la hora actual: el cliente
+    // la usaba para avanzar su cursor. Para medir el reloj hace falta esta.
+    ahora_servidor: Date.now(),
     timestamp_servidor: maxTimestamp,
     puesto: puestoFila
       ? { id: puestoFila.id, nombre: puestoFila.nombre, activo: puestoFila.activo, permisos: (puestoFila.permisos ?? {}) as Record<string, boolean> }

@@ -45,6 +45,7 @@
 
 <script setup>
 import { generarId } from '../../../shared/inventario/operaciones'
+import { hoyNegocio } from '../../utils'
 
 const props = defineProps({
   productoId: { type: String, default: null },
@@ -117,7 +118,7 @@ async function confirmar() {
   try {
     await inv.registrarTraspaso({
       id: traspasoId.value,
-      fecha: hoyLocal(),
+      fecha: hoyNegocio(),
       notas: null,
       lineas
     })

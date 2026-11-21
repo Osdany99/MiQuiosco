@@ -463,6 +463,38 @@ describe('deudas y ventas directas (fuera del cuadre)', () => {
     assert.ok(movs.length > 0)
     assert.ok(movs.every(m => m.cuadre_id === null))
   })
+
+  // Cuba decidió no aplicar el cambio de hora y muchos teléfonos quedaron una
+  // hora adelantados: la venta se acepta y se fecha con la hora del servidor en
+  // vez de responder 400 "fecha futura".
+  it('una venta con el reloj del equipo una hora adelantado se acepta y se recorta', async () => {
+    const { productoId } = await montarTienda('vdreloj', { stock: 4, compra: 3, venta: 9, alQuiosco: 0 })
+    const adelantado = Date.now() + 60 * 60 * 1000
+    const r = await post('/api/ventas-directas', {
+      ubicacion: 'almacen',
+      creadoEn: adelantado,
+      lineas: [{ productoId, cantidad: 1, precioVentaUsado: 9 }]
+    }, { token, status: 200 })
+    const [fila] = await filas('ventas_directas', `id = '${r.id}'`)
+    const creadoEn = new Date(fila.creado_en).getTime()
+    // Nunca queda fechada en el futuro: el día de negocio no se corrompe.
+    assert.ok(creadoEn <= Date.now() + 60 * 1000, 'la venta quedó fechada en el futuro')
+    assert.ok(adelantado - creadoEn > 30 * 60 * 1000, 'no se recortó al reloj del servidor')
+  })
+
+  it('un reloj muy adelantado se rechaza con un mensaje útil, no "fecha futura"', async () => {
+    const { productoId } = await montarTienda('vdreloj2', { stock: 4, compra: 3, venta: 9, alQuiosco: 0 })
+    const r = await raw('POST', '/api/ventas-directas', {
+      token,
+      body: {
+        ubicacion: 'almacen',
+        creadoEn: Date.now() + 10 * 60 * 60 * 1000,
+        lineas: [{ productoId, cantidad: 1, precioVentaUsado: 9 }]
+      }
+    })
+    assert.equal(r.status, 400)
+    assert.match(mensajeDe(r.body), /hora del equipo/)
+  })
 })
 
 describe('transferencias y ajustes del dia', () => {
