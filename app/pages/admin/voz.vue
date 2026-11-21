@@ -303,7 +303,10 @@ function cargarMasConfirmaciones() {
 
 function reiniciarConfirmaciones() {
   limiteConfirmaciones.value = 200
-  void cargarConfirmaciones()
+  const cambiaPuesto = puestoConfirmacion.value !== 'todos'
+  puestoConfirmacion.value = 'todos'
+  // El `watch` del puesto ya recarga cuando cambia; si no cambió, se pide aquí.
+  if (!cambiaPuesto) void cargarConfirmaciones()
 }
 
 watch(puestoConfirmacion, reiniciarConfirmaciones)
@@ -331,11 +334,24 @@ watch(filtrosEventos, cargar, { deep: true })
 
 /** «Restablecer» de la tabla: vuelve a los filtros de entrada de cada pestaña. */
 function reiniciarFiltrosEventos() {
+  // El `watch` profundo de arriba ya recarga cuando el filtro cambia de verdad.
+  // Si ya valía «abierto» nadie recargaría: por eso se pide aquí.
+  const cambia = (filtrosEventos.value?.estado ?? 'todos') !== 'abierto'
   filtrosEventos.value = { estado: 'abierto' }
+  if (!cambia) void cargar()
 }
 
 function reiniciarFiltrosAciertos() {
+  const antes = filtrosAciertos.value ?? {}
+  // Los `watch` solo recargan si algo cambió: ni los tres desplegables (que se
+  // comparan por valor) ni el texto vacío disparan nada. En ese caso, restablecer
+  // tiene que pedir la lista a mano.
+  const cambiaFiltro = (antes.comando ?? 'todos') !== 'todos'
+    || (antes.ventana ?? '7d') !== '7d'
+    || (antes.motor ?? 'todos') !== 'todos'
+  const teniaTexto = String(antes.texto ?? '').trim().length > 0
   filtrosAciertos.value = { ventana: '7d', comando: 'todos', motor: 'todos', texto: '' }
+  if (!cambiaFiltro && !teniaTexto) void cargarAciertos()
 }
 
 /** Todos los filtros en el icono: en el teléfono no caben en la barra. */
@@ -613,6 +629,7 @@ const camposFiltroAciertos = computed(() => [
         :show-edit="false"
         :show-delete="false"
         empty-state="No hay confirmaciones de voz"
+        @reset="reiniciarConfirmaciones"
         @reload="reiniciarConfirmaciones"
       >
         <template #creadoEn-cell="{ row }">
