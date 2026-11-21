@@ -214,6 +214,22 @@ async function borrarAciertos() {
   }
 }
 
+function exportarFrases() {
+  const filas = (aciertos.value ?? [])
+    .filter(a => a?.texto)
+    .map(a => ({ texto: a.texto, comando: a.comando, motivo: a.detalle ?? null }))
+  const blob = new Blob([JSON.stringify(filas, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `frases-reales-${new Date().toISOString().slice(0, 7)}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  toast.add({ title: 'Exportar frases', description: `Exportadas ${filas.length} frases.`, color: 'success' })
+}
+
 watch(() => [filtrosAciertos.value.comando, filtrosAciertos.value.ventana, filtrosAciertos.value.motor], () => {
   if (vista.value === 'aciertos') void cargarAciertos()
 })
@@ -536,6 +552,14 @@ const camposFiltroAciertos = computed(() => [
         @reload="cargarAciertos"
       >
         <template #toolbar-leading>
+          <UButton
+            size="sm"
+            color="primary"
+            variant="outline"
+            icon="i-lucide-download"
+            label="Exportar frases"
+            @click="exportarFrases"
+          />
           <UButton
             size="sm"
             color="error"

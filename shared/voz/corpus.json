@@ -1,0 +1,329 @@
+[
+  {
+    "texto": "vende cinco panes",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "vendeme 10 mani",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto hay de pan",
+    "comando": "consulta_stock",
+    "slots": {}
+  },
+  {
+    "texto": "abre cuadre",
+    "comando": "cuadre_accion",
+    "slots": {}
+  },
+  {
+    "texto": "dame cinco panes",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "vende un refresco familiar",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "hola",
+    "comando": "desconocido",
+    "slots": {}
+  },
+  {
+    "texto": "cinco panes",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto cuesta el pan",
+    "comando": "consulta_precio",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto debe juan",
+    "comando": "consulta_deuda",
+    "slots": {}
+  },
+  {
+    "texto": "quien me debe mas",
+    "comando": "consulta_deuda",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto me deben",
+    "comando": "consulta_deuda",
+    "slots": {}
+  },
+  {
+    "texto": "como va el dia",
+    "comando": "consulta_dia",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto vendi hoy",
+    "comando": "consulta_dia",
+    "slots": {}
+  },
+  {
+    "texto": "ventas de hoy",
+    "comando": "consulta_dia",
+    "slots": {}
+  },
+  {
+    "texto": "fia dos panes a juan",
+    "comando": "venta_fiada",
+    "slots": {}
+  },
+  {
+    "texto": "cobra 200 a juan",
+    "comando": "cobro_deuda",
+    "slots": {}
+  },
+  {
+    "texto": "entraron 20 panes a 10 pesos",
+    "comando": "entrada_inventario",
+    "slots": {}
+  },
+  {
+    "texto": "cambia el precio del pan a 25",
+    "comando": "cambio_precio",
+    "slots": {}
+  },
+  {
+    "texto": "pasa 5 panes del almacen al quiosco",
+    "comando": "traspaso",
+    "slots": {}
+  },
+  {
+    "texto": "se rompieron 3 panes",
+    "comando": "ajuste_inventario",
+    "slots": {}
+  },
+  {
+    "texto": "se cogieron 3 panes para la casa",
+    "comando": "ajuste_inventario",
+    "slots": {}
+  },
+  {
+    "texto": "se cogieron los panes para la casa",
+    "comando": "ajuste_inventario",
+    "slots": {}
+  },
+  {
+    "texto": "devuelve 2 panes al almacen",
+    "comando": "ajuste_inventario",
+    "slots": {}
+  },
+  {
+    "texto": "crea un producto pan de leche a 25",
+    "comando": "producto_alta",
+    "slots": {}
+  },
+  {
+    "texto": "agrega el cliente adrian",
+    "comando": "cliente_alta",
+    "slots": {}
+  },
+  {
+    "texto": "pon el refresco debajo del pan",
+    "comando": "mover_producto",
+    "slots": {}
+  },
+  {
+    "texto": "anota que juan debe 500",
+    "comando": "deuda_dinero",
+    "slots": {}
+  },
+  {
+    "texto": "transferencia de 500 a juan",
+    "comando": "transferencia_cuadre",
+    "slots": {}
+  },
+  {
+    "texto": "hola",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "buenas tardes",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "ya voy",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "dame un momento",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "pasame la bolsa",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "tengo dos hijos",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "son las cinco",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "hace tres dias",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "el cliente quiere dos",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "cinco minutos y vuelvo",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "tengo veinte pesos",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "que calor hace hoy",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "anota mi telefono",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "manana vienen dos camiones",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "pon la radio",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "baja el volumen",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "saca la basura",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "cobra ya que me voy",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "dame la bolsa",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "abre la ventana",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "cierra la puerta",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "me quedan dos horas",
+    "comando": "desconocido",
+    "slots": {},
+    "conocido_fallo": true
+  },
+  {
+    "texto": "vende dos panes",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "quiero dos panes",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "me llevo dos panes",
+    "comando": "venta_directa",
+    "slots": {}
+  },
+  {
+    "texto": "fia dos panes a juan por favor",
+    "comando": "venta_fiada",
+    "slots": {}
+  },
+  {
+    "texto": "cobra 200 a juan",
+    "comando": "cobro_deuda",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto hay de pan",
+    "comando": "consulta_stock",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto cuesta el pan",
+    "comando": "consulta_precio",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto debe juan",
+    "comando": "consulta_deuda",
+    "slots": {}
+  },
+  {
+    "texto": "como va el dia",
+    "comando": "consulta_dia",
+    "slots": {}
+  },
+  {
+    "texto": "cuanto vendi hoy",
+    "comando": "consulta_dia",
+    "slots": {}
+  }
+]
