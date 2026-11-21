@@ -69,6 +69,55 @@ describe('voz asistida: comandos (K, L, M, N)', () => {
     assert.equal(interpretar('transfiere 2 panes del quiosco al almacen').slots.destino, 'almacen')
   })
 
+  it('«kiosco» y «depósito» son destinos de traspaso como «quiosco» y «almacén»', () => {
+    // Frases reales del negocio que antes se grababan como VENTA: el stock
+    // salía del almacén como vendido y se creaba un cliente «kiosco».
+    const reales = [
+      'pasa 10 azucar al kiosco',
+      'pasa diez de azucar para el kiosco',
+      'pasa 10 azucar pal kiosco',
+      'manda 10 azucar al kiosco',
+      'envia 10 azucar al kiosco',
+      'lleva 10 azucar al kiosco'
+    ]
+    for (const frase of reales) {
+      const r = interpretar(frase)
+      assert.equal(r.comando, 'traspaso', `«${frase}» se grabó como ${r.comando}`)
+      assert.equal(r.slots.productoHint, 'azucar')
+      assert.equal(r.slots.cantidad, 10)
+      assert.equal(r.slots.destino, 'quiosco')
+    }
+    // «al depósito» es el almacén, no el quiosco.
+    const deposito = interpretar('pasa 10 azucar al deposito')
+    assert.equal(deposito.comando, 'traspaso')
+    assert.equal(deposito.slots.destino, 'almacen')
+    assert.equal(interpretar('pasa 10 azucar al kiosco').slots.destino, 'quiosco')
+  })
+
+  it('los verbos confirmados por el dueño también son traspaso', () => {
+    for (const verbo of ['pasa', 'envia', 'manda', 'lleva', 'echa', 'sube']) {
+      const r = interpretar(`${verbo} 4 manis al quiosco`)
+      assert.equal(r.comando, 'traspaso', `«${verbo}» no se reconoció como traspaso`)
+      assert.equal(r.slots.cantidad, 4)
+      assert.equal(r.slots.destino, 'quiosco')
+    }
+  })
+
+  it('sin ubicación, esos verbos siguen siendo venta', () => {
+    // «lleva 10 azúcar» no dice a dónde: no es traspaso. Solo se mueve stock
+    // cuando el destino es explícito.
+    for (const frase of ['lleva 10 azucar', 'manda 10 azucar']) {
+      assert.notEqual(interpretar(frase).comando, 'traspaso', `«${frase}» no debe ser traspaso`)
+    }
+  })
+
+  it('el destino no se queda pegado al nombre del producto', () => {
+    const r = interpretar('pasa 10 azucar del almacen al kiosco')
+    assert.equal(r.slots.productoHint, 'azucar')
+    assert.equal(r.slots.cantidad, 10)
+    assert.equal(r.slots.destino, 'quiosco')
+  })
+
   it('no se come las ventas ni las consultas de siempre', () => {
     assert.equal(interpretar('vende 5 panes').comando, 'venta_directa')
     assert.equal(interpretar('cuanto cuesta el pan').comando, 'consulta_precio')

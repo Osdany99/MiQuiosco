@@ -14,6 +14,7 @@
  * abrir un formulario prellenado es la capa de UI.
  */
 import { LEXICO_BASE } from './lexico.js'
+import { NOMBRES_UBICACION, ubicacionDePalabra } from './ubicaciones.js'
 import { esPeticionDeAyuda, temaDeAyuda } from './ayuda.js'
 import { esConsultaDia, esConsultaGanancia } from './dia.js'
 import { esConsultaCaja } from './caja.js'
@@ -169,18 +170,22 @@ const PALABRAS_NO_CLIENTE = new Set([
 // ("pan de leche").
 const BORDE_VACIAS = new Set([...PALABRAS_VACIAS, 'para', 'desde', 'en', 'al', 'con', 'sin'])
 
-const RE_UBICACION = /\b(?:desde|del|de|en|al)\s+(?:el\s+|la\s+)?(kiosco|quiosco|almacen)\b/
+/**
+ * Preposiciones que introducen una ubicación. «para el kiosco», «hacia el
+ * depósito» y «pal quiosco» son destinos tan válidos como «al quiosco».
+ */
+const PREPOSICIONES_UBICACION = ['desde', 'del', 'de', 'en', 'al', 'para', 'hacia', 'pal']
 
 /**
  * Extrae la ubicación dicha ("del almacén", "en el quiosco") y la quita del
  * texto. Devuelve `{ ubicacion, texto }` para que `extraerBase` y
  * `extraerConsultaPura` no repitan la regex.
  */
-function extraerUbicacion(texto) {
-  const loc = texto.match(RE_UBICACION)
+function extraerUbicacion(texto, lexico = LEXICO_BASE) {
+  const loc = texto.match(compilar(lexico).RE_UBICACION)
   if (!loc) return { ubicacion: null, texto }
   return {
-    ubicacion: loc[1] === 'almacen' ? 'almacen' : 'quiosco',
+    ubicacion: ubicacionDePalabra(loc[1]),
     texto: texto.replace(loc[0], ' ')
   }
 }
@@ -379,7 +384,8 @@ function compilar(lexico) {
   const prefijo = list => list.length
     ? new RegExp(`^(${alternancia(list)})\\b`)
     : /(?!)/
-
+  const sinUbicacion = alternancia(NOMBRES_UBICACION)
+  const trasUbicacion = `(?:${alternancia(PREPOSICIONES_UBICACION)})\\s+(?:el\\s+|la\\s+)?(${sinUbicacion})\\b`
   const palabras = (list, banderas = '') => list.length
     ? new RegExp(`\\b(?:${alternancia(list)})\\b`, banderas)
     : null
@@ -404,6 +410,13 @@ function compilar(lexico) {
     RE_ENTRADA: prefijo(entradaVerbo),
     RE_PRECIO: prefijo(precioVerbo),
     RE_TRASPASO: prefijo(traspasoVerbo),
+    // Cualquier mención de ubicación, con su preposición («del almacén»,
+    // «para el kiosco»).
+    RE_UBICACION: new RegExp(`\\b${trasUbicacion}`),
+    // Solo destino: «al kiosco», «para el depósito», «hacia el quiosco».
+    RE_UBICACION_DESTINO: new RegExp(
+      `\\b(?:${alternancia(['al', 'para', 'hacia', 'pal'])})\\s+(?:el\\s+|la\\s+)?(${sinUbicacion})\\b`
+    ),
     RE_TRANSFERENCIA: prefijo(transferenciaVerbo),
     RE_MERMA: mermaVerbo.length
       ? new RegExp(`^(?:se\\s+)?(?:${alternancia(mermaVerbo)})\\b`)
@@ -425,7 +438,7 @@ function extraerConsultaPura(texto, lexico = LEXICO_BASE) {
   let work = texto
 
   // Ubicación: mismo helper que `extraerBase` (antes estaba duplicado).
-  const { ubicacion, texto: sinUbicacion } = extraerUbicacion(work)
+  const { ubicacion, texto: sinUbicacion } = extraerUbicacion(work, lexico)
   work = sinUbicacion
 
   const toks = work.split(' ').filter(Boolean)
@@ -1019,7 +1032,7 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
 
   // Ubicación se extrae sobre TODO el texto (incluso si el verbo va al final),
   // para no perderla al recortar el verbo.
-  const ubicacion = extraerUbicacion(texto)
+  const ubicacion = extraerUbicacion(texto, lexico)
   if (ubicacion.ubicacion) slots.ubicacion = ubicacion.ubicacion
   texto = ubicacion.texto
 
@@ -1191,10 +1204,15 @@ export function esCuadreAccion(texto, lexico = LEXICO_BASE) {
 /**
  * «Pasa 5 panes del almacén al quiosco» (Fase N). Exige que se nombre una
  * ubicación: sin eso, «pasa 5 panes» sigue siendo una venta.
+ *
+ * Acepta los sinónimos del mapa de ubicaciones («kiosco», «depósito»): con el
+ * regex anterior, «pasa 10 azúcar al kiosco» caía en venta y el stock salía
+ * del almacén como vendido.
  */
 export function esTraspaso(texto, lexico = LEXICO_BASE) {
   const t = normalizar(texto)
-  return compilar(lexico).RE_TRASPASO.test(t) && /\b(?:quiosco|almacen)\b/.test(t)
+  const c = compilar(lexico)
+  return c.RE_TRASPASO.test(t) && c.RE_UBICACION.test(t)
 }
 
 /** Slots de entrada al almacén: producto, cantidad y precio de compra. */
@@ -1224,12 +1242,17 @@ function extraerCambioPrecioSlots(transcript, lexico) {
 
 /** Slots del traspaso: producto, cantidad y destino (origen siempre almacén). */
 function extraerTraspasoSlots(transcript, lexico) {
+  const c = compilar(lexico)
   const texto = normalizar(transcript)
-  const destino = /\bal\s+almacen\b/.test(texto) ? 'almacen' : 'quiosco'
+  // Destino: la última ubicación introducida por «al / para / hacia / pal».
+  const destinos = [...texto.matchAll(new RegExp(c.RE_UBICACION_DESTINO.source, 'g'))]
+  const ultimo = destinos[destinos.length - 1]
+  const destino = ultimo ? ubicacionDePalabra(ultimo[1]) : 'quiosco'
+  // Se quitan todas las menciones («del almacén al kiosco», «para el depósito»)
+  // para que no se peguen al nombre del producto.
   const resto = texto
     .replace(compilar(lexico).RE_TRASPASO, ' ')
-    .replace(/\b(?:del|de la|de)\s+(?:almacen|quiosco)\b/g, ' ')
-    .replace(/\b(?:al|para el|pal)\s+(?:almacen|quiosco)\b/g, ' ')
+    .replace(new RegExp(c.RE_UBICACION.source, 'g'), ' ')
   const { slots } = extraerBase(resto, false, lexico)
   return {
     productoHint: slots.productoHint,

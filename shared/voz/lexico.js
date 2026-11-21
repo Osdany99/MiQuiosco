@@ -48,7 +48,15 @@ export const LEXICO_BASE = Object.freeze({
   traspasoVerbo: [
     'pasa', 'pasame', 'pasale', 'pasar', 'mueve', 'mueveme', 'muevelo',
     'muevela', 'traspasa', 'traspasame', 'traslada', 'transfiere', 'transferir',
-    'transfiereme', 'transferi', 'transfiero', 'repone', 'repon', 'reponer'
+    'transfiereme', 'transferi', 'transferio', 'repone', 'repon', 'reponer',
+    // Verbos confirmados por el dueño para llevar mercancía al quiosco. Solo
+    // son traspaso si la frase nombra una ubicación («lleva 10 azúcar» sigue
+    // siendo venta).
+    'envia', 'envias', 'envie', 'envien', 'enviar',
+    'manda', 'mandas', 'mandame', 'mandalo', 'mandala', 'mandar',
+    'lleva', 'llevas', 'llevame', 'llevalo', 'llevala', 'llevar',
+    'echa', 'echas', 'echame', 'echalo', 'echala', 'echar',
+    'sube', 'subes', 'subeme', 'subelo', 'subela', 'subir'
   ],
   transferenciaVerbo: ['transfiere', 'transfiereme', 'transferir', 'transfiero', 'transferi'],
   mermaVerbo: [

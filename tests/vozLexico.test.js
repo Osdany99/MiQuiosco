@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { LEXICO_BASE, crearLexico } from '../shared/voz/lexico.js'
+import { UBICACIONES } from '../shared/voz/ubicaciones.js'
 import { resolverComando } from '../shared/voz/gramatica.js'
 import { validarEntrada } from '../shared/schemas/vozLexico.js'
 import { evaluarCambio } from '../shared/voz/evaluarCambio.js'
@@ -226,5 +230,25 @@ describe('voz: léxico — probar entrada (simulador)', () => {
     assert.equal(r.cambios[0].despues, 'venta_directa')
     assert.ok(r.cambios[0].campos.includes('producto'))
     assert.equal(r.cambios[0].campos.includes('comando'), false)
+  })
+})
+
+describe('voz: ubicaciones — una sola lista', () => {
+  it('el mapa de ubicaciones y el del servicio nativo no se separan', () => {
+    // El servicio nativo (app cerrada) lleva su propia copia en
+    // `assets/voz/dialogo.json`. Si alguien añade un sinónimo en un lado y no
+    // en el otro, el mismo dictado se entiende distinto según dónde se diga.
+    const aqui = dirname(fileURLToPath(import.meta.url))
+    const dialogo = JSON.parse(
+      readFileSync(join(aqui, '..', 'shared', 'voz', 'dialogo.json'), 'utf8')
+    )
+    assert.deepEqual(dialogo.ubicaciones, { ...UBICACIONES })
+  })
+
+  it('cada nombre conocido resuelve a su ubicación canónica', () => {
+    assert.equal(UBICACIONES.kiosco, 'quiosco')
+    assert.equal(UBICACIONES.quiosco, 'quiosco')
+    assert.equal(UBICACIONES.almacen, 'almacen')
+    assert.equal(UBICACIONES.deposito, 'almacen')
   })
 })
