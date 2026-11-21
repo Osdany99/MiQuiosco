@@ -29,7 +29,7 @@ import {
 import { clasificarRespuesta, esAfirmacion, esNegacion } from '../app/utils/voice/confirmacion.js'
 import { cabecerasDePrueba } from '../app/utils/voice/auditoria.js'
 import { enmascarar } from '../shared/voz/privacidad.js'
-import { describirCantidad, fraseVenta, fraseVentaMultiple, fraseStockInsuficiente } from '../app/utils/voice/frasesVoz.js'
+import { describirCantidad, fraseVenta, fraseVentaMultiple, fraseStockInsuficiente, hayColisionDeNombre } from '../app/utils/voice/frasesVoz.js'
 import { formatearPrecio } from '../app/utils/voice/respuestasVoz.js'
 import { MS_MARGEN_ANTIECO, esEcoDePrompt, ecoPalabraSuelta, respuestaTrasEco } from '../app/utils/voice/eco.js'
 import { extraerCorreccion } from '../app/utils/voice/correccion.js'
@@ -1088,6 +1088,25 @@ describe('voz: la lectura dice la descripción', () => {
       fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'almacén' }),
       'Voy a vender 2 unidades de Pan del almacén.'
     )
+  })
+
+  it('homónimo sin descripción: avisa de que es el que no tiene (P9.3)', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Maní', colision: true, lugar: 'almacén' }),
+      'Voy a vender 2 unidades de Maní, el que no tiene descripción del almacén.'
+    )
+  })
+
+  it('hayColisionDeNombre solo cuenta el nombre exacto repetido', () => {
+    const catalogo = [
+      { nombre: 'Maní', descripcion: 'molido' },
+      { nombre: 'Maní', descripcion: 'cocinado' },
+      { nombre: 'Pan' }
+    ]
+    assert.equal(hayColisionDeNombre('Maní', catalogo), true)
+    assert.equal(hayColisionDeNombre('Pan', catalogo), false)
+    assert.equal(hayColisionDeNombre('', catalogo), false)
+    assert.equal(hayColisionDeNombre('Maní', []), false)
   })
 
   it('no repite la descripción si el nombre ya la contiene', () => {

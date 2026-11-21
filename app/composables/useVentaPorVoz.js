@@ -41,7 +41,7 @@ import { rangoDeDiaNegocio, rangoDeIso } from '#shared/voz/fechas'
 import { ahoraServidor } from '../utils/relojServidor'
 import { formatearCaja, resumirCaja } from '#shared/voz/caja'
 import { TABLES } from '#shared/tables'
-import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseAjuste, fraseProductoAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, fraseDeudaDinero, fraseTransferencia, FRASE_CONFIRMAR, FRASE_NADA_QUE_REPETIR, FRASE_PROMPT } from '../utils/voice/frasesVoz'
+import { fraseVenta, fraseVentaMultiple, fraseEntrada, fraseCambioPrecio, fraseTraspaso, fraseClienteAlta, fraseAjuste, fraseProductoAlta, fraseMover, fraseCuadre, fraseStockInsuficiente, fraseFiado, fraseCobro, fraseDeudaDinero, fraseTransferencia, hayColisionDeNombre, FRASE_CONFIRMAR, FRASE_NADA_QUE_REPETIR, FRASE_PROMPT } from '../utils/voice/frasesVoz'
 import { MS_MARGEN_ANTIECO } from '../utils/voice/eco'
 
 import { resolverVenta as resolverVentaPura } from '../utils/voice/resolverVenta'
@@ -272,8 +272,10 @@ function _create(ubicacion) {
 
     // Read-back exacto del formulario (lo prellenado), no lo interpretado.
     // Se guarda la promesa para que la UI pueda esperarla antes de hablar
-    // otra locución (la confirmación hablada va justo después).
-    programarReadBack(fila)
+    // otra locución (la confirmación hablada va justo después). El catálogo va
+    // en el prefill: la lectura lo necesita para avisar del homónimo sin
+    // descripción (P9.3) sin volver a pedirlo.
+    programarReadBack(fila, { catalogo: catalogoCargado(ubi) })
   }
 
   /**
@@ -351,7 +353,7 @@ function _create(ubicacion) {
     return Number(fila?.precioVentaActual ?? 0)
   }
 
-  function programarReadBack(fila) {
+  function programarReadBack(fila, { catalogo = null } = {}) {
     const filaActual = fila ?? producto.value
     readBackPromise.value = (async () => {
       // Venta con varias líneas: se leen todas y el total.
@@ -378,6 +380,9 @@ function _create(ubicacion) {
       const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
       const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
       if (!filaActual) return
+      // Con varios productos del mismo nombre, sin descripción la lectura no
+      // diría cuál se descuenta: se avisa de que es el que no tiene (P9.3).
+      const colision = !descripcion && hayColisionDeNombre(nombre, catalogo ?? catalogoCargado(lugar))
       // El importe se lee SIEMPRE: es la única cifra que delata una cantidad mal
       // transcrita ("12 panes" oído como "2 panes").
       const precio = precioDeLectura(filaActual)
@@ -385,6 +390,7 @@ function _create(ubicacion) {
         cantidad: cant,
         nombre,
         descripcion,
+        colision,
         lugar,
         tipo: prefill.value?.modo ?? 'venta',
         importe: precio * cant,
@@ -486,6 +492,26 @@ function _create(ubicacion) {
     cacheCatalogo.clear()
   }
 
+  /**
+   * Catálogo ya cargado para esa ubicación, sin pedirlo. La lectura hablada lo
+   * usa para saber si el nombre lo comparten varios productos (P9.3): pedirlo
+   * ahí añadiría una espera de red a la respuesta de voz.
+   */
+  function catalogoCargado(ubi, { soloVendibles = true } = {}) {
+    const pid = auth.usuarioActual.value?.puestoId ?? ''
+    const clave = `${pid}:${conexion.modo.value}:${ubi}:${soloVendibles ? 'v' : 't'}`
+    return cacheCatalogo.get(clave)?.data ?? []
+  }
+
+  /**
+   * ¿Hay que avisar de que el producto es «el que no tiene descripción»?
+   * Solo cuando la lectura no tiene otra forma de distinguirlo (P9.3).
+   */
+  function necesitaAvisoColision(fila, ubi, soloVendibles = true) {
+    if (!fila?.nombre || fila?.descripcion) return false
+    return hayColisionDeNombre(fila.nombre, catalogoCargado(ubi, { soloVendibles }))
+  }
+
   watch(() => conexion.modo.value, () => {
     cacheCatalogo.clear()
   })
@@ -558,7 +584,7 @@ function _create(ubicacion) {
     // verbo débil/interior o de cantidad+producto y el producto es dudoso, no
     // se vende en silencio; se pide aclaración. Sin producto parecido -> error.
     const razonDebil = new Set(['verbo_venta_debil', 'verbo_venta_interior', 'cantidad_y_producto'])
-    if (razonDebil.has(interpretado?.reasons?.[0])) {
+    if (razonDebil.has(opciones.razones?.[0])) {
       if (accion.tipo === 'ambiguo') {
         const primero = accion.candidatos?.[0]?.row
         const nombre = primero?.nombre ?? slots?.productoHint ?? ''
@@ -566,7 +592,7 @@ function _create(ubicacion) {
         return {
           tipo: 'aclarar',
           pregunta: `¿Quisiste vender ${cantidad} ${nombre}?`.trim(),
-          texto: textoElegido,
+          texto: opciones.texto ?? slots?.productoHint ?? '',
           sttConfidence,
           slots,
           candidatos: accion.candidatos,
@@ -575,11 +601,12 @@ function _create(ubicacion) {
         }
       }
       if (accion.tipo === 'error' && accion.motivo === 'producto_no_encontrado') {
+        const texto = opciones.texto ?? slots?.productoHint ?? ''
         return {
           tipo: 'error',
           motivo: 'sin_comando',
-          mensaje: mensajeNoEntendido(textoElegido),
-          texto: textoElegido,
+          mensaje: mensajeNoEntendido(texto),
+          texto,
           sttConfidence
         }
       }
@@ -942,6 +969,7 @@ function _create(ubicacion) {
       cantidad: accion.cantidad,
       nombre: accion.fila?.nombre,
       descripcion: accion.fila?.descripcion,
+      colision: necesitaAvisoColision(accion.fila, 'almacen', false),
       precio: accion.precioUnitario
     })
     toast.add({ title: 'Entrada al almacén', description: texto, color: 'neutral', duration: 8000 })
@@ -967,6 +995,7 @@ function _create(ubicacion) {
     const texto = fraseCambioPrecio({
       nombre: accion.fila?.nombre,
       descripcion: accion.fila?.descripcion,
+      colision: necesitaAvisoColision(accion.fila, 'almacen', false),
       actual: accion.precioActual,
       nuevo: accion.precio
     })
@@ -1018,6 +1047,7 @@ function _create(ubicacion) {
       cantidad: accion.cantidad,
       nombre: accion.fila?.nombre,
       descripcion: accion.fila?.descripcion,
+      colision: necesitaAvisoColision(accion.fila, accion.ubicacion, false),
       motivo: accion.motivo,
       lugar: accion.ubicacion
     })
@@ -1070,7 +1100,12 @@ function _create(ubicacion) {
     producto.value = accion.fila
     modo.value = 'traspaso'
     estado.value = 'listo'
-    const texto = fraseTraspaso({ cantidad: accion.cantidad, nombre: accion.fila?.nombre, descripcion: accion.fila?.descripcion })
+    const texto = fraseTraspaso({
+      cantidad: accion.cantidad,
+      nombre: accion.fila?.nombre,
+      descripcion: accion.fila?.descripcion,
+      colision: necesitaAvisoColision(accion.fila, 'almacen', false)
+    })
     toast.add({ title: 'Traspaso al quiosco', description: texto, color: 'neutral', duration: 8000 })
     voice.registrar('voz.traspaso', {
       producto: accion.fila?.nombre ?? '',
@@ -1273,6 +1308,9 @@ function _create(ubicacion) {
     const rango = fecha ? (rangoDeDiaNegocio(fecha) ?? rangoDeIso(fecha)) : null
     const desde = rango?.inicio
     const hasta = rango?.hasta
+    // Cuadres y movimientos de OTRO puesto no cuentan: la cifra que se lee es la
+    // del puesto que pregunta. El servicio nativo manda el suyo en el snapshot.
+    const puestoId = auth.usuarioActual.value?.puestoId ?? null
     const [ventas, deudas, movimientos, cuadresRes] = await Promise.all([
       inv.cargarVentasDirectas({ desde, hasta }).catch(() => []),
       fiado.cargarDeudas({ conSaldo: false }).catch(() => []),
@@ -1287,6 +1325,7 @@ function _create(ubicacion) {
       cuadres,
       deudasDirectas: deudas,
       movimientos,
+      puestoId,
       desde: inicio,
       hasta: fin
     })
@@ -2849,7 +2888,11 @@ function _create(ubicacion) {
     // no resuelve sin dudas, cae al flujo de una sola línea.
     const multi = await resolverVentaMultiAccion(textoElegido, sttConfidence, vigente, { ventaDirecta })
     if (multi) return multi
-    return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta })
+    return resolverVentaAccion(slots, sttConfidence, vigente, {
+      ventaDirecta,
+      razones: interpretado?.reasons,
+      texto: textoElegido
+    })
   }
 
   /**
