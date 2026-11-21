@@ -22,6 +22,13 @@ export const VOZ_RETENCION_ACIERTOS_DEFECTO = 7
  * flota: cambiarlas no debe forzar una migración ni una sincronización. Son
  * parte del comportamiento del vigilante de escucha (P12).
  */
+/**
+ * Apaga la limpieza de frase sin tocar código (rollback de emergencia en OTA).
+ * Constante, NO campo de VOZ_CONFIG_DEFECTO: no toca la base de datos ni el
+ * snapshot ni el schema. Override por query string `?vozLimpieza=0`.
+ */
+export const VOZ_LIMPIEZA_ACTIVA = true
+
 export const MS_ESCUCHA_COMPLETA = 1000
 export const MS_ESCUCHA_COLGANTE = 2800
 /** Cuántas veces se alarga la espera en una misma escucha antes de cerrar. */

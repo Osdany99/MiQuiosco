@@ -6,9 +6,10 @@ import { FRASES_DORADAS } from '../shared/voz/frasesDoradas.js'
 // Ratchet: SUBIR tras cada fase, nunca bajar. Línea base medida: 0.72 / 0.33 / 14.
 // (El valor medido de slots es 0.3287; el umbral se deja en 0.32 para no
 // redondear hacia arriba una cifra que no se alcanza.)
-const MIN_INTENCION = 0.72
-const MIN_SLOTS = 0.32
-const MAX_CHARLA_FALSOS = 14
+// Tras F1 (limpieza): intención 100%, slots 77%, charla 13/22.
+const MIN_INTENCION = 1.0
+const MIN_SLOTS = 0.76
+const MAX_CHARLA_FALSOS = 13
 
 function interpretar(f) {
   const r = resolverComando(f)

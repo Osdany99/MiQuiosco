@@ -19,6 +19,7 @@ import { esPeticionDeAyuda, temaDeAyuda } from './ayuda.js'
 import { esConsultaDia, esConsultaGanancia } from './dia.js'
 import { esConsultaCaja } from './caja.js'
 import { resolverFechaDictada } from './fechas.js'
+import { limpiarFrase } from './limpieza.js'
 
 const UNIDADES = {
   cero: 0,
@@ -664,7 +665,7 @@ export function extraerClienteHint(transcript) {
  * `ambito` decide la respuesta: cliente concreto, total o el que más debe.
  */
 export function extraerDeudaSlots(transcript) {
-  const texto = normalizar(transcript)
+  const texto = limpiarFrase(normalizar(transcript)).texto
   const clienteHint = extraerClienteHint(texto)
   let ambito = 'total'
   if (/\bquien(es)?\b/.test(texto) || /\bmas\b/.test(texto)) ambito = 'mayor'
@@ -766,7 +767,7 @@ export function extraerTransferenciaSlots(transcript) {
  */
 export function resolverComando(transcript, lexico = LEXICO_BASE) {
   const c = compilar(lexico)
-  const texto = normalizar(transcript)
+  const texto = limpiarFrase(normalizar(transcript)).texto
   if (!texto) return { comando: 'desconocido', confianza: 0, reasons: ['sin_texto'] }
   const primerToken = texto.split(' ')[0]
   const retiradaDeVenta = c.retiradasVenta.has(primerToken)
@@ -1032,7 +1033,7 @@ function extraerBase(transcript, conservarSuelto, lexico = LEXICO_BASE) {
   }
   let suelto = false
 
-  let texto = normalizar(transcript)
+  let texto = limpiarFrase(normalizar(transcript)).texto
 
   // Ubicación se extrae sobre TODO el texto (incluso si el verbo va al final),
   // para no perderla al recortar el verbo.
@@ -1249,7 +1250,7 @@ export function esTraspaso(texto, lexico = LEXICO_BASE) {
 
 /** Slots de entrada al almacén: producto, cantidad y precio de compra. */
 function extraerEntradaSlots(transcript, lexico) {
-  const texto = normalizar(transcript)
+  const texto = limpiarFrase(normalizar(transcript)).texto
     .replace(compilar(lexico).RE_ENTRADA, ' ')
     .replace(/^\s*(?:de|del)\s+/, ' ')
   const { slots } = extraerBase(texto, false, lexico)
@@ -1262,7 +1263,7 @@ function extraerEntradaSlots(transcript, lexico) {
 
 /** Slots del cambio de precio: producto y precio nuevo. */
 function extraerCambioPrecioSlots(transcript, lexico) {
-  const texto = normalizar(transcript).replace(compilar(lexico).RE_PRECIO, ' ')
+  const texto = limpiarFrase(normalizar(transcript)).texto.replace(compilar(lexico).RE_PRECIO, ' ')
   const { slots } = extraerBase(texto, false, lexico)
   const productoHint = slots.productoHint
     .replace(/\bprecios?\b/g, ' ')
@@ -1275,7 +1276,7 @@ function extraerCambioPrecioSlots(transcript, lexico) {
 /** Slots del traspaso: producto, cantidad y destino (origen siempre almacén). */
 function extraerTraspasoSlots(transcript, lexico) {
   const c = compilar(lexico)
-  const texto = normalizar(transcript)
+  const texto = limpiarFrase(normalizar(transcript)).texto
   // Destino: la última ubicación introducida por «al / para / hacia / pal».
   const destinos = [...texto.matchAll(new RegExp(c.RE_UBICACION_DESTINO.source, 'g'))]
   const ultimo = destinos[destinos.length - 1]
@@ -1316,7 +1317,7 @@ function motivoDeAjuste(texto, colaCruda) {
 }
 
 function extraerAjusteSlots(transcript, lexico) {
-  const texto = normalizar(transcript)
+  const texto = limpiarFrase(normalizar(transcript)).texto
   const crudo = String(transcript ?? '')
   // El motivo dictado («… porque se los llevó el perro») va tal cual, con sus
   // acentos: es lo que el jefe lee en el formulario antes de guardar.
@@ -1409,7 +1410,7 @@ export function esMoverProducto(texto, lexico = LEXICO_BASE) {
 }
 
 function extraerMoverSlots(transcript, lexico) {
-  const texto = normalizar(transcript).replace(compilar(lexico).RE_MOVER, ' ').replace(/\s+/g, ' ').trim()
+  const texto = limpiarFrase(normalizar(transcript)).texto.replace(compilar(lexico).RE_MOVER, ' ').replace(/\s+/g, ' ').trim()
   const limpiar = t => t.replace(ARTICULOS_INICIALES, '').replace(/\s+/g, ' ').trim()
 
   if (/\bal final\b/.test(texto)) {
@@ -1432,7 +1433,7 @@ function extraerMoverSlots(transcript, lexico) {
 
 /** Acción del cuadre: abrir o cerrar. Una frase suelta nunca cierra. */
 function extraerCuadreSlots(transcript, lexico) {
-  const texto = normalizar(transcript)
+  const texto = limpiarFrase(normalizar(transcript)).texto
   const c = compilar(lexico)
   return { accion: c.RE_CUADRE_CERRAR.test(texto) ? 'cerrar' : 'abrir' }
 }
