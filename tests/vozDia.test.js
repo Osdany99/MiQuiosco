@@ -8,6 +8,7 @@ import {
   formatearDia,
   formatearGanancia,
   formatearMonto,
+  gananciaDelDia,
   inicioDelDia,
   resumirDia
 } from '../shared/voz/dia.js'
@@ -198,9 +199,48 @@ describe('voz: ganancia del día', () => {
 
   it('sin ventas no inventa una ganancia', () => {
     assert.equal(
-      formatearGanancia({ ventasHoy: 0, importeHoy: 0, gananciaHoy: 0 }).habla,
+      formatearGanancia({ ventasHoy: 0, importeHoy: 0, gananciaHoy: 0, gananciaOrigen: 'vacio' }).habla,
       'Todavía no hay ventas hoy, así que no hay ganancia.'
     )
+  })
+
+  it('usa el cuadre cerrado cuando existe', () => {
+    const r = resumirDia({
+      ahora: AHORA,
+      ventas: [venta({ montoTotal: 100, ganancia: 30 })],
+      cuadres: [{ fecha: '2026-11-16', estado: 'cerrado', ganancia: 55, actualizadoEn: AHORA }],
+      deudasDirectas: [],
+      movimientos: []
+    })
+    assert.equal(r.gananciaHoy, 55)
+    assert.equal(r.gananciaOrigen, 'cuadre')
+    assert.match(formatearGanancia(r).habla, /ganaste 55 pesos/)
+  })
+
+  it('si el cuadre está abierto, avisa y usa fuera de cuadre', () => {
+    const r = resumirDia({
+      ahora: AHORA,
+      ventas: [venta({ montoTotal: 100, ganancia: 30 })],
+      cuadres: [{ fecha: '2026-11-16', estado: 'abierto', ganancia: null }],
+      deudasDirectas: [{ creadoEn: AHORA, montoTotal: 20, ganancia: 7 }],
+      movimientos: [{ creadoEn: AHORA, tipo: 'merma', importe: 5 }]
+    })
+    assert.equal(r.gananciaHoy, 32)
+    assert.equal(r.gananciaOrigen, 'abierto')
+    assert.match(formatearGanancia(r).habla, /El cuadre de hoy está abierto/)
+    assert.match(formatearGanancia(r).habla, /Fuera de cuadre vas 32 pesos/)
+  })
+
+  it('gananciaDelDia: sin cuadre usa ventas directas, deudas directas y mermas', () => {
+    const r = gananciaDelDia({
+      fecha: '2026-11-16',
+      desde: inicioDelDia(AHORA),
+      hasta: inicioDelDia(AHORA) + 24 * 60 * 60 * 1000 - 1,
+      ventas: [venta({ montoTotal: 100, ganancia: 30 })],
+      deudasDirectas: [{ creadoEn: AHORA, montoTotal: 20, ganancia: 7 }],
+      movimientos: [{ creadoEn: AHORA, tipo: 'merma', importe: 5 }]
+    })
+    assert.deepEqual({ origen: r.origen, monto: r.monto }, { origen: 'fuera_de_cuadre', monto: 32 })
   })
 
   it('exige marca de día', () => {

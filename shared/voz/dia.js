@@ -37,6 +37,90 @@ function redondear2(valor) {
   return Math.round((Number(valor) || 0) * 100) / 100
 }
 
+function diaDeMs(valor) {
+  const t = ms(valor)
+  if (!t) return ''
+  const d = new Date(t)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function enRangoDia(valor, inicio, fin) {
+  const t = ms(valor)
+  return t >= inicio && t <= fin
+}
+
+/**
+ * Ganancia de un día, alineada con la gráfica "ganancia por período":
+ * - día cerrado (hay cuadre cerrado de ese día) -> ganancia del cuadre;
+ * - hoy con cuadre abierto -> fuera de cuadre (ventas directas + deudas directas
+ *   + mermas), avisando que el cuadre está abierto;
+ * - sin cuadre ni movimientos -> vacío.
+ *
+ * `cuadres` puede traer varios; se usa el cerrado del día, o el abierto si no hay
+ * cerrado. `deudasDirectas` son cuentas fiado sin `cuadreOrigenId`.
+ */
+export function gananciaDelDia({
+  fecha = null,
+  cuadres = [],
+  ventas = [],
+  deudasDirectas = [],
+  movimientos = [],
+  ahora = Date.now(),
+  desde = null,
+  hasta = null
+} = {}) {
+  const inicio = desde ?? inicioDelDia(ahora)
+  const fin = hasta ?? (inicio + 24 * 60 * 60 * 1000 - 1)
+  const dia = fecha || diaDeMs(inicio)
+
+  const delDia = (cuadres ?? []).filter(c => String(c?.fecha ?? '') === dia)
+  const cerrados = delDia.filter(c => c?.estado === 'cerrado')
+  if (cerrados.length) {
+    // Misma regla que la gr�fica (filasGananciaCuadre): ganancia FIFO congelada
+    // al cerrar menos el pago al trabajador.
+    // Decisi�n Fase 3: cuadres viejos con ganancia == null NO se estiman con
+    // precio de compra actual (la gr�fica s� lo hace por legado). MiQuiosco se
+    // reinici� en v2.4.21; si aparecen, se omiten para no inventar cifras.
+    let monto = 0
+    for (const c of cerrados) {
+      if (c?.ganancia == null) continue
+      monto += Number(c.ganancia) || 0
+      monto -= Number(c?.pagoTrabajador) || 0
+    }
+    return { origen: 'cuadre', monto: redondear2(monto), dia }
+  }
+
+  let fuera = 0
+  let hayMovimientos = false
+  for (const v of ventas ?? []) {
+    if (v?.anulado || !enRangoDia(v?.creadoEn, inicio, fin)) continue
+    fuera += Number(v?.ganancia) || 0
+    hayMovimientos = true
+  }
+  for (const d of deudasDirectas ?? []) {
+    if (d?.cuadreOrigenId || !enRangoDia(d?.creadoEn, inicio, fin)) continue
+    fuera += Number(d?.ganancia) || 0
+    hayMovimientos = true
+  }
+  for (const m of movimientos ?? []) {
+    if (m?.anulado || m?.tipo !== 'merma' || !enRangoDia(m?.creadoEn, inicio, fin)) continue
+    fuera -= Math.abs(Number(m?.importe) || 0)
+    hayMovimientos = true
+  }
+
+  const abierto = delDia.find(c => c?.estado === 'abierto') ?? null
+  if (abierto) {
+    return { origen: 'abierto', monto: redondear2(fuera), dia }
+  }
+  if (hayMovimientos) {
+    return { origen: 'fuera_de_cuadre', monto: redondear2(fuera), dia }
+  }
+  return { origen: 'vacio', monto: 0, dia }
+}
+
 /**
  * Resumen de hoy: ventas directas del día y dictados por revisar.
  *
@@ -51,7 +135,7 @@ function redondear2(valor) {
  * @param {number|null} opciones.desde Inicio del rango (ms). Sin él, hoy.
  * @param {number|null} opciones.hasta Fin del rango (ms). Sin él, el día completo.
  */
-export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = Date.now(), desde = null, hasta = null } = {}) {
+export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = Date.now(), desde = null, hasta = null, cuadres = null, deudasDirectas = null, movimientos = null } = {}) {
   const inicio = desde ?? inicioDelDia(ahora)
   const fin = hasta ?? (inicio + 24 * 60 * 60 * 1000 - 1)
   const delDia = (ventas ?? []).filter((v) => {
@@ -60,10 +144,10 @@ export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = D
     return t >= inicio && t <= fin
   })
   let importeHoy = 0
-  let gananciaHoy = 0
+  let gananciaVentas = 0
   for (const venta of delDia) {
     importeHoy += Number(venta?.montoTotal) || 0
-    gananciaHoy += Number(venta?.ganancia) || 0
+    gananciaVentas += Number(venta?.ganancia) || 0
   }
 
   // Misma regla que `resumenPendientes`: caducadas no se cuentan.
@@ -75,11 +159,16 @@ export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = D
   }
 
   const pendientes = vigentes.length + Math.max(0, Math.trunc(Number(dictados) || 0))
+  const usarCuadre = cuadres !== null || deudasDirectas !== null || movimientos !== null
+  const ganancia = usarCuadre
+    ? gananciaDelDia({ cuadres: cuadres ?? [], ventas, deudasDirectas: deudasDirectas ?? [], movimientos: movimientos ?? [], ahora, desde: inicio, hasta: fin })
+    : { origen: 'ventas', monto: redondear2(gananciaVentas), dia: diaDeMs(inicio) }
 
   return {
     ventasHoy: delDia.length,
     importeHoy: redondear2(importeHoy),
-    gananciaHoy: redondear2(gananciaHoy),
+    gananciaHoy: ganancia.monto,
+    gananciaOrigen: ganancia.origen,
     pendientes,
     importePendiente: redondear2(importePendiente),
     inicioDelDia: inicio
@@ -87,20 +176,24 @@ export function resumirDia({ ventas = [], acciones = [], dictados = 0, ahora = D
 }
 
 /**
- * Respuesta hablada de la ganancia del día. Se dice junto al importe vendido;
- * si no hubo ventas, se admite que no hay ganancia que calcular.
+ * Respuesta hablada de la ganancia del día. Alineada con la gráfica:
+ * - cuadre cerrado -> ganancia del cuadre;
+ * - cuadre abierto -> avisa que está abierto y da la ganancia fuera de cuadre;
+ * - sin datos -> no inventa.
  *
- * `cuando` es la etiqueta del día cuando no es hoy («El martes 10 de noviembre»).
+ * `cuando` etiqueta un día pasado («El martes 10 de noviembre»).
  */
 export function formatearGanancia(resumen, { cuando = null } = {}) {
   const ventas = Math.trunc(Number(resumen?.ventasHoy) || 0)
   const importe = formatearMonto(resumen?.importeHoy)
   const ganancia = Number(resumen?.gananciaHoy) || 0
+  const origen = String(resumen?.gananciaOrigen ?? 'ventas')
   const monto = formatearMonto(Math.abs(ganancia))
   const verbo = ganancia < 0 ? 'perdiste' : 'ganaste'
   const dia = cuando || 'Hoy'
+  const hayDatos = ventas > 0 || origen === 'cuadre' || origen === 'fuera_de_cuadre' || origen === 'abierto'
 
-  if (ventas === 0) {
+  if (!hayDatos) {
     return {
       titulo: `${dia}: sin ganancia`,
       descripcion: 'Sin ventas registradas',
@@ -111,12 +204,24 @@ export function formatearGanancia(resumen, { cuando = null } = {}) {
     }
   }
 
+  if (origen === 'abierto') {
+    return {
+      titulo: `${dia}: cuadre abierto`,
+      descripcion: `${monto} pesos fuera de cuadre`,
+      habla: cuando
+        ? `${cuando} el cuadre estaba abierto. Fuera de cuadre ${ganancia < 0 ? 'ibas en' : 'ibas en'} ${monto} pesos.`
+        : `El cuadre de hoy está abierto. Fuera de cuadre vas ${monto} pesos.`,
+      tipo: 'ganancia_abierta'
+    }
+  }
+
+  const contexto = ventas > 0 ? ` de ${importe} vendidos` : ''
   return {
     titulo: `${dia}: ${verbo} ${monto} pesos`,
-    descripcion: `${monto} pesos · ${importe} vendidos`,
+    descripcion: ventas > 0 ? `${monto} pesos · ${importe} vendidos` : `${monto} pesos`,
     habla: cuando
-      ? `${cuando} ${verbo} ${monto} pesos de ${importe} vendidos.`
-      : `Hoy ${verbo} ${monto} pesos de ${importe} vendidos.`,
+      ? `${cuando} ${verbo} ${monto} pesos${contexto}.`
+      : `Hoy ${verbo} ${monto} pesos${contexto}.`,
     tipo: 'ganancia'
   }
 }
