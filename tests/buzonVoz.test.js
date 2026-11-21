@@ -104,6 +104,13 @@ describe('buzón de voz: venta ya resuelta por el servicio', () => {
     assert.equal(pendienteResuelto({ ...resuelta, texto: '  ' }), null)
     assert.equal(pendienteResuelto(null), null)
   })
+
+  it('propaga descripcion y tipo de venta no directa para distinguir homonimos', () => {
+    const doc = pendienteResuelto({ ...resuelta, productoDescripcion: 'cocinado', tipoVenta: 'familiar', costoUnitario: 6 })
+    assert.equal(doc.productoDescripcion, 'cocinado')
+    assert.equal(doc.tipoVenta, 'familiar')
+    assert.equal(doc.precioUnitario, 6)
+  })
 })
 
 describe('buzón de voz: acción pendiente', () => {

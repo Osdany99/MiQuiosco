@@ -110,6 +110,7 @@ function _create(ubicacion) {
   const zeroTouch = useVoiceZeroTouch()
   const disparo = useVozDisparo()
   const snapshotVoz = useVozSnapshot()
+  const datosVersion = useDatosVersion()
   const vozConfig = useVozConfig()
   // Caja: solo lectura del cuadre abierto y sus líneas (nunca se crea ni se
   // guarda un cuadre desde la voz).
@@ -214,6 +215,10 @@ function _create(ubicacion) {
     || estado.value === 'confirmando'
     || estado.value === 'registrando'
   )
+  const vozOcupada = useState('voz:ocupada', () => false)
+  watch(ocupado, (v) => {
+    vozOcupada.value = v
+  }, { immediate: true })
 
   function limpiar() {
     // Si había una espera de confirmación en curso, abortarla: el flujo cambió.
@@ -1221,6 +1226,43 @@ function _create(ubicacion) {
     }
   }
 
+  /**
+   * Ganancia del día alineada con la gráfica: cuadre cerrado manda; con cuadre
+   * abierto se reporta fuera de cuadre (ventas directas + deudas directas +
+   * mermas). Carga datos extra solo cuando se pide la ganancia.
+   */
+  async function resumenGananciaDeDia(fecha) {
+    const rango = fecha ? (rangoDeDiaNegocio(fecha) ?? rangoDeIso(fecha)) : null
+    const desde = rango?.inicio
+    const hasta = rango?.hasta
+    const [ventas, deudas, movimientos, cuadresRes] = await Promise.all([
+      inv.cargarVentasDirectas({ desde, hasta }).catch(() => []),
+      fiado.cargarDeudas({ conSaldo: false }).catch(() => []),
+      inv.cargarMovimientos().catch(() => []),
+      cuadresRepo.readAll().catch(() => ({ data: [] }))
+    ])
+    const cuadres = Array.isArray(cuadresRes) ? cuadresRes : (cuadresRes?.data ?? [])
+    const inicio = rango?.inicio ?? null
+    const fin = rango?.hasta ?? null
+    const resumen = resumirDia({
+      ventas,
+      cuadres,
+      deudasDirectas: deudas,
+      movimientos,
+      desde: inicio,
+      hasta: fin
+    })
+    if (!rango) {
+      // Hoy: conservar pendientes del snapshot para no perder dictados nativos.
+      const snap = await snapshotVoz.resumenDelDia().catch(() => null)
+      if (snap) {
+        resumen.pendientes = snap.pendientes
+        resumen.importePendiente = snap.importePendiente
+      }
+    }
+    return { resumen, rango }
+  }
+
   /** Resumen del día («cómo va el día», «cuánto vendí el martes»). */
   async function responderDia(accion) {
     const { resumen, rango } = await resumenDeDia(accion?.slots?.fecha ?? null)
@@ -1242,7 +1284,7 @@ function _create(ubicacion) {
 
   /** Ganancia del día («cuánto gané hoy», «la ganancia del martes»). */
   async function responderGanancia(accion) {
-    const { resumen, rango } = await resumenDeDia(accion?.slots?.fecha ?? null)
+    const { resumen, rango } = await resumenGananciaDeDia(accion?.slots?.fecha ?? null)
     const result = formatearGanancia(resumen, { cuando: rango?.etiqueta ?? null })
     ultimaRespuestaVoz.value = result.habla
     toast.add({
@@ -1789,6 +1831,7 @@ function _create(ubicacion) {
       comando,
       productoId: producto?.productoId ?? producto?.id ?? null,
       productoNombre: producto?.nombre ?? null,
+      productoDescripcion: producto?.descripcion ?? null,
       cantidad: Number(cantidad) > 0 ? Math.trunc(Number(cantidad)) : null,
       ubicacion: ubicacion === 'almacen' || ubicacion === 'quiosco' ? ubicacion : null,
       modo,
@@ -1918,6 +1961,7 @@ function _create(ubicacion) {
     // El stock y el saldo del cliente cambiaron: la foto de la app cerrada se
     // reescribe para no responder con datos viejos.
     void snapshotVoz.actualizar().catch(() => {})
+    datosVersion.notificarCambioDatos()
   }
 
   /**
@@ -2024,6 +2068,7 @@ function _create(ubicacion) {
           /* noop */
         }
         void snapshotVoz.actualizar().catch(() => {})
+        datosVersion.notificarCambioDatos()
         return
       }
       cobrado = Math.round((cobrado + pago.monto) * 100) / 100
@@ -2046,6 +2091,7 @@ function _create(ubicacion) {
     }
     estado.value = 'idle'
     void snapshotVoz.actualizar().catch(() => {})
+    datosVersion.notificarCambioDatos()
   }
 
   /**
@@ -2153,6 +2199,7 @@ function _create(ubicacion) {
     }
     estado.value = 'idle'
     void snapshotVoz.actualizar().catch(() => {})
+    datosVersion.notificarCambioDatos()
   }
 
   /**
@@ -2258,6 +2305,7 @@ function _create(ubicacion) {
     }
     estado.value = 'idle'
     void snapshotVoz.actualizar().catch(() => {})
+    datosVersion.notificarCambioDatos()
   }
 
   /** Repite la última respuesta hablada (consultas de stock, precio o deuda). */
@@ -2834,7 +2882,7 @@ function _create(ubicacion) {
       void registrarAciertoVoz({
         comando: accion.comando || ultimoComando || 'desconocido',
         resultado: accion.tipo,
-        detalle: detalleDeAccion(accion),
+        detalle: detalleDeAccion({ ...accion, texto: ultimoDictado }),
         texto: ultimoDictado || null,
         confianza: confianzaDictado.value,
         motor: voice.motorDictado.value
@@ -2919,6 +2967,7 @@ function _create(ubicacion) {
                 color: 'success'
               })
               invalidarCatalogoVoz()
+              datosVersion.notificarCambioDatos()
             } catch (e) {
               toast.add({ title: 'Catálogo', description: e?.message || 'No se pudo mover.', color: 'error' })
             }
@@ -3068,6 +3117,7 @@ function _create(ubicacion) {
       texto: textoDicho,
       productoId: fila.productoId,
       productoNombre: fila.nombre,
+      productoDescripcion: fila.descripcion ?? null,
       nombresProductos,
       nombresCompletos
     }).catch(() => null)

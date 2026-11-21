@@ -645,6 +645,9 @@ const camposFiltroAciertos = computed(() => [
             <p class="text-sm font-medium">
               {{ row.original.productoNombre || row.original.productoId || '—' }}
             </p>
+            <p v-if="row.original.productoDescripcion" class="text-xs text-muted truncate">
+              {{ row.original.productoDescripcion }}
+            </p>
           </div>
         </template>
 

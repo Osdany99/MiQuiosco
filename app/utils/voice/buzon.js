@@ -137,6 +137,7 @@ export function pendienteResuelto(datos) {
     tipo: esDeuda ? 'deuda' : 'venta',
     productoId,
     productoNombre: datos.productoNombre ? String(datos.productoNombre) : null,
+    productoDescripcion: datos.productoDescripcion ? String(datos.productoDescripcion) : (datos.descripcion ? String(datos.descripcion) : null),
     ubicacion: datos.ubicacion === 'almacen' ? 'almacen' : 'quiosco',
     tipoVenta: TIPOS_VENTA_BUZON.includes(datos.tipoVenta) ? datos.tipoVenta : 'directa',
     cantidad,
@@ -215,6 +216,7 @@ export function pendienteDesdeAccion(accion, entrada) {
       tipo: 'deuda',
       productoId: fila.productoId ?? null,
       productoNombre: fila.nombre ?? null,
+      productoDescripcion: fila.descripcion ?? null,
       ubicacion: accion.destino?.ubicacion ?? entrada.ubicacion ?? 'almacen',
       tipoVenta: 'directa',
       cantidad,
@@ -241,6 +243,7 @@ export function pendienteDesdeAccion(accion, entrada) {
       ...comun,
       productoId: fila.productoId ?? null,
       productoNombre: fila.nombre ?? null,
+      productoDescripcion: fila.descripcion ?? null,
       ubicacion: accion.destino?.ubicacion ?? entrada.ubicacion ?? 'quiosco',
       tipoVenta,
       cantidad,
@@ -263,6 +266,7 @@ export function pendienteDesdeAccion(accion, entrada) {
       ...comun,
       productoId: fila.productoId ?? null,
       productoNombre: fila.nombre ?? null,
+      productoDescripcion: fila.descripcion ?? null,
       ubicacion: entrada.ubicacion ?? 'quiosco',
       tipoVenta: TIPOS_VENTA_BUZON.includes(accion.slots?.tipoVenta)
         ? accion.slots.tipoVenta

@@ -22,6 +22,31 @@ describe('voz: aciertos — detalle de la acción', () => {
     assert.equal(detalle, '2 × Pan de leche · importe: 50')
   })
 
+  it('distingue tipo de venta no directa y nombre con descripción', () => {
+    assert.equal(
+      detalleDeAccion({
+        tipo: 'venta',
+        tipoVenta: 'familiar',
+        fila: { nombre: 'Chupa chupa', descripcion: 'de fresa' },
+        cantidad: 1,
+        importe: 100
+      }),
+      'Chupa chupa de fresa · familiar · importe: 100'
+    )
+    assert.equal(
+      detalleDeAccion({ tipo: 'venta', tipoVenta: 'casa', fila: { nombre: 'Arroz' }, importe: 0 }),
+      'Arroz · casa · importe: 0'
+    )
+    assert.equal(
+      detalleDeAccion({ tipo: 'venta', tipoVenta: 'regalo', fila: { nombre: 'Refresco' }, importe: 0 }),
+      'Refresco · regalo · importe: 0'
+    )
+    assert.equal(
+      detalleDeAccion({ tipo: 'venta', tipoVenta: 'directa', fila: { nombre: 'Pan' }, importe: 25 }),
+      'Pan · importe: 25'
+    )
+  })
+
   it('incluye el cliente en fiado y cobro', () => {
     assert.equal(
       detalleDeAccion({

@@ -103,7 +103,9 @@ function fechaCompleta(ms) {
 
 function nombreProducto(accion) {
   if (accion?.tipo === 'cobro') return 'Cobro de deuda'
-  return accion?.productoNombre || 'Producto sin identificar'
+  const nombre = accion?.productoNombre || 'Producto sin identificar'
+  const descripcion = descripcionProducto(accion)
+  return descripcion ? `${nombre} ${descripcion}` : nombre
 }
 
 // Descripción del producto para distinguir nombres repetidos ("Maní" molido /
@@ -113,7 +115,7 @@ const descripcionPorProducto = computed(() =>
 )
 
 function descripcionProducto(accion) {
-  return descripcionPorProducto.value.get(accion?.productoId) ?? null
+  return accion?.productoDescripcion ?? accion?.descripcion ?? descripcionPorProducto.value.get(accion?.productoId) ?? null
 }
 
 function sinProducto(accion) {
@@ -329,10 +331,17 @@ function motivoRevision(accion) {
 }
 
 // La cola se carga cuando ya hay puesto: antes de eso no hay nada que leer.
+const datosVersion = useDatosVersion()
 const pid = computed(() => auth.usuarioActual.value?.puestoId ?? null)
 watch(pid, (valor) => {
   if (valor) recargar()
 }, { immediate: true })
+const vozOcupada = useState('voz:ocupada', () => false)
+watch(() => datosVersion.version.value, () => {
+  if (dialogoEditar.value || dialogoDescartar.value || dialogoAsignar.value) return
+  if (vozOcupada.value) return
+  recargar()
+})
 
 onMounted(() => {
   // La cola es local del teléfono y no se sincroniza: en la web no existe.

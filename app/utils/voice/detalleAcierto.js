@@ -1,3 +1,5 @@
+import { nombreCompleto } from './fuzzyMatchProducts.js'
+
 /**
  * Detalle legible de una acción de voz para el diagnóstico de aciertos.
  *
@@ -44,21 +46,35 @@ function numero(valor) {
   return Number.isFinite(n) ? n : null
 }
 
+const ETIQUETA_TIPO_VENTA = {
+  familiar: 'familiar',
+  casa: 'casa',
+  regalo: 'regalo'
+}
+
 export function detalleDeAccion(accion) {
   if (!accion || typeof accion !== 'object') return null
   const partes = []
 
-  const producto = limpio(accion.fila?.nombre || accion.producto?.nombre || accion.nombre)
+  const fila = accion.fila || accion.producto || null
+  const producto = limpio(nombreCompleto(fila?.nombre || accion.nombre, fila?.descripcion || accion.descripcion))
   const cantidad = numero(accion.cantidad ?? accion.slots?.cantidad)
   if (producto) partes.push(cantidad && cantidad > 1 ? `${cantidad} × ${producto}` : producto)
   else if (cantidad && cantidad > 1) partes.push(`${cantidad} u.`)
 
   if (accion.tipo === 'venta_multiple' && Array.isArray(accion.lineas)) {
     const lineas = accion.lineas
-      .map(l => `${numero(l.cantidad) || 1} × ${limpio(l.fila?.nombre || l.productoHint || 'producto')}`)
+      .map((l) => {
+        const nom = limpio(nombreCompleto(l.fila?.nombre || l.productoHint || 'producto', l.fila?.descripcion || l.descripcion))
+        return `${numero(l.cantidad) || 1} × ${nom || 'producto'}`
+      })
       .join(', ')
     if (lineas) partes.push(lineas)
   }
+
+  const tipoVenta = limpio(accion.tipoVenta || accion.slots?.tipoVenta || accion.prefill?.tipoVenta)
+  const etiquetaTipo = ETIQUETA_TIPO_VENTA[tipoVenta]
+  if (etiquetaTipo) partes.push(etiquetaTipo)
 
   const cliente = limpio(accion.cliente?.nombre || accion.slots?.clienteHint)
   if (cliente) partes.push(`cliente: ${cliente}`)

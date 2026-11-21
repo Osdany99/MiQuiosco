@@ -3,6 +3,7 @@ import { TABLES } from '../../shared/tables'
 import { generarId } from '../../shared/inventario/operaciones'
 import { useAuth } from './useAuth'
 import { useCuentasFiado } from './useCuentasFiado'
+import { useDatosVersion } from './useDatosVersion'
 import { useInventario } from './useInventario'
 import { useLocalRepo } from './useLocalRepo'
 import { useModoConexion } from './useModoConexion'
@@ -47,6 +48,7 @@ export function useAccionesPendientes() {
   const conexion = useModoConexion()
   const repo = useLocalRepo(CONFIG)
   const fiado = useCuentasFiado()
+  const datosVersion = useDatosVersion()
   const ventasRepo = computed(() => (
     conexion.modo.value === 'online'
       ? useRemoteRepo(TABLES.ventas_directas)
@@ -165,6 +167,7 @@ export function useAccionesPendientes() {
       origenId: accion.origenId ?? null,
       productoId: accion.productoId ?? null,
       productoNombre: accion.productoNombre ?? null,
+      productoDescripcion: accion.productoDescripcion ?? accion.descripcion ?? null,
       cantidad,
       precioUnitario,
       importe,
@@ -295,6 +298,7 @@ export function useAccionesPendientes() {
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: idFinal }
     reemplazar(final)
     registrarAciertoServicio(final, final.tipo || 'venta')
+    datosVersion.notificarCambioDatos()
     return final
   }
 
@@ -336,6 +340,7 @@ export function useAccionesPendientes() {
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: idFinal }
     reemplazar(final)
     registrarAciertoServicio(final, 'deuda')
+    datosVersion.notificarCambioDatos()
     return final
   }
 
@@ -382,6 +387,7 @@ export function useAccionesPendientes() {
     const final = fila ?? { ...accion, estado: 'aplicada', aplicadaEn: Date.now(), ventaDirectaId: pagoId }
     reemplazar(final)
     registrarAciertoServicio(final, 'cobro')
+    datosVersion.notificarCambioDatos()
     return final
   }
 
@@ -445,6 +451,7 @@ export function useAccionesPendientes() {
     }
     reemplazar(final)
     registrarAciertoServicio(final, final.tipo || 'venta')
+    datosVersion.notificarCambioDatos()
     return final
   }
 
