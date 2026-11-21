@@ -553,6 +553,38 @@ function _create(ubicacion) {
         efectivo: accion.efectivo || 0
       })
     }
+
+    // F5.1 - Menos falsos positivos en charla: cuando el comando vino de un
+    // verbo débil/interior o de cantidad+producto y el producto es dudoso, no
+    // se vende en silencio; se pide aclaración. Sin producto parecido -> error.
+    const razonDebil = new Set(['verbo_venta_debil', 'verbo_venta_interior', 'cantidad_y_producto'])
+    if (razonDebil.has(interpretado?.reasons?.[0])) {
+      if (accion.tipo === 'ambiguo') {
+        const primero = accion.candidatos?.[0]?.row
+        const nombre = primero?.nombre ?? slots?.productoHint ?? ''
+        const cantidad = Math.max(1, Math.trunc(Number(slots?.cantidad) || 1))
+        return {
+          tipo: 'aclarar',
+          pregunta: `¿Quisiste vender ${cantidad} ${nombre}?`.trim(),
+          texto: textoElegido,
+          sttConfidence,
+          slots,
+          candidatos: accion.candidatos,
+          encontrados: accion.encontrados ?? 0,
+          efectivo: accion.efectivo || 0
+        }
+      }
+      if (accion.tipo === 'error' && accion.motivo === 'producto_no_encontrado') {
+        return {
+          tipo: 'error',
+          motivo: 'sin_comando',
+          mensaje: mensajeNoEntendido(textoElegido),
+          texto: textoElegido,
+          sttConfidence
+        }
+      }
+    }
+
     return accion
   }
 
