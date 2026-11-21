@@ -14,7 +14,7 @@ import {
   resolverComando,
   resolverUbicacion
 } from '../shared/voz/gramatica.js'
-import { fonetizar, fuzzyMatchProducts } from '../app/utils/voice/fuzzyMatchProducts.js'
+import { fonetizar, fuzzyMatchProducts, nombreCompleto } from '../app/utils/voice/fuzzyMatchProducts.js'
 import { ubicacionActiva, esRutaInventario, evaluarDisparoVoz } from '../app/utils/voice/disparoVoz.js'
 import { calcularMotivoNoDisponible } from '../app/utils/voice/disponibilidad.js'
 import { ajustarCantidadVoz } from '../app/utils/voice/prefill.js'
@@ -740,6 +740,90 @@ describe('voz: la descripción no supera al nombre', () => {
   })
 })
 
+describe('voz: la identidad es nombre + descripción', () => {
+  // El caso real: tres productos llamados «Maní». Decir solo «maní» no puede
+  // elegir uno al azar (antes ganaba el primero del catálogo y, si no tenía
+  // stock, la venta fallaba aunque hubiera otros).
+  const manies = [
+    { id: 'cocido', name: 'Maní', description: 'cocinado' },
+    { id: 'molido', name: 'Maní', description: 'molido' },
+    { id: 'garapinado', name: 'Maní', description: 'garapiñado' }
+  ]
+
+  const decidir = (hint, sttConfidence = 0.8) => decidirProducto(
+    fuzzyMatchProducts(hint, manies),
+    { umbral: UMBRAL_PRODUCTO, sttConfidence }
+  )
+
+  it('nombreCompleto une nombre y descripción sin repetir', () => {
+    assert.equal(nombreCompleto('Maní', 'molido'), 'Maní molido')
+    assert.equal(nombreCompleto('Pan de leche', 'leche'), 'Pan de leche')
+    assert.equal(nombreCompleto('Pan', null), 'Pan')
+    assert.equal(nombreCompleto('Pan', '  '), 'Pan')
+  })
+
+  it('decir solo el nombre deja los tres empatados', () => {
+    const resultados = fuzzyMatchProducts('mani', manies)
+    assert.equal(resultados.length, 3)
+    assert.ok(resultados.every(r => r.score === resultados[0].score), 'no hay ganador por nombre')
+  })
+
+  it('decir solo el nombre pregunta en vez de elegir por orden del catálogo', () => {
+    for (const stt of [0, 0.2, 0.8]) {
+      const decision = decidir('mani', stt)
+      assert.equal(decision.elegido, null, `con stt ${stt} eligió sin preguntar`)
+      assert.equal(decision.ambiguo, true)
+    }
+  })
+
+  it('el plural tampoco elige a ciegas', () => {
+    assert.equal(decidir('manis').elegido, null)
+    assert.equal(decidir('vende dos manis').elegido, null)
+  })
+
+  it('nombrar la descripción elige con margen y sin depender del STT', () => {
+    for (const stt of [0.2, 0.8]) {
+      assert.equal(decidir('mani molido', stt).elegido?.product.id, 'molido')
+      assert.equal(decidir('mani cocinado', stt).elegido?.product.id, 'cocido')
+      assert.equal(decidir('mani garapiñado', stt).elegido?.product.id, 'garapinado')
+    }
+  })
+
+  it('el plural de la descripción también identifica', () => {
+    assert.equal(decidir('mani molidos').elegido?.product.id, 'molido')
+    assert.equal(decidir('manies cocinados').elegido?.product.id, 'cocido')
+  })
+
+  it('con un solo producto de ese nombre resuelve sin preguntar', () => {
+    const solo = [{ id: 'unico', name: 'Maní', description: 'molido' }]
+    const decision = decidirProducto(
+      fuzzyMatchProducts('mani', solo),
+      { umbral: UMBRAL_PRODUCTO, sttConfidence: 0.8 }
+    )
+    assert.equal(decision.elegido?.product.id, 'unico')
+  })
+
+  it('dos productos con identidad idéntica siguen empatando', () => {
+    // Duplicados reales del catálogo: solo preguntando se puede distinguir.
+    const duplicados = [
+      { id: 'a', name: 'Maní', description: 'molido' },
+      { id: 'b', name: 'Maní', description: 'molido' }
+    ]
+    const decision = decidirProducto(
+      fuzzyMatchProducts('mani molido', duplicados),
+      { umbral: UMBRAL_PRODUCTO, sttConfidence: 0.8 }
+    )
+    assert.equal(decision.elegido, null)
+    assert.equal(decision.ambiguo, true)
+  })
+
+  it('la identidad no rompe cuando el producto no tiene descripción', () => {
+    const catalogo = [{ id: '1', name: 'Refresco' }, { id: '2', name: 'Hielo', description: 'bolsa' }]
+    const [mejor] = fuzzyMatchProducts('refresco', catalogo)
+    assert.equal(mejor.product.id, '1')
+  })
+})
+
 describe('voz: privacidad / enmascarado', () => {
   it('oculta cantidad, producto y cliente', () => {
     const sets = { palabrasProducto: new Set(['pan', 'panes']), palabrasCliente: new Set(['juan', 'perez']) }
@@ -941,6 +1025,52 @@ describe('voz: frases habladas (concordancia)', () => {
     assert.equal(fraseStockInsuficiente({ disponible: 1, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay una unidad de Pan en el quiosco.')
     assert.equal(fraseStockInsuficiente({ disponible: 3, nombre: 'Pan', lugar: 'quiosco' }), 'Solo hay 3 unidades de Pan en el quiosco.')
     assert.equal(fraseStockInsuficiente({ disponible: 0, nombre: 'Pan', lugar: 'almacén' }), 'No hay Pan en el almacén.')
+  })
+})
+
+describe('voz: la lectura dice la descripción', () => {
+  // Con varios productos del mismo nombre, la lectura es la última red antes de
+  // descontar: si no dice cuál, el jefe confirma a ciegas.
+  it('la venta nombra la descripción', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Maní', descripcion: 'molido', lugar: 'almacén' }),
+      'Voy a vender 2 unidades de Maní molido del almacén.'
+    )
+  })
+
+  it('sin colisión de nombre también la dice (decisión del negocio)', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 1, nombre: 'Pan', descripcion: 'de leche', lugar: 'quiosco' }),
+      'Voy a vender un Pan de leche del quiosco.'
+    )
+  })
+
+  it('sin descripción no añade nada', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Pan', lugar: 'almacén' }),
+      'Voy a vender 2 unidades de Pan del almacén.'
+    )
+  })
+
+  it('no repite la descripción si el nombre ya la contiene', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Pan de leche', descripcion: 'leche', lugar: 'almacén' }),
+      'Voy a vender 2 unidades de Pan de leche del almacén.'
+    )
+  })
+
+  it('el stock insuficiente nombra la descripción', () => {
+    assert.equal(
+      fraseStockInsuficiente({ disponible: 3, nombre: 'Maní', descripcion: 'molido', lugar: 'quiosco' }),
+      'Solo hay 3 unidades de Maní molido en el quiosco.'
+    )
+  })
+
+  it('la venta familiar con descripción dice producto y tipo', () => {
+    assert.equal(
+      fraseVenta({ cantidad: 2, nombre: 'Paleta', descripcion: 'grande', lugar: 'almacén', tipo: 'familiar', importe: 20 }),
+      'Voy a vender 2 unidades de Paleta grande del almacén por 20 pesos. Venta familiar.'
+    )
   })
 })
 

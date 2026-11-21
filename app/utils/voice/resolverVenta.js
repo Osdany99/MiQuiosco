@@ -93,7 +93,7 @@ export function resolverVenta({
       tipo: 'stock',
       comando: 'venta_directa',
       motivo: 'stock_insuficiente',
-      mensaje: fraseStockInsuficiente({ disponible, nombre: fila?.nombre, lugar }),
+      mensaje: fraseStockInsuficiente({ disponible, nombre: fila?.nombre, descripcion: fila?.descripcion, lugar }),
       texto: slots?.productoHint || '',
       disponible,
       fila,

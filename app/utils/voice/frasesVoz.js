@@ -4,6 +4,19 @@
  * El motor TTS lee "1 Pan" como "uno pan" y "2 Pan" como "dos pan": hay que
  * construir la concordancia nosotros. Sin dependencias para poder probarlo.
  */
+import { nombreCompleto } from './fuzzyMatchProducts.js'
+
+/**
+ * Cómo se nombra un producto al leerlo en voz alta.
+ *
+ * Siempre con la descripción: es lo que distingue «maní molido» de «maní
+ * cocinado» cuando el catálogo tiene varios con el mismo nombre. El jefe
+ * confirma escuchando, así que si la lectura no dice cuál es, no puede
+ * verificar lo que se va a descontar.
+ */
+export function nombreParaLeer({ nombre, descripcion } = {}) {
+  return nombreCompleto(nombre, descripcion) || 'ese producto'
+}
 
 // Sustantivos femeninos que no terminan en -a.
 const FEMENINAS = new Set([
@@ -60,12 +73,12 @@ export function formatearImporte(importe) {
 }
 
 /** Frase del read-back antes de vender. `importe` y `cliente` son opcionales. */
-export function fraseVenta({ cantidad, nombre, lugar, tipo = 'venta', importe = null, cliente = null }) {
+export function fraseVenta({ cantidad, nombre, descripcion = null, lugar, tipo = 'venta', importe = null, cliente = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
   if (n < 1) return `Confirma la venta del ${lugar}.`
   const quien = String(cliente ?? '').trim()
   const destino = quien ? ` del ${lugar} a ${quien}` : ` del ${lugar}`
-  const base = `Voy a vender ${describirCantidad(n, nombre)}${destino}`
+  const base = `Voy a vender ${describirCantidad(n, nombreParaLeer({ nombre, descripcion }))}${destino}`
   const monto = formatearImporte(importe)
   const texto = monto ? `${base} por ${monto} pesos.` : `${base}.`
   // El tipo se dice al final para que el jefe sepa si es familiar, de casa o un
@@ -84,7 +97,7 @@ export function fraseVenta({ cantidad, nombre, lugar, tipo = 'venta', importe = 
 export function fraseVentaMultiple({ lineas = [], lugar = 'almacén', importe = null }) {
   const partes = (lineas ?? [])
     .filter(l => Math.trunc(Number(l?.cantidad) || 0) > 0)
-    .map(l => describirCantidad(l.cantidad, l.nombre))
+    .map(l => describirCantidad(l.cantidad, nombreParaLeer({ nombre: l.nombre, descripcion: l.descripcion })))
   if (!partes.length) return `Confirma la venta del ${lugar}.`
   const cuerpo = partes.length === 1
     ? partes[0]
@@ -96,18 +109,18 @@ export function fraseVentaMultiple({ lineas = [], lugar = 'almacén', importe = 
 
 /** Frases de los comandos asistidos (K, L, M, N). Ninguna pide un «sí»:
  *  el jefe confirma en el formulario. */
-export function fraseEntrada({ cantidad, nombre, precio = null }) {
+export function fraseEntrada({ cantidad, nombre, descripcion = null, precio = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
   const cuerpo = n > 0
-    ? `Entrada de ${describirCantidad(n, nombre)} al almacén`
+    ? `Entrada de ${describirCantidad(n, nombreParaLeer({ nombre, descripcion }))} al almacén`
     : 'Entrada al almacén'
   const monto = formatearImporte(precio)
   const cola = monto ? ` a ${monto} pesos.` : '. No dijiste el costo: uso el último.'
   return `${cuerpo}${cola} Revisa y confirma.`
 }
 
-export function fraseCambioPrecio({ nombre, actual = null, nuevo = null }) {
-  const base = String(nombre ?? '').trim() || 'ese producto'
+export function fraseCambioPrecio({ nombre, descripcion = null, actual = null, nuevo = null }) {
+  const base = nombreParaLeer({ nombre, descripcion })
   const hoy = formatearImporte(actual)
   const va = formatearImporte(nuevo)
   const arranque = hoy ? `${base} cuesta ${hoy} pesos.` : `Precio de ${base}.`
@@ -115,10 +128,10 @@ export function fraseCambioPrecio({ nombre, actual = null, nuevo = null }) {
   return `${arranque} Lo voy a poner en ${va} pesos. Revisa y confirma.`
 }
 
-export function fraseTraspaso({ cantidad, nombre }) {
+export function fraseTraspaso({ cantidad, nombre, descripcion = null }) {
   const n = Math.trunc(Number(cantidad) || 0)
   const cuerpo = n > 0
-    ? `Traspaso de ${describirCantidad(n, nombre)} del almacén al quiosco.`
+    ? `Traspaso de ${describirCantidad(n, nombreParaLeer({ nombre, descripcion }))} del almacén al quiosco.`
     : 'Traspaso del almacén al quiosco.'
   return `${cuerpo} Revisa y confirma.`
 }
@@ -133,15 +146,16 @@ export function fraseClienteAlta({ nombre }) {
  * Merma o devolución al almacén. El motivo se dice: es lo que distingue «rotos»
  * de «vencidos» cuando el jefe revise el inventario dentro de un mes.
  */
-export function fraseAjuste({ tipo = 'merma', cantidad, nombre, motivo = '', lugar = 'almacen' }) {
+export function fraseAjuste({ tipo = 'merma', cantidad, nombre, descripcion = null, motivo = '', lugar = 'almacen' }) {
   const n = Math.trunc(Number(cantidad) || 0)
   const donde = lugar === 'quiosco' ? 'quiosco' : 'almacén'
   const razon = String(motivo ?? '').trim()
   const cola = razon ? ` Motivo: ${razon}.` : ''
+  const cual = nombreParaLeer({ nombre, descripcion })
   if (tipo === 'devolucion') {
-    return `Voy a devolver ${describirCantidad(n, nombre)} del quiosco al almacén.${cola} Revisa y confirma.`
+    return `Voy a devolver ${describirCantidad(n, cual)} del quiosco al almacén.${cola} Revisa y confirma.`
   }
-  return `Voy a dar de baja ${describirCantidad(n, nombre)} del ${donde}.${cola} Revisa y confirma.`
+  return `Voy a dar de baja ${describirCantidad(n, cual)} del ${donde}.${cola} Revisa y confirma.`
 }
 
 /** Alta de producto: el formulario se abre prellenado y se guarda a mano. */
@@ -182,8 +196,8 @@ export function fraseCuadre({ accion, hablaCaja = '', sinCuadre = false }) {
 }
 
 /** Aviso cuando piden más de lo que hay. */
-export function fraseStockInsuficiente({ disponible, nombre, lugar }) {
-  const base = String(nombre ?? '').trim() || 'ese producto'
+export function fraseStockInsuficiente({ disponible, nombre, descripcion = null, lugar }) {
+  const base = nombreParaLeer({ nombre, descripcion })
   const n = Math.trunc(Number(disponible) || 0)
   if (n <= 0) return `No hay ${base} en el ${lugar}.`
   return `Solo hay ${unidadesDe(n, base)} en el ${lugar}.`

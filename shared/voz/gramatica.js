@@ -1510,6 +1510,11 @@ export function combinarConfianza(fuzzyScore, sttConfidence) {
  * Además del umbral exige margen sobre el segundo: dos productos que puntúan
  * igual (o casi) no se resuelven por orden alfabético, se preguntan. Devuelve
  * `efectivo` para poder mostrarlo en el diálogo de candidatos.
+ *
+ * Un match exacto se salta el margen (es el mismo nombre, no hay duda), pero
+ * solo si es el ÚNICO exacto: dos «Maní molido» distintos puntúan 1.0 los dos
+ * y hay que preguntar. Antes esa comprobación no existía y el empate perfecto
+ * caía al primero del catálogo: decir «maní» vendía el maní equivocado.
  */
 export function decidirProducto(candidatos, opciones = {}) {
   const lista = Array.isArray(candidatos) ? candidatos : []
@@ -1520,7 +1525,9 @@ export function decidirProducto(candidatos, opciones = {}) {
   const mejor = lista[0]
   const efectivo = combinarConfianza(mejor?.score, sttConfidence)
   const efectivoSegundo = lista[1] ? combinarConfianza(lista[1].score, sttConfidence) : 0
-  const exacto = Number(mejor?.score) >= 0.99
+  // Dos exactos son dos productos distintos con la misma identidad: no hay
+  // forma de saber cuál es, así que el atajo no aplica.
+  const exacto = Number(mejor?.score) >= 0.99 && Number(lista[1]?.score ?? 0) < 0.99
   const conMargen = efectivoSegundo === 0 || efectivo - efectivoSegundo >= 0.1
 
   if (efectivo >= umbral && (exacto || conMargen)) {

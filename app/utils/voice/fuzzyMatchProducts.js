@@ -148,6 +148,26 @@ function puntuar(hint, nombre) {
 }
 
 /**
+ * Identidad legible de un producto: nombre y descripción concatenados.
+ *
+ * Es cómo lo dice la gente («maní molido») y cómo hay que identificarlo: dos
+ * productos que se llaman igual y solo difieren en la descripción son dos
+ * productos distintos, no un empate que se resuelva por orden de catálogo.
+ * Si el nombre ya contiene la descripción no se repite («Pan de leche» + «leche»).
+ *
+ * Puro: lo usan el emparejador, la lectura hablada y el panel de diagnóstico.
+ */
+export function nombreCompleto(nombre, descripcion) {
+  const n = String(nombre ?? '').trim()
+  const d = String(descripcion ?? '').trim()
+  if (!d) return n
+  const nNorm = normal(n)
+  const dNorm = normal(d)
+  if (!dNorm || nNorm.includes(dNorm)) return n
+  return `${n} ${d}`.trim()
+}
+
+/**
  * @param {string} productoHint
  * @param {Array<{id: string, name: string, canonicalSpeak?: string}>} catalogo
  * @returns {Array<{product: object, distance: number, score: number}>} top 3
@@ -205,9 +225,35 @@ export function fuzzyMatchProducts(productoHint, catalogo) {
       const tokensNombre = tokens(product.name ?? product.canonicalSpeak)
       const tokensHint = tokens(hint)
       const sobran = tokensHint.filter(t => !tokensNombre.includes(t))
-      const nombreCompleto = tokensNombre.length > 0 && tokensNombre.every(t => tokensHint.includes(t))
-      if (nombreCompleto && sobran.length > 0 && sobran.every(t => tokensDescription.includes(t))) {
+      const nombreCompletoDictado = tokensNombre.length > 0 && tokensNombre.every(t => tokensHint.includes(t))
+      if (nombreCompletoDictado && sobran.length > 0 && sobran.every(t => tokensDescription.includes(t))) {
         mejor = { score: REFUERZO_POR_DESCRIPCION, distance: mejor.distance, matchedField: 'description' }
+      }
+
+      // Identidad = nombre + descripción, como la dice la gente («maní molido»).
+      // Solo cuenta cuando el NOMBRE está entero en el dictado: así la
+      // descripción no puede hacer ganar a un producto que se llama distinto
+      // («Hielo · bolsa para refresco» no compite con «refresco»). Con esto
+      // «maní» empata entre molido/cocinado/garapiñado y `decidirProducto`
+      // pregunta, mientras que «maní molido» gana con margen.
+      const nombreEnDictado = tokensNombre.length > 0 && tokensNombre.every(t => tokensHint.includes(t))
+      if (nombreEnDictado) {
+        const identidad = nombreCompleto(product.name ?? product.canonicalSpeak, product.description ?? product.descripcion)
+        const p = puntuar(hint, identidad)
+        // La identidad manda sobre el nombre a secas: es el identificador real.
+        // Si no coincide (dictado con ruido), se conserva lo que ya había.
+        if (p.score > 0) {
+          // Etiqueta del campo que realmente desempató: si la descripción iba en
+          // el dictado, es la descripción (es lo que el llamador entiende por
+          // «se distinguió por la descripción»); si no, el nombre.
+          const usaDescripcion = tokensDescription.length > 0
+            && tokensDescription.some(t => tokensHint.includes(t))
+          mejor = {
+            score: p.score,
+            distance: p.distance,
+            matchedField: usaDescripcion ? 'description' : 'name'
+          }
+        }
       }
 
       return { product, distance: mejor.distance, score: mejor.score, matchField: mejor.matchedField }

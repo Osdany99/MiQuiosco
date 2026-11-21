@@ -367,6 +367,7 @@ function _create(ubicacion) {
         return
       }
       const nombre = filaActual?.nombre ?? producto.value?.nombre ?? 'producto'
+      const descripcion = filaActual?.descripcion ?? producto.value?.descripcion ?? null
       const cant = Math.trunc(Number(prefill.value?.cantidad) || 1)
       const lugar = prefill.value?.ubicacion === 'quiosco' ? 'quiosco' : 'almacén'
       if (!filaActual) return
@@ -376,6 +377,7 @@ function _create(ubicacion) {
       let texto = fraseVenta({
         cantidad: cant,
         nombre,
+        descripcion,
         lugar,
         tipo: prefill.value?.modo ?? 'venta',
         importe: precio * cant,
@@ -428,7 +430,7 @@ function _create(ubicacion) {
     const ajuste = ajustarCantidadVoz(n, disponible)
     const lugar = ubi === 'quiosco' ? 'quiosco' : 'almacén'
     if (ajuste.excede) {
-      const mensaje = fraseStockInsuficiente({ disponible, nombre: filaActual.nombre, lugar })
+      const mensaje = fraseStockInsuficiente({ disponible, nombre: filaActual.nombre, descripcion: filaActual.descripcion, lugar })
       ultimoError.value = mensaje
       try {
         await tts.speak(mensaje)
@@ -898,6 +900,7 @@ function _create(ubicacion) {
     const texto = fraseEntrada({
       cantidad: accion.cantidad,
       nombre: accion.fila?.nombre,
+      descripcion: accion.fila?.descripcion,
       precio: accion.precioUnitario
     })
     toast.add({ title: 'Entrada al almacén', description: texto, color: 'neutral', duration: 8000 })
@@ -922,6 +925,7 @@ function _create(ubicacion) {
     estado.value = 'listo'
     const texto = fraseCambioPrecio({
       nombre: accion.fila?.nombre,
+      descripcion: accion.fila?.descripcion,
       actual: accion.precioActual,
       nuevo: accion.precio
     })
@@ -968,6 +972,7 @@ function _create(ubicacion) {
       tipo: accion.ajusteTipo,
       cantidad: accion.cantidad,
       nombre: accion.fila?.nombre,
+      descripcion: accion.fila?.descripcion,
       motivo: accion.motivo,
       lugar: accion.ubicacion
     })
@@ -1020,7 +1025,7 @@ function _create(ubicacion) {
     producto.value = accion.fila
     modo.value = 'traspaso'
     estado.value = 'listo'
-    const texto = fraseTraspaso({ cantidad: accion.cantidad, nombre: accion.fila?.nombre })
+    const texto = fraseTraspaso({ cantidad: accion.cantidad, nombre: accion.fila?.nombre, descripcion: accion.fila?.descripcion })
     toast.add({ title: 'Traspaso al quiosco', description: texto, color: 'neutral', duration: 8000 })
     voice.registrar('voz.traspaso', {
       producto: accion.fila?.nombre ?? '',
