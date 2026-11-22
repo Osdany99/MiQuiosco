@@ -32,6 +32,7 @@ import { calcularMotivoNoDisponible } from '../utils/voice/disponibilidad'
 import { registrarEventoVoz } from '../utils/vozEventos'
 import { registrarAciertoVoz } from '../utils/vozAciertos'
 import { ACCIONES_ACIERTO, detalleDeAccion } from '../utils/voice/detalleAcierto'
+import { decidirVentaDebil, esRazonDebil } from '../utils/voice/decisionDebil'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
@@ -581,33 +582,30 @@ function _create(ubicacion) {
     }
 
     // F5.1 - Menos falsos positivos en charla: cuando el comando vino de un
-    // verbo débil/interior o de cantidad+producto y el producto es dudoso, no
-    // se vende en silencio; se pide aclaración. Sin producto parecido -> error.
-    const razonDebil = new Set(['verbo_venta_debil', 'verbo_venta_interior', 'cantidad_y_producto'])
-    if (razonDebil.has(opciones.razones?.[0])) {
-      if (accion.tipo === 'ambiguo') {
-        const primero = accion.candidatos?.[0]?.row
-        const nombre = primero?.nombre ?? slots?.productoHint ?? ''
-        const cantidad = Math.max(1, Math.trunc(Number(slots?.cantidad) || 1))
+    // verbo débil/interior o de cantidad+producto, el producto dudoso no se
+    // vende en silencio. La decisión vive en `decisionDebil.js` (pura y
+    // probada): vender si el producto está claro, preguntar si es dudoso y
+    // callar si no hay nada parecido — «dame la bolsa» no está en el inventario
+    // y responder «No encontré bolsa» solo ensucia el mostrador.
+    if (esRazonDebil(opciones.razones)) {
+      const veredicto = decidirVentaDebil({
+        candidatos: accion.candidatos ?? [],
+        umbral: UMBRAL_PRODUCTO,
+        sttConfidence,
+        hint: { nombre: accion.candidatos?.[0]?.row?.nombre ?? slots?.productoHint, cantidad: slots?.cantidad }
+      })
+      if (veredicto.tipo === 'ignorar') return { tipo: 'ignorado' }
+      if (veredicto.tipo === 'aclarar') {
         return {
           tipo: 'aclarar',
-          pregunta: `¿Quisiste vender ${cantidad} ${nombre}?`.trim(),
+          comando: 'venta_directa',
+          pregunta: veredicto.pregunta,
           texto: opciones.texto ?? slots?.productoHint ?? '',
           sttConfidence,
           slots,
           candidatos: accion.candidatos,
           encontrados: accion.encontrados ?? 0,
           efectivo: accion.efectivo || 0
-        }
-      }
-      if (accion.tipo === 'error' && accion.motivo === 'producto_no_encontrado') {
-        const texto = opciones.texto ?? slots?.productoHint ?? ''
-        return {
-          tipo: 'error',
-          motivo: 'sin_comando',
-          mensaje: mensajeNoEntendido(texto),
-          texto,
-          sttConfidence
         }
       }
     }
@@ -623,13 +621,19 @@ function _create(ubicacion) {
    */
   async function resolverVentaMultiAccion(texto, sttConfidence = 0, vigente = () => true, opciones = {}) {
     if (opciones.ventaDirecta) return null
-    const multi = segmentarVentaMultiple(texto, vozLexico.lexico.value)
+    // F3: el catálogo va al segmentador para no cortar en «con» cuando hay un
+    // producto que lo lleva en el nombre («Pan con queso»). Sin él, «vende dos
+    // arroz con frijoles y un refresco» se partía en tres trozos.
+    const catalogoSegmentos = await catalogoDe(ubicacion).catch(() => [])
+    const multi = segmentarVentaMultiple(texto, vozLexico.lexico.value, catalogoSegmentos)
     if (!multi) return null
     // El formulario múltiple registra una venta directa; casa, familiar o
     // regalo siguen de uno en uno, donde el modo está claro.
     if ((multi.tipoVenta || 'directa') !== 'directa') return null
 
     const destino = resolverUbicacion({ ubicacion: multi.ubicacion })
+    // El catálogo de la venta es el del destino (dicho o el del puesto); el de
+    // `catalogoSegmentos` solo decidió dónde cortar.
     const catalogo = await catalogoDe(destino.ubicacion)
     if (!vigente()) return { tipo: 'cancelado' }
 
@@ -2982,6 +2986,11 @@ function _create(ubicacion) {
           /* noop */
         }
         return
+      case 'ignorado':
+        // Charla, no comando: se cierra en silencio. Repetir «no te entendí»
+        // cada vez que alguien habla delante del teléfono cansa.
+        estado.value = 'idle'
+        return
       case 'ambiguo':
         pendiente.value = {
           comando: accion.comando || 'venta_directa',
@@ -2992,6 +3001,33 @@ function _create(ubicacion) {
         candidatos.value = accion.candidatos
         showCandidatos.value = true
         estado.value = 'ambiguo'
+        return
+      case 'aclarar':
+        // F5.1: en una venta débil («dame …», «cinco panes») el producto dudoso
+        // no se vende en silencio. Se reutiliza el diálogo de candidatos que ya
+        // existe, con la pregunta como título: el jefe elige el producto y el
+        // flujo sigue igual que una ambigüedad normal. Sin candidatos no hay
+        // nada que elegir: se dice y se cierra (antes esto caía en `default` y
+        // dejaba la app en «interpretando» para siempre).
+        if (accion.candidatos?.length) {
+          pendiente.value = {
+            comando: accion.comando || 'venta_directa',
+            slots: accion.slots,
+            cliente: null,
+            sttConfidence: accion.sttConfidence,
+            pregunta: accion.pregunta || null
+          }
+          candidatos.value = accion.candidatos
+          showCandidatos.value = true
+          estado.value = 'ambiguo'
+          return
+        }
+        estado.value = 'idle'
+        toast.add({
+          title: 'Voz',
+          description: accion.pregunta || 'No la anoté.',
+          color: 'neutral'
+        })
         return
       case 'stock':
         throw new Error(accion.mensaje)
@@ -3293,6 +3329,9 @@ function _create(ubicacion) {
   }
 
   const tituloCandidatos = computed(() => {
+    // «aclarar» trae su propia pregunta («¿Quisiste vender 2 panes?»): es más
+    // concreto que el título genérico del comando.
+    if (pendiente.value?.pregunta) return pendiente.value.pregunta
     const comando = pendiente.value?.comando
     if (comando === 'consulta_stock') return 'Confirma qué producto consultar'
     if (comando === 'consulta_precio') return 'Confirma de qué producto quieres el precio'
