@@ -274,8 +274,9 @@ jobs:
       # versionCode del APK más viejo compatible con el bundle web. Súbelo SOLO
       # cuando el bundle estrene algo nativo (plugin, permiso, cambio en Java):
       # los equipos por debajo se quedan con su bundle hasta instalar la APK.
-      # Con cambios nativos de voz en esta versión, el primero compatible es 23 (v2.4.23).
-      WEB_APK_MINIMA: '23'
+      # v2.4.26 estrena F1b (limpieza de muletillas en Java, con la app cerrada):
+      # el primero compatible es 26.
+      WEB_APK_MINIMA: '26'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
