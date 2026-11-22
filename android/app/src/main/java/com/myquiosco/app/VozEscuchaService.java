@@ -1125,6 +1125,13 @@ public class VozEscuchaService extends Service {
         cobroPendiente = null;
         productoPendiente = null;
         candidatosPendientes.clear();
+
+        // F1b — misma limpieza de muletillas y cortesías que el JS con la app
+        // abierta. Va AQUÍ y no en `manejarTexto` a propósito: las ramas de
+        // confirmación («sí»/«no») y la elección de candidatos no deben pasar
+        // por ella, o se comerían respuestas legítimas.
+        if (texto != null) texto = LimpiarVoz.limpiar(texto);
+
         // El léxico administrable vive en la foto: se relee en cada comando para
         // que un cambio del panel aplique también con la app cerrada (la app
         // reescribe el snapshot al abrirse).

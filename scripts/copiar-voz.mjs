@@ -20,11 +20,18 @@ import { ayudaParaNativo } from '../shared/voz/ayuda.js'
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ORIGEN = join(RAIZ, 'shared/voz/dialogo.json')
+const ORIGEN_CASOS = join(RAIZ, 'shared/voz/limpiezaCasos.json')
 const DESTINO_DIR = join(RAIZ, 'android/app/src/main/assets/voz')
 const DESTINO = join(DESTINO_DIR, 'dialogo.json')
+const DESTINO_CASOS = join(DESTINO_DIR, 'limpiezaCasos.json')
 
 if (!existsSync(ORIGEN)) {
   console.error(`Falta ${ORIGEN}. El servicio hablaría con los textos por defecto.`)
+  process.exit(1)
+}
+
+if (!existsSync(ORIGEN_CASOS)) {
+  console.error(`Falta ${ORIGEN_CASOS}. El intérprete nativo no tendría la tabla de limpieza.`)
   process.exit(1)
 }
 
@@ -34,3 +41,14 @@ dialogo.ayuda = ayudaParaNativo()
 mkdirSync(DESTINO_DIR, { recursive: true })
 writeFileSync(DESTINO, `${JSON.stringify(dialogo, null, 2)}\n`)
 console.log(`Voz: dialogo.json copiado a ${DESTINO}`)
+
+// F1b: la tabla de casos es el contrato entre la limpieza de JS y la de Java.
+// El test JUnit la recorre y exige el 100 %, así que los dos lados no pueden
+// separarse sin que falle un build.
+const casos = JSON.parse(readFileSync(ORIGEN_CASOS, 'utf8'))
+if (!Array.isArray(casos) || !casos.length) {
+  console.error(`${ORIGEN_CASOS} no es una tabla de casos válida.`)
+  process.exit(1)
+}
+writeFileSync(DESTINO_CASOS, `${JSON.stringify(casos, null, 2)}\n`)
+console.log(`Voz: limpiezaCasos.json (${casos.length} casos) copiado a ${DESTINO_CASOS}`)

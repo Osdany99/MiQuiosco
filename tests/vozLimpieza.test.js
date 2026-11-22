@@ -1,7 +1,37 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { limpiarFrase } from '../shared/voz/limpieza.js'
 import { resolverComando } from '../shared/voz/gramatica.js'
+
+/**
+ * La MISMA tabla que recorre `LimpiarVozTest` (JUnit) en el APK. Es el contrato
+ * entre la limpieza de JS y la de Java: si una de las dos cambia de criterio y
+ * la otra no, aquí o en el build de Android falla.
+ */
+const CASOS = JSON.parse(
+  readFileSync(new URL('../shared/voz/limpiezaCasos.json', import.meta.url), 'utf8')
+)
+
+describe('voz: contrato de limpieza JS ↔ Java (F1b)', () => {
+  it('la tabla de casos tiene al menos 30 entradas', () => {
+    assert.ok(CASOS.length >= 30, `solo hay ${CASOS.length}`)
+  })
+
+  it('todas las entradas traen entrada y esperado', () => {
+    const malas = CASOS.filter(c => typeof c?.entrada !== 'string' || typeof c?.esperado !== 'string')
+    assert.deepEqual(malas, [])
+  })
+
+  it('limpiarFrase coincide con la tabla al 100 %', () => {
+    const fallos = []
+    for (const caso of CASOS) {
+      const obtenido = limpiarFrase(caso.entrada).texto
+      if (obtenido !== caso.esperado) fallos.push({ entrada: caso.entrada, esperado: caso.esperado, obtenido })
+    }
+    assert.deepEqual(fallos, [], `Casos que no coinciden:\n${JSON.stringify(fallos, null, 2)}`)
+  })
+})
 
 describe('voz: limpieza de muletillas y cortesías', () => {
   it('quita el eco del wake al inicio', () => {
