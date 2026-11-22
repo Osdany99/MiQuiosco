@@ -12,6 +12,7 @@
  */
 
 import { motorDeServicio } from '../../../shared/voz/motoresStt.js'
+import { traeNumero } from './slotFaltante.js'
 
 export const TIPOS_VENTA_BUZON = ['directa', 'casa', 'familiar', 'regalo']
 
@@ -144,9 +145,25 @@ export function pendienteResuelto(datos) {
     precioUnitario,
     importe,
     clienteId: clienteId || null,
+    // F4: si el dictado no decía cuántos, la cantidad de aquí es un 1 asumido.
+    // Se marca para que /pendientes lo pida en vez de dar por buena la suposición.
+    faltaSlot: faltaCantidadEn(texto, cantidad, datos.cantidadDicha),
     // Ya se decidió el stock y se confirmó por voz: no viene "dudosa".
     motivo: null
   }
+}
+
+/**
+ * ¿La entrada del buzón lleva la cantidad a deber?
+ *
+ * El servicio nativo manda `cantidadDicha` cuando pudo saberlo; si no, se mira
+ * el texto. Solo se marca como faltante el 1 asumido: un 3 o un 12 no salen de
+ * la nada.
+ */
+function faltaCantidadEn(texto, cantidad, dichoPorServicio) {
+  if (dichoPorServicio === true) return null
+  if (Number(cantidad) !== 1) return null
+  return traeNumero(texto) ? null : 'cantidad'
 }
 
 function base(entrada) {

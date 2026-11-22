@@ -327,6 +327,9 @@ function motivoRevision(accion) {
   if (accion?.estado === 'aplicada') return 'Registrada'
   if (accion?.motivo === 'caducada') return 'Caducada'
   if (accion?.motivo === 'descartada') return 'Descartada'
+  // F4: se dictó sin decir cuántos y el sistema asumía 1. Hay que mirarlo antes
+  // de registrar, así que se avisa por encima del motivo genérico.
+  if (accion?.faltaSlot === 'cantidad' && !accion?.estado) return 'Falta cantidad'
   return accion?.motivo || 'Archivada'
 }
 
@@ -659,7 +662,7 @@ onMounted(() => {
             <UBadge
               variant="soft"
               size="sm"
-              :color="accion.estado === 'aplicada' ? 'success' : 'neutral'"
+              :color="accion.estado === 'aplicada' ? 'success' : (accion.faltaSlot === 'cantidad' ? 'warning' : 'neutral')"
               :label="motivoRevision(accion)"
             />
           </li>

@@ -168,6 +168,9 @@ export function useAccionesPendientes() {
       productoId: accion.productoId ?? null,
       productoNombre: accion.productoNombre ?? null,
       productoDescripcion: accion.productoDescripcion ?? accion.descripcion ?? null,
+      // F4: el dictado no decía cuántos. Se arrastra para que /pendientes lo
+      // muestre en vez de dar por buena la cantidad asumida.
+      faltaSlot: accion.faltaSlot ?? null,
       cantidad,
       precioUnitario,
       importe,

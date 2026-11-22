@@ -67,6 +67,22 @@ describe('buzón de voz: venta ya resuelta por el servicio', () => {
     confidence: 0.9
   }
 
+  it('un dictado sin cantidad queda marcado para revisión (F4)', () => {
+    // «vende pan»: el servicio asume 1. La cola lo dice en vez de registrarlo.
+    const doc = pendienteResuelto({
+      ...resuelta,
+      texto: 'vende pan',
+      cantidad: 1,
+      cantidadDicha: undefined
+    })
+    assert.equal(doc.faltaSlot, 'cantidad')
+
+    // Con la cantidad dicha, no se marca.
+    assert.equal(pendienteResuelto(resuelta).faltaSlot, null)
+    assert.equal(pendienteResuelto({ ...resuelta, texto: 'vende un pan', cantidad: 1 }).faltaSlot, null)
+    assert.equal(pendienteResuelto({ ...resuelta, texto: 'vende pan', cantidad: 1, cantidadDicha: true }).faltaSlot, null)
+  })
+
   it('se importa sin reinterpretar: producto, cantidad e importe viajan en el fichero', () => {
     const doc = pendienteResuelto(resuelta)
     assert.equal(doc.origenId, 'dictado-9.json')

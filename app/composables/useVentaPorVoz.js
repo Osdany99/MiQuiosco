@@ -33,6 +33,7 @@ import { registrarEventoVoz } from '../utils/vozEventos'
 import { registrarAciertoVoz } from '../utils/vozAciertos'
 import { ACCIONES_ACIERTO, detalleDeAccion } from '../utils/voice/detalleAcierto'
 import { decidirVentaDebil, esRazonDebil } from '../utils/voice/decisionDebil'
+import { FRASE_NO_ANOTADO, MAX_PREGUNTAS, decidirSlotFaltante, parsearRespuestaSlot } from '../utils/voice/slotFaltante'
 import { clientesSimilares } from '#shared/clientes'
 import { crearEmparejador } from '../utils/voice/emparejarCatalogo'
 import { formatearStock, formatearPrecio, describirDestino } from '../utils/voice/respuestasVoz'
@@ -217,6 +218,9 @@ function _create(ubicacion) {
     || estado.value === 'registrando'
   )
   const vozOcupada = useState('voz:ocupada', () => false)
+  // F4 — slot-filling: pregunta pendiente y cuántas quedan antes de rendirse.
+  const preguntaPendiente = ref(null)
+  let preguntasRestantes = MAX_PREGUNTAS
   watch(ocupado, (v) => {
     vozOcupada.value = v
   }, { immediate: true })
@@ -231,6 +235,10 @@ function _create(ubicacion) {
     candidatos.value = []
     showCandidatos.value = false
     pendiente.value = null
+    // Una pregunta de slot-filling también se descarta al cancelar: si no, la
+    // siguiente frase se tomaría como su respuesta.
+    preguntaPendiente.value = null
+    preguntasRestantes = MAX_PREGUNTAS
     prefill.value = null
     producto.value = null
     readBackPromise.value = null
@@ -2810,6 +2818,65 @@ function _create(ubicacion) {
    * Esto es lo que permite reutilizar el mismo intérprete con la app cerrada
    * (dry-run) y con la app abierta (ejecución tras confirmación).
    */
+  /**
+   * F4 — slot-filling. Si el jefe acaba de responder a «¿Cuántos?», la respuesta
+   * se aplica al hueco del comando que quedó a medias.
+   *
+   * Solo cuenta como respuesta cuando la frase NO es un comando nuevo: si dice
+   * «cobra 200 a Juan», eso es otra cosa y la pregunta se descarta.
+   *
+   * @returns {{accion: object}|null} la acción si la respuesta resuelve la
+   *   pregunta, o `null` para seguir con la interpretación normal.
+   */
+  function aplicarRespuestaPendiente(comando, slots, texto) {
+    const pendiente = preguntaPendiente.value
+    if (!pendiente) return null
+    // Un comando nuevo manda sobre la pregunta colgada.
+    if (comando !== 'desconocido') {
+      preguntaPendiente.value = null
+      return null
+    }
+
+    const respuesta = parsearRespuestaSlot(texto)
+    if (!respuesta) {
+      preguntasRestantes--
+      if (preguntasRestantes <= 0) {
+        preguntaPendiente.value = null
+        return { accion: { tipo: 'aviso', mensaje: FRASE_NO_ANOTADO } }
+      }
+      return { accion: { tipo: 'pregunfar', ...pendiente } }
+    }
+
+    preguntaPendiente.value = null
+    // Se completa el comando QUE QUEDÓ A MEDIAS, no la frase de la respuesta:
+    // al decir «tres» su interpretación es `desconocido` y sus slots vienen
+    // vacíos; el producto («pan») vive en los slots pendientes.
+    const completos = { ...pendiente.slots }
+    if (pendiente.falta === 'cantidad') completos.cantidad = respuesta.valor
+    else if (pendiente.falta === 'monto') completos.monto = respuesta.valor
+    return { completos, comando: pendiente.comando }
+  }
+
+  /**
+   * F4 — reanuda un comando cuyo hueco se acaba de rellenar.
+   *
+   * Solo hace falta para los comandos que pueden tener slot-faltante
+   * (`venta_directa`, `venta_fiada`, `cobro_deuda`): son los únicos que
+   * `decidirSlotFaltante` devuelve. No se re-ejecuta la cadena entera para no
+   * volver a interpretar la frase corta («tres») ni repetir el filtro de
+   * trabajador.
+   */
+  async function continuarConSlots(comando, slots, sttConfidence, vigente, ventaDirecta) {
+    if (comando === 'venta_fiada') return resolverFiadoAccion(slots, sttConfidence, vigente)
+    if (comando === 'cobro_deuda') return resolverCobroAccion(slots, sttConfidence, vigente)
+    if (comando === 'venta_directa') {
+      // La frase original ya se evaluó: era de una sola línea (si hubiera sido
+      // múltiple, no habría llegado a preguntar la cantidad).
+      return resolverVentaAccion(slots, sttConfidence, vigente, { ventaDirecta })
+    }
+    return { tipo: 'error', motivo: 'sin_comando', mensaje: mensajeNoEntendido('') }
+  }
+
   async function resolver(texto, { sttConfidence = 0, alternativas = [], vigente = () => true, ventaDirecta = null } = {}) {
     const textoElegido = await elegirTexto(texto, sttConfidence, alternativas)
     // Frase elegida del último comando: la captura de diagnóstico la usa tal
@@ -2824,12 +2891,26 @@ function _create(ubicacion) {
     })
     const validacion = voiceCommandSchema.safeParse(interpretado)
     if (!validacion.success) {
+      // La respuesta a «¿Cuántos?» («tres») no es un comando y puede no pasar
+      // el esquema: si hay una pregunta pendiente, se resuelve igual.
+      const pendiente = aplicarRespuestaPendiente('desconocido', validacion.data?.slots ?? {}, textoElegido)
+      if (pendiente?.completos) return continuarConSlots(pendiente.comando, pendiente.completos, sttConfidence, vigente, ventaDirecta)
+      if (pendiente?.accion) return pendiente.accion
       return { tipo: 'error', mensaje: mensajeNoEntendido(textoElegido), texto: textoElegido }
     }
 
-    const { comando, slots } = validacion.data
+    const { comando } = validacion.data
+    let slots = validacion.data.slots
     ultimoComando = comando
     confianzaDictado.value = Number(sttConfidence) || 0
+
+    // F4: si había una pregunta colgada, esta frase puede ser su respuesta.
+    const respuestaPendiente = aplicarRespuestaPendiente(comando, slots, textoElegido)
+    if (respuestaPendiente?.accion) return respuestaPendiente.accion
+    if (respuestaPendiente?.completos) {
+      return continuarConSlots(respuestaPendiente.comando, respuestaPendiente.completos, sttConfidence, vigente, ventaDirecta)
+    }
+
     if (comando === 'desconocido') {
       const motivo = interpretado?.reasons?.[0] || 'sin_comando'
       return {
@@ -2862,6 +2943,17 @@ function _create(ubicacion) {
     }
 
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
+
+    // F4 — slot-filling: si al comando le falta la cantidad o el monto, se
+    // pregunta en vez de asumir 1 o «todo». Solo en cero toques (jefe), donde
+    // la voz es el único canal: con el formulario abierto el jefe lo escribe.
+    if (auth.esJefe.value && preguntasRestantes > 0 && !ventaDirecta) {
+      const falta = decidirSlotFaltante(comando, slots, textoElegido)
+      if (falta) {
+        preguntaPendiente.value = { comando, slots, falta: falta.falta, pregunta: falta.pregunta }
+        return { tipo: 'pregunfar', comando, slots, falta: falta.falta, pregunta: falta.pregunta }
+      }
+    }
     if (comando === 'consulta_precio') return resolverConsultaPrecio(slots, sttConfidence, vigente)
     if (comando === 'consulta_deuda') return resolverConsultaDeuda(slots, sttConfidence, vigente)
     if (comando === 'consulta_dia') return resolverConsultaDia(slots, sttConfidence)
@@ -2990,6 +3082,15 @@ function _create(ubicacion) {
         // Charla, no comando: se cierra en silencio. Repetir «no te entendí»
         // cada vez que alguien habla delante del teléfono cansa.
         estado.value = 'idle'
+        return
+      case 'pregunfar':
+        // F4: falta un dato del comando. Se pregunta y el micrófono sigue
+        // abierto: la respuesta llega por el mismo camino que el dictado.
+        try {
+          await tts.speak(accion.pregunta)
+        } catch {
+          /* noop */
+        }
         return
       case 'ambiguo':
         pendiente.value = {
