@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { eq, and } from 'drizzle-orm'
 import { db } from '../../../database/client'
 import { cuadres, cuadreItems, lotes, movimientosInventario } from '../../../database/schema'
-import { construirVentaCuadre, lotesConSaldo } from '#shared/inventario/operaciones'
+import { construirVentaCuadre, lotesConSaldo, ventasVivasDeCuadre } from '#shared/inventario/operaciones'
 import { deduplicarLineasCuadre } from '#shared/inventario/lineasCuadre'
 import { comoMovimiento } from '../../../utils/inventario'
 
@@ -134,20 +134,31 @@ export default defineEventHandler(async (event) => {
           and(eq(movimientosInventario.puestoId, puestoId), eq(movimientosInventario.anulado, false))
         )
       ])
-      const lotesPorProducto = new Map(
-        ids.map(pid => [pid, lotesConSaldo(filasLotes, movs, pid, 'quiosco')])
-      )
-      const venta = construirVentaCuadre({
-        lineas: lineasVenta,
-        lotesPorProducto,
-        cuadreId: id,
-        meta: { puestoId, usuarioId, ahora: ahoraMs }
-      })
-      movimientos = venta.movimientos
-      costoTotal = venta.costoTotal
-      faltantes = venta.faltantes
-      for (const m of movimientos) {
-        await tx.insert(movimientosInventario).values(comoMovimiento(m))
+      // Blindaje contra el doble descuento. El guard de estado (`cerrado` → 409)
+      // cubre el reintento normal, pero un push rezagado puede devolver el
+      // cuadre a `abierto` después de que su cierre ya descontara el stock. En
+      // ese caso volver a pasar por FIFO dejaría el quiosco corto, así que se
+      // reutiliza el costo ya registrado en las ventas vivas.
+      const vivas = ventasVivasDeCuadre(movs.filter(m => m.cuadreId === id), id)
+      if (vivas.length > 0) {
+        costoTotal = vivas.reduce((s, m) => s + Number(m.importe ?? 0), 0)
+        faltantes = []
+      } else {
+        const lotesPorProducto = new Map(
+          ids.map(pid => [pid, lotesConSaldo(filasLotes, movs, pid, 'quiosco')])
+        )
+        const venta = construirVentaCuadre({
+          lineas: lineasVenta,
+          lotesPorProducto,
+          cuadreId: id,
+          meta: { puestoId, usuarioId, ahora: ahoraMs }
+        })
+        movimientos = venta.movimientos
+        costoTotal = venta.costoTotal
+        faltantes = venta.faltantes
+        for (const m of movimientos) {
+          await tx.insert(movimientosInventario).values(comoMovimiento(m))
+        }
       }
     }
 

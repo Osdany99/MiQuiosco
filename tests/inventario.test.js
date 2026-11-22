@@ -11,6 +11,7 @@ import {
   construirVentaDirecta,
   construirAnulacionCuadre,
   auditarAnulacionesCuadre,
+  ventasVivasDeCuadre,
   construirAjuste,
   construirCorreccionLote,
   construirAnulacionLote,
@@ -402,6 +403,63 @@ describe('reapertura repetida (el stock no vuelve dos veces)', () => {
     ])
     assert.equal(roto.sobrantes.length, 1)
     assert.equal(roto.vivas.length, 1)
+  })
+})
+
+// El doble descuento del 2026-11-21: el cierre online se aplicó en el servidor
+// pero su respuesta se perdió; el cuadre seguía viéndose abierto en local y se
+// cerró otra vez en offline. Sin una clave compartida, el FIFO corrió dos veces
+// (158 unidades vendidas, 316 descontadas). El guard es: si esta generación ya
+// tiene ventas vivas, el stock ya salió y no se vuelve a descontar.
+describe('guard contra el doble descuento de un cuadre', () => {
+  const CID = 'cuadre-2026-11-21'
+
+  function venta(id, creadoEn) {
+    return {
+      id,
+      cuadreId: CID,
+      productoId: PAN,
+      loteId: null,
+      tipo: 'venta',
+      cantidad: 3,
+      deltaQuiosco: -3,
+      importe: 30,
+      anulado: false,
+      creadoEn
+    }
+  }
+
+  it('sin movimientos todavía no hay ventas vivas', () => {
+    assert.deepEqual(ventasVivasDeCuadre([], CID), [])
+    assert.deepEqual(ventasVivasDeCuadre(null, CID), [])
+    assert.deepEqual(ventasVivasDeCuadre([], ''), [])
+  })
+
+  it('tras un cierre hay ventas vivas: el cierre ya descontó', () => {
+    const vivas = ventasVivasDeCuadre([venta('a', 1000)], CID)
+    assert.equal(vivas.length, 1)
+  })
+
+  it('detecta el doble cierre del 21: dos bloques sin reapertura', () => {
+    // Bloque A del cierre online + bloque B del cierre offline, ambos "vivos".
+    const libro = [venta('a', 1000), venta('b', 9000)]
+    const vivas = ventasVivasDeCuadre(libro, CID)
+    // `length > 0` es lo que usa el guard: ve que ya se descontó y no repite.
+    assert.equal(vivas.length, 2)
+  })
+
+  it('una reapertura deja la generación sin ventas vivas', () => {
+    const v = venta('a', 1000)
+    const { anulaciones } = construirAnulacionCuadre({
+      movimientosPrevios: [v],
+      meta: { ...meta, ahora: 2000 }
+    })
+    assert.equal(ventasVivasDeCuadre([v, ...anulaciones], CID).length, 0)
+  })
+
+  it('ignora las ventas de otros cuadres', () => {
+    const ajeno = { ...venta('x', 1000), cuadreId: 'otro-cuadre' }
+    assert.deepEqual(ventasVivasDeCuadre([ajeno], CID), [])
   })
 })
 

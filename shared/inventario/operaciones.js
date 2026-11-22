@@ -573,6 +573,33 @@ export function auditarAnulacionesCuadre(movimientos = []) {
 }
 
 /**
+ * Ventas de un cuadre que siguen descontando stock (no neutralizadas por una
+ * reapertura).
+ *
+ * Es el blindaje contra el doble descuento del 2026-11-21: el cierre online se
+ * aplicó en el servidor pero su respuesta se perdió, el cliente siguió viendo
+ * el cuadre abierto y volvió a cerrarlo en local. Al no haber ninguna clave
+ * compartida, el FIFO se ejecutó dos veces (316 unidades vendidas) y el
+ * quiosco quedó corto.
+ *
+ * Un cierre solo debe descontar si la generación actual NO tiene ventas vivas.
+ * Si las tiene, el stock ya salió y hay que reutilizar el costo registrado en
+ * vez de volver a pasar por FIFO.
+ *
+ * @param {Array} movimientos — movimientos del cuadre tal como están guardados
+ *   (ventas Y anulaciones; las ajenas al cuadre se ignoran).
+ * @param {string} cuadreId
+ * @returns {Array} ventas vivas (posiblemente vacío)
+ */
+export function ventasVivasDeCuadre(movimientos, cuadreId) {
+  if (!cuadreId) return []
+  const delCuadre = (movimientos ?? []).filter(
+    m => m && m.cuadreId === cuadreId && (m.tipo === 'venta' || m.tipo === 'anulacion')
+  )
+  return auditarAnulacionesCuadre(delCuadre).vivas
+}
+
+/**
  * Merma (pierde stock) o devolución (quiosco → almacén), con FIFO por lote.
  * @param {object} params — { productoId, tipo, ubicacion, cantidad, motivo, nota,
  *   lotesOrdenados, meta }

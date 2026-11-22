@@ -1,4 +1,5 @@
 import { getCurrentScope, onScopeDispose } from 'vue'
+import { Preferences } from '@capacitor/preferences'
 import { useDb } from '../server-offline/db/client'
 import { TABLES } from '../../shared/tables'
 import { aEpochOpcional as tsToEpoch, diaEnOffset } from '../../shared/fechas'
@@ -120,6 +121,54 @@ function reportarFalloAutosave(err) {
     description: mensaje,
     color: 'error'
   })
+}
+
+// ---------------------------------------------------------------------------
+// Cierre en curso (marca persistida)
+//
+// El cierre online se aplica en el servidor y descuenta stock en una sola
+// transacción. Si la respuesta se pierde (timeout, corte de red, 5xx), el
+// cliente no sabe si el servidor llegó a cerrar. Antes, en ese caso, el cuadre
+// seguía abierto en local y el jefe lo cerraba otra vez en modo offline: el
+// stock se descontaba dos veces (cuadre del 2026-11-21: 158 unidades vendidas,
+// 316 descontadas).
+//
+// Esta marca deja constancia de que hay un cierre lanzado y sin confirmar. Solo
+// puede haber un cuadre abierto por puesto, así que una única preferencia basta.
+// Si está puesta al intentar un cierre local, primero se pregunta al servidor
+// por el estado real y no se descuenta nada hasta saberlo.
+// ---------------------------------------------------------------------------
+const PREF_CIERRE_EN_CURSO = 'cuadre_cierre_en_curso'
+
+async function marcarCierreEnCurso(cuadreId) {
+  if (!cuadreId) return
+  try {
+    await Preferences.set({ key: PREF_CIERRE_EN_CURSO, value: cuadreId })
+  } catch {
+    // Sin almacenamiento la marca se pierde; los guards de la base de datos
+    // siguen protegiendo (ver ventasVivasDeCuadre).
+  }
+}
+
+async function limpiarCierreEnCurso(cuadreId) {
+  try {
+    const { value } = await Preferences.get({ key: PREF_CIERRE_EN_CURSO })
+    // Borrar solo si es de este cuadre: nunca se pisa la marca de otro.
+    if (cuadreId && value && value !== cuadreId) return
+    await Preferences.remove({ key: PREF_CIERRE_EN_CURSO })
+  } catch {
+    /* noop */
+  }
+}
+
+async function hayCierreEnCurso(cuadreId) {
+  if (!cuadreId) return false
+  try {
+    const { value } = await Preferences.get({ key: PREF_CIERRE_EN_CURSO })
+    return value === cuadreId
+  } catch {
+    return false
+  }
 }
 
 async function guardarCuadreBorrador() {
@@ -572,6 +621,9 @@ export function useCuadre() {
       }
 
       cuadre.value = c
+      // Si el cuadre ya figura cerrado (p. ej. el pull trajo el cierre que se
+      // aplicó en el servidor), la marca de cierre en curso ya no tiene sentido.
+      if (c.estado === 'cerrado') await limpiarCierreEnCurso(c.id)
       await cargarLineasDeCuadre(c.id, itemsRepo, !esHistorico)
 
       // El trabajador y su base se restauran ANTES del pago: sin la base no
@@ -1119,11 +1171,23 @@ export function useCuadre() {
 
       if (conexion.modo.value === 'online') {
         const token = auth.jwtSync.value
-        const res = await $api(`/api/cuadres/${cuadre.value.id}/cerrar`, {
-          method: 'POST',
-          body: { ...cambios, estado: undefined, diferencia: undefined, cerradoEn: undefined, lineas: lineasPayload },
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        })
+        // Marca persistida antes de disparar el cierre: si la respuesta se
+        // pierde, el siguiente intento (aunque el modo haya caído a local)
+        // sabrá que hay un cierre sin confirmar y no descontará stock a ciegas.
+        await marcarCierreEnCurso(cuadre.value.id)
+        let res
+        try {
+          res = await $api(`/api/cuadres/${cuadre.value.id}/cerrar`, {
+            method: 'POST',
+            body: { ...cambios, estado: undefined, diferencia: undefined, cerradoEn: undefined, lineas: lineasPayload },
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          })
+        } catch (err) {
+          const resuelto = await resolverCierreSinRespuesta(err, token, cambios)
+          if (resuelto) return resuelto
+          throw err
+        }
+        await limpiarCierreEnCurso(cuadre.value.id)
         costoTotal = res.costoTotal
         ganancia = res.ganancia
         faltantes = res.faltantes ?? []
@@ -1143,7 +1207,16 @@ export function useCuadre() {
           ganancia,
           cerradoEn: Date.now()
         }
+        // El cierre online solo tocaba la memoria. Sin esto, una caída a local
+        // dejaba la fila en `abierto` y el cuadre se podía cerrar dos veces.
+        await escribirCabeceraEnLocal()
       } else {
+        // Cierre local. Antes de descontar, resolver un cierre online cuya
+        // respuesta se perdió: el servidor pudo haberlo aplicado ya y volver a
+        // pasar por FIFO dejaría el quiosco corto dos veces.
+        const pendiente = await resolverCierreLocalPendiente(cambios)
+        if (pendiente) return pendiente
+
         // En modo local se envuelve en transacción para no dejar el cuadre
         // en estado inconsistente si falla algún item a mitad del guardado.
         await db.transaction(async () => {
@@ -1192,9 +1265,180 @@ export function useCuadre() {
     }
   }
 
+  /**
+   * Estado del cuadre en el servidor, o null si no se pudo consultar.
+   *
+   * Se usa como árbitro cuando el resultado de un cierre quedó en el aire: es
+   * la única forma de saber si el stock ya se descontó sin volver a intentarlo.
+   */
+  async function consultarCuadreRemoto(id, token) {
+    try {
+      const remoto = await $api(`/api/cuadres/${id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        timeoutMs: 10000
+      })
+      return remoto ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Copia a sqlite la cabecera del cuadre tal como está en memoria.
+   *
+   * No toca inventario: es solo la cabecera. Existe porque el cierre online
+   * dejaba la fila local en `abierto`: al degradar la conexión a local, el jefe
+   * volvía a ver el cuadre reabierto y podía cerrarlo otra vez, descontando el
+   * stock dos veces. Se escribe siempre, sea cual sea el modo actual, y sirve
+   * tanto para cerrar como para reabrir.
+   */
+  async function escribirCabeceraEnLocal() {
+    if (!cuadre.value?.id) return
+    try {
+      await localCuadres.update(cuadre.value.id, {
+        estado: cuadre.value.estado,
+        reabiertoVeces: cuadre.value.reabiertoVeces,
+        ultimaReaperturaEn: cuadre.value.ultimaReaperturaEn,
+        totalEsperado: cuadre.value.totalEsperado,
+        totalRealCaja: cuadre.value.totalRealCaja,
+        montoTransferencia: cuadre.value.montoTransferencia,
+        montoFiado: cuadre.value.montoFiado,
+        montoCobradoFiado: cuadre.value.montoCobradoFiado,
+        montoRegalo: cuadre.value.montoRegalo,
+        montoDescuento: cuadre.value.montoDescuento,
+        diferencia: cuadre.value.diferencia,
+        costoTotal: cuadre.value.costoTotal,
+        ganancia: cuadre.value.ganancia,
+        trabajadorTurnoId: cuadre.value.trabajadorTurnoId,
+        pagoTrabajador: cuadre.value.pagoTrabajador,
+        notas: cuadre.value.notas,
+        cerradoEn: cuadre.value.cerradoEn
+      })
+    } catch (err) {
+      console.warn('[cuadre] no se pudo espejar la cabecera en local:', err)
+    }
+  }
+
+  /**
+   * Adopta un cierre que ya está aplicado en el servidor.
+   *
+   * No toca inventario: las ventas ya existen allí y llegarán con el próximo
+   * pull. Aquí solo se alinea la cabecera (memoria + sqlite) para que la UI y
+   * una sesión offline posterior no sigan viendo el cuadre abierto — que es el
+   * estado del que salió el doble descuento.
+   */
+  async function adoptarCierreRemoto(remoto, cambios) {
+    const cerradoEn = tsToEpoch(remoto.cerradoEn) ?? Date.now()
+    cuadre.value = {
+      ...cuadre.value,
+      ...cambios,
+      estado: 'cerrado',
+      totalEsperado: Number(remoto.totalEsperado ?? cambios.totalEsperado ?? 0),
+      totalRealCaja: remoto.totalRealCaja ?? cambios.totalRealCaja ?? null,
+      montoTransferencia: Number(remoto.montoTransferencia ?? 0),
+      montoFiado: Number(remoto.montoFiado ?? 0),
+      montoCobradoFiado: Number(remoto.montoCobradoFiado ?? 0),
+      montoRegalo: Number(remoto.montoRegalo ?? 0),
+      montoDescuento: Number(remoto.montoDescuento ?? 0),
+      diferencia: remoto.diferencia ?? null,
+      costoTotal: remoto.costoTotal ?? null,
+      ganancia: remoto.ganancia ?? null,
+      trabajadorTurnoId: remoto.trabajadorTurnoId ?? cambios.trabajadorTurnoId ?? null,
+      pagoTrabajador: remoto.pagoTrabajador ?? cambios.pagoTrabajador ?? null,
+      notas: remoto.notas ?? cambios.notas ?? null,
+      cerradoEn
+    }
+    await escribirCabeceraEnLocal()
+    await cargarCapacidad(cuadre.value)
+  }
+
+  /**
+   * Resuelve un cierre online cuya respuesta no llegó.
+   *
+   * Un timeout o un 5xx NO significan que el servidor no cerró: la transacción
+   * pudo commitear y perderse solo la respuesta. Como el cierre descuenta stock,
+   * reintentarlo a ciegas lo descontaría dos veces. Aquí se consulta el estado
+   * real y, si el servidor ya cerró, se adopta sin tocar inventario.
+   *
+   * @returns el resultado del cierre si quedó resuelto, o null para que el
+   *   llamador propague el error (reintento seguro: el servidor sigue abierto).
+   */
+  async function resolverCierreSinRespuesta(err, token, cambios) {
+    const status = err?.statusCode ?? err?.status ?? err?.response?.status
+    // 4xx (salvo 409) es definitivo: el servidor rechazó el cierre y no aplicó
+    // nada. Se libera la marca y se deja reintentar.
+    if (status && status < 500 && status !== 409) {
+      await limpiarCierreEnCurso(cuadre.value.id)
+      return null
+    }
+
+    const remoto = await consultarCuadreRemoto(cuadre.value.id, token)
+    if (!remoto) {
+      // Sin red no se puede saber. La marca se queda puesta: el siguiente
+      // intento, aunque sea offline, volverá a preguntar antes de descontar.
+      toast.add({
+        title: 'No se pudo confirmar el cierre',
+        description: 'Se perdió la conexión justo al cerrar. Conéctate y sincroniza antes de reintentar: el stock no se descontará hasta confirmar el estado del servidor.',
+        color: 'warning'
+      })
+      return null
+    }
+
+    if (remoto.estado === 'cerrado') {
+      await adoptarCierreRemoto(remoto, cambios)
+      await limpiarCierreEnCurso(cuadre.value.id)
+      toast.add({
+        title: 'Cuadre ya cerrado',
+        description: 'El cierre se había aplicado en el servidor aunque no llegó la respuesta. Se adoptó su estado sin volver a descontar stock.',
+        color: 'info'
+      })
+      return { costoTotal: remoto.costoTotal ?? null, ganancia: remoto.ganancia ?? null, faltantes: [] }
+    }
+
+    // El servidor sigue abierto: el cierre no se aplicó y es seguro reintentar.
+    await limpiarCierreEnCurso(cuadre.value.id)
+    return null
+  }
+
+  /**
+   * Guard del cierre local: si quedó un cierre online sin confirmar, no se
+   * descuenta nada hasta conocer el estado real del servidor.
+   *
+   * Devuelve el resultado del cierre si quedó resuelto/bloqueado, o null si es
+   * seguro cerrar en local.
+   */
+  async function resolverCierreLocalPendiente(cambios) {
+    if (!await hayCierreEnCurso(cuadre.value.id)) return null
+
+    const remoto = await consultarCuadreRemoto(cuadre.value.id, auth.jwtSync.value)
+    if (!remoto) {
+      toast.add({
+        title: 'Cierre anterior sin confirmar',
+        description: 'No se puede verificar el cierre en el servidor. Conéctate y sincroniza antes de volver a cerrar para no descontar el stock dos veces.',
+        color: 'error'
+      })
+      return { costoTotal: null, ganancia: null, faltantes: [], bloqueado: true }
+    }
+
+    if (remoto.estado === 'cerrado') {
+      await adoptarCierreRemoto(remoto, cambios)
+      await limpiarCierreEnCurso(cuadre.value.id)
+      toast.add({
+        title: 'Cuadre ya cerrado',
+        description: 'El cierre anterior sí se aplicó en el servidor. Se adoptó su estado sin volver a descontar stock.',
+        color: 'info'
+      })
+      return { costoTotal: remoto.costoTotal ?? null, ganancia: remoto.ganancia ?? null, faltantes: [] }
+    }
+
+    // El servidor lo tiene abierto: la marca era de un intento que no se aplicó.
+    await limpiarCierreEnCurso(cuadre.value.id)
+    return null
+  }
+
   // Venta FIFO local del cuadre actual. Se llama dentro de una transacción.
   async function aplicarVentaFIFOLocal() {
-    const { construirVentaCuadre, lotesConSaldo } = await import('../../shared/inventario/operaciones')
+    const { construirVentaCuadre, lotesConSaldo, ventasVivasDeCuadre } = await import('../../shared/inventario/operaciones')
     const pid = auth.usuarioActual.value?.puestoId
     const movsRepo = useRepo(TABLES.movimientos_inventario)
     const lotesRepo = useRepo(TABLES.lotes)
@@ -1202,6 +1446,20 @@ export function useCuadre() {
       lotesRepo.readAll().then(r => (r.data ?? []).filter(l => !pid || l.puestoId === pid)),
       movsRepo.readAll().then(r => (r.data ?? []).filter(m => !pid || m.puestoId === pid))
     ])
+    // Blindaje contra el doble descuento: si esta generación del cuadre ya tiene
+    // ventas vivas en el libro, el stock ya salió (p. ej. el cierre online se
+    // aplicó y su respuesta se perdió). Volver a pasar por FIFO dejaría el
+    // quiosco corto, así que se reutiliza el costo ya registrado.
+    const vivas = ventasVivasDeCuadre(
+      movs.filter(m => m.cuadreId === cuadre.value.id),
+      cuadre.value.id
+    )
+    if (vivas.length > 0) {
+      const costoTotal = Math.round(
+        vivas.reduce((s, m) => s + Number(m.importe ?? 0), 0) * 100
+      ) / 100
+      return { costoTotal, faltantes: [], yaDescontado: true }
+    }
     // Blindaje: si quedara un duplicado en memoria, el FIFO descontaría dos
     // veces. Se deduplica con la misma regla que la carga.
     const { lineas: lineasUnicas } = deduplicarLineasCuadre(lineas.value)
@@ -1277,6 +1535,9 @@ export function useCuadre() {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
       return
     }
+    // Reabrir es una decisión explícita sobre el estado del cuadre: cualquier
+    // marca de cierre sin confirmar deja de aplicar.
+    await limpiarCierreEnCurso(cuadre.value.id)
     cuadre.value = {
       ...cuadre.value,
       estado: 'abierto',
@@ -1286,6 +1547,10 @@ export function useCuadre() {
       ganancia: null,
       diferencia: null
     }
+    // En online el cambio solo vive en memoria hasta el próximo pull. Si la
+    // conexión cae a local, la fila seguiría en `cerrado` y el cuadre no se
+    // podría volver a cerrar (o se cerraría sobre un estado viejo).
+    if (conexion.modo.value === 'online') await escribirCabeceraEnLocal()
     // Limpiar montos de cierre del cierre anterior: al volver a cerrar hay que
     // re-ingresarlos, evitando re-usar silenciosamente el dinero en caja viejo.
     // Los montos de transferencia, fiado, regalo y descuento se conservan porque
