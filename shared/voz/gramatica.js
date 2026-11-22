@@ -901,6 +901,17 @@ export function resolverComando(transcript, lexico = LEXICO_BASE) {
     if (/\bganancia(s)?\b|\bgane\b|\btotal\b|\bcaja\b|\bpago\b|\bpague\b|\bpagaron\b|\babono\b/.test(texto)) {
       return { comando: 'desconocido', confianza: 0, reasons: ['consulta_no_soportada'] }
     }
+    // «tengo» / «hay» / «queda» son marcas de stock solo con forma de pregunta.
+    // «Tengo dos hijos» o «no hay pan en casa» no piden inventario y acababan
+    // en «No encontré dos hijos». Se compara contra la marca débil CONCRETA
+    // (no contra una lista de palabras fuertes): así una marca nueva del léxico
+    // —«chequea el pan»— sigue funcionando como consulta.
+    const marcasDebiles = ['tengo', 'tenemos', 'hay', 'queda', 'quedan', 'disponible', 'disponibles']
+    const marca = texto.split(' ').find(palabra => marcasDebiles.includes(palabra))
+    const soloMarcaDebil = Boolean(marca) && !/\b(?:cuanto|cuanta|cuantos|cuantas|stock|inventario|existencia|existencias)\b/.test(texto)
+    if (soloMarcaDebil) {
+      return { comando: 'desconocido', confianza: 0, reasons: ['sin_comando'] }
+    }
     const slots = extraerConsultaPura(texto, lexico)
     if (slots.productoHint) {
       return { comando: 'consulta_stock', confianza: 0.9, reasons: ['consulta_producto'] }

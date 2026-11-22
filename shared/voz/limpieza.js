@@ -89,7 +89,28 @@ function colapsarTartamudeo(texto, quitadas) {
   return out.join(' ').trim()
 }
 
-export function limpiarFrase(textoNormalizado, activa = VOZ_LIMPIEZA_ACTIVA) {
+/**
+ * ¿La limpieza está activa? `?vozLimpieza=0` la apaga y `?vozLimpieza=1` la
+ * enciende, para probar el rollback en el teléfono en 2 segundos (F1.4).
+ *
+ * Solo la pantalla manda: en la app cerrada no hay query string y vale la
+ * constante del bundle. Se lee `window` de forma defensiva para que el módulo
+ * siga siendo puro y probable con `node --test`.
+ */
+export function limpiezaActiva() {
+  try {
+    const valor = typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location?.search ?? '').get('vozLimpieza')
+    if (valor === '0') return false
+    if (valor === '1') return true
+  } catch {
+    // Sin `window` (SSR, tests, servicio nativo): manda la constante.
+  }
+  return VOZ_LIMPIEZA_ACTIVA
+}
+
+export function limpiarFrase(textoNormalizado, activa = limpiezaActiva()) {
   const texto = String(textoNormalizado ?? '').trim()
   if (!activa) return { texto, quitadas: [] }
   if (!texto) return { texto: '', quitadas: [] }

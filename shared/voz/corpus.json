@@ -545,8 +545,7 @@
   },
   {
     "texto": "tengo dos hijos",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "son las cinco",
@@ -570,8 +569,7 @@
   },
   {
     "texto": "tengo veinte pesos",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "que calor hace hoy",
@@ -620,8 +618,7 @@
   },
   {
     "texto": "me quedan dos horas",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "como estas",
@@ -657,8 +654,7 @@
   },
   {
     "texto": "tengo sueño",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "hace frio",
@@ -682,8 +678,7 @@
   },
   {
     "texto": "tengo que barrer",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "la luz se fue",
@@ -727,8 +722,7 @@
   },
   {
     "texto": "tengo hambre",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "que hora es",
@@ -756,8 +750,7 @@
   },
   {
     "texto": "hay visita en casa",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "me llamo por telefono",
@@ -773,8 +766,7 @@
   },
   {
     "texto": "no tengo cambio",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "me falta el vuelto",
@@ -910,8 +902,7 @@
   },
   {
     "texto": "tengo la llave",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "se me olvido",
@@ -939,8 +930,7 @@
   },
   {
     "texto": "no hay nadie",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "vino gente",
@@ -952,8 +942,7 @@
   },
   {
     "texto": "tengo dos hermanos",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "mi mama viene",
@@ -989,13 +978,11 @@
   },
   {
     "texto": "tengo que estudiar",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "tengo que trabajar",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "el jefe no esta",
@@ -1039,8 +1026,7 @@
   },
   {
     "texto": "no hay corriente",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "se daño la nevera",
@@ -1096,8 +1082,7 @@
   },
   {
     "texto": "no hay pan en casa",
-    "comando": "desconocido",
-    "conocido_fallo": true
+    "comando": "desconocido"
   },
   {
     "texto": "me prestas un lapiz",

@@ -90,4 +90,29 @@ describe('voz: limpieza de muletillas y cortesías', () => {
     const r = limpiarFrase('por favor')
     assert.ok(r.texto.length > 0)
   })
+
+  it('el flag apagado devuelve el texto intacto (F1.4)', () => {
+    const entrada = 'oye vende dos panes por favor'
+    const apagado = limpiarFrase(entrada, false)
+    assert.equal(apagado.texto, entrada)
+    assert.deepEqual(apagado.quitadas, [])
+  })
+
+  it('?vozLimpieza=0 en la URL apaga la limpieza sin tocar código', () => {
+    // Rollback de emergencia en OTA: se abre el teléfono con ese query y la
+    // frase vuelve a pasar cruda.
+    const original = globalThis.window
+    try {
+      globalThis.window = { location: { search: '?vozLimpieza=0' } }
+      assert.equal(limpiarFrase('oye vende dos panes por favor').texto, 'oye vende dos panes por favor')
+      globalThis.window = { location: { search: '?vozLimpieza=1' } }
+      assert.equal(limpiarFrase('oye vende dos panes por favor').texto, 'vende dos panes')
+      // Cualquier otro valor (o ninguno) deja la constante del bundle.
+      globalThis.window = { location: { search: '?otra=cosa' } }
+      assert.equal(limpiarFrase('oye vende dos panes por favor').texto, 'vende dos panes')
+    } finally {
+      if (original === undefined) delete globalThis.window
+      else globalThis.window = original
+    }
+  })
 })
