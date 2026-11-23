@@ -7,8 +7,9 @@
  * (lo mismo que usa useVistaInventario). Así el mismo composable sirve en
  * /quiosco, /almacen y, más adelante, en el dock global.
  *
- * La voz nunca registra: expone `producto` + `prefill` y la página abre su
- * DialogoVenta. Quien confirma es la persona.
+ * Las ventas abren el formulario manual con `producto` + `prefill`. Algunos
+ * comandos financieros escriben tras confirmación usando las operaciones de
+ * dominio existentes y IDs idempotentes propios del dictado.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
@@ -59,6 +60,7 @@ import { useVozDisparo } from './useVozDisparo'
 import { evaluarDisparoVoz, ubicacionActiva } from '../utils/voice/disparoVoz'
 import { vistaDeRuta } from '#shared/permisos'
 import { evaluarTrabajador } from '#shared/voz/trabajador'
+import { autorizarComandoVoz } from '#shared/voz/permisos'
 import {
   gruposDisponibles,
   gruposDelMenu,
@@ -70,6 +72,10 @@ import {
   temaDeAyuda
 } from '#shared/voz/ayuda'
 import { registrarProof } from '../utils/voice/proofs'
+import { crearOperacionIds } from '../utils/voice/operacionIds'
+import { crearAlmacenOperacionesVoz } from '../utils/voice/operacionesDurables'
+import { crearPlanOperacion, ejecutarPlanOperacion, huellaOperacion, montoAplicado } from '../utils/voice/ejecucionDuradera'
+import { cuentaFiadoCoincide, pagoFiadoCoincide, transferenciaCoincide } from '../../shared/fiadoIdempotencia'
 
 const MODO_POR_TIPO = {
   directa: 'venta',
@@ -174,6 +180,8 @@ function _create(ubicacion) {
   // anterior para que una promesa tardía no reabra el diálogo.
   let generacion = 0
   let errorTimer = null
+  const operacionIds = crearOperacionIds()
+  const operacionesDurables = crearAlmacenOperacionesVoz()
 
   // No decidir con el fail-open de `puede()` ni con el `modo` por defecto:
   // hasta que permisos y modo cargan, el micrófono ni se muestra.
@@ -1909,6 +1917,142 @@ function _create(ubicacion) {
     })
   }
 
+  /** Ejecutor único de los pasos financieros persistidos por voz. */
+  async function ejecutarPasoFinanciero(paso) {
+    if (paso.tipo === 'deuda_directa') return fiado.registrarDeudaDirecta(paso.datos)
+    if (paso.tipo === 'deuda_dinero') return fiado.registrarNuevaDeuda(paso.datos)
+    if (paso.tipo === 'pago_fiado') return fiado.cobrarDeuda(paso.datos)
+    if (paso.tipo === 'transferencia_cuadre') return transf.registrarTransferencia(paso.datos)
+    throw new Error(`Operación financiera desconocida: ${paso.tipo}`)
+  }
+
+  async function buscarPasoFinanciero(paso) {
+    if (paso.tipo === 'deuda_directa' || paso.tipo === 'deuda_dinero') {
+      return fiado.cuentaPorId(paso.id)
+    }
+    if (paso.tipo === 'pago_fiado') return fiado.pagoPorId(paso.id)
+    if (paso.tipo === 'transferencia_cuadre') return transf.transferenciaPorId(paso.id)
+    throw new Error(`No se puede reconciliar: ${paso.tipo}`)
+  }
+
+  function coincidePasoFinanciero(paso, fila) {
+    const datos = paso.datos
+    if (paso.tipo === 'pago_fiado') return pagoFiadoCoincide(fila, datos)
+    if (paso.tipo === 'transferencia_cuadre') return transferenciaCoincide(fila, datos)
+    const montoTotal = (datos.items ?? datos.lineas ?? []).length > 0
+      ? (datos.items ?? datos.lineas).reduce((total, linea) => total + Number(linea.cantidad) * Number(linea.precioVentaUsado), 0)
+      : Number(datos.montoTotal ?? 0)
+    return cuentaFiadoCoincide(fila, {
+      clienteId: datos.clienteId,
+      cuadreOrigenId: paso.tipo === 'deuda_directa' ? null : datos.cuadreId,
+      montoTotal
+    })
+  }
+
+  /**
+   * Recupera un comando igual con sus IDs originales o crea un plan nuevo. El
+   * plan se guarda antes de escribir y sobrevive a reinicio/cambio de dictado.
+   */
+  async function ejecutarOperacionFinanciera({ tipo, recuperacion, detalle = {}, crearPasos }) {
+    const usuario = auth.usuarioActual.value
+    const puestoId = usuario?.puestoId
+    const usuarioId = usuario?.id
+    if (!puestoId || !usuarioId) {
+      return { estado: 'error_seguimiento', aplicado: 0, error: new Error('Sin usuario o puesto identificado.') }
+    }
+
+    let plan = null
+    try {
+      const filtros = {
+        tipo,
+        puestoId,
+        usuarioId,
+        recuperacion: huellaOperacion(recuperacion)
+      }
+      plan = await operacionesDurables.buscarCoincidente(filtros)
+      const recuperado = Boolean(plan)
+      if (!plan) {
+        const previa = await operacionesDurables.buscarPendienteDeCliente({
+          ...filtros,
+          clienteId: recuperacion?.clienteId ?? null
+        })
+        if (previa) return { estado: 'operacion_previa_pendiente', plan: previa, aplicado: 0 }
+        plan = crearPlanOperacion({
+          ...filtros,
+          id: operacionIds.para(`plan:${tipo}`),
+          modo: conexion.modo.value,
+          detalle,
+          pasos: crearPasos()
+        })
+      }
+      const resultado = await ejecutarPlanOperacion({
+        plan,
+        modoActual: () => conexion.modo.value,
+        guardar: operacionesDurables.guardar,
+        eliminar: operacionesDurables.eliminar,
+        ejecutar: ejecutarPasoFinanciero,
+        buscar: buscarPasoFinanciero,
+        coincide: coincidePasoFinanciero
+      })
+      return { ...resultado, recuperado }
+    } catch (error) {
+      return {
+        estado: 'error_seguimiento',
+        plan: error?.plan ?? plan,
+        aplicado: Number(error?.aplicado) || 0,
+        error
+      }
+    }
+  }
+
+  /**
+   * Anuncia el estado real. Devuelve true si ya lo gestionó; un rechazo limpio
+   * sin escrituras conserva el error de dominio para el manejador existente.
+   */
+  async function anunciarOperacionIncompleta(resultado, { clienteNombre = '' } = {}) {
+    if (resultado?.estado === 'aplicado') return false
+    estado.value = 'idle'
+
+    const aplicado = Number(resultado?.aplicado) || 0
+    const quien = clienteNombre ? ` a ${clienteNombre}` : ''
+    let mensaje = ''
+    if (resultado?.estado === 'rechazado' && aplicado <= 0) {
+      if (!resultado.confirmadoNoAplicado) throw resultado.error ?? new Error('No se pudo completar la operación.')
+      mensaje = 'No se aplicó la operación. Comprobé que no quedó registrada; puedes intentarlo de nuevo.'
+    } else if (resultado?.estado === 'modo_distinto') {
+      const origen = resultado.plan?.modo === 'online' ? 'online' : 'local'
+      mensaje = `Esta operación empezó en modo ${origen}. Vuelve a ese modo y repite exactamente el mismo comando para comprobarla sin duplicarla.`
+    } else if (resultado?.estado === 'operacion_previa_pendiente') {
+      mensaje = 'Este cliente ya tiene una operación sin comprobar. No hice una nueva; repite la orden anterior para comprobarla primero y evitar duplicados.'
+    } else if (resultado?.estado === 'conflicto') {
+      mensaje = 'Encontré el identificador con otros datos. No hice más cambios; revisa la operación en Deudas.'
+    } else if (resultado?.estado === 'incierto') {
+      mensaje = aplicado > 0
+        ? `Se registraron ${aplicado} pesos${quien}. No pude comprobar el siguiente paso. Repite exactamente el mismo comando para continuar sin duplicar.`
+        : 'No sé si la operación llegó a registrarse. Repite exactamente el mismo comando: primero comprobaré su identificador para no duplicarla.'
+    } else if (resultado?.estado === 'error_seguimiento') {
+      mensaje = 'No pude guardar el seguimiento de la operación. Antes de hacer otra, repite exactamente el mismo comando para comprobar su estado.'
+    } else if (aplicado > 0) {
+      mensaje = `Se registraron ${aplicado} pesos${quien}. El resto quedó pendiente. Repite exactamente el mismo comando para continuar sin duplicar.`
+    } else {
+      mensaje = 'La operación quedó pendiente. Repite exactamente el mismo comando para comprobarla sin duplicarla.'
+    }
+
+    ultimaRespuestaVoz.value = mensaje
+    if (resultado?.estado !== 'rechazado') ultimoError.value = mensaje
+    toast.add({ title: 'Resultado pendiente', description: mensaje, color: 'warning', duration: 10000 })
+    try {
+      await tts.speak(mensaje)
+    } catch {
+      /* noop */
+    }
+    if (aplicado > 0) {
+      void snapshotVoz.actualizar().catch(() => {})
+      datosVersion.notificarCambioDatos()
+    }
+    return true
+  }
+
   /**
    * Auditoría de una confirmación hablada de fiado, cobro, deuda de dinero o
    * transferencia. La venta la registra el layout, que es quien corre su
@@ -2019,19 +2163,19 @@ function _create(ubicacion) {
       return
     }
 
-    const r = await fiado.registrarDeudaDirecta({
-      clienteId: cliente.id,
-      ubicacion: ubi,
-      lineas: [{
-        productoId: fila.productoId,
-        cantidad,
-        precioVentaUsado: precio
+    estado.value = 'registrando'
+    const lineas = [{ productoId: fila.productoId, cantidad, precioVentaUsado: precio }]
+    const ejecucion = await ejecutarOperacionFinanciera({
+      tipo: 'venta_fiada',
+      recuperacion: { clienteId: cliente.id, ubicacion: ubi, productoId: fila.productoId, cantidad },
+      detalle: { importe },
+      crearPasos: () => [{
+        id: operacionIds.para('venta_fiada'),
+        tipo: 'deuda_directa',
+        datos: { id: operacionIds.para('venta_fiada'), clienteId: cliente.id, ubicacion: ubi, lineas }
       }]
     })
-    if (!r?.ok) {
-      estado.value = 'idle'
-      throw new Error(r?.error?.message || 'No se pudo registrar la deuda.')
-    }
+    if (await anunciarOperacionIncompleta(ejecucion, { clienteNombre: cliente.nombre })) return
 
     const confirmacionTexto = `Fiado a ${cliente.nombre}: ${cantidad} de ${fila.nombre}.`
     ultimaRespuestaVoz.value = confirmacionTexto
@@ -2138,33 +2282,33 @@ function _create(ubicacion) {
       return
     }
 
-    let cobrado = 0
-    for (const pago of pagos) {
-      const r = await fiado.cobrarDeuda({
-        cuentaFiadoId: pago.cuentaId,
+    estado.value = 'registrando'
+    const formaPago = accion.formaPago === 'transferencia' ? 'transferencia' : 'efectivo'
+    const ejecucion = await ejecutarOperacionFinanciera({
+      tipo: 'cobro_deuda',
+      // Las cuentas cambian al aplicarse cada pago; la recuperación se hace por
+      // la orden confirmada, no por una nueva distribución calculada con saldos
+      // ya parcialmente cobrados.
+      recuperacion: { clienteId: cliente.id, monto, formaPago },
+      detalle: { monto, restante },
+      crearPasos: () => pagos.map(pago => ({
+        id: operacionIds.para(`cobro:${pago.cuentaId}`),
+        tipo: 'pago_fiado',
         monto: pago.monto,
-        formaPago: accion.formaPago
-      })
-      if (!r?.ok) {
-        estado.value = 'idle'
-        const mensaje = cobrado > 0
-          ? `Cobré ${cobrado} pesos a ${cliente.nombre}. El resto no se pudo cobrar.`
-          : (r?.error?.message || 'No se pudo cobrar.')
-        toast.add({ title: 'Cobro a medias', description: mensaje, color: 'warning' })
-        try {
-          await tts.speak(mensaje)
-        } catch {
-          /* noop */
+        datos: {
+          id: operacionIds.para(`cobro:${pago.cuentaId}`),
+          cuentaFiadoId: pago.cuentaId,
+          monto: pago.monto,
+          formaPago
         }
-        void snapshotVoz.actualizar().catch(() => {})
-        datosVersion.notificarCambioDatos()
-        return
-      }
-      cobrado = Math.round((cobrado + pago.monto) * 100) / 100
-    }
+      }))
+    })
+    if (await anunciarOperacionIncompleta(ejecucion, { clienteNombre: cliente.nombre })) return
 
-    const texto = restante > 0
-      ? `Cobrado: ${cobrado} pesos a ${cliente.nombre}. Le quedan ${restante}.`
+    const cobrado = montoAplicado(ejecucion.plan)
+    const restanteFinal = Number(ejecucion.plan?.detalle?.restante ?? restante) || 0
+    const texto = restanteFinal > 0
+      ? `Cobrado: ${cobrado} pesos a ${cliente.nombre}. Le quedan ${restanteFinal}.`
       : `Cobrado: ${cobrado} pesos a ${cliente.nombre}. Queda saldado.`
     ultimaRespuestaVoz.value = texto
     toast.add({
@@ -2261,17 +2405,26 @@ function _create(ubicacion) {
     }
 
     const pid = auth.usuarioActual.value?.puestoId
-    const r = await fiado.registrarNuevaDeuda({
-      clienteId: cliente.id,
-      cuadreId: accion.cuadreId,
-      puestoId: pid,
-      items: [],
-      montoTotal: monto
+    estado.value = 'registrando'
+    const ejecucion = await ejecutarOperacionFinanciera({
+      tipo: 'deuda_dinero',
+      recuperacion: { clienteId: cliente.id, cuadreId: accion.cuadreId, monto },
+      detalle: { monto },
+      crearPasos: () => [{
+        id: operacionIds.para('deuda_dinero'),
+        tipo: 'deuda_dinero',
+        monto,
+        datos: {
+          id: operacionIds.para('deuda_dinero'),
+          clienteId: cliente.id,
+          cuadreId: accion.cuadreId,
+          puestoId: pid,
+          items: [],
+          montoTotal: monto
+        }
+      }]
     })
-    if (!r?.ok) {
-      estado.value = 'idle'
-      throw new Error(r?.error?.message || 'No se pudo anotar la deuda.')
-    }
+    if (await anunciarOperacionIncompleta(ejecucion, { clienteNombre: cliente.nombre })) return
 
     const texto = `Anotado: ${cliente.nombre} debe ${monto} pesos.`
     ultimaRespuestaVoz.value = texto
@@ -2368,16 +2521,25 @@ function _create(ubicacion) {
     }
 
     const pid = auth.usuarioActual.value?.puestoId
-    const r = await transf.registrarTransferencia({
-      clienteId: cliente.id,
-      cuadreId: accion.cuadreId,
-      monto,
-      puestoId: pid
+    estado.value = 'registrando'
+    const ejecucion = await ejecutarOperacionFinanciera({
+      tipo: 'transferencia_cuadre',
+      recuperacion: { clienteId: cliente.id, cuadreId: accion.cuadreId, monto },
+      detalle: { monto },
+      crearPasos: () => [{
+        id: operacionIds.para('transferencia_cuadre'),
+        tipo: 'transferencia_cuadre',
+        monto,
+        datos: {
+          id: operacionIds.para('transferencia_cuadre'),
+          clienteId: cliente.id,
+          cuadreId: accion.cuadreId,
+          monto,
+          puestoId: pid
+        }
+      }]
     })
-    if (!r?.ok) {
-      estado.value = 'idle'
-      throw new Error(r?.error?.message || 'No se pudo registrar la transferencia.')
-    }
+    if (await anunciarOperacionIncompleta(ejecucion, { clienteNombre: cliente.nombre })) return
 
     const texto = `Transferencia registrada: ${monto} pesos de ${cliente.nombre}.`
     ultimaRespuestaVoz.value = texto
@@ -2942,6 +3104,25 @@ function _create(ubicacion) {
       }
     }
 
+    // Misma matriz para tacto/voz y para el servidor: rol + acción + ubicación.
+    // Se evalúa antes de preguntar slots o leer datos para no filtrar nada a un
+    // comando que el rol ya no puede ejecutar (incluidas acciones de solo lectura).
+    const autorizacion = autorizarComandoVoz({
+      comando,
+      rol: auth.rol.value,
+      permisos: perms.overrides.value,
+      ubicacion: slots?.ubicacion ?? 'almacen',
+      tipoVenta: slots?.tipoVenta,
+      accionCuadre: slots?.accion
+    })
+    if (!autorizacion.ok) {
+      return {
+        tipo: 'aviso',
+        mensaje: 'No tienes permiso para usar este comando por voz.',
+        auditar: { comando, motivo: 'sin_permiso', confianza: Number(interpretado?.confidence) || 0 }
+      }
+    }
+
     if (comando === 'consulta_stock') return resolverConsultaStock(slots, sttConfidence, vigente)
 
     // F4 — slot-filling: si al comando le falta la cantidad o el monto, se
@@ -3228,6 +3409,8 @@ function _create(ubicacion) {
     if (voice.estado.value === 'listening') return
 
     limpiar()
+    // Un dictado nuevo es una operación nueva; las correcciones conservan IDs.
+    operacionIds.reiniciar()
     const gen = ++generacion
     // El widget (y el atajo) no tienen palabra de activación: quien dispara el
     // dictado decide si anuncia algo (`anuncio`, p. ej. «¿Qué puedo hacer por
@@ -3452,6 +3635,7 @@ function _create(ubicacion) {
   async function simular(texto) {
     if (!import.meta.dev) return
     limpiar()
+    operacionIds.reiniciar()
     try {
       await procesar(texto, 0.95)
     } catch (e) {

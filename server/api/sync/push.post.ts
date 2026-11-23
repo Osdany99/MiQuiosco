@@ -4,6 +4,8 @@ import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
 import { requireAuth } from '../../utils/auth'
 import { exigirDispositivoActivo, HEADER_VERSION_CODE } from '../../utils/dispositivo'
+import { aplicarPushTrabajador } from '../../utils/syncTrabajador'
+import { conGuardaStock } from '../../utils/inventario'
 import { registrarFallos } from '../../utils/syncFallos'
 import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { pushSyncSchema } from '#shared/schemas/pushSync'
@@ -107,6 +109,9 @@ async function cerrarVigentesPrevias(
 
 export default defineEventHandler(async (event) => {
   const auth = await requireAuth(event, 'sync')
+  if (auth.usuario.rol !== 'jefe' && auth.usuario.rol !== 'trabajador') {
+    throw createError({ statusCode: 403, statusMessage: 'No tienes permiso para sincronizar.' })
+  }
   const puestoId = auth.usuario.puestoId
   await exigirDispositivoActivo(event, puestoId)
 
@@ -121,6 +126,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const data = parsed.data as Record<string, any>
+  if (auth.usuario.rol === 'trabajador') {
+    // Canal separado y fail-closed: nunca pasa por el upsert/LWW del jefe ni
+    // devuelve filas del servidor en conflictos (podrían contener costos/caja).
+    return await aplicarPushTrabajador(data, auth)
+  }
+
   const deletes = (data.deletes ?? []) as { tabla: string, id: string }[]
   const aceptados: string[] = []
   const deletesAceptados: { tabla: string, id: string }[] = []
@@ -146,7 +157,7 @@ export default defineEventHandler(async (event) => {
   // confirman juntos y las filas rechazadas se revierten con un savepoint, sin
   // tumbar el resto del lote. Las validaciones de puesto van DENTRO de la tx y
   // siguen siendo fail-closed (403 aborta todo).
-  await db.transaction(async (tx) => {
+  await conGuardaStock(() => db.transaction(async (tx) => {
     for (const syncConfig of SYNC_TABLES) {
       const table = schemaByTabla[syncConfig.tabla] as Table | undefined
       if (!table) continue
@@ -251,7 +262,7 @@ export default defineEventHandler(async (event) => {
         transitorio: clasificado.transitorio
       })
     }
-  })
+  }))
 
   // Registro central de fallos (best-effort): si falla, el push ya está hecho y
   // el cliente igualmente guarda su copia local en el buzón.

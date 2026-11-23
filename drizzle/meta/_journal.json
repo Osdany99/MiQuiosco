@@ -288,6 +288,13 @@
       "when": 1795199125432,
       "tag": "0040_yummy_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795438139867,
+      "tag": "0041_stock_concurrente",
+      "breakpoints": true
     }
   ]
 }

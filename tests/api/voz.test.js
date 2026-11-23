@@ -8,7 +8,9 @@
  */
 import { describe, it, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { raw, tokenJefe } from './cliente.js'
+import { randomUUID } from 'node:crypto'
+import { ipDePrueba, raw, tokenJefe } from './cliente.js'
+import { revocarDispositivo } from './db-directa.js'
 
 let token
 
@@ -81,5 +83,56 @@ describe('GET /api/voz/lexico', () => {
     assert.equal(r.status, 200)
     assert.equal(r.body.schema, 1)
     assert.ok(Array.isArray(r.body.entradas))
+  })
+})
+
+async function loginConDispositivo(dispositivoId) {
+  const r = await raw('POST', '/api/auth/login', {
+    body: { nombre_usuario: 'jefe', pin: '1234' },
+    headers: {
+      'x-dispositivo-id': dispositivoId,
+      'x-forwarded-for': ipDePrueba()
+    }
+  })
+  assert.equal(r.status, 200)
+  return r.body.token
+}
+
+describe('binding JWT ↔ dispositivo en endpoints de voz', () => {
+  it('un token con dispositivo no puede omitir x-dispositivo-id', async () => {
+    const dispositivoId = randomUUID()
+    const tokenApk = await loginConDispositivo(dispositivoId)
+
+    const r = await raw('GET', '/api/voz/config', { token: tokenApk })
+    assert.equal(r.status, 403)
+    assert.match(JSON.stringify(r.body), /identificación del dispositivo/i)
+  })
+
+  it('un token con dispositivo rechaza otro equipo', async () => {
+    const dispositivoId = randomUUID()
+    const tokenApk = await loginConDispositivo(dispositivoId)
+
+    const r = await raw('GET', '/api/voz/config', {
+      token: tokenApk,
+      headers: { 'x-dispositivo-id': randomUUID() }
+    })
+    assert.equal(r.status, 403)
+    assert.match(JSON.stringify(r.body), /otro dispositivo/i)
+  })
+
+  it('un equipo revocado no evita el gate omitiendo el header', async () => {
+    const dispositivoId = randomUUID()
+    const tokenApk = await loginConDispositivo(dispositivoId)
+    await revocarDispositivo(dispositivoId)
+
+    const sinHeader = await raw('GET', '/api/voz/config', { token: tokenApk })
+    assert.equal(sinHeader.status, 403)
+
+    const conHeader = await raw('GET', '/api/voz/config', {
+      token: tokenApk,
+      headers: { 'x-dispositivo-id': dispositivoId }
+    })
+    assert.equal(conHeader.status, 403)
+    assert.match(JSON.stringify(conHeader.body), /revocado/i)
   })
 })

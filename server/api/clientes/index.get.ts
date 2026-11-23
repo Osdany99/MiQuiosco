@@ -1,5 +1,5 @@
 import { isNull } from 'drizzle-orm'
-import { requireRole } from '../../utils/auth'
+import { requirePermiso } from '../../utils/permisos'
 import { crudList } from '../../utils/crud'
 import { clientes } from '../../database/schema'
 
@@ -11,7 +11,10 @@ import { clientes } from '../../database/schema'
  * `?incluirFusionados=1` se pueden ver (diagnóstico y auditoría).
  */
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: null,
+    trabajador: ['acciones.cuadre.fiar', 'acciones.cuadre.transferencia']
+  })
   const query = getQuery(event)
   return await crudList(
     { tabla: 'clientes', puestoScoped: true },

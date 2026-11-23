@@ -41,6 +41,16 @@ describe('clasificarRechazo', () => {
     assert.equal(clasificarRechazo({ code: '22P02' }).transitorio, false)
   })
 
+  it('una carrera de stock es un 409 permanente y aborta la operación completa', () => {
+    for (const err of [{ code: 'P0409' }, { cause: { code: 'P0409' } }]) {
+      const r = clasificarRechazo(err)
+      assert.equal(r.codigo, 409)
+      assert.equal(r.motivo, 'stock_concurrente')
+      assert.equal(r.transitorio, false)
+      assert.equal(r.fatal, true)
+    }
+  })
+
   it('un 500 o un error sin código se reintenta', () => {
     assert.equal(clasificarRechazo({ statusCode: 500 }).transitorio, true)
     assert.equal(clasificarRechazo(new Error('boom')).transitorio, true)

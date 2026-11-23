@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm'
+import { eq, and, inArray, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import {
   lotes,
@@ -9,11 +9,11 @@ import {
   cuentasFiadoItems,
   pagosFiado
 } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
-import { existentePorId } from '../../utils/idempotencia'
+import { exigirPermiso, filtrarCostosTrabajador, requirePermiso } from '../../utils/permisos'
+import { deudaDirectaPrevia } from '../../utils/directasIdempotencia'
 import { deudaDirectaSchema } from '#shared/schemas/directas'
-import { construirVentaDirecta, lotesConSaldo } from '#shared/inventario/operaciones'
-import { comoMovimiento, comoVentaDirecta } from '../../utils/inventario'
+import { construirVentaDirecta, generarId, lotesConSaldo } from '#shared/inventario/operaciones'
+import { comoMovimiento, comoVentaDirecta, conGuardaStock } from '../../utils/inventario'
 
 /**
  * Deuda directa: el jefe fía por fuera del cuadre (el quiosco está cerrado y
@@ -27,22 +27,31 @@ import { comoMovimiento, comoVentaDirecta } from '../../utils/inventario'
  *    cerrar un cuadre, para poder mostrarlos sin recalcular.
  */
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: 'vistas.deudas',
+    trabajador: 'acciones.cuadre.fiar'
+  })
   const body = await readBody(event)
   const parsed = deudaDirectaSchema.safeParse(body)
   if (!parsed.success) {
     throw createError({ statusCode: 400, statusMessage: 'Datos inválidos.', data: parsed.error.flatten() })
   }
   const datos = parsed.data
+  if (auth.usuario.rol === 'trabajador' && Number(datos.montoPagadoInicial) > 0) {
+    throw createError({ statusCode: 403, statusMessage: 'El trabajador no puede registrar cobros.' })
+  }
+  if (auth.usuario.rol === 'trabajador') {
+    await exigirPermiso(auth, `acciones.${datos.ubicacion}.voz`)
+  }
   const puestoId = auth.usuario.puestoId
   const usuarioId = auth.usuario.id
   const ahora = new Date()
   const ahoraMs = ahora.getTime()
 
-  // Reintento de la misma deuda: la cuenta ya existe con ese id.
-  const previa = await existentePorId(cuentasFiado, datos.id, puestoId)
+  // Reintento de la misma deuda: debe coincidir el efecto completo, no solo el total.
+  const previa = await deudaDirectaPrevia(db, datos.id, datos, puestoId)
   if (previa) {
-    return {
+    return filtrarCostosTrabajador(auth, {
       id: previa.id,
       clienteId: previa.clienteId,
       ubicacion: datos.ubicacion,
@@ -53,7 +62,7 @@ export default defineEventHandler(async (event) => {
       lineas: datos.lineas.length,
       movimientos: 0,
       idempotente: true
-    }
+    })
   }
 
   // Los clientes viven en su propia tabla desde la migracion 0018 (antes eran
@@ -77,7 +86,12 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'Hay productos que no pertenecen a este puesto.' })
     }
   }
-  const resultado = await db.transaction(async (tx) => {
+  const resultado = await conGuardaStock(() => db.transaction(async (tx) => {
+    const cuentaId = datos.id ?? generarId()
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(20405, hashtext(${cuentaId}))`)
+    const enTx = await deudaDirectaPrevia(tx, cuentaId, datos, puestoId)
+    if (enTx) return { id: enTx.id, previa: enTx, idempotente: true }
+
     const [filasLotes, movs] = await Promise.all([
       tx.select().from(lotes).where(and(eq(lotes.puestoId, puestoId), eq(lotes.anulado, false))),
       tx
@@ -105,8 +119,9 @@ export default defineEventHandler(async (event) => {
         .join(', ')
       const detalle = venta.faltantes.map(f => `${f.faltante}`).join(', ')
       throw createError({
-        statusCode: 400,
-        statusMessage: `No hay stock suficiente en ${datos.ubicacion} para: ${nombres} (faltan ${detalle}).`
+        statusCode: 409,
+        statusMessage: `No hay stock suficiente en ${datos.ubicacion} para: ${nombres} (faltan ${detalle}).`,
+        data: { codigo: 'stock_insuficiente' }
       })
     }
 
@@ -117,7 +132,7 @@ export default defineEventHandler(async (event) => {
     const [cuenta] = await tx
       .insert(cuentasFiado)
       .values({
-        ...(datos.id ? { id: datos.id } : {}),
+        id: cuentaId,
         puestoId,
         clienteId: datos.clienteId,
         cuadreOrigenId: null,
@@ -131,8 +146,14 @@ export default defineEventHandler(async (event) => {
             ? 'pagada'
             : 'parcial'
       })
+      .onConflictDoNothing()
       .returning()
-    const c = cuenta!
+    if (!cuenta) {
+      const previa = await deudaDirectaPrevia(tx, cuentaId, datos, puestoId)
+      if (!previa) throw new Error('No se pudo reconciliar la deuda duplicada.')
+      return { id: previa.id, previa, idempotente: true }
+    }
+    const c = cuenta
 
     for (const it of venta.items) {
       await tx.insert(cuentasFiadoItems).values({
@@ -161,9 +182,24 @@ export default defineEventHandler(async (event) => {
     }
 
     return { id: c.id, ...venta }
-  })
+  }))
 
-  return {
+  if (!('items' in resultado)) {
+    return filtrarCostosTrabajador(auth, {
+      id: resultado.previa.id,
+      clienteId: resultado.previa.clienteId,
+      ubicacion: datos.ubicacion,
+      directa: true,
+      montoTotal: resultado.previa.montoTotal,
+      costoTotal: resultado.previa.costoTotal,
+      ganancia: resultado.previa.ganancia,
+      lineas: datos.lineas.length,
+      movimientos: 0,
+      idempotente: true
+    })
+  }
+
+  return filtrarCostosTrabajador(auth, {
     id: resultado.id,
     clienteId: datos.clienteId,
     ubicacion: datos.ubicacion,
@@ -173,5 +209,5 @@ export default defineEventHandler(async (event) => {
     ganancia: resultado.ganancia,
     lineas: resultado.items.length,
     movimientos: resultado.movimientos.length
-  }
+  })
 })

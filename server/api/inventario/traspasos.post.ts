@@ -4,7 +4,7 @@ import { lotes, movimientosInventario, traspasos } from '../../database/schema'
 import { traspasoSchema } from '#shared/schemas/traspaso'
 import { construirTraspaso, lotesConSaldo } from '#shared/inventario/operaciones'
 import { diaNegocioPlausible } from '#shared/fechas'
-import { comoMovimiento } from '../../utils/inventario'
+import { comoMovimiento, conGuardaStock } from '../../utils/inventario'
 import { existentePorId } from '../../utils/idempotencia'
 
 export default defineEventHandler(async (event) => {
@@ -75,7 +75,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  await db.transaction(async (tx) => {
+  await conGuardaStock(() => db.transaction(async (tx) => {
     await tx.insert(traspasos).values({
       id: traspaso.id,
       puestoId,
@@ -86,7 +86,7 @@ export default defineEventHandler(async (event) => {
     for (const m of movimientos) {
       await tx.insert(movimientosInventario).values(comoMovimiento(m))
     }
-  })
+  }))
 
   return { traspasoId: traspaso.id, movimientos: movimientos.length }
 })

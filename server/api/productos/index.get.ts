@@ -1,12 +1,16 @@
 import { crudList } from '../../utils/crud'
-import { requireRole } from '../../utils/auth'
+import { filtrarCostosTrabajador, requirePermiso } from '../../utils/permisos'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: null,
+    trabajador: 'acciones.cuadre.fiar'
+  })
   const query = getQuery(event)
   const orderOpts = {
     orderBy: query.orderBy || 'orden',
     orderDir: query.orderDir || 'asc'
   }
-  return await crudList({ tabla: 'productos', puestoScoped: true }, { query: { ...query, ...orderOpts }, auth })
+  const filas = await crudList({ tabla: 'productos', puestoScoped: true }, { query: { ...query, ...orderOpts }, auth })
+  return filtrarCostosTrabajador(auth, filas)
 })

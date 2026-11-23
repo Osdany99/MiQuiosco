@@ -8,6 +8,11 @@
  * Sin Vue y sin datos: se prueba con `node --test` (tests/voz.test.js).
  */
 import { normalizar } from '../../../shared/voz/gramatica.js'
+import { extraerCorreccion } from './correccion.js'
+import { esEcoDePrompt, ecoPalabraSuelta, respuestaTrasEco } from './eco.js'
+
+/** Tiempo tras el anuncio en el que un «sí/no» suelto puede ser todavía eco. */
+export const MS_VENTANA_ECO_CONFIRMACION = 1500
 
 const AFIRMATIVAS = new Set([
   'si',
@@ -144,4 +149,81 @@ export function clasificarRespuesta(texto) {
   if (esNegacion(texto)) return 'negado'
   if (esAfirmacion(texto)) return 'afirmado'
   return 'otro'
+}
+
+/**
+ * Quita el anuncio solo cuando el texto tiene un solape real con él. Restar
+ * palabras del prompt a cualquier respuesta corta convertía «sí por favor» en
+ * «por favor» y, peor aún, recuperaba después un «sí» de eco con `|| texto`.
+ */
+function respuestaFinalSinEco(texto, prompt) {
+  const t = String(texto ?? '').trim()
+  if (!t || !String(prompt ?? '').trim()) return t
+  if (!esEcoDePrompt(t, prompt)) return t
+  return respuestaTrasEco(t, prompt)
+}
+
+function esEcoCortoPrematuro(texto, prompt, desdeMs, ahoraMs, ventanaEcoMs) {
+  const inicio = Number(desdeMs)
+  const ahora = Number(ahoraMs)
+  if (!Number.isFinite(inicio) || inicio <= 0 || !Number.isFinite(ahora)) return false
+  const transcurrido = ahora - inicio
+  if (transcurrido < 0 || transcurrido >= ventanaEcoMs) return false
+  return ecoPalabraSuelta(texto, prompt)
+}
+
+/** Clasifica una transcripción ya finalizada; nunca se llama con parciales. */
+function clasificarTextoFinal(texto, { prompt, desdeMs, ahoraMs, ventanaEcoMs }) {
+  const crudo = String(texto ?? '').trim()
+  if (!crudo || esEcoCortoPrematuro(crudo, prompt, desdeMs, ahoraMs, ventanaEcoMs)) return null
+
+  const limpio = respuestaFinalSinEco(crudo, prompt)
+  if (!limpio || esEcoDePrompt(limpio, prompt)) return null
+
+  const correccion = extraerCorreccion(limpio)
+  if (correccion) return { resultado: 'corregir', cantidad: correccion.cantidad }
+
+  const resultado = clasificarRespuesta(limpio)
+  return resultado === 'afirmado' || resultado === 'negado' ? { resultado, cantidad: null } : null
+}
+
+/**
+ * Evalúa la respuesta de una confirmación hablada sin conocer Vue ni el STT.
+ *
+ * Garantías de seguridad:
+ * - `listening` nunca decide: un «sí» parcial no puede escribir ni cancelar.
+ * - Solo `ready` (resultado final o rescate ya cerrado por el STT) se clasifica.
+ * - Un «sí/no» suelto dentro de la ventana de eco se descarta.
+ * - Las alternativas necesitan una confianza explícita de al menos 0,5.
+ *
+ * `null` significa que hay que seguir esperando. Un texto final no reconocible
+ * produce `timeout`, igual que antes, para dejar el formulario en modo manual.
+ */
+export function evaluarRespuestaConfirmacion({
+  estado = 'idle',
+  textoFinal = '',
+  alternativas = [],
+  prompt = '',
+  desdeMs = null,
+  ahoraMs = Date.now(),
+  escuchoAlgunaVez = false,
+  ventanaEcoMs = MS_VENTANA_ECO_CONFIRMACION
+} = {}) {
+  if (estado === 'error') return { resultado: 'error', cantidad: null }
+  if (estado === 'cancelled') return { resultado: 'timeout', cantidad: null }
+  if (estado !== 'ready') return null
+
+  const opciones = { prompt, desdeMs, ahoraMs, ventanaEcoMs }
+  const principal = clasificarTextoFinal(textoFinal, opciones)
+  if (principal) return principal
+
+  for (const alternativa of Array.isArray(alternativas) ? alternativas : []) {
+    const confianza = Number(alternativa?.confianza ?? alternativa?.confidence)
+    if (!Number.isFinite(confianza) || confianza < 0.5) continue
+    const texto = alternativa?.texto ?? alternativa?.text ?? ''
+    const resultado = clasificarTextoFinal(texto, opciones)
+    if (resultado) return resultado
+  }
+
+  return escuchoAlgunaVez ? { resultado: 'timeout', cantidad: null } : null
 }

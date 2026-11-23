@@ -21,9 +21,9 @@ export async function login(nombreUsuario, pin) {
     if (!usuario) return { ok: false, motivo: 'usuario_no_existe' }
     if (!usuario.activo) return { ok: false, motivo: 'usuario_inactivo' }
 
-    // Solo el jefe entra a la app (decision de producto, Fase 3): el
-    // trabajador se gestiona (turno, salario) pero no inicia sesion.
-    if (usuario.rol !== 'jefe') {
+    // Jefe y trabajador pueden entrar en un dispositivo ya aprovisionado. El
+    // trabajador queda después limitado por la misma matriz local/remota.
+    if (usuario.rol === 'cliente' || usuario.rol === 'super_admin') {
       return { ok: false, motivo: 'solo_jefe' }
     }
 

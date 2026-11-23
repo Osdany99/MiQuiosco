@@ -1,13 +1,17 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, cuentasFiadoItems, pagosFiado, cuadres } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { requirePermiso } from '../../utils/permisos'
 import { validarTopeFiado } from '../../utils/fiadoTope'
 import { existentePorId } from '../../utils/idempotencia'
 import { createCuentaFiadoSchema } from '#shared/schemas/createCuentaFiado'
+import { conflictoIdempotente, cuentaFiadoCoincide } from '#shared/fiadoIdempotencia'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: 'vistas.deudas',
+    trabajador: 'acciones.cuadre.fiar'
+  })
   const body = await readBody(event)
   const parsed = createCuentaFiadoSchema.safeParse(body)
   if (!parsed.success) {
@@ -15,11 +19,18 @@ export default defineEventHandler(async (event) => {
   }
 
   const { clienteId, cuadreOrigenId, items, montoPagadoInicial = 0, formaPagoInicial = 'efectivo' } = parsed.data
-  const montoTotal = items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+  // Sin productos es una deuda de dinero: el total viene del campo directo.
+  // Reducir un array vacío la convertía silenciosamente en una deuda de cero.
+  const montoTotal = items.length > 0
+    ? items.reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+    : Number(parsed.data.montoTotal ?? 0)
 
   // Reintento de la misma deuda: no se vuelve a sumar al cuadre.
   const previa = await existentePorId(cuentasFiado, parsed.data.id, auth.usuario.puestoId)
   if (previa) {
+    if (!cuentaFiadoCoincide(previa, { clienteId, cuadreOrigenId, montoTotal })) {
+      throw conflictoIdempotente('deuda')
+    }
     return {
       id: previa.id,
       clienteId: previa.clienteId,
@@ -31,6 +42,22 @@ export default defineEventHandler(async (event) => {
       actualizadoEn: new Date(String(previa.actualizadoEn)).toISOString(),
       idempotente: true
     }
+  }
+
+  if (auth.usuario.rol === 'trabajador' && montoPagadoInicial > 0) {
+    throw createError({ statusCode: 403, statusMessage: 'El trabajador no puede registrar cobros.' })
+  }
+
+  const [origen] = await db
+    .select({ id: cuadres.id, estado: cuadres.estado, puestoId: cuadres.puestoId })
+    .from(cuadres)
+    .where(eq(cuadres.id, cuadreOrigenId))
+    .limit(1)
+  if (!origen || origen.puestoId !== auth.usuario.puestoId) {
+    throw createError({ statusCode: 404, statusMessage: 'Cuadre no encontrado.' })
+  }
+  if (origen.estado !== 'abierto') {
+    throw createError({ statusCode: 409, statusMessage: 'El cuadre está cerrado.' })
   }
 
   if (montoPagadoInicial > montoTotal) {

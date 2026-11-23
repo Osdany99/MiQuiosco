@@ -182,6 +182,9 @@ export async function $api(path, opts = {}) {
       err.message = `El servidor tardó más de ${Math.round(timeoutMs / 1000)} s en responder.`
     }
     if (esErrorDeRed(err)) {
+      // Marca explícita para las escrituras idempotentes: un Error de validación
+      // local no debe confundirse con una respuesta de red perdida.
+      err.red = true
       _serverAlcanzable.value = false
       _fallosRed.value += 1
     }

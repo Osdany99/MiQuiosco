@@ -1,7 +1,7 @@
 import { and, eq, asc, inArray } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { productos, historialPrecios } from '../../database/schema'
-import { requireAuth } from '../../utils/auth'
+import { requireRole } from '../../utils/auth'
 import { agruparPreciosVigentes } from '#shared/precioVigente'
 
 /**
@@ -20,7 +20,7 @@ import { agruparPreciosVigentes } from '#shared/precioVigente'
  * historial, y se envía ya derivado (la app no cambia).
  */
 export default defineEventHandler(async (event) => {
-  const auth = await requireAuth(event, 'sync')
+  const auth = await requireRole(event, 'jefe')
   const puestoId = auth.usuario.puestoId
 
   const rows = await db.select({ id: productos.id, nombre: productos.nombre, precioVentaActual: productos.precioVentaActual, orden: productos.orden }).from(productos).where(and(eq(productos.activo, true), eq(productos.puestoId, puestoId))).orderBy(asc(productos.orden))

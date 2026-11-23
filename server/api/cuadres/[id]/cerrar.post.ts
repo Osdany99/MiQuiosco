@@ -4,7 +4,7 @@ import { db } from '../../../database/client'
 import { cuadres, cuadreItems, lotes, movimientosInventario } from '../../../database/schema'
 import { construirVentaCuadre, lotesConSaldo, ventasVivasDeCuadre } from '#shared/inventario/operaciones'
 import { deduplicarLineasCuadre } from '#shared/inventario/lineasCuadre'
-import { comoMovimiento } from '../../../utils/inventario'
+import { comoMovimiento, conGuardaStock } from '../../../utils/inventario'
 
 const lineaSchema = z.object({
   id: z.string().uuid(),
@@ -55,7 +55,17 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 409, statusMessage: 'El cuadre ya está cerrado.' })
   }
 
-  const resultado = await db.transaction(async (tx) => {
+  const resultado = await conGuardaStock(() => db.transaction(async (tx) => {
+    // El precheck exterior es solo el camino rápido: la decisión se repite con
+    // la fila bloqueada para que dos cierres no descuenten el mismo stock.
+    const [vigente] = await tx.select().from(cuadres).where(eq(cuadres.id, id)).limit(1).for('update')
+    if (!vigente || vigente.puestoId !== puestoId) {
+      throw createError({ statusCode: 404, statusMessage: 'Cuadre no encontrado.' })
+    }
+    if (vigente.estado !== 'abierto') {
+      throw createError({ statusCode: 409, statusMessage: 'El cuadre ya está cerrado.' })
+    }
+
     // 1. Sincronizar líneas (crear / actualizar / eliminar por id).
     const existentes = await tx.select().from(cuadreItems).where(eq(cuadreItems.cuadreId, id))
     const porId = new Map(existentes.map(e => [e.id, e]))
@@ -194,7 +204,7 @@ export default defineEventHandler(async (event) => {
     }).where(eq(cuadres.id, id))
 
     return { costoTotal: costo, ganancia, diferencia, faltantes, lineasDuplicadas: descartadas.length }
-  })
+  }))
 
   return resultado
 })

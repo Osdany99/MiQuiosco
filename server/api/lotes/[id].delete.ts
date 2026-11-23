@@ -3,7 +3,7 @@ import { db } from '../../database/client'
 import { lotes, movimientosInventario } from '../../database/schema'
 import { anulacionLoteSchema } from '#shared/schemas/lote'
 import { construirAnulacionLote } from '#shared/inventario/operaciones'
-import { comoAnulacionLote } from '../../utils/inventario'
+import { comoAnulacionLote, conGuardaStock } from '../../utils/inventario'
 
 /**
  * Anula (no borra) una entrada equivocada al almacén.
@@ -71,7 +71,7 @@ export default defineEventHandler(async (event) => {
   const { actualizadoEn: ts, ...camposLote } = plan.cambiosLote
   const ahora = new Date(ts)
 
-  await db.transaction(async (tx) => {
+  await conGuardaStock(() => db.transaction(async (tx) => {
     await tx
       .update(lotes)
       .set({ ...camposLote, actualizadoEn: ahora })
@@ -89,7 +89,7 @@ export default defineEventHandler(async (event) => {
         .set(paraPg)
         .where(eq(movimientosInventario.id, movId))
     }
-  })
+  }))
 
   return {
     id,

@@ -2,9 +2,13 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { lotes, movimientosInventario, productos } from '../../database/schema'
 import { vistaSaldos } from '#shared/inventario/vista'
+import { filtrarCostosTrabajador, requirePermiso } from '../../utils/permisos'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: null,
+    trabajador: 'acciones.cuadre.fiar'
+  })
   const puestoId = auth.usuario.puestoId
 
   const [filasProductos, filasLotes, movs] = await Promise.all([
@@ -16,5 +20,5 @@ export default defineEventHandler(async (event) => {
       .where(and(eq(movimientosInventario.puestoId, puestoId), eq(movimientosInventario.anulado, false)))
   ])
 
-  return vistaSaldos({ productos: filasProductos, lotes: filasLotes, movimientos: movs })
+  return filtrarCostosTrabajador(auth, vistaSaldos({ productos: filasProductos, lotes: filasLotes, movimientos: movs }))
 })

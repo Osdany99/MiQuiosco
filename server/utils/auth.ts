@@ -110,11 +110,17 @@ export async function requireAuth(
     })
   }
 
-  // Binding dispositivo↔token: si el JWT se emitió para un dispositivo y la
-  // petición trae OTRO, se rechaza. Los tokens antiguos (sin claim) y las
-  // peticiones sin header (web) siguen pasando.
+  // Binding dispositivo↔token: un JWT emitido para un APK nunca puede omitir
+  // la identidad del equipo (omitirla era un bypass de la revocación). La web y
+  // los tokens antiguos sin claim conservan su contrato explícito sin header.
   const dispositivoId = leerDispositivoId(event)
-  if (payload.dispositivoId && dispositivoId && payload.dispositivoId !== dispositivoId) {
+  if (payload.dispositivoId && !dispositivoId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Falta la identificación del dispositivo. Vuelve a iniciar sesión.'
+    })
+  }
+  if (payload.dispositivoId && payload.dispositivoId !== dispositivoId) {
     throw createError({
       statusCode: 403,
       statusMessage: 'El token pertenece a otro dispositivo.'

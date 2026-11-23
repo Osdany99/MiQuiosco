@@ -11,6 +11,7 @@ import { hashPin, requireJefe } from './utils/auth.js'
 import { TABLES } from '../../shared/tables.js'
 import { fusionClienteSchema } from '../../shared/schemas/fusionCliente.js'
 import { planificarFusion } from '../../shared/clientes.js'
+import { CLIENTE_SIN_CLIENTE_NOMBRE } from '../../shared/constants'
 
 /** Tablas con `clienteId` que se re-apuntan al fusionar dos clientes. */
 const TABLAS_CON_CLIENTE = [
@@ -225,15 +226,15 @@ const OFFLINE_CONFIGS = [
   },
   {
     config: { tabla: 'pagos_fiado', defaults: {} },
-    overrides: {}
+    overrides: { requireRole: 'jefe' }
   },
   {
     config: { tabla: 'ventas_directas', defaults: { ubicacionVenta: 'almacen', anulado: false }, puestoScoped: TABLES.ventas_directas.puestoScoped },
-    overrides: {}
+    overrides: { requireRole: 'jefe' }
   },
   {
     config: { tabla: 'ventas_directas_items', defaults: { secuencia: 0 } },
-    overrides: {}
+    overrides: { requireRole: 'jefe' }
   },
   {
     config: { tabla: 'transferencias', defaults: { montoTotal: 0 }, puestoScoped: TABLES.transferencias.puestoScoped },
@@ -255,7 +256,22 @@ const OFFLINE_CONFIGS = [
   {
     config: { tabla: 'clientes', defaults: { activo: true }, puestoScoped: TABLES.clientes.puestoScoped },
     overrides: {
-      requireRole: 'jefe',
+      beforeCreate: async (datos, auth) => {
+        const rol = auth?.usuarioActual?.value?.rol
+        if (rol === 'trabajador'
+          && (datos.nombre !== CLIENTE_SIN_CLIENTE_NOMBRE || datos.esCentinela !== true)) {
+          const err = new Error('El trabajador no puede crear clientes.')
+          err.statusCode = 403
+          throw err
+        }
+        if (rol !== 'jefe' && rol !== 'trabajador') requireJefe(auth)
+        return datos
+      },
+      beforeUpdate: async (cambios, auth) => {
+        requireJefe(auth)
+        return cambios
+      },
+      beforeRemove: async (id, auth) => requireJefe(auth),
       // Los fusionados conservan la fila (historial) pero no se listan.
       listFilter: (opts, row) => (opts?.incluirFusionados ? true : !row.fusionadoEn),
       actions: { fusionar: fusionarClientesOffline }

@@ -1,10 +1,13 @@
 import { eq, and, desc } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { transferencias, clientes } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { requirePermiso } from '../../utils/permisos'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: 'acciones.cuadre.transferencia',
+    trabajador: 'acciones.cuadre.transferencia'
+  })
   const query = getQuery(event)
   // Siempre el puesto propio: sin esto, cualquier filtro (clienteId, cuadreId)
   // devolvia filas de otros puestos.

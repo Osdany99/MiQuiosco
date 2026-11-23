@@ -1,12 +1,16 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { transferencias, cuadres } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { requirePermiso } from '../../utils/permisos'
 import { existentePorId } from '../../utils/idempotencia'
 import { createTransferenciaSchema } from '#shared/schemas/createTransferencia'
+import { conflictoIdempotente, transferenciaCoincide } from '#shared/fiadoIdempotencia'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: 'acciones.cuadre.transferencia',
+    trabajador: 'acciones.cuadre.transferencia'
+  })
   const body = await readBody(event)
   const parsed = createTransferenciaSchema.safeParse(body)
   if (!parsed.success) {
@@ -21,6 +25,9 @@ export default defineEventHandler(async (event) => {
   // Reintento: la transferencia ya sumó al cuadre; no se suma otra vez.
   const previa = await existentePorId(transferencias, parsed.data.id, auth.usuario.puestoId)
   if (previa) {
+    if (!transferenciaCoincide(previa, { clienteId, cuadreId, montoTotal })) {
+      throw conflictoIdempotente('transferencia')
+    }
     return {
       id: previa.id,
       clienteId: previa.clienteId,
@@ -30,6 +37,18 @@ export default defineEventHandler(async (event) => {
       actualizadoEn: new Date(String(previa.actualizadoEn)).toISOString(),
       idempotente: true
     }
+  }
+
+  const [origen] = await db
+    .select({ id: cuadres.id, estado: cuadres.estado, puestoId: cuadres.puestoId })
+    .from(cuadres)
+    .where(eq(cuadres.id, cuadreId))
+    .limit(1)
+  if (!origen || origen.puestoId !== auth.usuario.puestoId) {
+    throw createError({ statusCode: 404, statusMessage: 'Cuadre no encontrado.' })
+  }
+  if (origen.estado !== 'abierto') {
+    throw createError({ statusCode: 409, statusMessage: 'El cuadre está cerrado.' })
   }
 
   const result = await db.transaction(async (tx) => {

@@ -11,8 +11,9 @@ import type { LoginResponse, Rol } from '#shared/types'
  *
  * Estrategia:
  * - jefe: recibe JWT con scope 'sync' (acceso a /api/sync/* y demás API)
+ * - trabajador: recibe JWT para las operaciones permitidas por su puesto; el
+ *   sync completo y el resto de la administración siguen exigiendo rol jefe.
  * - super_admin: recibe JWT solo para el panel /api/admin/* (no usa el APK)
- * - trabajador: NO recibe token (la app usa la sesión local y el hash del PIN)
  */
 export default defineEventHandler(async (event): Promise<LoginResponse> => {
   const body = await readBody(event)
@@ -61,15 +62,12 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     })
   }
 
-  // Solo el jefe y el super admin entran: el trabajador no se loguea (decisión
-  // de producto, Fase 3). Sin esto, el trabajador quedaba en modo online sin
-  // token y cada pantalla daba 401 sin Authorization.
-  if (usuario.rol !== 'jefe' && usuario.rol !== 'super_admin') {
+  // El trabajador también entra con identidad propia. Cada endpoint decide su
+  // matriz de permisos: no hereda el sync completo ni las funciones del jefe.
+  if (usuario.rol === 'cliente') {
     throw createError({
       statusCode: 403,
-      statusMessage: usuario.rol === 'cliente'
-        ? 'Los clientes no pueden iniciar sesión aún. Próximamente habilitado.'
-        : 'Solo el jefe puede iniciar sesión.'
+      statusMessage: 'Los clientes no pueden iniciar sesión aún. Próximamente habilitado.'
     })
   }
 
@@ -118,8 +116,8 @@ export default defineEventHandler(async (event): Promise<LoginResponse> => {
     console.error('[login] no se pudo registrar el acceso del dispositivo:', err)
   }
 
-  // A partir de aquí el rol es 'jefe' o 'super_admin': los únicos que reciben
-  // JWT con scope 'sync'. El super admin lo usa solo para /api/admin/*.
+  // El scope transporta el canal; la autorización efectiva se vuelve a evaluar
+  // por rol y permisos del puesto en cada endpoint (sync completo = solo jefe).
   const { token, expiraEn } = signToken({
     sub: usuario.id,
     rol: usuario.rol as Rol,

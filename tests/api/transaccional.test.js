@@ -295,6 +295,60 @@ describe('fiado normal y pagos', () => {
     assert.equal(r.status, 404)
   })
 
+  it('una deuda solo de dinero conserva su monto y su reintento es estricto', async () => {
+    const cuadre = await crearCuadre()
+    const cli = await crearCliente('deuda_dinero')
+    const id = randomUUID()
+    const body = {
+      id,
+      clienteId: cli.id,
+      cuadreOrigenId: cuadre.id,
+      items: [],
+      montoTotal: 125.5,
+      montoPagadoInicial: 0,
+      formaPagoInicial: 'efectivo'
+    }
+
+    const primera = await post('/api/cuentas-fiado', body, { token, status: 200 })
+    assert.equal(Number(primera.montoTotal), 125.5)
+    assert.equal(Number((await filas('cuadres', `id = '${cuadre.id}'`))[0].monto_fiado), 125.5)
+
+    const segunda = await post('/api/cuentas-fiado', body, { token, status: 200 })
+    assert.equal(segunda.idempotente, true)
+    assert.equal((await filas('cuentas_fiado', `id = '${id}'`)).length, 1)
+    assert.equal(Number((await filas('cuadres', `id = '${cuadre.id}'`))[0].monto_fiado), 125.5)
+
+    const cambiada = await raw('POST', '/api/cuentas-fiado', {
+      body: { ...body, montoTotal: 999 },
+      token
+    })
+    assert.equal(cambiada.status, 409)
+    assert.equal(Number((await filas('cuentas_fiado', `id = '${id}'`))[0].monto_total), 125.5)
+  })
+
+  it('un ID de pago reutilizado con otro importe da conflicto sin cobrarlo', async () => {
+    const cuadre = await crearCuadre()
+    const cli = await crearCliente('pago_id_conflicto')
+    const deuda = await post('/api/cuentas-fiado', {
+      clienteId: cli.id,
+      cuadreOrigenId: cuadre.id,
+      items: [],
+      montoTotal: 100
+    }, { token, status: 200 })
+    const id = randomUUID()
+    const body = { id, cuentaFiadoId: deuda.id, cuadreId: null, monto: 40, formaPago: 'efectivo' }
+
+    await post('/api/pagos-fiado', body, { token, status: 200 })
+    const repetido = await post('/api/pagos-fiado', body, { token, status: 200 })
+    assert.equal(repetido.idempotente, true)
+    const cambiado = await raw('POST', '/api/pagos-fiado', {
+      body: { ...body, monto: 60 },
+      token
+    })
+    assert.equal(cambiado.status, 409)
+    assert.equal(Number((await filas('cuentas_fiado', `id = '${deuda.id}'`))[0].monto_pagado), 40)
+  })
+
   // El abono inicial pagado por transferencia ES una gaveta del cuadre: si no
   // sumara a montoTransferencia, el cuadre mostraba un faltante falso por
   // dinero que sí entró (10 de esperado, 5 de abono y 5 de saldo = faltante 5).
@@ -430,7 +484,7 @@ describe('deudas y ventas directas (fuera del cuadre)', () => {
     assert.equal(Number(enBd.ganancia), 18)
   })
 
-  it('directa sin stock da 400 y no escribe nada', async () => {
+  it('directa sin stock da 409 y no escribe nada', async () => {
     const { productoId } = await montarTienda('dirvacia', { stock: 1 })
     const cli = await crearCliente('dirvacia')
     // Acotado a mis fixtures: los conteos globales cambian por los tests
@@ -444,7 +498,7 @@ describe('deudas y ventas directas (fuera del cuadre)', () => {
       },
       token
     })
-    assert.equal(r.status, 400)
+    assert.equal(r.status, 409)
     assert.equal((await filas('cuentas_fiado', `cliente_id = '${cli.id}'`)).length, 0)
     assert.equal(
       (await filas('movimientos_inventario', `producto_id = '${productoId}'`)).length,
@@ -1019,6 +1073,13 @@ describe('idempotencia de altas', () => {
     assert.equal(segunda.id, id)
     assert.equal(segunda.idempotente, true)
     assert.equal(Number(segunda.montoTotal), Number(primera.montoTotal))
+    assert.equal(Number((await filas('cuadres', `id = '${cuadre.id}'`))[0].monto_transferencia), 40)
+
+    const cambiada = await raw('POST', '/api/transferencias', {
+      body: { ...body, monto: 999 },
+      token
+    })
+    assert.equal(cambiada.status, 409)
     assert.equal(Number((await filas('cuadres', `id = '${cuadre.id}'`))[0].monto_transferencia), 40)
   })
 

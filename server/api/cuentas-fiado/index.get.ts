@@ -1,10 +1,13 @@
 import { eq, and, gte, lte, desc, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, clientes } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { filtrarCostosTrabajador, requirePermiso } from '../../utils/permisos'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, {
+    jefe: 'vistas.deudas',
+    trabajador: 'acciones.cuadre.fiar'
+  })
   const query = getQuery(event)
   // Siempre el puesto propio (ver transferencias/index.get.ts).
   const conditions = [eq(cuentasFiado.puestoId, auth.usuario.puestoId)]
@@ -49,7 +52,7 @@ export default defineEventHandler(async (event) => {
     .where(and(...conditions))
     .orderBy(desc(cuentasFiado.creadoEn))
 
-  return rows.map(r => ({
+  return filtrarCostosTrabajador(auth, rows.map(r => ({
     id: r.id,
     clienteId: r.clienteId,
     nombreCliente: r.nombreCliente,
@@ -64,5 +67,5 @@ export default defineEventHandler(async (event) => {
     estado: r.estado,
     creadoEn: r.creadoEn.toISOString(),
     actualizadoEn: r.actualizadoEn.toISOString()
-  }))
+  })))
 })

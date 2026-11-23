@@ -12,13 +12,14 @@ import { useDb } from '../server-offline/db/client'
  * A. Sesión local del jefe/trabajador (offline-first, en dispositivo).
  *    Vive en @capacitor/preferences bajo la clave 'sesion_local'.
  *
- * B. JWT de sincronización del jefe (server-side, solo /api/sync/*).
- *    Vive en @capacitor/preferences bajo la clave 'jwt_sync'.
+ * B. JWT remoto por rol (server-side). Vive en 'jwt_sync'. El jefe puede hacer
+ *    pull completo; el trabajador solo opera/sube las acciones permitidas por
+ *    la matriz del puesto y nunca descarga PIN hash ni datos de administración.
  *
  * Reglas de oro:
- * - El jefe/trabajador nunca envían la sesión local al servidor (sin JWT).
- * - El JWT de sync solo da acceso a /api/sync/* (validado en el backend).
- * - Sincronizar exige sesión local vigente + JWT de sync válido simultáneamente.
+ * - La sesión local nunca se envía al servidor; toda API exige su JWT.
+ * - El JWT no eleva permisos: cada endpoint vuelve a evaluar rol y puesto.
+ * - Sincronizar exige sesión local vigente + JWT válido simultáneamente.
  */
 
 /**
@@ -120,7 +121,7 @@ export function useAuth() {
         }
       }
 
-      if (syncJwt.value) jwtSync.value = syncJwt.value
+      if (syncJwt) jwtSync.value = syncJwt
     } finally {
       cargando.value = false
     }
@@ -219,8 +220,8 @@ export function useAuth() {
       throw new Error('Respuesta del servidor sin datos de usuario.')
     }
 
-    // Sin token no hay sesion: el servidor solo emite JWT para el jefe y el
-    // login offline tambien rechaza al trabajador (decision de producto).
+    // Jefe y trabajador usan identidad remota propia; la autorización se
+    // comprueba después por rol y permisos, nunca por la sola posesión del JWT.
     if (!response.token) {
       throw new Error('Respuesta del servidor sin token.')
     }
@@ -256,7 +257,7 @@ export function useAuth() {
       rol: response.usuario.rol,
       puesto_id: response.usuario.puestoId ?? '',
       pin_hash_local: '',
-      expira_en: null,
+      expira_en: response.usuario.rol === 'trabajador' ? ahora + 24 * 60 * 60 * 1000 : null,
       ultima_actividad_en: ahora
     }
     await Preferences.set({
@@ -280,7 +281,9 @@ export function useAuth() {
     // Primer uso: se ESPERA el pull completo antes de dejar entrar, porque el
     // APK arranca sin datos y el modo local no tendría nada que mostrar. Los
     // logins siguientes lo lanzan en segundo plano.
-    if (import.meta.client) {
+    // El trabajador no descarga ese paquete: usa la API permitida online y la
+    // copia local previamente aprovisionada cuando trabaje offline.
+    if (import.meta.client && response.usuario.rol !== 'trabajador') {
       try {
         const { pullServidor } = useSync()
         const esPrimerUsoBloqueante = Capacitor.isNativePlatform() && primerUso
@@ -318,17 +321,17 @@ export function useAuth() {
     }
     const usuario = resultado.usuario
 
-    // Solo el jefe llega aquí: el trabajador se rechaza arriba (solo_jefe,
-    // decisión B6). No hay rama de sesión de 24 h porque no existen sesiones
-    // de trabajador nuevas.
+    // El trabajador usa una sesión acotada; el jefe conserva su sesión por
+    // inactividad. La identidad nunca se eleva a jefe al entrar offline.
     const ahora = Date.now()
+    const trabajador = usuario.rol === 'trabajador'
     const sesion = {
       usuario_id: usuario.id,
       usuario_nombre: usuario.nombre,
-      rol: 'jefe',
+      rol: usuario.rol,
       puesto_id: usuario.puestoId,
       pin_hash_local: usuario.pinHash,
-      expira_en: null,
+      expira_en: trabajador ? ahora + 24 * 60 * 60 * 1000 : null,
       ultima_actividad_en: ahora
     }
 
@@ -382,10 +385,8 @@ export function useAuth() {
   async function invalidarSesionLocal() {
     if (!sesionLocal.value) return
 
-    if (sesionLocal.value.rol === 'jefe') {
-      await Preferences.remove({ key: PREF_JWT_SYNC })
-      jwtSync.value = null
-    }
+    await Preferences.remove({ key: PREF_JWT_SYNC })
+    jwtSync.value = null
 
     await Preferences.remove({ key: PREF_SESION_LOCAL })
     sesionLocal.value = null

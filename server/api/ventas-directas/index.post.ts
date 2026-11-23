@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm'
+import { eq, and, inArray, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import {
   lotes,
@@ -9,11 +9,11 @@ import {
   ventasDirectasItems
 } from '../../database/schema'
 import { requireRole } from '../../utils/auth'
-import { existentePorId } from '../../utils/idempotencia'
+import { ventaDirectaPrevia } from '../../utils/directasIdempotencia'
 import { ventaDirectaSchema } from '#shared/schemas/directas'
 import { instanteConfiable } from '#shared/fechas'
 import { construirVentaDirecta, generarId, lotesConSaldo } from '#shared/inventario/operaciones'
-import { comoMovimiento, comoVentaDirecta } from '../../utils/inventario'
+import { comoMovimiento, comoVentaDirecta, conGuardaStock } from '../../utils/inventario'
 
 /**
  * Venta directa: efectivo cobrado por el jefe fuera de un cuadre (quiosco
@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
 
   // Reintento de la misma venta (red cortada, doble toque, cola de sync): la
   // fila ya existe con ese id y volver a aplicarla descontaría stock dos veces.
-  const previa = await existentePorId(ventasDirectas, datos.id, puestoId)
+  const previa = await ventaDirectaPrevia(db, datos.id, datos, puestoId)
   if (previa) {
     return {
       id: previa.id,
@@ -95,8 +95,14 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const resultado = await db.transaction(async (tx) => {
+  const resultado = await conGuardaStock(() => db.transaction(async (tx) => {
     const ventaId = datos.id ?? generarId()
+    // El mismo ID se serializa antes de leer stock: si otro reintento gana,
+    // este espera y devuelve su recibo en vez de fallar por un FIFO ya obsoleto.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(20405, hashtext(${ventaId}))`)
+    const enTx = await ventaDirectaPrevia(tx, ventaId, datos, puestoId)
+    if (enTx) return { id: enTx.id, previa: enTx, idempotente: true }
+
     const [filasLotes, movs] = await Promise.all([
       tx.select().from(lotes).where(and(eq(lotes.puestoId, puestoId), eq(lotes.anulado, false))),
       tx
@@ -127,8 +133,9 @@ export default defineEventHandler(async (event) => {
         .join(', ')
       const detalle = venta.faltantes.map(f => `${f.faltante}`).join(', ')
       throw createError({
-        statusCode: 400,
-        statusMessage: `No hay stock suficiente en ${datos.ubicacion} para: ${nombres} (faltan ${detalle}).`
+        statusCode: 409,
+        statusMessage: `No hay stock suficiente en ${datos.ubicacion} para: ${nombres} (faltan ${detalle}).`,
+        data: { codigo: 'stock_insuficiente' }
       })
     }
 
@@ -148,8 +155,16 @@ export default defineEventHandler(async (event) => {
         anulado: false,
         creadoEn: fechaVenta
       })
+      .onConflictDoNothing()
       .returning()
-    const vd = ventaRow!
+    if (!ventaRow) {
+      // Dos reintentos con el mismo ID pueden pasar el precheck a la vez. El
+      // ganador ya escribió; este espera el índice único y devuelve ese recibo.
+      const previa = await ventaDirectaPrevia(tx, ventaId, datos, puestoId)
+      if (!previa) throw new Error('No se pudo reconciliar la venta duplicada.')
+      return { id: previa.id, previa, idempotente: true }
+    }
+    const vd = ventaRow
 
     for (const it of venta.items) {
       await tx.insert(ventasDirectasItems).values({
@@ -169,7 +184,20 @@ export default defineEventHandler(async (event) => {
     }
 
     return { id: vd.id, ...venta }
-  })
+  }))
+
+  if (!('items' in resultado)) {
+    return {
+      id: resultado.previa.id,
+      ubicacion: resultado.previa.ubicacionVenta,
+      montoTotal: resultado.previa.montoTotal,
+      costoTotal: resultado.previa.costoTotal,
+      ganancia: resultado.previa.ganancia,
+      lineas: datos.lineas.length,
+      movimientos: 0,
+      idempotente: true
+    }
+  }
 
   return {
     id: resultado.id,

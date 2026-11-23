@@ -3,7 +3,7 @@ import { db } from '../../database/client'
 import { lotes, movimientosInventario } from '../../database/schema'
 import { ajusteInventarioSchema } from '#shared/schemas/traspaso'
 import { construirAjuste, lotesConSaldo } from '#shared/inventario/operaciones'
-import { comoMovimiento } from '../../utils/inventario'
+import { comoMovimiento, conGuardaStock } from '../../utils/inventario'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -75,11 +75,11 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  await db.transaction(async (tx) => {
+  await conGuardaStock(() => db.transaction(async (tx) => {
     for (const m of movimientos) {
       await tx.insert(movimientosInventario).values(comoMovimiento(m))
     }
-  })
+  }))
 
   return { movimientos: movimientos.length }
 })

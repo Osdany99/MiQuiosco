@@ -1,8 +1,6 @@
 import { watch } from 'vue'
 import { useVoiceCommand } from './useVoiceCommand'
-import { clasificarRespuesta } from '../utils/voice/confirmacion'
-import { extraerCorreccion } from '../utils/voice/correccion'
-import { esEcoDePrompt, respuestaTrasEco } from '../utils/voice/eco'
+import { evaluarRespuestaConfirmacion } from '../utils/voice/confirmacion'
 
 /**
  * useConfirmacionVoz — espera única para las confirmaciones habladas.
@@ -18,9 +16,9 @@ import { esEcoDePrompt, respuestaTrasEco } from '../utils/voice/eco'
  * anuncio, se ignora y se sigue esperando. Si el anuncio y la respuesta llegan
  * pegados («diga sí para confirmar sí»), se responde con lo que sobra.
  *
- * `desdeMs`: instante en que terminó el anuncio. Se conserva por compatibilidad
- * con quien llama; la espera ya no descarta respuestas cortas por llegar
- * pronto: un «sí» dicho al terminar el anuncio es la respuesta esperada.
+ * Solo se evalúa el resultado final (`ready`), nunca un parcial. `desdeMs` es
+ * el instante en que terminó el anuncio y delimita la ventana en la que un
+ * «sí/no» suelto puede ser todavía el eco del propio TTS.
  *
  * Singleton: solo puede haber una conversación de confirmación a la vez.
  */
@@ -37,7 +35,6 @@ function _create() {
       let detener = null
       let cancelar = null
       let escuchoAlgunaVez = false
-      void desdeMs
 
       const terminar = (resultado, cantidad = null) => {
         if (resuelto) return
@@ -52,59 +49,22 @@ function _create() {
         resolve({ resultado, cantidad })
       }
 
-      /** Texto a analizar: el dictado limpio de eco. `''` si solo se oyó el anuncio. */
-      const limpiar = (crudo) => {
-        const t = String(crudo ?? '').trim()
-        if (!t) return ''
-        return respuestaTrasEco(t, prompt) || t
-      }
-
       const revisar = () => {
         const estado = voice.estado.value
         if (estado === 'listening') escuchoAlgunaVez = true
 
-        const texto = String(voice.transcript?.value || voice.transcriptParcial?.value || '').trim()
-
-        // Alternativas del motor con confianza suficiente. Solo se usan como
-        // respaldo si la transcripción principal no da una respuesta clara.
-        const alternativas = Array.isArray(voice.alternativas?.value)
-          ? voice.alternativas.value
-              .filter(a => !a?.confianza || Number(a.confianza) >= 0.5)
-              .slice(0, 3)
-              .map(a => String(a?.texto ?? a?.text ?? ''))
-          : []
-
-        // La transcripción principal manda. Las alternativas solo se miran si
-        // la principal no da una respuesta clara: un «sí» espurio del N-best no
-        // puede confirmar la venta por su cuenta.
-        const principal = limpiar(texto)
-        if (principal && !esEcoDePrompt(principal, prompt)) {
-          // Una corrección («no, eran tres») gana al «no»: cambia la cantidad
-          // en vez de cancelar la venta. Solo cuenta durante la confirmación.
-          const correccion = extraerCorreccion(principal)
-          if (correccion) return terminar('corregir', correccion.cantidad)
-
-          const clase = clasificarRespuesta(principal)
-          if (clase === 'negado') return terminar('negado')
-          if (clase === 'afirmado') return terminar('afirmado')
-        }
-
-        // El motor puede acertar en una alternativa y fallar en la principal
-        // («se» en vez de «sí»). Sin corrección: cambiar cantidades a partir de
-        // una hipótesis es demasiado arriesgado.
-        for (const alternativa of alternativas) {
-          const candidato = limpiar(alternativa)
-          if (!candidato || esEcoDePrompt(candidato, prompt)) continue
-          const clase = clasificarRespuesta(candidato)
-          if (clase === 'negado') return terminar('negado')
-          if (clase === 'afirmado') return terminar('afirmado')
-        }
-
-        if (estado === 'error') return terminar('error')
-        // La escucha terminó sin una respuesta reconocible: no se espera al
-        // tope de 6 s, que dejaría al jefe hablando solo. Solo cuenta si antes
-        // llegó a escuchar: al arrancar, el motor pasa por 'ready'/idle.
-        if (escuchoAlgunaVez && estado === 'ready') return terminar('timeout')
+        // transcriptParcial queda fuera deliberadamente: «sí… pero no» no debe
+        // confirmar en el primer parcial y «no, eran tres» no debe cancelar en
+        // el segundo. El evaluador puro también bloquea el eco del propio TTS.
+        const respuesta = evaluarRespuestaConfirmacion({
+          estado,
+          textoFinal: voice.transcript?.value || '',
+          alternativas: voice.alternativas?.value || [],
+          prompt,
+          desdeMs,
+          escuchoAlgunaVez
+        })
+        if (respuesta) return terminar(respuesta.resultado, respuesta.cantidad)
       }
 
       cancelar = () => terminar('timeout')
@@ -113,7 +73,7 @@ function _create() {
       // inmediato (transcript ya presente), quedaba un setTimeout colgado 6 s.
       timer = setTimeout(() => terminar('timeout'), timeoutMs)
       detener = watch(
-        [() => voice.transcript?.value, () => voice.transcriptParcial?.value, () => voice.estado.value],
+        [() => voice.transcript?.value, () => voice.estado.value],
         revisar
       )
       revisar()

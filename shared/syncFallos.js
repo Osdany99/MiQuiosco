@@ -70,7 +70,7 @@ export const fallosSyncSchema = z.object({
  */
 export function clasificarRechazo(err) {
   const status = Number(err?.statusCode ?? err?.status ?? 0)
-  const pgCode = String(err?.code ?? '')
+  const pgCode = String(err?.code ?? err?.cause?.code ?? '')
   const mensaje = String(
     err?.statusMessage || err?.message || 'Error desconocido.'
   ).slice(0, 2000)
@@ -89,6 +89,13 @@ export function clasificarRechazo(err) {
   if (status === 400 || status === 422) return base('validacion', false)
 
   // SQLSTATE
+  if (pgCode === 'P0409') {
+    return {
+      ...base('stock_concurrente', false, true),
+      codigo: 409,
+      mensaje: 'Otra operación consumió el stock primero. Revisa el disponible y vuelve a intentarlo.'
+    }
+  }
   if (pgCode === '23503') return base('padre_ausente', true)
   if (pgCode === '23505') return base('duplicado', false)
   if (pgCode === '23502') return base('validacion', false)

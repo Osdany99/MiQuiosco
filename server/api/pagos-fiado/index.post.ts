@@ -1,11 +1,12 @@
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { cuentasFiado, pagosFiado, cuadres } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { requirePermiso } from '../../utils/permisos'
 import { pagoFiadoSchema } from '#shared/schemas/pagoFiado'
+import { conflictoIdempotente, pagoFiadoCoincide } from '#shared/fiadoIdempotencia'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, { jefe: 'acciones.deudas.cobrar' })
   const body = await readBody(event)
   const parsed = pagoFiadoSchema.safeParse(body)
   if (!parsed.success) {
@@ -31,6 +32,7 @@ export default defineEventHandler(async (event) => {
       if (!cuentaPrevia || cuentaPrevia.puestoId !== auth.usuario.puestoId) {
         throw createError({ statusCode: 409, statusMessage: 'Ese id ya está usado en otro puesto.' })
       }
+      if (!pagoFiadoCoincide(previo, parsed.data)) throw conflictoIdempotente('cobro')
       return {
         id: previo.id,
         cuentaFiadoId: previo.cuentaFiadoId,

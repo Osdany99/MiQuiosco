@@ -10,6 +10,28 @@ import type { movimientosInventario } from '../database/schema'
 
 type InsertMovimiento = typeof movimientosInventario.$inferInsert
 
+/** SQLSTATE de la guarda instalada por la migración 0041. */
+export function esConflictoStock(error: unknown): boolean {
+  const err = error as { code?: string, cause?: { code?: string } } | null
+  return err?.code === 'P0409' || err?.cause?.code === 'P0409'
+}
+
+/** Convierte la carrera detectada por PostgreSQL en un conflicto recuperable. */
+export async function conGuardaStock<T>(operacion: () => Promise<T>): Promise<T> {
+  try {
+    return await operacion()
+  } catch (error) {
+    if (esConflictoStock(error)) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Otra operación consumió el stock primero. Revisa el disponible y vuelve a intentarlo.',
+        data: { codigo: 'stock_concurrente' }
+      })
+    }
+    throw error
+  }
+}
+
 /** Columnas de timestamp de movimientos_inventario. */
 const COLUMNAS_FECHA = ['creadoEn', 'actualizadoEn', 'anuladoEn'] as const
 

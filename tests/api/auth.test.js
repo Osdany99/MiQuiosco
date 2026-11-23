@@ -49,12 +49,16 @@ describe('POST /api/auth/login', () => {
     assert.ok(r.body.expiraEn > 1e12, 'expiraEn deberia estar en ms, no en s')
   })
 
-  it('el trabajador no puede iniciar sesion (solo el jefe)', async () => {
+  it('el trabajador recibe identidad propia, pero no sync completo', async () => {
     const nombre = nombreUnico('trabajador')
-    await crearJefe(nombre, '1234', 'trabajador')
-    const r = await login(nombre, '1234')
-    assert.equal(r.status, 403)
-    assert.match(mensajeDe(r.body), /solo el jefe/i)
+    const { token, respuesta } = await crearJefe(nombre, '1234', 'trabajador')
+    assert.equal(respuesta.usuario.rol, 'trabajador')
+    assert.equal(typeof token, 'string')
+
+    const sync = await raw('GET', '/api/sync/pull', { token })
+    assert.equal(sync.status, 403)
+    const usuarios = await raw('GET', '/api/usuarios', { token })
+    assert.equal(usuarios.status, 403)
   })
 
   it('un usuario con rol cliente recibe 403', async () => {

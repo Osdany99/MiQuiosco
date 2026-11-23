@@ -3,7 +3,7 @@ import { db } from '../../database/client'
 import { lotes, movimientosInventario } from '../../database/schema'
 import { correccionLoteSchema } from '#shared/schemas/lote'
 import { construirCorreccionLote } from '#shared/inventario/operaciones'
-import { comoCorreccionLote } from '../../utils/inventario'
+import { comoCorreccionLote, conGuardaStock } from '../../utils/inventario'
 
 export default defineEventHandler(async (event) => {
   const auth = await requireRole(event, 'jefe')
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
 
   const { actualizadoEn: ts, ...camposLote } = plan.cambiosLote
   const ahora = new Date(ts)
-  const [actualizado] = await db.transaction(async (tx) => {
+  const [actualizado] = await conGuardaStock(() => db.transaction(async (tx) => {
     const [lot] = await tx
       .update(lotes)
       .set({ ...camposLote, actualizadoEn: ahora })
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
     }
 
     return [lot]
-  })
+  }))
   if (!actualizado) {
     throw createError({ statusCode: 404, statusMessage: 'Lote no encontrado.' })
   }

@@ -1,4 +1,4 @@
-import { requireAuth } from '../../utils/auth'
+import { requireRole } from '../../utils/auth'
 import { exigirDispositivoActivo, HEADER_VERSION_CODE } from '../../utils/dispositivo'
 import { registrarFallos } from '../../utils/syncFallos'
 import { fallosSyncSchema } from '#shared/syncFallos'
@@ -14,7 +14,7 @@ import { fallosSyncSchema } from '#shared/syncFallos'
  * responde 400 y el APK conserva su copia para reintentar.
  */
 export default defineEventHandler(async (event) => {
-  const auth = await requireAuth(event, 'sync')
+  const auth = await requireRole(event, 'jefe')
   const puestoId = auth.usuario.puestoId
   await exigirDispositivoActivo(event, puestoId)
 

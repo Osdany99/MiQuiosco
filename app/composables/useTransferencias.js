@@ -1,6 +1,8 @@
 import { TABLES } from '../../shared/tables'
 import { $api } from '../utils/api'
 import { generarId } from '../../shared/inventario/operaciones'
+import { conflictoIdempotente, transferenciaCoincide } from '../../shared/fiadoIdempotencia'
+import { useDb } from '../server-offline/db/client'
 
 const transferenciaConfig = TABLES.transferencias
 const transferenciaItemConfig = TABLES.transferencia_items
@@ -25,6 +27,15 @@ export function useTransferencias() {
     return repo.value
   }
 
+  const db = useDb()
+
+  async function transferenciaPorId(id) {
+    if (!id) return null
+    if (!esOnline.value) return await r(transferenciasRepo).read(id) ?? null
+    const filas = await r(transferenciasRepo).readAll()
+    return (filas ?? []).find(fila => fila?.id === id) ?? null
+  }
+
   const { clientes, cargarClientes, crearCliente } = useClientes()
   const transferenciasDelCuadre = ref([])
   const cargando = ref(false)
@@ -47,25 +58,38 @@ export function useTransferencias() {
       if (!(montoTotal > 0)) throw new Error('El monto debe ser mayor que cero.')
       // Id fijado por quien abre el formulario: reintentar no suma dos veces.
       const transferenciaId = String(id || '').trim() || generarId()
+      const esperado = { clienteId, cuadreId, montoTotal }
+      let idempotente = false
       if (esOnline.value) {
-        await $api('/api/transferencias', {
+        const rpta = await $api('/api/transferencias', {
           method: 'POST',
-          body: { id: transferenciaId, clienteId, cuadreId, monto: montoTotal },
+          body: { id: transferenciaId, ...esperado, monto: montoTotal },
           headers: apiHeaders()
         })
+        idempotente = rpta?.idempotente === true
       } else {
-        const nueva = await r(transferenciasRepo).create({
-          id: transferenciaId,
-          clienteId,
-          cuadreId,
-          puestoId,
-          montoTotal
-        })
-        void nueva
-        await acumularTransferenciaEnCuadre(cuadreId, montoTotal)
+        const previa = await transferenciaPorId(transferenciaId)
+        if (previa) {
+          if (!transferenciaCoincide(previa, esperado)) throw conflictoIdempotente('transferencia')
+          idempotente = true
+        }
+        if (!idempotente) {
+          // Encontrar la fila al reconciliar implica que el cuadre también quedó
+          // actualizado; nunca se confirma una transferencia a medias.
+          await db.transaction(async () => {
+            await r(transferenciasRepo).create({
+              id: transferenciaId,
+              clienteId,
+              cuadreId,
+              puestoId,
+              montoTotal
+            })
+            await acumularTransferenciaEnCuadre(cuadreId, montoTotal)
+          })
+        }
       }
-      await cargarActividadDelCuadre(cuadreId)
-      return { ok: true }
+      await cargarActividadDelCuadre(cuadreId).catch(() => {})
+      return { ok: true, id: transferenciaId, idempotente }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
       return { ok: false, error: err }
@@ -120,7 +144,7 @@ export function useTransferencias() {
   return {
     clientes, transferenciasDelCuadre, cargando,
     cargarClientes, crearCliente, cargarActividadDelCuadre,
-    registrarTransferencia, eliminarTransferencia,
+    registrarTransferencia, eliminarTransferencia, transferenciaPorId,
     itemsDeTransferencia
   }
 }

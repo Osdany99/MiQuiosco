@@ -63,6 +63,16 @@ Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
 | E3.3 | Igual y dejar pasar 6 s | Formulario abierto; nada registrado | | |
 | E3.4 | Fiar sin permiso de `/deudas` o con la lectura de voz apagada | No se cobra ni se fía; avisa | | |
 
+### E4 — Confirmación hablada segura
+
+| # | Qué hacer/decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| E4.1 | Preparar una venta y decir «sí… pero no» sin pausa | No registra; vuelve al modo manual | | |
+| E4.2 | Preparar una venta y decir «no, eran tres» | No cancela en el primer «no»: muestra 3 y vuelve a pedir confirmación | | |
+| E4.3 | Dejar que el micrófono oiga solamente el «sí» del propio anuncio | No registra una venta ni confirma un cobro | | |
+| E4.4 | Tras el anuncio, decir «sí» claramente y dejar que el motor cierre | Registra una sola vez | | |
+| E4.5 | Decir «sí por favor» | Confirma; el antieco no destruye la respuesta corta | | |
+
 ### F1 / F2 — Cobrar deudas
 
 | # | Qué hacer/decir | Qué debe pasar | ✔/✘ | Nota |
@@ -73,6 +83,17 @@ Marcar `✔` / `✘` y anotar qué pasó. Un `✘` bloquea la fase siguiente.
 | F1.4 | «cobra 2 panes» | Sigue siendo **venta**, no cobro | | |
 | F2.1 | App cerrada: «oye nova, cobra 100 a Juan» → «sí» | Deja **un archivo por deuda** en el inbox; en «Por revisar» una fila **Cobro** por deuda | | |
 | F2.2 | «no» en el diálogo cerrado | No deja archivo en `files/voz/inbox` | | |
+
+### F3 — Recuperación de escrituras directas
+
+| # | Qué hacer/decir | Qué debe pasar | ✔/✘ | Nota |
+|---|---|---|---|---|
+| F3.1 | Perder la conexión justo tras confirmar un fiado; restaurarla y repetir exactamente la orden | Primero reconcilia el ID; hay una sola deuda y el stock solo bajó una vez | | |
+| F3.2 | Cobrar a un cliente con dos deudas e interrumpir después del primer pago | No cobra la segunda a ciegas; informa el importe aplicado y conserva el plan | | |
+| F3.3 | Repetir exactamente el cobro anterior (también tras cerrar/abrir la app) | Reutiliza los IDs originales y continúa desde el primer pago no aplicado, sin duplicar | | |
+| F3.4 | Cambiar importe/forma de pago mientras el cobro anterior sigue incierto | No abre otra operación para ese cliente; pide comprobar primero la anterior | | |
+| F3.5 | Iniciar online y cambiar a local antes de repetir | No cruza la reconciliación entre capas; pide volver al modo de origen | | |
+| F3.6 | Repetir una deuda de dinero confirmada | Conserva el importe real (no queda en cero) y no vuelve a sumarla al cuadre | | |
 
 ### G — Alias aprendidos
 

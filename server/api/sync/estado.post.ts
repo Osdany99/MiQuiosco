@@ -1,4 +1,4 @@
-import { requireAuth } from '../../utils/auth'
+import { requireRole } from '../../utils/auth'
 import {
   actualizarEstadoDispositivo,
   exigirDispositivoActivo,
@@ -18,7 +18,7 @@ import { syncEstadoSchema } from '#shared/schemas/syncEstado'
  * endpoint sí rechaza dispositivos revocados (403) para que el APK se entere.
  */
 export default defineEventHandler(async (event) => {
-  const auth = await requireAuth(event, 'sync')
+  const auth = await requireRole(event, 'jefe')
 
   // Web o APK antigua sin identidad de dispositivo: no hay nada que reportar.
   if (!leerDispositivoId(event)) {

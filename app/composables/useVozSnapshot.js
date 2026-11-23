@@ -108,7 +108,7 @@ export function useVozSnapshot() {
    * @returns {Promise<object|null>} el snapshot escrito, o null.
    */
   async function actualizar({ ahora = Date.now() } = {}) {
-    if (!Capacitor.isNativePlatform()) return null
+    if (!Capacitor.isNativePlatform() || !auth.esJefe.value) return null
     if (enCurso) return enCurso
 
     enCurso = (async () => {

@@ -113,6 +113,20 @@ export async function crearUsuarioEnPuesto(puestoId, nombre, rol = 'jefe', pin =
   })
 }
 
+/** Sustituye los overrides de permisos de un puesto de pruebas. */
+export async function actualizarPermisosPuesto(id, permisos = {}) {
+  await conDb(async (c) => {
+    await c.query('UPDATE puestos SET permisos = $2::jsonb WHERE id = $1', [id, JSON.stringify(permisos)])
+  })
+}
+
+/** Marca un equipo como revocado/no revocado dentro de MiQuiosco_test. */
+export async function revocarDispositivo(id, revocado = true) {
+  await conDb(async (c) => {
+    await c.query('UPDATE dispositivos SET revocado = $2, actualizado_en = NOW() WHERE id = $1', [id, revocado])
+  })
+}
+
 /** Filas de una tabla que cumplen una condicion simple. */
 export async function filas(tabla, where = 'true') {
   return conDb(async (c) => {

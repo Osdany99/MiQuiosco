@@ -2,14 +2,14 @@
 import { and, eq, gt, inArray, getTableName, getTableColumns } from 'drizzle-orm'
 import { db, schemaByTabla } from '../../database/client'
 import { SYNC_TABLES } from '../../config/syncTables'
-import { requireAuth } from '../../utils/auth'
+import { requireRole } from '../../utils/auth'
 import { exigirDispositivoActivo } from '../../utils/dispositivo'
 import { PADRE_POR_TABLA } from '../../utils/puesto'
 import { deletedRecords, puestos } from '../../database/schema'
 import type { Table, Column } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireAuth(event, 'sync')
+  const auth = await requireRole(event, 'jefe')
   const puestoId = auth.usuario.puestoId
   await exigirDispositivoActivo(event, puestoId)
 

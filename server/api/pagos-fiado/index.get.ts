@@ -1,11 +1,11 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../../database/client'
 import { pagosFiado, cuadres, cuentasFiado } from '../../database/schema'
-import { requireRole } from '../../utils/auth'
+import { requirePermiso } from '../../utils/permisos'
 import type { PagoFiado } from '#shared/types'
 
 export default defineEventHandler(async (event) => {
-  const auth = await requireRole(event, 'jefe')
+  const auth = await requirePermiso(event, { jefe: 'acciones.deudas.ver_pagos' })
   const query = getQuery(event)
 
   // El puesto propio aplica SIEMPRE: antes solo filtraba en la rama por

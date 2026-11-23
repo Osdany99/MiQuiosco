@@ -3,6 +3,7 @@ import { $api } from '../utils/api'
 import { calcularExcesoTope, sumarPorProducto } from '../../shared/fiadoTope'
 import { consumoPorProductoEnCuadreLocal } from '../utils/topeGeneral'
 import { construirVentaDirecta, generarId, lotesConSaldo } from '../../shared/inventario/operaciones'
+import { conflictoIdempotente, cuentaFiadoCoincide, pagoFiadoCoincide } from '../../shared/fiadoIdempotencia'
 import { useDb } from '../server-offline/db/client'
 
 const cuentaFiadoConfig = TABLES.cuentas_fiado
@@ -44,6 +45,14 @@ export function useCuentasFiado() {
 
   function r(repo) {
     return repo.value
+  }
+
+  /** Lectura por ID sin convertir un fallo de red en una ausencia. */
+  async function buscarPorId(repo, id) {
+    if (!id) return null
+    if (!esOnline.value) return await r(repo).read(id) ?? null
+    const filas = await r(repo).readAll()
+    return (filas ?? []).find(fila => fila?.id === id) ?? null
   }
 
   const { clientes, cargarClientes, crearCliente } = useClientes()
@@ -149,74 +158,93 @@ export function useCuentasFiado() {
     try {
       // Id fijado por quien abre el formulario: reintentar no duplica la deuda.
       const cuentaId = String(id || '').trim() || generarId()
-      const topeMsg = await validarTopeLocal(cuadreId, items)
-      if (topeMsg) {
-        toast.add({ title: 'Error', description: topeMsg, color: 'error' })
-        return { ok: false, error: new Error(topeMsg) }
-      }
+      const montoTotal = (items ?? []).length > 0
+        ? (items ?? []).reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
+        : Number(montoDirecto ?? 0)
+      let idempotente = false
+
       if (esOnline.value) {
         // Endpoint transaccional del servidor (cuenta + items + pago inicial + cuadre)
         await $api('/api/cuentas-fiado', {
           method: 'POST',
-          body: { id: cuentaId, clienteId, cuadreOrigenId: cuadreId, items, montoTotal: Number(montoDirecto ?? 0), montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
+          body: { id: cuentaId, clienteId, cuadreOrigenId: cuadreId, items, montoTotal, montoPagadoInicial: montoPagadoInicial || 0, formaPagoInicial: formaPagoInicial || 'efectivo' },
           headers: apiHeaders()
         })
       } else {
-        const montoTotal = (items ?? []).length > 0
-          ? (items ?? []).reduce((s, it) => s + it.cantidad * it.precioVentaUsado, 0)
-          : Number(montoDirecto ?? 0)
-        // El servidor rechaza esto con 400; en local se guardaba una deuda
-        // 'pagada' con un abono mayor que la deuda. Con el formulario de fiado
-        // por fila (cantidad + pago inicial juntos) el despiste es de un clic.
-        if ((montoPagadoInicial || 0) > montoTotal) {
-          const msg = 'El pago inicial no puede superar el monto total.'
-          toast.add({ title: 'Error', description: msg, color: 'error' })
-          return { ok: false, error: new Error(msg) }
+        const esperado = { clienteId, cuadreOrigenId: cuadreId, montoTotal }
+        // Un reintento no vuelve a validar el tope: sus propias unidades ya
+        // están consumidas y harían fallar una operación que sí terminó.
+        const previa = await buscarPorId(cuentasRepo, cuentaId)
+        if (previa) {
+          if (!cuentaFiadoCoincide(previa, esperado)) throw conflictoIdempotente('deuda')
+          idempotente = true
         }
-        const nueva = await r(cuentasRepo).create({
-          id: cuentaId,
-          clienteId,
-          cuadreOrigenId: cuadreId,
-          puestoId,
-          montoTotal,
-          montoPagado: montoPagadoInicial || 0,
-          estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= montoTotal ? 'pagada' : 'parcial'
-        })
-        for (const it of (items ?? [])) {
-          await r(itemsRepo).create({
-            cuentaFiadoId: nueva.id,
-            productoId: it.productoId,
-            cantidad: it.cantidad,
-            precioVentaUsado: it.precioVentaUsado,
-            subtotal: it.cantidad * it.precioVentaUsado
-          })
-        }
-        if (montoPagadoInicial > 0) {
-          // Espejo de server/api/cuentas-fiado/index.post.ts. El cuadreId del
-          // pago marca a qué gaveta entró el abono, que es lo que permite
-          // revertirlo al borrar la deuda:
-          //   - transferencia -> abonó la gaveta de transferencias del cuadre.
-          //   - efectivo       -> el jefe lo teclea en "Dinero real en caja", un
-          //     campo manual sin registro que revertir; queda cuadreId null.
-          // Un cobro posterior SIEMPRE va con cuadreId null (directo).
-          const abonoEnTransferencia = formaPagoInicial === 'transferencia'
-          await r(pagosRepo).create({
-            cuentaFiadoId: nueva.id,
-            cuadreId: abonoEnTransferencia ? cuadreId : null,
-            monto: montoPagadoInicial,
-            formaPago: formaPagoInicial || 'efectivo'
-          })
-          // Sin fila en `transferencias`: esa tabla es de lo que el jefe
-          // captura a mano, y una fila aquí no se podría distinguir de esa al
-          // borrar la deuda (no hay FK que las una).
-          if (abonoEnTransferencia) {
-            await acumularTransferenciaEnCuadre(cuadreId, montoPagadoInicial)
+
+        if (!idempotente) {
+          const topeMsg = await validarTopeLocal(cuadreId, items)
+          if (topeMsg) {
+            toast.add({ title: 'Error', description: topeMsg, color: 'error' })
+            return { ok: false, error: new Error(topeMsg) }
           }
+          // El servidor rechaza esto con 400; en local se guardaba una deuda
+          // 'pagada' con un abono mayor que la deuda.
+          if ((montoPagadoInicial || 0) > montoTotal) {
+            const msg = 'El pago inicial no puede superar el monto total.'
+            toast.add({ title: 'Error', description: msg, color: 'error' })
+            return { ok: false, error: new Error(msg) }
+          }
+
+          // Si existe la cuenta, existe el efecto completo: ninguna muerte de
+          // proceso puede dejar cuenta sin líneas/pago/cuadre y aparentar éxito.
+          await db.transaction(async () => {
+            const nueva = await r(cuentasRepo).create({
+              id: cuentaId,
+              clienteId,
+              cuadreOrigenId: cuadreId,
+              puestoId,
+              montoTotal,
+              montoPagado: montoPagadoInicial || 0,
+              estado: !montoPagadoInicial ? 'pendiente' : montoPagadoInicial >= montoTotal ? 'pagada' : 'parcial'
+            })
+            for (const it of (items ?? [])) {
+              await r(itemsRepo).create({
+                cuentaFiadoId: nueva.id,
+                productoId: it.productoId,
+                cantidad: it.cantidad,
+                precioVentaUsado: it.precioVentaUsado,
+                subtotal: it.cantidad * it.precioVentaUsado
+              })
+            }
+            if (montoPagadoInicial > 0) {
+              // Espejo de server/api/cuentas-fiado/index.post.ts. El cuadreId del
+              // pago marca a qué gaveta entró el abono, que es lo que permite
+              // revertirlo al borrar la deuda:
+              //   - transferencia -> abonó la gaveta de transferencias del cuadre.
+              //   - efectivo       -> el jefe lo teclea en "Dinero real en caja", un
+              //     campo manual sin registro que revertir; queda cuadreId null.
+              // Un cobro posterior SIEMPRE va con cuadreId null (directo).
+              const abonoEnTransferencia = formaPagoInicial === 'transferencia'
+              await r(pagosRepo).create({
+                cuentaFiadoId: nueva.id,
+                cuadreId: abonoEnTransferencia ? cuadreId : null,
+                monto: montoPagadoInicial,
+                formaPago: formaPagoInicial || 'efectivo'
+              })
+              // Sin fila en `transferencias`: esa tabla es de lo que el jefe
+              // captura a mano, y una fila aquí no se podría distinguir de esa al
+              // borrar la deuda (no hay FK que las una).
+              if (abonoEnTransferencia) {
+                await acumularTransferenciaEnCuadre(cuadreId, montoPagadoInicial)
+              }
+            }
+            await acumularFiadoEnCuadre(cuadreId, montoTotal - (montoPagadoInicial || 0))
+          })
         }
-        await acumularFiadoEnCuadre(cuadreId, montoTotal - (montoPagadoInicial || 0))
       }
-      await cargarActividadDelCuadre(cuadreId)
-      return { ok: true }
+      // La lectura de actividad refresca la UI, pero no forma parte del recibo:
+      // si falla después de escribir no se anuncia un falso "no se pudo".
+      await cargarActividadDelCuadre(cuadreId).catch(() => {})
+      return { ok: true, id: cuentaId, idempotente }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
       return { ok: false, error: err }
@@ -297,42 +325,50 @@ export function useCuentasFiado() {
     try {
       // El id del pago se fija al dictar/abrir: reintentar no cobra dos veces.
       const pagoId = String(id || '').trim() || generarId()
+      const esperado = { cuentaFiadoId, cuadreId: null, monto, formaPago }
+      let idempotente = false
       if (esOnline.value) {
-        await $api('/api/pagos-fiado', {
+        const rpta = await $api('/api/pagos-fiado', {
           method: 'POST',
-          body: { id: pagoId, cuentaFiadoId, cuadreId: null, monto, formaPago },
+          body: { id: pagoId, ...esperado },
           headers: apiHeaders()
         })
+        idempotente = rpta?.idempotente === true
       } else {
-        const todas = await r(cuentasRepo).readAll()
-        const cuenta = todas.find(c => c.id === cuentaFiadoId)
-        if (!cuenta) throw new Error('Cuenta no encontrada')
-        if (cuenta.estado === 'pagada') throw new Error('Esta deuda ya está saldada.')
-        const saldo = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
-        if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
+        // Pago + saldo + cuadre son una sola transacción. Encontrar el pago al
+        // reconciliar garantiza que también quedaron aplicados sus efectos.
+        const previo = await buscarPorId(pagosRepo, pagoId)
+        if (previo) {
+          if (!pagoFiadoCoincide(previo, esperado)) throw conflictoIdempotente('cobro')
+          idempotente = true
+        }
 
-        // El id se asigna al dictar (app cerrada): reintentar no duplica el pago.
-        await r(pagosRepo).create({
-          id: pagoId,
-          cuentaFiadoId,
-          cuadreId: null,
-          monto,
-          formaPago
-        })
-        const nuevoPagado = Number(cuenta.montoPagado) + monto
-        await r(cuentasRepo).update(cuentaFiadoId, {
-          montoPagado: nuevoPagado,
-          estado: nuevoPagado >= Number(cuenta.montoTotal) ? 'pagada' : 'parcial'
-        })
-        if (cuenta.cuadreOrigenId) {
-          const origen = await r(cuadresRepo).read(cuenta.cuadreOrigenId)
-          if (origen && origen.estado === 'abierto') {
-            await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -monto)
-          }
+        if (!idempotente) {
+          await db.transaction(async () => {
+            const todas = await r(cuentasRepo).readAll()
+            const cuenta = todas.find(c => c.id === cuentaFiadoId)
+            if (!cuenta) throw new Error('Cuenta no encontrada')
+            if (cuenta.estado === 'pagada') throw new Error('Esta deuda ya está saldada.')
+            const saldo = Number(cuenta.montoTotal) - Number(cuenta.montoPagado)
+            if (monto > saldo) throw new Error('El monto excede el saldo pendiente')
+
+            await r(pagosRepo).create({ id: pagoId, ...esperado })
+            const nuevoPagado = Number(cuenta.montoPagado) + monto
+            await r(cuentasRepo).update(cuentaFiadoId, {
+              montoPagado: nuevoPagado,
+              estado: nuevoPagado >= Number(cuenta.montoTotal) ? 'pagada' : 'parcial'
+            })
+            if (cuenta.cuadreOrigenId) {
+              const origen = await r(cuadresRepo).read(cuenta.cuadreOrigenId)
+              if (origen && origen.estado === 'abierto') {
+                await acumularFiadoEnCuadre(cuenta.cuadreOrigenId, -monto)
+              }
+            }
+          })
         }
       }
-      if (cuadreId) await cargarActividadDelCuadre(cuadreId)
-      return { ok: true, directo: true }
+      if (cuadreId) await cargarActividadDelCuadre(cuadreId).catch(() => {})
+      return { ok: true, directo: true, id: pagoId, idempotente }
     } catch (err) {
       toast.add({ title: 'Error', description: err.data?.statusMessage || err.message, color: 'error' })
       return { ok: false, error: err }
@@ -361,6 +397,13 @@ export function useCuentasFiado() {
       }
       const pid = auth.usuarioActual.value?.puestoId ?? null
       if (!pid) throw new Error('Sin puesto asignado.')
+      const montoEsperado = lineas.reduce((total, linea) => total + Number(linea.cantidad) * Number(linea.precioVentaUsado), 0)
+      const previa = await buscarPorId(cuentasRepo, cuentaId)
+      if (previa) {
+        const esperado = { clienteId, cuadreOrigenId: null, montoTotal: montoEsperado }
+        if (!cuentaFiadoCoincide(previa, esperado)) throw conflictoIdempotente('deuda directa')
+        return { ok: true, id: cuentaId, montoTotal: previa.montoTotal, ganancia: previa.ganancia, idempotente: true }
+      }
       const usuarioId = auth.usuarioActual.value?.id ?? null
       const ahora = Date.now()
 
@@ -497,6 +540,15 @@ export function useCuentasFiado() {
       .sort((a, b) => new Date(b.creadoEn ?? 0) - new Date(a.creadoEn ?? 0))
   }
 
+  /** Comprobación por ID para reconciliar una respuesta perdida. */
+  async function cuentaPorId(id) {
+    return buscarPorId(cuentasRepo, id)
+  }
+
+  async function pagoPorId(id) {
+    return buscarPorId(pagosRepo, id)
+  }
+
   /** Historial de pagos de una deuda, para ver qué entró y por dónde. */
   async function pagosDeCuenta(cuentaFiadoId) {
     const todos = await r(pagosRepo).readAll()
@@ -560,6 +612,6 @@ export function useCuentasFiado() {
     montoFiadoCalculado, montoCobradoFiadoCalculado,
     cargarClientes, cargarActividadDelCuadre, crearCliente,
     registrarNuevaDeuda, registrarDeudaDirecta, eliminarDeuda, cobrarDeuda,
-    cuentasConSaldoPendiente, cargarDeudas, pagosDeCuenta
+    cuentasConSaldoPendiente, cargarDeudas, cuentaPorId, pagoPorId, pagosDeCuenta
   }
 }

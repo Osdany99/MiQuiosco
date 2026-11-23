@@ -3,7 +3,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '../../../database/client'
 import { cuadres, movimientosInventario } from '../../../database/schema'
 import { construirAnulacionCuadre } from '#shared/inventario/operaciones'
-import { comoMovimiento } from '../../../utils/inventario'
+import { comoMovimiento, conGuardaStock } from '../../../utils/inventario'
 
 const reabrirSchema = z.object({
   pagoTrabajador: z.number().min(0).nullable().optional()
@@ -27,7 +27,15 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 409, statusMessage: 'El cuadre no está cerrado.' })
   }
 
-  await db.transaction(async (tx) => {
+  await conGuardaStock(() => db.transaction(async (tx) => {
+    const [vigente] = await tx.select().from(cuadres).where(eq(cuadres.id, id)).limit(1).for('update')
+    if (!vigente || vigente.puestoId !== auth.usuario.puestoId) {
+      throw createError({ statusCode: 404, statusMessage: 'Cuadre no encontrado.' })
+    }
+    if (vigente.estado !== 'cerrado') {
+      throw createError({ statusCode: 409, statusMessage: 'El cuadre no está cerrado.' })
+    }
+
     const previos = await tx
       .select()
       .from(movimientosInventario)
@@ -50,7 +58,7 @@ export default defineEventHandler(async (event) => {
         importe: Number(p.importe) || 0,
         anulado: p.anulado ?? false
       })),
-      meta: { puestoId: cuadre.puestoId, usuarioId, ahora: ahoraMs }
+      meta: { puestoId: vigente.puestoId, usuarioId, ahora: ahoraMs }
     })
 
     for (const a of anulaciones) {
@@ -59,7 +67,7 @@ export default defineEventHandler(async (event) => {
 
     await tx.update(cuadres).set({
       estado: 'abierto',
-      reabiertoVeces: (cuadre.reabiertoVeces ?? 0) + 1,
+      reabiertoVeces: (vigente.reabiertoVeces ?? 0) + 1,
       ultimaReaperturaEn: ahora,
       totalRealCaja: null,
       costoTotal: null,
@@ -67,7 +75,7 @@ export default defineEventHandler(async (event) => {
       diferencia: null,
       pagoTrabajador
     }).where(eq(cuadres.id, id))
-  })
+  }))
 
   return { success: true }
 })

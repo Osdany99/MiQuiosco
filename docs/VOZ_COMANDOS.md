@@ -99,20 +99,25 @@ historial, no por voz.
 ### Anti-eco de la confirmación
 
 El micrófono se abre justo cuando el TTS termina, así que puede oír su propio
-anuncio. Tres defensas, en este orden:
+anuncio. Cuatro defensas, en este orden:
 
 1. El **arranque del motor** hace de margen: el «sí» se capta desde que el
    micrófono escucha de verdad (`esperandoMicro`), no desde que se le pidió
    abrirse. Antes se esperaban 400 ms fijos y ese tramo se comía la respuesta.
 2. Se pasa como `prompt` **todo lo que se habló** (no solo la pregunta) y se
    descartan las transcripciones que lo repiten.
-3. Durante los primeros **700 ms** de escucha contados desde el **fin del
-   anuncio** (`desdeMs`), una palabra suelta que ya estaba en el anuncio («sí»,
-   «confirmar») se trata como eco y se sigue esperando.
+3. Solo se clasifica el resultado **final** (`ready`), nunca `transcriptParcial`:
+   «sí… pero no» no confirma en el primer parcial y «no, eran tres» no cancela
+   antes de llegar la corrección.
+4. Durante los primeros **1500 ms** contados desde el **fin del anuncio**
+   (`desdeMs`), una palabra suelta que ya estaba en el anuncio («sí»,
+   «confirmar») se trata como eco. Fuera de esa ventana, un «sí» humano final sí
+   se acepta. Las alternativas necesitan confianza explícita de al menos 0,5.
 
-Sin la tercera, oír solo el «sí» de «diga sí para confirmar» registraba la venta
-sin que el jefe hablara. El resultado (`afirmado/negado/timeout`) queda en la
-traza de voz de Ajustes.
+Sin la protección antieco, oír solo el «sí» de «diga sí para confirmar» registraba
+la venta sin que el jefe hablara. El resultado (`afirmado/negado/timeout`) queda
+en la traza de voz de Ajustes. La evaluación pura y sus regresiones viven en
+`app/utils/voice/confirmacion.js` y `tests/vozConfirmacionSegura.test.js`.
 
 ### Tiempo de espera
 
@@ -403,6 +408,38 @@ nada.
 - Con la **app cerrada** no existen: necesitan el «sí» con pantalla, así que el
   buzón las ignora.
 
+## Recuperación de escrituras directas (fiado, cobro, deuda y transferencia)
+
+Las cuatro escrituras anteriores usan un **plan durable por dictado** después de
+la confirmación hablada. El plan guarda en el dispositivo los IDs de negocio, el
+payload, usuario, puesto y modo de conexión; no guarda el texto dictado ni
+nombres. Cada pago FIFO es un paso independiente con su propio ID.
+
+- Antes de escribir, el paso queda como **ejecutando**; después se marca
+  **aplicado**. Si el proceso muere o se pierde la respuesta, repetir la misma
+  orden primero busca ese ID. Solo una lectura que terminó y no encontró la fila
+  permite reintentarla: un fallo de lectura nunca equivale a «no se registró».
+- Si el servidor aplicó la operación pero su respuesta se perdió, se recupera el
+  resultado sin volver a descontar stock, crear deuda ni cobrar. Un mismo ID con
+  otro importe/payload da **409 / revisión**, no se presenta como reintento.
+- En un cobro que toca varias deudas, un fallo detiene los pagos siguientes. El
+  mensaje distingue lo **realmente cobrado** de lo pendiente o incierto. Repetir
+  exactamente el mismo comando reanuda desde el primer paso no aplicado.
+- Cambiar el importe, la forma de pago u otro dato no permite saltarse una
+  operación anterior del mismo cliente que siga sin comprobar. Primero hay que
+  recuperar la orden anterior; después se puede crear otra.
+- Un plan iniciado **online** no se reconcilia contra SQLite local, ni uno local
+  contra el servidor. Si el modo cambia a mitad, se detiene el resto y pide volver
+  al modo de origen para evitar duplicados entre ambas copias.
+- En local, pago + saldo + cuadre (y también deuda + líneas + abono + cuadre, o
+  transferencia + cuadre) se confirman en una transacción. Encontrar la fila al
+  reconciliar significa que sus efectos asociados también quedaron completos.
+
+La implementación está en `app/utils/voice/ejecucionDuradera.js`,
+`app/utils/voice/operacionesDurables.js` y `shared/fiadoIdempotencia.js`; las
+regresiones viven en `tests/vozEjecucionDuradera.test.js` y
+`tests/api/transaccional.test.js`.
+
 ## Modo cuadre del trabajador
 
 El trabajador **no dice «modo cuadre»**: la pantalla `/cuadre` *es* el modo.
@@ -419,6 +456,20 @@ El trabajador **no dice «modo cuadre»**: la pantalla `/cuadre` *es* el modo.
   la lista blanca; no depende de frases ni de palabras clave.
 - `Fiado` y `Transferencia` del cuadre se muestran al trabajador si tiene esas
   acciones; **cerrar y reabrir** siguen siendo del jefe.
+- La matriz vive en `shared/voz/permisos.js`: fiar productos o anotar una deuda
+  de dinero exige `acciones.cuadre.fiar`; la transferencia exige
+  `acciones.cuadre.transferencia`; el fiado que descuenta inventario exige
+  además `acciones.<ubicacion>.voz`. Se comprueba antes de leer o ejecutar, tanto
+  online como offline, y el servidor vuelve a validarla al sincronizar.
+- El trabajador inicia sesión con su propia identidad (la sesión offline dura 24
+  h), pero no puede cobrar, vender directamente, crear clientes arbitrarios ni
+  descargar el pull completo. Solo puede reparar el centinela «Sin cliente».
+- Las lecturas necesarias no incluyen costos, ganancias, salarios ni efectivo
+  contado. El snapshot nativo con datos del negocio solo lo actualiza el jefe.
+- Al volver la red, el trabajador sube en una petición selectiva únicamente el
+  fiado, la deuda de dinero o la transferencia con su contexto. No se envían
+  deletes ni otras tablas pendientes; el servidor comprueba propiedad, cuadre
+  abierto, FIFO e idempotencia antes de aplicar la operación.
 
 ## Deudas por voz
 

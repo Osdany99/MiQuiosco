@@ -19,6 +19,8 @@ import { infoDispositivo } from '../utils/dispositivo'
 import { aplicarMarcaDelServidor, medirReloj } from './useReloj'
 import { SYNC_TABLES } from '../../shared/tables'
 import { getAuthInstance } from './useAuth.js'
+import { filtrarPendientesTrabajador, TABLAS_PUSH_TRABAJADOR } from '../utils/syncTrabajador.js'
+import { separarOperacionesStock } from '../utils/syncLotes.js'
 
 const TABLAS_SYNC = SYNC_TABLES.map(t => t.tabla)
 let _autoConfigurado = false
@@ -217,8 +219,14 @@ function _create() {
    */
   function construirLotes(pendientes) {
     const lotes = []
+    const { grupos, restante } = separarOperacionesStock(pendientes)
     for (const tabla of TABLAS_SYNC) {
-      const filas = pendientes?.[tabla]
+      // Una operación FIFO nunca se trocea por tablas: si PostgreSQL detecta
+      // la carrera, cabecera + líneas + movimientos hacen rollback juntos.
+      for (const grupo of grupos.filter(g => g.anchor === tabla)) {
+        lotes.push({ tabla, payload: grupo.payload, total: grupo.total })
+      }
+      const filas = restante?.[tabla]
       if (!filas?.length) continue
       for (let i = 0; i < filas.length; i += FILAS_POR_LOTE) {
         lotes.push({ tabla, filas: filas.slice(i, i + FILAS_POR_LOTE) })
@@ -241,7 +249,7 @@ function _create() {
       if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
       const tablaLote = lote.deletes ? 'deletes' : lote.tabla
-      const filasLote = lote.deletes ? lote.deletes.length : lote.filas.length
+      const filasLote = lote.deletes ? lote.deletes.length : (lote.total ?? lote.filas.length)
       const inicioLote = Date.now()
 
       try {
@@ -259,15 +267,19 @@ function _create() {
         } else {
           const res = await fetch(API_ROUTES.syncPush, {
             method: 'POST',
-            body: { [lote.tabla]: lote.filas },
+            body: lote.payload ?? { [lote.tabla]: lote.filas },
             signal,
             timeoutMs: TIMEOUT_PUSH_MS
           })
           // Cierre inmediato del lote: si el siguiente falla, lo ya aceptado no
-          // se vuelve a subir. `marcarSincronizados` hace un UPDATE por lote, no
-          // uno por fila.
-          await marcarAceptados(lote.tabla, res.aceptados)
-          await marcarBasesAceptadas(lote.tabla, lote.filas, res.aceptados)
+          // se vuelve a subir. En un lote FIFO se marcan todas sus tablas solo
+          // cuando la operación completa fue aceptada.
+          const tablas = lote.payload ? Object.keys(lote.payload) : [lote.tabla]
+          for (const tabla of tablas) {
+            const filas = lote.payload?.[tabla] ?? lote.filas
+            await marcarAceptados(tabla, res.aceptados)
+            await marcarBasesAceptadas(tabla, filas, res.aceptados)
+          }
           await absorberConflictos(res.conflictos, signal)
 
           // Rechazos por fila: se quedan pendientes en el dispositivo y se
@@ -281,12 +293,13 @@ function _create() {
               codigoHttp: rechazo.codigo,
               motivo: rechazo.motivo,
               mensaje: rechazo.detalle,
-              fila: lote.filas.find(f => f.id === rechazo.id),
+              fila: lote.payload?.[rechazo.tabla]?.find(f => f.id === rechazo.id)
+                ?? lote.filas?.find(f => f.id === rechazo.id),
               contexto: { transitorio: !!rechazo.transitorio }
             })))
           }
 
-          enviados += lote.filas.length
+          enviados += filasLote
         }
       } catch (err) {
         // El lote que falla es el dato más útil del log: sin esto solo se sabe
@@ -318,6 +331,56 @@ function _create() {
     }
 
     return { enviados, total }
+  }
+
+  /**
+   * Trabajador: una sola petición para que el servidor valide la operación
+   * completa (deuda + líneas + FIFO + cuadre), no tablas aisladas. El servidor
+   * vuelve a filtrar y a comprobar permisos/propiedad de cada fila.
+   */
+  async function _subirPendientesTrabajador(pendientes, signal) {
+    const filtrado = filtrarPendientesTrabajador(pendientes)
+    const total = contarPayload(filtrado)
+    if (!total) return { enviados: 0, total: 0 }
+
+    informarFase('subiendo', 0, total)
+    const res = await fetch(API_ROUTES.syncPush, {
+      method: 'POST',
+      body: filtrado,
+      signal,
+      timeoutMs: TIMEOUT_PUSH_MS
+    })
+
+    for (const tabla of TABLAS_PUSH_TRABAJADOR) {
+      const filas = filtrado[tabla] ?? []
+      if (!filas.length) continue
+      await marcarAceptados(tabla, res.aceptados)
+      await marcarBasesAceptadas(tabla, filas, res.aceptados)
+    }
+    await absorberConflictos(res.conflictos, signal)
+
+    if (res.rechazos?.length) {
+      await registrarFallosLocales(res.rechazos.map(rechazo => ({
+        tipo: 'push_rechazo',
+        fase: 'push',
+        tabla: rechazo.tabla,
+        registroId: rechazo.id,
+        codigoHttp: rechazo.codigo,
+        motivo: rechazo.motivo,
+        mensaje: rechazo.detalle,
+        fila: filtrado[rechazo.tabla]?.find(f => f.id === rechazo.id),
+        contexto: { transitorio: !!rechazo.transitorio }
+      })))
+    }
+
+    await registrarSyncLog({
+      evento: 'push_lote',
+      tabla: 'trabajador',
+      filas: total,
+      http: 200
+    })
+    informarFase('subiendo', total, total)
+    return { enviados: total, total }
   }
 
   async function _ejecutarPull(signal) {
@@ -410,16 +473,23 @@ function _create() {
         const pendientes = await pushOffline({}, auth)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-        const subida = await _subirPendientes(pendientes, signal)
+        const subida = auth.esTrabajador.value
+          ? await _subirPendientesTrabajador(pendientes, signal)
+          : await _subirPendientes(pendientes, signal)
         if (fueCancelada(signal)) throw new Error('Sincronización cancelada.')
 
-        for (let intento = 0; intento < 2; intento++) {
-          try {
-            await _ejecutarPull(signal)
-            break
-          } catch (pullErr) {
-            if (fueCancelada(signal)) throw pullErr
-            if (intento === 1) throw pullErr
+        // El pull completo incluye PIN hash, salarios y datos de administración:
+        // queda solo para el jefe. El trabajador sube su operación autorizada y
+        // mantiene la copia local previamente aprovisionada.
+        if (!auth.esTrabajador.value) {
+          for (let intento = 0; intento < 2; intento++) {
+            try {
+              await _ejecutarPull(signal)
+              break
+            } catch (pullErr) {
+              if (fueCancelada(signal)) throw pullErr
+              if (intento === 1) throw pullErr
+            }
           }
         }
 
@@ -482,7 +552,7 @@ function _create() {
         await actualizarPendientesCount().catch(() => {})
         // Sube el buzón de fallos (lotes de 100). Best-effort: si no hay red se
         // queda pendiente para la próxima sync.
-        await subirFallosPendientes(fetch).catch(() => {})
+        if (!auth.esTrabajador.value) await subirFallosPendientes(fetch).catch(() => {})
         await subirEventosVozPendientes(fetch).catch(() => {})
         await subirAciertosVozPendientes(fetch).catch(() => {})
         await vozLexico.refrescar(fetch).catch(() => {})
@@ -497,6 +567,7 @@ function _create() {
   }
 
   async function pullServidor({ silent = false } = {}) {
+    if (auth.esTrabajador.value) return false
     if (!auth.sesionLocalVigente()) {
       if (!silent) {
         toast?.add?.({
@@ -658,12 +729,16 @@ function _create() {
    */
   async function actualizarPendientesCount(pendientesYaCalculados = null) {
     if (pendientesYaCalculados) {
-      pendientesCount.value = contarPayload(pendientesYaCalculados)
+      const visibles = auth.esTrabajador.value
+        ? filtrarPendientesTrabajador(pendientesYaCalculados)
+        : pendientesYaCalculados
+      pendientesCount.value = contarPayload(visibles)
       return
     }
     const db = useDb()
     let total = 0
-    for (const tabla of TABLAS_SYNC) {
+    const tablas = auth.esTrabajador.value ? TABLAS_PUSH_TRABAJADOR : TABLAS_SYNC
+    for (const tabla of tablas) {
       try {
         total += await db.contarPendientes(tabla)
       } catch {
@@ -700,7 +775,7 @@ function _create() {
    * Es telemetría: el llamador la envuelve en `.catch()` y nunca bloquea la UI.
    */
   async function reportarEstadoSync(syncOk) {
-    if (!auth.jwtSync.value || !hayRed.value) return
+    if (auth.esTrabajador.value || !auth.jwtSync.value || !hayRed.value) return
     const info = infoDispositivo()
     const voz = await vozReportada()
     await fetch(API_ROUTES.syncEstado, {
@@ -744,6 +819,7 @@ function _create() {
   }
 
   async function validarSincronizacion(silencioso = false) {
+    if (auth.esTrabajador.value) return await sincronizarAhora(silencioso)
     try {
       ultimaSync.value = 0
       ultimaSyncOk.value = null

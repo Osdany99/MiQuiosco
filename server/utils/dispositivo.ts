@@ -150,8 +150,9 @@ export async function registrarAccesoDispositivo(
 
 /**
  * Gate de los endpoints de sync: un dispositivo revocado no puede subir ni
- * bajar datos. Si no hay header (web o APK anterior) o la fila aún no existe
- * (token emitido antes de esta versión), se deja pasar.
+ * bajar datos. `requireAuth` ya exige el header cuando el JWT tiene un claim de
+ * dispositivo; aquí solo pueden faltar header en web o en tokens legacy sin ese
+ * claim. Una fila aún inexistente conserva el alta de instalaciones antiguas.
  */
 export async function exigirDispositivoActivo(
   event: H3Event,
